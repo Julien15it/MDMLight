@@ -1,0 +1,4 @@
+code;name;descr
+BP01;Internal number (Person);Internal number assignment for persons
+BP02;Internal number (Org.);Internal number assignment for organizations
+BP03;External number;External number assignment

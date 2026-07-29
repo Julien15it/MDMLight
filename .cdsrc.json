@@ -1,0 +1,14 @@
+{
+  "build": {
+    "target": "gen"
+  },
+  "hana": {
+    "deploy-format": "hdbtable"
+  },
+  "[production]": {
+    "requires": {
+      "db": "hana",
+      "auth": "xsuaa"
+    }
+  }
+}

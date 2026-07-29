@@ -1,0 +1,34 @@
+{
+  "name": "mdm.md.businesspartner.manage",
+  "version": "1.0.0",
+  "description": "Manage Business Partner (F3163) - Fiori Elements (OData V4) List Report / Object Page",
+  "keywords": [
+    "ui5",
+    "fiori-elements",
+    "openui5",
+    "sapui5",
+    "business-partner"
+  ],
+  "main": "webapp/index.html",
+  "scripts": {
+    "start": "fiori run --open \"test/flpSandbox.html#BusinessPartner-manage\"",
+    "start-local": "fiori run --config ./ui5-local.yaml --open \"test/flpSandbox.html#BusinessPartner-manage\"",
+    "build": "ui5 build --config=ui5.yaml --clean-dest --dest dist",
+    "build:cf": "ui5 build preload --clean-dest --config ui5.yaml --dest dist --include-task=generateCachebusterInfo",
+    "deploy": "fiori deploy --config ui5-deploy.yaml && rimraf archive.zip",
+    "start-mock": "fiori run --config ./ui5-mock.yaml --open \"test/flpSandbox.html#BusinessPartner-manage\"",
+    "unit-tests": "fiori run --config ./ui5-mock.yaml --open 'test/unit/unitTests.qunit.html'",
+    "int-tests": "fiori run --config ./ui5-mock.yaml --open 'test/integration/opaTests.qunit.html'"
+  },
+  "devDependencies": {
+    "@sap/ux-ui5-tooling": "^1",
+    "@ui5/cli": "^3",
+    "rimraf": "^5"
+  },
+  "sapuxLayer": "CUSTOMER_BASE",
+  "ui5": {
+    "dependencies": [
+      "@sap/ux-ui5-tooling"
+    ]
+  }
+}

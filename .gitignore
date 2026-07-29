@@ -1,0 +1,16 @@
+node_modules/
+package-lock.json
+gen/
+*.db
+*.sqlite
+.env
+default-env.json
+connection.properties
+mta_archives/
+*.mtar
+.DS_Store
+dist/
+.scp/
+resources/
+archive.zip
+credentials.json

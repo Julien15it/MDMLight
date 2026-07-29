@@ -1,0 +1,7 @@
+node_modules/
+dist/
+webapp/localService/mainService/metadata.xml
+.DS_Store
+*.mtar
+archive.zip
+resources.json

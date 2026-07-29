@@ -1,0 +1,33 @@
+{
+  "xsappname": "mdm-businesspartner",
+  "tenant-mode": "dedicated",
+  "description": "Security profile for Manage Business Partner (F3163)",
+  "scopes": [
+    {
+      "name": "$XSAPPNAME.Display",
+      "description": "Display business partners"
+    },
+    {
+      "name": "$XSAPPNAME.Maintain",
+      "description": "Create and change business partners"
+    }
+  ],
+  "attributes": [],
+  "role-templates": [
+    {
+      "name": "BusinessPartnerViewer",
+      "description": "Read-only access to business partner master data",
+      "scope-references": [
+        "$XSAPPNAME.Display"
+      ]
+    },
+    {
+      "name": "BusinessPartnerManager",
+      "description": "Full access to business partner master data",
+      "scope-references": [
+        "$XSAPPNAME.Display",
+        "$XSAPPNAME.Maintain"
+      ]
+    }
+  ]
+}

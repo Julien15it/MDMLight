@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Integration tests for Manage Business Partner</title>
+    <script
+      src="https://ui5.sap.com/resources/sap-ui-core.js"
+      data-sap-ui-resourceroots='{"mdm.md.businesspartner.manage": "../../", "integration": "./"}'
+      data-sap-ui-async="true"
+      data-sap-ui-compatVersion="edge"
+    ></script>
+    <script>
+      sap.ui.require(["integration/opaTests.qunit"]);
+    </script>
+  </head>
+  <body>
+    <div id="qunit"></div>
+    <div id="qunit-fixture"></div>
+  </body>
+</html>
