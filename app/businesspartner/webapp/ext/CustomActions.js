@@ -12,6 +12,9 @@ sap.ui.define([
 ], function (Button, CheckBox, Dialog, Input, Label, MessageBox, MessageToast, Select, VBox, Item) {
   "use strict";
 
+  var oApplicationModel = null;
+  var oApplicationView = null;
+
   function field(sLabel, oControl) {
     oControl.addStyleClass("sapUiTinyMarginBottom");
     return [new Label({ text: sLabel, labelFor: oControl }), oControl];
@@ -41,16 +44,16 @@ sap.ui.define([
 
   function environment(oHandler, oBindingContext, aSelectedContexts) {
     var aContexts = selectedContexts(oBindingContext, aSelectedContexts);
-    var oView = oHandler && typeof oHandler.getView === "function"
+    var oView = oApplicationView || (oHandler && typeof oHandler.getView === "function"
       ? oHandler.getView()
       : oHandler && oHandler.base && typeof oHandler.base.getView === "function"
         ? oHandler.base.getView()
-        : null;
-    var oModel = oView && oView.getModel
+        : null);
+    var oModel = oApplicationModel || (oView && oView.getModel
       ? oView.getModel()
       : oBindingContext && oBindingContext.getModel
         ? oBindingContext.getModel()
-        : aContexts[0] && aContexts[0].getModel();
+        : aContexts[0] && aContexts[0].getModel());
 
     return { model: oModel, view: oView, selectedContexts: aContexts };
   }
@@ -321,6 +324,16 @@ sap.ui.define([
   }
 
   return {
+    setEnvironment: function (oModel, oView) {
+      oApplicationModel = oModel;
+      oApplicationView = oView;
+    },
+
+    clearEnvironment: function () {
+      oApplicationModel = null;
+      oApplicationView = null;
+    },
+
     isSingleSelection: function (oBindingContext, aSelectedContexts) {
       return selectedContexts(oBindingContext, aSelectedContexts).length === 1;
     },

@@ -5,7 +5,7 @@
     "type": "application",
     "i18n": "i18n/i18n.properties",
     "applicationVersion": {
-      "version": "1.2.0"
+      "version": "1.2.1"
     },
     "title": "{{appTitle}}",
     "description": "{{appDescription}}",
@@ -70,6 +70,15 @@
     "contentDensities": {
       "compact": true,
       "cozy": true
+    },
+    "extends": {
+      "extensions": {
+        "sap.ui.controllerExtensions": {
+          "sap.fe.templates.ListReport.ListReportController": {
+            "controllerName": "mdm.md.businesspartner.manage.ext.controller.ListReportExtension"
+          }
+        }
+      }
     },
     "models": {
       "i18n": {
@@ -137,19 +146,21 @@
               "controlConfiguration": {
                 "@com.sap.vocabularies.UI.v1.LineItem": {
                   "tableSettings": {
-                    "selectionMode": "Single"
+                    "selectionMode": "Multi"
                   },
                   "actions": {
                     "CreateBusinessPartner": {
                       "press": "mdm.md.businesspartner.manage.ext.CustomActions.openCreateDialog",
                       "visible": true,
                       "enabled": true,
+                      "requiresSelection": false,
                       "text": "{i18n>CreateBusinessPartner}"
                     },
                     "EditBusinessPartner": {
                       "press": "mdm.md.businesspartner.manage.ext.CustomActions.openEditDialog",
                       "visible": true,
                       "enabled": "mdm.md.businesspartner.manage.ext.CustomActions.isSingleSelection",
+                      "requiresSelection": true,
                       "text": "{i18n>EditBusinessPartner}"
                     }
                   }
