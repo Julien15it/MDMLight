@@ -1,103 +1,66 @@
-# Manage Business Partner (F3163) — CAP recreation
+# Manage Business Partner (F3163)
 
-A recreated, importable project structure for the SAP standard Fiori app
-**Manage Business Partner**.
+CAP Node.js and SAP Fiori elements application for live S/4HANA Business Partner
+master data. The UI uses an OData V4 CAP facade; CAP delegates requests to the
+S/4HANA OData V2 service `API_BUSINESS_PARTNER` through BTP destination
+`VF_S4HANA_DEST`.
 
-| | |
-|---|---|
-| **App ID** | `F3163` |
-| **Technical name** | `mdm.md.businesspartner.manage` |
-| **Semantic object / action** | `BusinessPartner` / `manage` |
-| **Stack** | SAP CAP (Node.js) + Fiori Elements (OData **V4**) List Report / Object Page |
+## Features
 
-> ⚠️ **About this recreation.** The real SAP standard app F3163 is a proprietary
-> SmartTemplate (Fiori Elements for OData **V2**) application whose source is not
-> publicly available. This repository is a faithful *reconstruction* of the
-> directory layout, manifest, and data model, rebuilt on **OData V4** so it drops
-> straight into a modern CAP project. Entity and field names mirror the SAP
-> `API_BUSINESS_PARTNER` (`A_BusinessPartner`) so it stays recognizable. Adjust
-> the model to your own needs.
+- Live list report and object page; no local business-partner database
+- Server-side free-text search across IDs, names, and search terms
+- Create and update business partners in S/4HANA
+- Read-only related sections for addresses, roles, tax numbers, bank details,
+  identifications, industries, customer data, and supplier data
+- Complete imported `API_BUSINESS_PARTNER` model with all 65 entity sets
+- Standalone application router, XSUAA, Destination service, Connectivity
+  service, and HTML5 Application Repository deployment
 
-## Directory structure
+Deletion is deliberately disabled in the CAP facade.
 
-```
-.
-├── app/
-│   └── businesspartner/                 # ← the Fiori Elements UI app (import this into your CAP app/)
-│       ├── webapp/
-│       │   ├── Component.js
-│       │   ├── index.html
-│       │   ├── manifest.json            # app descriptor: FE templates, routing, data source
-│       │   ├── i18n/i18n.properties
-│       │   ├── localService/            # mock server metadata + data (see its README)
-│       │   └── test/                    # OPA5 integration + QUnit unit test scaffold
-│       │       ├── flpSandbox.html
-│       │       ├── integration/
-│       │       └── unit/
-│       ├── package.json                 # UI5 tooling scripts (start / build / deploy)
-│       ├── ui5.yaml                     # live backend (proxy to CAP on :4004)
-│       ├── ui5-mock.yaml                # mock server config
-│       ├── xs-app.json                  # app router routes
-│       └── .gitignore
-├── db/
-│   ├── schema.cds                       # Business Partner domain model
-│   └── data/                            # sample data (CSV)
-├── srv/
-│   ├── business-partner-service.cds     # OData V4 service definition
-│   ├── business-partner-service.js      # custom handlers
-│   └── annotations.cds                  # Fiori Elements UI annotations (columns, facets, value help)
-├── package.json                         # CAP project
-├── mta.yaml                             # BTP multi-target deployment descriptor
-├── xs-security.json                     # XSUAA scopes & roles
-├── .cdsrc.json
-└── .gitignore
-```
+## BTP destination
 
-## How to import into your own CAP application
+The existing destination must be named `VF_S4HANA_DEST`. Its URL already ends
+at `/sap/opu/odata/sap`, so CAP adds only `/API_BUSINESS_PARTNER`.
 
-You have two options:
+For an on-premise S/4HANA system, configure the destination with Cloud Connector
+(`ProxyType=OnPremise`) and an authentication method that is allowed to read and
+maintain business partners. Creation also requires CSRF token support, which is
+enabled in `package.json`.
 
-**A. Take the whole project** — clone/copy everything and run it as-is.
-
-**B. Import just the app** (most common) — copy `app/businesspartner/` into the
-`app/` folder of your existing CAP project, then either:
-- reuse your own service by pointing `manifest.json` → `sap.app.dataSources.mainService.uri`
-  at your OData V4 service path, **or**
-- also copy `db/schema.cds`, `srv/business-partner-service*.cds/js` and
-  `srv/annotations.cds` to get the matching backend.
-
-Make sure your root `package.json` lists the app under `"sapux"` so the SAP Fiori
-tools recognize it:
-
-```json
-"sapux": [ "app/businesspartner" ]
-```
-
-## Run locally
+## Run in BAS or VS Code
 
 ```bash
-npm install                 # install CAP dependencies
-npm run watch               # start CAP backend on http://localhost:4004 (serves the app too)
+npm ci
+npm test
+npm run watch
 ```
 
-Or run the UI with the Fiori tooling against the live backend:
+Open the CAP launch page at `http://localhost:4004` and start the application, or
+run the UI tooling separately:
 
 ```bash
 cd app/businesspartner
 npm install
-npm start                   # opens the FLP sandbox with the app
+npm start
 ```
 
-The service is served at `/service/businesspartner/` and the app opens under the
-intent **`BusinessPartner-manage`**.
+Local live S/4 access requires a usable destination binding. Without one, CAP
+can compile and the tests can run, but live requests cannot be completed.
 
-## Deploy to SAP BTP, Cloud Foundry
+## Build and deploy
 
 ```bash
-npm install -g mbt
-mbt build                   # produces mta_archives/*.mtar
-cf deploy mta_archives/mdm-md-businesspartner-manage_1.0.0.mtar
+mbt build
+cf deploy mta_archives/mdm-md-businesspartner-manage_1.1.0.mtar
 ```
 
-This provisions the HANA HDI container, XSUAA, HTML5 apps repo, and destination
-service as declared in `mta.yaml`.
+Open the deployed application through the standalone approuter route:
+
+```text
+https://<approuter-route>/mdmmdbusinesspartnermanage/index.html
+```
+
+The imported EDMX/CSN under `srv/external` is the Business Partner API model used
+by the official SAP CAP S/4 sample. If your on-premise S/4 release exposes a
+different metadata version, re-import that system's `$metadata` and rebuild.

@@ -1,6 +1,6 @@
 {
   "name": "mdm-md-businesspartner-manage",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Manage Business Partner (F3163) - CAP + Fiori Elements (OData V4) recreation of the SAP standard app mdm.md.businesspartner.manage",
   "repository": "https://github.com/julien15it/mdmlight",
   "license": "UNLICENSED",
@@ -23,13 +23,16 @@
     "start": "cds-serve",
     "watch": "cds watch",
     "build": "cds build --production",
-    "deploy": "cds deploy"
+    "deploy": "cds deploy",
+    "test": "node --test test/*.test.js"
   },
   "cds": {
     "requires": {
       "API_BUSINESS_PARTNER": {
         "kind": "odata-v2",
         "model": "srv/external/API_BUSINESS_PARTNER",
+        "csrf": true,
+        "csrfInBatch": true,
         "credentials": {
           "destination": "VF_S4HANA_DEST",
           "path": "/API_BUSINESS_PARTNER"
