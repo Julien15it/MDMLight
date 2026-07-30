@@ -32,7 +32,7 @@
         "model": "srv/external/API_BUSINESS_PARTNER",
         "credentials": {
           "destination": "VF_S4HANA_DEST",
-          "path": "/sap/opu/odata/sap/API_BUSINESS_PARTNER"
+          "path": "/API_BUSINESS_PARTNER"
         }
       }
     }
