@@ -98,7 +98,7 @@
     },
     "routing": {
       "config": {
-        "routerClass": "sap.fe.core.AppComponent",
+        "routerClass": "sap.m.routing.Router",
         "controlAggregation": "pages",
         "controlId": "appContent",
         "transition": "slide",

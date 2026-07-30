@@ -22,7 +22,7 @@
   },
   "devDependencies": {
     "@sap/ux-ui5-tooling": "^1",
-    "@ui5/cli": "^3",
+    "@ui5/cli": "^4.0.60",
     "rimraf": "^5"
   },
   "sapuxLayer": "CUSTOMER_BASE",

@@ -5,10 +5,26 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{{appTitle}}</title>
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      body > div,
+      .sapUiComponentContainer,
+      .sapUiComponentContainer > div,
+      .sapUiComponentContainer > .sapUiView,
+      .sapUiComponentContainer > div > .sapUiView {
+        height: 100%;
+      }
+    </style>
     <script
       id="sap-ui-bootstrap"
       src="https://ui5.sap.com/resources/sap-ui-core.js"
       data-sap-ui-theme="sap_horizon"
+      data-sap-ui-language="en"
       data-sap-ui-resourceroots='{"mdm.md.businesspartner.manage": "./"}'
       data-sap-ui-oninit="module:sap/ui/core/ComponentSupport"
       data-sap-ui-compatVersion="edge"
