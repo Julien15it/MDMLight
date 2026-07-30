@@ -24,6 +24,31 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
   }
   entity BusinessPartners as projection on S4.A_BusinessPartner;
 
+  /** Explicit maintenance operations used by the non-draft Fiori UI. */
+  action createBusinessPartner(
+    BusinessPartnerCategory  : String(1) not null,
+    BusinessPartnerGrouping  : String(4) not null,
+    FirstName                 : String(40),
+    LastName                  : String(40),
+    OrganizationBPName1       : String(40),
+    GroupBusinessPartnerName1 : String(40),
+    SearchTerm1               : String(20)
+  ) returns BusinessPartners;
+
+  action updateBusinessPartner(
+    BusinessPartner           : String(10) not null,
+    FirstName                  : String(40),
+    LastName                   : String(40),
+    OrganizationBPName1        : String(40),
+    OrganizationBPName2        : String(40),
+    GroupBusinessPartnerName1  : String(40),
+    GroupBusinessPartnerName2  : String(40),
+    SearchTerm1                : String(20),
+    SearchTerm2                : String(20),
+    CorrespondenceLanguage     : String(2),
+    BusinessPartnerIsBlocked   : Boolean
+  ) returns BusinessPartners;
+
   // Core business-partner details shown as sections on the object page.
   @readonly entity Addresses            as projection on S4.A_BusinessPartnerAddress;
   @readonly entity BusinessPartnerRoles as projection on S4.A_BusinessPartnerRole;

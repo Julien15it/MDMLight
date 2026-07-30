@@ -13,6 +13,37 @@ const SEARCHABLE_FIELDS = Object.freeze([
   'OrganizationBPName1'
 ]);
 
+const CREATE_FIELDS = Object.freeze([
+  'BusinessPartnerCategory',
+  'BusinessPartnerGrouping',
+  'FirstName',
+  'LastName',
+  'OrganizationBPName1',
+  'GroupBusinessPartnerName1',
+  'SearchTerm1'
+]);
+
+const UPDATE_FIELDS = Object.freeze([
+  'FirstName',
+  'LastName',
+  'OrganizationBPName1',
+  'OrganizationBPName2',
+  'GroupBusinessPartnerName1',
+  'GroupBusinessPartnerName2',
+  'SearchTerm1',
+  'SearchTerm2',
+  'CorrespondenceLanguage',
+  'BusinessPartnerIsBlocked'
+]);
+
+function pickDefined(data, fields) {
+  return Object.fromEntries(
+    fields
+      .filter((field) => data[field] !== undefined && data[field] !== null)
+      .map((field) => [field, data[field]])
+  );
+}
+
 function extractSearchTerms(searchExpression) {
   const values = [];
 
@@ -132,6 +163,43 @@ class BusinessPartnerService extends cds.ApplicationService {
       }
     });
 
+    this.on('createBusinessPartner', async (req) => {
+      const errors = validateBusinessPartnerCreate(req.data);
+      if (errors.length) {
+        for (const error of errors) req.error(400, error.message, error.target);
+        return;
+      }
+
+      const payload = pickDefined(req.data, CREATE_FIELDS);
+      return s4.run(
+        cds.ql.INSERT.into('API_BUSINESS_PARTNER.A_BusinessPartner').entries(payload)
+      );
+    });
+
+    this.on('updateBusinessPartner', async (req) => {
+      const businessPartner = req.data.BusinessPartner;
+      if (!businessPartner) req.reject(400, 'Enter a business partner number.', 'BusinessPartner');
+
+      const payload = pickDefined(req.data, UPDATE_FIELDS);
+      if (Object.keys(payload).length === 0) {
+        req.reject(400, 'Enter at least one value to update.');
+      }
+
+      const affectedRows = await s4.run(
+        cds.ql.UPDATE('API_BUSINESS_PARTNER.A_BusinessPartner')
+          .set(payload)
+          .where({ BusinessPartner: businessPartner })
+      );
+
+      if (!affectedRows) req.reject(404, `Business partner ${businessPartner} was not found.`);
+
+      return s4.run(
+        cds.ql.SELECT.one
+          .from('API_BUSINESS_PARTNER.A_BusinessPartner')
+          .where({ BusinessPartner: businessPartner })
+      );
+    });
+
     this.on(['READ', 'CREATE', 'UPDATE'], '*', (req) => s4.run(req.query));
 
     this.on('DELETE', '*', (req) => {
@@ -144,8 +212,11 @@ class BusinessPartnerService extends cds.ApplicationService {
 
 BusinessPartnerService._internals = {
   SEARCHABLE_FIELDS,
+  CREATE_FIELDS,
+  UPDATE_FIELDS,
   applyBusinessPartnerSearch,
   extractSearchTerms,
+  pickDefined,
   validateBusinessPartnerCreate
 };
 

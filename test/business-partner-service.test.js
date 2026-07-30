@@ -8,6 +8,7 @@ const BusinessPartnerService = require('../srv/business-partner-service');
 const {
   SEARCHABLE_FIELDS,
   applyBusinessPartnerSearch,
+  pickDefined,
   validateBusinessPartnerCreate
 } = BusinessPartnerService._internals;
 
@@ -78,4 +79,22 @@ test('reports missing create fields with UI targets', () => {
       message: 'Enter the last name for a person.'
     }
   ]);
+});
+
+test('only forwards supported, defined fields to S/4 maintenance operations', () => {
+  assert.deepEqual(
+    pickDefined(
+      {
+        SearchTerm1: 'NEW',
+        BusinessPartnerIsBlocked: false,
+        BusinessPartnerGrouping: undefined,
+        UnexpectedField: 'must not be forwarded'
+      },
+      ['SearchTerm1', 'BusinessPartnerIsBlocked', 'BusinessPartnerGrouping']
+    ),
+    {
+      SearchTerm1: 'NEW',
+      BusinessPartnerIsBlocked: false
+    }
+  );
 });
