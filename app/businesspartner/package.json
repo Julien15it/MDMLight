@@ -1,6 +1,6 @@
 {
   "name": "mdm.md.businesspartner.manage",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "Manage Business Partner (F3163) - Fiori Elements (OData V4) List Report / Object Page",
   "keywords": [
     "ui5",
@@ -13,8 +13,9 @@
   "scripts": {
     "start": "fiori run --open \"test/flpSandbox.html#BusinessPartner-manage\"",
     "start-local": "fiori run --config ./ui5-local.yaml --open \"test/flpSandbox.html#BusinessPartner-manage\"",
-    "build": "ui5 build --config=ui5.yaml --clean-dest --dest dist",
-    "build:cf": "ui5 build preload --clean-dest --config ui5.yaml --dest dist --include-task=generateCachebusterInfo && node -e \"require('node:fs').copyFileSync('xs-app.json','dist/xs-app.json')\"",
+    "generate:metadata": "node scripts/generate-maintenance-metadata.js",
+    "build": "npm run generate:metadata && ui5 build --config=ui5.yaml --clean-dest --dest dist",
+    "build:cf": "npm run generate:metadata && ui5 build preload --clean-dest --config ui5.yaml --dest dist --include-task=generateCachebusterInfo && node -e \"require('node:fs').copyFileSync('xs-app.json','dist/xs-app.json')\"",
     "package:cf": "node scripts/package-html5.js",
     "deploy": "fiori deploy --config ui5-deploy.yaml && rimraf archive.zip",
     "start-mock": "fiori run --config ./ui5-mock.yaml --open \"test/flpSandbox.html#BusinessPartner-manage\"",

@@ -5,7 +5,7 @@
     "type": "application",
     "i18n": "i18n/i18n.properties",
     "applicationVersion": {
-      "version": "1.2.1"
+      "version": "1.3.0"
     },
     "title": "{{appTitle}}",
     "description": "{{appDescription}}",
@@ -63,6 +63,7 @@
       "libs": {
         "sap.m": {},
         "sap.ui.core": {},
+        "sap.ui.layout": {},
         "sap.ushell": {},
         "sap.fe.templates": {}
       }
@@ -121,6 +122,16 @@
           "target": "BusinessPartnersList"
         },
         {
+          "pattern": "BusinessPartners/create",
+          "name": "BusinessPartnerCreate",
+          "target": "BusinessPartnerMaintenance"
+        },
+        {
+          "pattern": "BusinessPartners/{businessPartner}/maintain",
+          "name": "BusinessPartnerMaintain",
+          "target": "BusinessPartnerMaintenance"
+        },
+        {
           "pattern": "BusinessPartners({key}):?query:",
           "name": "BusinessPartnersObjectPage",
           "target": "BusinessPartnersObjectPage"
@@ -150,14 +161,14 @@
                   },
                   "actions": {
                     "CreateBusinessPartner": {
-                      "press": "mdm.md.businesspartner.manage.ext.CustomActions.openCreateDialog",
+                      "press": "mdm.md.businesspartner.manage.ext.CustomActions.openCreatePage",
                       "visible": true,
                       "enabled": true,
                       "requiresSelection": false,
                       "text": "{i18n>CreateBusinessPartner}"
                     },
                     "EditBusinessPartner": {
-                      "press": "mdm.md.businesspartner.manage.ext.CustomActions.openEditDialog",
+                      "press": "mdm.md.businesspartner.manage.ext.CustomActions.openEditPage",
                       "visible": true,
                       "enabled": "mdm.md.businesspartner.manage.ext.CustomActions.isSingleSelection",
                       "requiresSelection": true,
@@ -168,6 +179,12 @@
               }
             }
           }
+        },
+        "BusinessPartnerMaintenance": {
+          "type": "View",
+          "id": "BusinessPartnerMaintenance",
+          "name": "mdm.md.businesspartner.manage.ext.view.BusinessPartnerMaintenance",
+          "viewType": "XML"
         },
         "BusinessPartnersObjectPage": {
           "type": "Component",

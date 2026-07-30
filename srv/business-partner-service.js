@@ -36,12 +36,91 @@ const UPDATE_FIELDS = Object.freeze([
   'BusinessPartnerIsBlocked'
 ]);
 
+const MAINTENANCE_ENTITIES = Object.freeze({
+  Addresses: Object.freeze({ remote: 'A_BusinessPartnerAddress', creatable: true }),
+  BusinessPartnerRoles: Object.freeze({ remote: 'A_BusinessPartnerRole', creatable: true }),
+  TaxNumbers: Object.freeze({ remote: 'A_BusinessPartnerTaxNumber', creatable: true }),
+  BankDetails: Object.freeze({ remote: 'A_BusinessPartnerBank', creatable: true }),
+  Identifications: Object.freeze({ remote: 'A_BuPaIdentification', creatable: true }),
+  Industries: Object.freeze({ remote: 'A_BuPaIndustry', creatable: true }),
+  Customers: Object.freeze({ remote: 'A_Customer', creatable: false }),
+  Suppliers: Object.freeze({ remote: 'A_Supplier', creatable: false })
+});
+
+const ROOT_UPDATE_EXCLUDED_FIELDS = Object.freeze(new Set([
+  'BusinessPartner',
+  'BusinessPartnerCategory',
+  'BusinessPartnerGrouping',
+  'BusinessPartnerFullName',
+  'BusinessPartnerName',
+  'BusinessPartnerUUID',
+  'Customer',
+  'Supplier',
+  'CreatedByUser',
+  'CreationDate',
+  'CreationTime',
+  'LastChangeDate',
+  'LastChangeTime',
+  'LastChangedByUser',
+  'ETag'
+]));
+
 function pickDefined(data, fields) {
   return Object.fromEntries(
     fields
       .filter((field) => data[field] !== undefined && data[field] !== null)
       .map((field) => [field, data[field]])
   );
+}
+
+function parseJsonObject(value, name) {
+  let parsed;
+  try {
+    parsed = JSON.parse(value || '{}');
+  } catch {
+    throw Object.assign(new Error(`${name} must contain valid JSON.`), { statusCode: 400 });
+  }
+
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+    throw Object.assign(new Error(`${name} must contain a JSON object.`), { statusCode: 400 });
+  }
+  return parsed;
+}
+
+function scalarElements(entity) {
+  return Object.entries(entity && entity.elements ? entity.elements : {})
+    .filter(([, element]) => !element.target);
+}
+
+function sanitizeEntityPayload(data, entity, { isCreate, excluded = new Set() } = {}) {
+  return Object.fromEntries(
+    scalarElements(entity)
+      .filter(([name, element]) => (
+        data[name] !== undefined &&
+        data[name] !== null &&
+        !excluded.has(name) &&
+        (isCreate || !element.key)
+      ))
+      .map(([name]) => [name, data[name]])
+  );
+}
+
+function sanitizeEntityKeys(data, entity) {
+  const keys = scalarElements(entity).filter(([, element]) => element.key);
+  const sanitized = Object.fromEntries(
+    keys
+      .filter(([name]) => data[name] !== undefined && data[name] !== null && data[name] !== '')
+      .map(([name]) => [name, data[name]])
+  );
+
+  const missing = keys.map(([name]) => name).filter((name) => sanitized[name] === undefined);
+  if (missing.length) {
+    throw Object.assign(
+      new Error(`Missing key field(s): ${missing.join(', ')}.`),
+      { statusCode: 400 }
+    );
+  }
+  return sanitized;
 }
 
 function extractSearchTerms(searchExpression) {
@@ -200,6 +279,93 @@ class BusinessPartnerService extends cds.ApplicationService {
       );
     });
 
+    this.on('saveBusinessPartner', async (req) => {
+      let data;
+      try {
+        data = parseJsonObject(req.data.DataJson, 'DataJson');
+      } catch (error) {
+        req.reject(error.statusCode || 400, error.message, 'DataJson');
+      }
+
+      const isCreate = Boolean(req.data.IsCreate);
+      const entity = this.entities.BusinessPartners;
+      const payload = sanitizeEntityPayload(data, entity, {
+        isCreate,
+        excluded: isCreate ? new Set() : ROOT_UPDATE_EXCLUDED_FIELDS
+      });
+
+      if (isCreate) {
+        const errors = validateBusinessPartnerCreate(payload);
+        if (errors.length) {
+          for (const error of errors) req.error(400, error.message, error.target);
+          return;
+        }
+        return s4.run(
+          cds.ql.INSERT.into('API_BUSINESS_PARTNER.A_BusinessPartner').entries(payload)
+        );
+      }
+
+      const businessPartner = req.data.BusinessPartner;
+      if (!businessPartner) req.reject(400, 'Enter a business partner number.', 'BusinessPartner');
+      if (Object.keys(payload).length === 0) req.reject(400, 'There are no fields to update.');
+
+      const affectedRows = await s4.run(
+        cds.ql.UPDATE('API_BUSINESS_PARTNER.A_BusinessPartner')
+          .set(payload)
+          .where({ BusinessPartner: businessPartner })
+      );
+      if (!affectedRows) req.reject(404, `Business partner ${businessPartner} was not found.`);
+
+      return s4.run(
+        cds.ql.SELECT.one
+          .from('API_BUSINESS_PARTNER.A_BusinessPartner')
+          .where({ BusinessPartner: businessPartner })
+      );
+    });
+
+    this.on('saveBusinessPartnerEntity', async (req) => {
+      const configuration = MAINTENANCE_ENTITIES[req.data.Entity];
+      if (!configuration) {
+        req.reject(400, `Entity ${req.data.Entity || ''} is not available for maintenance.`, 'Entity');
+      }
+
+      const isCreate = Boolean(req.data.IsCreate);
+      if (isCreate && !configuration.creatable) {
+        req.reject(400, `${req.data.Entity} cannot be created directly. Add the corresponding role first.`);
+      }
+
+      let data;
+      let keys;
+      try {
+        data = parseJsonObject(req.data.DataJson, 'DataJson');
+        keys = parseJsonObject(req.data.KeyJson, 'KeyJson');
+      } catch (error) {
+        req.reject(error.statusCode || 400, error.message);
+      }
+
+      const entity = this.entities[req.data.Entity];
+      const payload = sanitizeEntityPayload(data, entity, { isCreate });
+      const remoteEntity = `API_BUSINESS_PARTNER.${configuration.remote}`;
+
+      if (isCreate) {
+        const result = await s4.run(cds.ql.INSERT.into(remoteEntity).entries(payload));
+        return JSON.stringify(result || payload);
+      }
+
+      try {
+        keys = sanitizeEntityKeys(keys, entity);
+      } catch (error) {
+        req.reject(error.statusCode || 400, error.message, 'KeyJson');
+      }
+      if (Object.keys(payload).length === 0) req.reject(400, 'There are no fields to update.');
+
+      const affectedRows = await s4.run(
+        cds.ql.UPDATE(remoteEntity).set(payload).where(keys)
+      );
+      if (!affectedRows) req.reject(404, `${req.data.Entity} record was not found.`);
+      return JSON.stringify({ affectedRows });
+    });
+
     this.on(['READ', 'CREATE', 'UPDATE'], '*', (req) => s4.run(req.query));
 
     this.on('DELETE', '*', (req) => {
@@ -214,9 +380,14 @@ BusinessPartnerService._internals = {
   SEARCHABLE_FIELDS,
   CREATE_FIELDS,
   UPDATE_FIELDS,
+  MAINTENANCE_ENTITIES,
+  ROOT_UPDATE_EXCLUDED_FIELDS,
   applyBusinessPartnerSearch,
   extractSearchTerms,
   pickDefined,
+  parseJsonObject,
+  sanitizeEntityKeys,
+  sanitizeEntityPayload,
   validateBusinessPartnerCreate
 };
 

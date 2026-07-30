@@ -1,0 +1,64 @@
+<mvc:View
+  xmlns:mvc="sap.ui.core.mvc"
+  xmlns="sap.m"
+  controllerName="mdm.md.businesspartner.manage.ext.controller.BusinessPartnerMaintenance"
+  displayBlock="true">
+  <Page
+    id="maintenancePage"
+    title="{maintenance>/title}"
+    showNavButton="true"
+    navButtonPress=".onCancel"
+    busy="{maintenance>/busy}">
+    <content>
+      <MessageStrip
+        text="Maintain the complete Business Partner and its related master-data entities. Changes are written live to S/4HANA when you choose Save."
+        type="Information"
+        showIcon="true"
+        class="sapUiSmallMargin" />
+      <ObjectHeader
+        title="{maintenance>/headerTitle}"
+        number="{maintenance>/businessPartner}"
+        numberUnit="Business Partner"
+        intro="{maintenance>/modeText}"
+        responsive="true" />
+      <IconTabBar id="maintenanceTabs" class="sapUiResponsiveContentPadding">
+        <items>
+          <IconTabFilter key="general" text="General" icon="sap-icon://business-card">
+            <VBox id="BusinessPartnersContent" width="100%" />
+          </IconTabFilter>
+          <IconTabFilter key="addresses" text="Addresses" icon="sap-icon://addresses">
+            <VBox id="AddressesContent" width="100%" />
+          </IconTabFilter>
+          <IconTabFilter key="roles" text="Roles" icon="sap-icon://role">
+            <VBox id="BusinessPartnerRolesContent" width="100%" />
+          </IconTabFilter>
+          <IconTabFilter key="tax" text="Tax Numbers" icon="sap-icon://expense-report">
+            <VBox id="TaxNumbersContent" width="100%" />
+          </IconTabFilter>
+          <IconTabFilter key="bank" text="Bank Details" icon="sap-icon://money-bills">
+            <VBox id="BankDetailsContent" width="100%" />
+          </IconTabFilter>
+          <IconTabFilter key="identifications" text="Identifications" icon="sap-icon://badge">
+            <VBox id="IdentificationsContent" width="100%" />
+          </IconTabFilter>
+          <IconTabFilter key="industries" text="Industries" icon="sap-icon://factory">
+            <VBox id="IndustriesContent" width="100%" />
+          </IconTabFilter>
+          <IconTabFilter key="customer" text="Customer" icon="sap-icon://customer">
+            <VBox id="CustomersContent" width="100%" />
+          </IconTabFilter>
+          <IconTabFilter key="supplier" text="Supplier" icon="sap-icon://supplier">
+            <VBox id="SuppliersContent" width="100%" />
+          </IconTabFilter>
+        </items>
+      </IconTabBar>
+    </content>
+    <footer>
+      <OverflowToolbar>
+        <ToolbarSpacer />
+        <Button text="Save" type="Emphasized" press=".onSave" />
+        <Button text="Cancel" press=".onCancel" />
+      </OverflowToolbar>
+    </footer>
+  </Page>
+</mvc:View>

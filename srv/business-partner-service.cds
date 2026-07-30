@@ -49,6 +49,21 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
     BusinessPartnerIsBlocked   : Boolean
   ) returns BusinessPartners;
 
+  /** Full-screen maintenance operations. JSON keeps the contract aligned with
+   *  the complete S/4 metadata without exposing unrestricted entity names. */
+  action saveBusinessPartner(
+    BusinessPartner : String(10),
+    IsCreate        : Boolean not null,
+    DataJson        : LargeString not null
+  ) returns BusinessPartners;
+
+  action saveBusinessPartnerEntity(
+    Entity  : String(40) not null,
+    IsCreate: Boolean not null,
+    KeyJson : LargeString,
+    DataJson: LargeString not null
+  ) returns LargeString;
+
   // Core business-partner details shown as sections on the object page.
   @readonly entity Addresses            as projection on S4.A_BusinessPartnerAddress;
   @readonly entity BusinessPartnerRoles as projection on S4.A_BusinessPartnerRole;

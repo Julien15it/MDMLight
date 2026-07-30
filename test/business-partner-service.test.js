@@ -8,7 +8,10 @@ const BusinessPartnerService = require('../srv/business-partner-service');
 const {
   SEARCHABLE_FIELDS,
   applyBusinessPartnerSearch,
+  parseJsonObject,
   pickDefined,
+  sanitizeEntityKeys,
+  sanitizeEntityPayload,
   validateBusinessPartnerCreate
 } = BusinessPartnerService._internals;
 
@@ -96,5 +99,54 @@ test('only forwards supported, defined fields to S/4 maintenance operations', ()
       SearchTerm1: 'NEW',
       BusinessPartnerIsBlocked: false
     }
+  );
+});
+
+test('full-screen maintenance only forwards scalar model fields', () => {
+  const entity = {
+    elements: {
+      BusinessPartner: { key: true, type: 'cds.String' },
+      SearchTerm1: { type: 'cds.String' },
+      IsBlocked: { type: 'cds.Boolean' },
+      to_Address: { target: 'Some.Address' }
+    }
+  };
+
+  assert.deepEqual(
+    sanitizeEntityPayload(
+      {
+        BusinessPartner: '1000',
+        SearchTerm1: 'TEST',
+        IsBlocked: false,
+        to_Address: [{ Street: 'must not pass' }],
+        Unexpected: 'must not pass'
+      },
+      entity,
+      { isCreate: false }
+    ),
+    { SearchTerm1: 'TEST', IsBlocked: false }
+  );
+});
+
+test('full-screen maintenance validates JSON objects and complete keys', () => {
+  assert.deepEqual(parseJsonObject('{"SearchTerm1":"TEST"}', 'DataJson'), {
+    SearchTerm1: 'TEST'
+  });
+  assert.throws(() => parseJsonObject('[1,2]', 'DataJson'), /JSON object/);
+
+  const entity = {
+    elements: {
+      BusinessPartner: { key: true, type: 'cds.String' },
+      AddressID: { key: true, type: 'cds.String' },
+      CityName: { type: 'cds.String' }
+    }
+  };
+  assert.deepEqual(
+    sanitizeEntityKeys({ BusinessPartner: '1000', AddressID: '1' }, entity),
+    { BusinessPartner: '1000', AddressID: '1' }
+  );
+  assert.throws(
+    () => sanitizeEntityKeys({ BusinessPartner: '1000' }, entity),
+    /AddressID/
   );
 });
