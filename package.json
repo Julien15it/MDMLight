@@ -29,6 +29,14 @@
         "credentials": {
           "url": "db.sqlite"
         }
+      },
+      "API_BUSINESS_PARTNER": {
+        "kind": "odata-v2",
+        "model": "srv/external/API_BUSINESS_PARTNER",
+        "credentials": {
+          "destination": "VF_S4HANA_DEST",
+          "path": "/sap/opu/odata/sap/API_BUSINESS_PARTNER"
+        }
       }
     }
   },

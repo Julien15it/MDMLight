@@ -21,6 +21,14 @@ module.exports = class BusinessPartnerService extends cds.ApplicationService {
       }
     });
 
+    // Delegate reads of S4BusinessPartners live to the S/4HANA system.
+    // Connects lazily on first use (via destination VF_S4HANA_DEST); filters,
+    // sorting and paging from the request are passed straight through.
+    this.on('READ', 'S4BusinessPartners', async (req) => {
+      const s4 = await cds.connect.to('API_BUSINESS_PARTNER');
+      return s4.run(req.query);
+    });
+
     return super.init();
   }
 };

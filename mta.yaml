@@ -30,6 +30,8 @@ modules:
     requires:
       - name: mdm-businesspartner-db
       - name: mdm-businesspartner-auth
+      - name: mdm-businesspartner-destination-service
+      - name: mdm-businesspartner-connectivity
 
   # --- HANA deployer -----------------------------------------------------------
   - name: mdm-businesspartner-db-deployer
@@ -123,4 +125,9 @@ resources:
     type: org.cloudfoundry.managed-service
     parameters:
       service: destination
+      service-plan: lite
+  - name: mdm-businesspartner-connectivity
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: connectivity
       service-plan: lite
