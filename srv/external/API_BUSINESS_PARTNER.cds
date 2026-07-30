@@ -12,6 +12,8 @@
  */
 service API_BUSINESS_PARTNER {
 
+  // Remote entity - consumed live via the destination, never persisted in HANA.
+  @cds.persistence.skip
   entity A_BusinessPartner {
     key BusinessPartner          : String(10);
         BusinessPartnerFullName  : String(81);

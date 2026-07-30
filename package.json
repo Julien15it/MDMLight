@@ -6,6 +6,7 @@
   "license": "UNLICENSED",
   "private": true,
   "dependencies": {
+    "@cap-js/hana": "^1",
     "@sap/cds": "^8",
     "express": "^4"
   },
@@ -28,6 +29,10 @@
         "kind": "sqlite",
         "credentials": {
           "url": "db.sqlite"
+        },
+        "[production]": {
+          "kind": "hana",
+          "credentials": null
         }
       },
       "API_BUSINESS_PARTNER": {
@@ -38,6 +43,9 @@
           "path": "/sap/opu/odata/sap/API_BUSINESS_PARTNER"
         }
       }
+    },
+    "sql": {
+      "native_hana_associations": false
     }
   },
   "sapux": [

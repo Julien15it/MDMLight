@@ -67,7 +67,8 @@ modules:
       commands:
         - npm install
         - npm run build:cf
-      supported-platforms: []
+      supported-platforms:
+        []
 
   # --- App router --------------------------------------------------------------
   - name: mdm-businesspartner-destination-content
