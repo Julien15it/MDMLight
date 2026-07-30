@@ -1,6 +1,6 @@
 _schema-version: "3.2"
 ID: mdm-md-businesspartner-manage
-version: 1.0.0
+version: 1.0.1
 description: "Manage Business Partner (F3163) - CAP + Fiori Elements"
 parameters:
   enable-parallel-deployments: true
@@ -35,31 +35,18 @@ modules:
   # --- UI: HTML5 application deployer ------------------------------------------
   - name: mdm-businesspartner-app-content
     type: com.sap.application.content
-    path: .
+    path: app/businesspartner
     requires:
       - name: mdm-businesspartner-repo-host
         parameters:
           content-target: true
     build-parameters:
-      build-result: resources
-      requires:
-        - artifacts:
-            - mdmmdbusinesspartnermanage.zip
-          name: mdmmdbusinesspartnermanage
-          target-path: resources/
-
-  - name: mdmmdbusinesspartnermanage
-    type: html5
-    path: app/businesspartner
-    build-parameters:
-      build-result: dist
-      build-artifact-name: mdmmdbusinesspartnermanage
       builder: custom
       commands:
         - npm install
         - npm run build:cf
-      supported-platforms:
-        []
+        - npm run package:cf
+      build-result: resources
 
   # --- App router --------------------------------------------------------------
   - name: mdm-businesspartner-destination-content
