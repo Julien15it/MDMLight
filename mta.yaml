@@ -53,6 +53,7 @@ modules:
     path: app/businesspartner
     build-parameters:
       build-result: dist
+      build-artifact-name: mdmmdbusinesspartnermanage
       builder: custom
       commands:
         - npm install
