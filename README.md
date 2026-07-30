@@ -9,7 +9,7 @@ S/4HANA OData V2 service `API_BUSINESS_PARTNER` through BTP destination
 
 - Live list report and object page; no local business-partner database
 - Server-side free-text search across IDs, names, and search terms
-- Create and update business partners in S/4HANA
+- Create business partners through an explicit Fiori dialog and update them in S/4HANA
 - Read-only related sections for addresses, roles, tax numbers, bank details,
   identifications, industries, customer data, and supplier data
 - Complete imported `API_BUSINESS_PARTNER` model with all 65 entity sets
@@ -52,7 +52,7 @@ can compile and the tests can run, but live requests cannot be completed.
 
 ```bash
 mbt build
-cf deploy mta_archives/mdm-md-businesspartner-manage_1.1.0.mtar
+cf deploy mta_archives/mdm-md-businesspartner-manage_1.1.1.mtar
 ```
 
 Open the deployed application through the standalone approuter route:
