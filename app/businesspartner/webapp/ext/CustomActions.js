@@ -1,57 +1,73 @@
 sap.ui.define([
-  "sap/ui/core/UIComponent",
+  "sap/ui/core/routing/HashChanger",
   "sap/m/MessageBox"
-], function (UIComponent, MessageBox) {
+], function (HashChanger, MessageBox) {
   "use strict";
 
-  var applicationView = null;
-
-  function selectedContexts(bindingContext, contexts) {
-    if (Array.isArray(contexts)) return contexts;
+  function contextsFrom(bindingContext, selectedContexts) {
+    if (Array.isArray(selectedContexts)) return selectedContexts;
     if (Array.isArray(bindingContext)) return bindingContext;
+    if (bindingContext && typeof bindingContext.getProperty === "function") return [bindingContext];
     return [];
   }
 
-  function router() {
-    var controller = applicationView && applicationView.getController
-      ? applicationView.getController()
-      : null;
-    return controller ? UIComponent.getRouterFor(controller) : null;
+  function contextFrom(value) {
+    if (!value) return null;
+    if (typeof value.getProperty === "function") return value;
+    if (Array.isArray(value)) return contextFrom(value[0]);
+    if (typeof value.getSource === "function") {
+      var source = value.getSource();
+      if (source && typeof source.getBindingContext === "function") {
+        return source.getBindingContext();
+      }
+    }
+    return null;
+  }
+
+  function businessPartnerFromHash() {
+    var hash = HashChanger.getInstance().getHash() || "";
+    var match = decodeURIComponent(hash).match(/BusinessPartners\((?:'([^']+)'|([^)]*))\)/u);
+    return match ? (match[1] || match[2]) : "";
+  }
+
+  function navigate(hash) {
+    HashChanger.getInstance().setHash(hash);
+  }
+
+  function navigateToEdit(businessPartner) {
+    if (!businessPartner) {
+      MessageBox.error("A Business Partner number could not be determined.");
+      return;
+    }
+    navigate("BusinessPartners/" + encodeURIComponent(businessPartner) + "/maintain");
   }
 
   return {
-    setEnvironment: function (_model, view) {
-      applicationView = view;
-    },
+    setEnvironment: function () {},
 
-    clearEnvironment: function () {
-      applicationView = null;
-    },
+    clearEnvironment: function () {},
 
-    isSingleSelection: function (bindingContext, contexts) {
-      return selectedContexts(bindingContext, contexts).length === 1;
+    isSingleSelection: function (bindingContext, selectedContexts) {
+      return contextsFrom(bindingContext, selectedContexts).length === 1;
     },
 
     openCreatePage: function () {
-      var appRouter = router();
-      if (!appRouter) {
-        MessageBox.error("The Business Partner maintenance page is not available.");
-        return;
-      }
-      appRouter.navTo("BusinessPartnerCreate");
+      navigate("BusinessPartners/create");
     },
 
-    openEditPage: function (bindingContext, contexts) {
-      var selected = selectedContexts(bindingContext, contexts);
-      var appRouter = router();
-      if (!appRouter || selected.length !== 1) {
+    openEditPage: function (bindingContext, selectedContexts) {
+      var selected = contextsFrom(bindingContext, selectedContexts);
+      if (selected.length !== 1) {
         MessageBox.error("Select exactly one Business Partner to edit.");
         return;
       }
+      navigateToEdit(selected[0].getProperty("BusinessPartner"));
+    },
 
-      appRouter.navTo("BusinessPartnerMaintain", {
-        businessPartner: selected[0].getProperty("BusinessPartner")
-      });
+    openEditCurrentPage: function (bindingContext) {
+      var context = contextFrom(bindingContext);
+      var businessPartner = context ? context.getProperty("BusinessPartner") : businessPartnerFromHash();
+      navigateToEdit(businessPartner);
     }
   };
 });
