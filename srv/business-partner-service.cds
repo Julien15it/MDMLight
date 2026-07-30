@@ -1,22 +1,15 @@
-using { mdm.md.businesspartner as db } from '../db/schema';
 using { API_BUSINESS_PARTNER as S4 } from './external/API_BUSINESS_PARTNER';
 
 /**
- * OData V4 service exposing the Business Partner master data.
- * This is the service the "Manage Business Partner" (F3163) Fiori Elements app binds to.
+ * Read-only OData V4 service that shows Business Partners LIVE from S/4HANA.
+ * There is no local database: every request is delegated to S/4 at runtime
+ * via destination VF_S4HANA_DEST (see business-partner-service.js).
+ * This is the service the Fiori Elements app binds to.
  */
 service BusinessPartnerService @(path: '/service/businesspartner') {
 
-  @odata.draft.enabled
-  entity BusinessPartners as projection on db.BusinessPartners;
-
-  entity Addresses            as projection on db.Addresses;
-  entity BusinessPartnerRoles as projection on db.BusinessPartnerRoles;
-  entity BankDetails          as projection on db.BankDetails;
-
-  // Live, read-only Business Partners fetched directly from S/4HANA (API_BUSINESS_PARTNER).
-  // Every request is delegated to S/4 at runtime - no copy is stored locally.
-  @readonly entity S4BusinessPartners as projection on S4.A_BusinessPartner {
+  @readonly
+  entity BusinessPartners as projection on S4.A_BusinessPartner {
     key BusinessPartner,
     BusinessPartnerFullName,
     BusinessPartnerName,
@@ -28,11 +21,4 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
     OrganizationBPName1,
     BusinessPartnerIsBlocked
   };
-
-  // Value help / code lists (read-only)
-  @readonly entity BusinessPartnerCategories as projection on db.BusinessPartnerCategories;
-  @readonly entity BusinessPartnerGroupings  as projection on db.BusinessPartnerGroupings;
-  @readonly entity Roles                     as projection on db.Roles;
-  @readonly entity AcademicTitles            as projection on db.AcademicTitles;
-  @readonly entity Countries                 as projection on db.Countries;
 }

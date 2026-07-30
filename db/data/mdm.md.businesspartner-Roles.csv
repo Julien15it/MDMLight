@@ -1,7 +1,0 @@
-code;name;descr
-FLCU00;Customer (Fin.Accounting);Customer - financial accounting
-FLCU01;Customer;Customer - sales and distribution
-FLVN00;Supplier (Fin.Accounting);Supplier - financial accounting
-FLVN01;Supplier;Supplier - purchasing
-BUP001;Contact Person;Contact person
-BBP000;Bidder;Bidder

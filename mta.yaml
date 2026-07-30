@@ -28,19 +28,9 @@ modules:
         properties:
           srv-url: ${default-url}
     requires:
-      - name: mdm-businesspartner-db
       - name: mdm-businesspartner-auth
       - name: mdm-businesspartner-destination-service
       - name: mdm-businesspartner-connectivity
-
-  # --- HANA deployer -----------------------------------------------------------
-  - name: mdm-businesspartner-db-deployer
-    type: hdb
-    path: gen/db
-    parameters:
-      buildpack: nodejs_buildpack
-    requires:
-      - name: mdm-businesspartner-db
 
   # --- UI: HTML5 application deployer ------------------------------------------
   - name: mdm-businesspartner-app-content
@@ -103,11 +93,6 @@ modules:
       no-source: true
 
 resources:
-  - name: mdm-businesspartner-db
-    type: com.sap.xs.hdi-container
-    parameters:
-      service: hana
-      service-plan: hdi-shared
   - name: mdm-businesspartner-auth
     type: org.cloudfoundry.managed-service
     parameters:
