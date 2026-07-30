@@ -75,6 +75,7 @@ modules:
         parameters:
           service-key:
             name: mdm-businesspartner-auth-key
+      - name: srv-api
     parameters:
       content:
         instance:
@@ -87,6 +88,7 @@ modules:
               Name: mdm-businesspartner-srv-api
               TokenServiceInstanceName: mdm-businesspartner-auth
               TokenServiceKeyName: mdm-businesspartner-auth-key
+              URL: ~{srv-api/srv-url}
               sap.cloud.service: mdm.md.businesspartner
           existing_destinations_policy: update
     build-parameters:
