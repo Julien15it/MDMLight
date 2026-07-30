@@ -1,6 +1,6 @@
 _schema-version: "3.2"
 ID: mdm-md-businesspartner-manage
-version: 1.0.3
+version: 1.0.4
 description: "Manage Business Partner (F3163) - CAP + Fiori Elements"
 parameters:
   enable-parallel-deployments: true
@@ -102,6 +102,8 @@ resources:
     parameters:
       service: destination
       service-plan: lite
+      config:
+        HTML5Runtime_enabled: true
   - name: mdm-businesspartner-connectivity
     type: org.cloudfoundry.managed-service
     parameters:
