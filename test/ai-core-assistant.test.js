@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const {
+  aiCoreFallbackReason,
   aiModelNames,
   askSapAiCore,
   hasAiCoreBinding,
@@ -38,13 +39,28 @@ test('AI Core binding detection supports Cloud Foundry and local service keys', 
 
 test('AI Core model configuration provides resilient, configurable fallbacks', () => {
   assert.deepEqual(aiModelNames({
-    AICORE_MODEL: 'gpt-5-mini',
-    AICORE_FALLBACK_MODELS: 'gpt-5,anthropic--claude-4.5-haiku,gpt-5'
-  }), ['gpt-5-mini', 'gpt-5', 'anthropic--claude-4.5-haiku']);
+    AICORE_MODEL: 'gpt-5',
+    AICORE_FALLBACK_MODELS: 'gpt-5-mini,anthropic--claude-4.5-haiku,gpt-5-mini'
+  }), ['gpt-5', 'gpt-5-mini', 'anthropic--claude-4.5-haiku']);
   assert.deepEqual(aiModelNames({
     AICORE_MODEL: 'gpt-5-mini',
     AICORE_FALLBACK_MODELS: ''
   }), ['gpt-5-mini']);
+});
+
+test('AI Core fallback reports whether deployment, model or authorization failed', () => {
+  assert.equal(
+    aiCoreFallbackReason(new Error('Deployment not found'), { AICORE_RESOURCE_GROUP: 'default' }),
+    'orchestration deployment unavailable in resource group default'
+  );
+  assert.equal(
+    aiCoreFallbackReason(new Error('Model is not available'), {}),
+    'configured models unavailable or restricted'
+  );
+  assert.equal(
+    aiCoreFallbackReason(new Error('HTTP 403 Forbidden'), {}),
+    'AI Core authorization failed'
+  );
 });
 
 test('AI prompt context is bounded and excludes sensitive fields', () => {
@@ -102,7 +118,7 @@ test('assistant uses SAP AI Core when bound and reports its provider', async () 
     fallbackAnswer: 'fallback',
     env: {
       AICORE_SERVICE_KEY: '{}',
-      AICORE_MODEL: 'gpt-5-mini',
+      AICORE_MODEL: 'gpt-5',
       AICORE_FALLBACK_MODELS: '',
       AICORE_RESOURCE_GROUP: 'default'
     },
@@ -113,7 +129,7 @@ test('assistant uses SAP AI Core when bound and reports its provider', async () 
     Answer: 'There are two partners in the supplied context.',
     Provider: 'SAP AI Core'
   });
-  assert.equal(captured.config.promptTemplating.model.name, 'gpt-5-mini');
+  assert.equal(captured.config.promptTemplating.model.name, 'gpt-5');
   assert.equal(captured.deployment.resourceGroup, 'default');
   assert.match(captured.request.placeholderValues.context, /SAP S\.E\./);
 });

@@ -403,4 +403,16 @@ test('assistant recognizes free-form Dutch and English company lookup requests',
     ),
     'Contoso Belgium'
   );
+  assert.equal(
+    BusinessPartnerService._internals.requestedCompanyName(
+      'Is there a Business Partner called Spar Destelbergen?'
+    ),
+    'Spar Destelbergen'
+  );
+  assert.equal(
+    BusinessPartnerService._internals.requestedCompanyName(
+      'Bestaat er een business partner met de naam Spar Destelbergen?'
+    ),
+    'Spar Destelbergen'
+  );
 });

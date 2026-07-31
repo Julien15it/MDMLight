@@ -1,6 +1,6 @@
 'use strict';
 
-const DEFAULT_MODEL = 'gpt-5-mini';
+const DEFAULT_MODEL = 'gpt-5';
 const DEFAULT_RESOURCE_GROUP = 'default';
 const MAX_CONTEXT_PARTNERS = 250;
 
@@ -120,7 +120,7 @@ function promptContext(question, partners, addresses, externalResearch, duplicat
 function aiModelNames(env = process.env) {
   const configuredFallbacks = String(
     env.AICORE_FALLBACK_MODELS === undefined
-      ? 'gpt-5,anthropic--claude-4.5-haiku'
+      ? 'gpt-5-mini,anthropic--claude-4.5-haiku'
       : env.AICORE_FALLBACK_MODELS
   ).split(',').map((model) => model.trim()).filter(Boolean);
   return [...new Set([env.AICORE_MODEL || DEFAULT_MODEL, ...configuredFallbacks])];
@@ -159,6 +159,21 @@ function orchestrationConfig(modelName) {
       }
     }
   };
+}
+
+function aiCoreFallbackReason(error, env = process.env) {
+  const message = String(error?.message || error || '').toLocaleLowerCase();
+  const resourceGroup = env.AICORE_RESOURCE_GROUP || DEFAULT_RESOURCE_GROUP;
+  if (/deployment|404|not found/u.test(message)) {
+    return `orchestration deployment unavailable in resource group ${resourceGroup}`;
+  }
+  if (/model|allowlist|not available|unsupported/u.test(message)) {
+    return 'configured models unavailable or restricted';
+  }
+  if (/401|403|unauthorized|forbidden|credential|authorization/u.test(message)) {
+    return 'AI Core authorization failed';
+  }
+  return 'AI Core request failed';
 }
 
 async function askSapAiCore({
@@ -211,11 +226,12 @@ async function askSapAiCore({
     };
   } catch (error) {
     console.warn('[assistant] SAP AI Core unavailable, using S/4HANA search fallback:', error.message);
+    const fallbackReason = aiCoreFallbackReason(error, env);
     return {
       Answer: fallbackAnswer,
       Provider: externalResearch
-        ? `S/4HANA + ${externalResearch.source || 'public web search'} fallback (AI Core unavailable)`
-        : 'S/4HANA search fallback (AI Core unavailable)'
+        ? `S/4HANA + ${externalResearch.source || 'public web search'} fallback (${fallbackReason})`
+        : `S/4HANA search fallback (${fallbackReason})`
     };
   }
 }
@@ -225,6 +241,7 @@ module.exports = {
   DEFAULT_RESOURCE_GROUP,
   SAFE_FIELDS,
   SAFE_ADDRESS_FIELDS,
+  aiCoreFallbackReason,
   aiModelNames,
   hasAiCoreBinding,
   orchestrationConfig,

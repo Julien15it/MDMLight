@@ -65,11 +65,11 @@ const ASSISTANT_ADDRESS_FIELDS = Object.freeze([
 ]);
 
 const ASSISTANT_STOP_WORDS = Object.freeze(new Set([
-  'a', 'about', 'all', 'alle', 'and', 'are', 'business', 'de', 'een', 'find',
+  'a', 'an', 'about', 'all', 'alle', 'and', 'are', 'business', 'called', 'de', 'een', 'find',
   'bedrijf', 'company', 'firma', 'for', 'geef', 'hebben', 'het', 'how', 'ik',
   'in', 'info', 'informatie', 'is', 'me', 'met', 'of', 'organisatie', 'organization',
   'partner', 'partners', 'show', 'tell', 'the', 'toon', 'van', 'wat', 'which',
-  'who', 'zijn', 'zoek', 'street', 'straat', 'city', 'stad', 'postal', 'postcode',
+  'there', 'who', 'zijn', 'zoek', 'street', 'straat', 'city', 'stad', 'postal', 'postcode',
   'country', 'land', 'region', 'regio', 'located', 'gevestigd', 'adres', 'adressen',
   'address', 'addresses'
 ]));
@@ -647,12 +647,20 @@ function requestedCompanyName(question) {
   const imperative = source.match(
     /^(?:zoek|search|lookup|research|check)\s+(?:info(?:rmation)?\s+(?:over|about)\s+)?(.{2,80}?)(?:[?.!,;:]|$)/iu
   );
+  const existenceQuestion = source.match(
+    /(?:is|are)\s+there\s+(?:an?\s+)?(?:business\s+partner|bp|company|organisation|organization)\s+(?:called|named)\s+(.{2,80}?)(?:[?.!,;:]|$)/iu
+  );
+  const dutchExistenceQuestion = source.match(
+    /(?:bestaat|is)\s+er\s+(?:al\s+)?(?:een\s+)?(?:business\s+partner|bp|bedrijf|firma|organisatie)\s+(?:genaamd|met\s+de\s+naam)\s+(.{2,80}?)(?:[?.!,;:]|$)/iu
+  );
   let name = (quoted && quoted[1])
     || (company && company[1])
     || (about && about[1])
     || (lookupCommand && lookupCommand[1])
     || (lookupAfterVerb && lookupAfterVerb[1])
     || (imperative && imperative[1])
+    || (existenceQuestion && existenceQuestion[1])
+    || (dutchExistenceQuestion && dutchExistenceQuestion[1])
     || '';
   name = name
     .replace(/\s+(?:en|and)\s+(?:indien|if|zoek|search|lookup|maak|create)\b[\s\S]*$/iu, '')
