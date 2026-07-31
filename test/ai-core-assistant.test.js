@@ -8,6 +8,7 @@ const {
   aiCoreErrorText,
   aiModelNames,
   askSapAiCore,
+  chatCompletionWithRetry,
   hasAiCoreBinding,
   promptContext,
   relevantPartners
@@ -72,6 +73,22 @@ test('AI Core fallback reports whether deployment, model or authorization failed
   );
 });
 
+test('AI Core retries one fast transient request failure', async () => {
+  let calls = 0;
+  const client = {
+    chatCompletion: async () => {
+      calls += 1;
+      if (calls === 1) throw new Error('Request failed');
+      return { getContent: () => 'Recovered' };
+    }
+  };
+
+  const result = await chatCompletionWithRetry(client, {}, {});
+  assert.equal(result.response.getContent(), 'Recovered');
+  assert.equal(result.retried, true);
+  assert.equal(calls, 2);
+});
+
 test('AI prompt context is bounded and excludes sensitive fields', () => {
   assert.deepEqual(relevantPartners('Show BP 1', partners).map((item) => item.BusinessPartner), ['1']);
   const context = promptContext('Show BP 1', partners, []);
@@ -106,6 +123,7 @@ test('AI prompt context finds partners by address and includes sourced research'
   );
   assert.match(context, /Public company summary/);
   assert.match(context, /Tell me about that company/);
+  assert.doesNotMatch(context, /Brussels Pharmaceuticals|SAP S\.E\./);
   assert.doesNotMatch(context, /IBAN|must-never-enter/);
 });
 

@@ -468,6 +468,11 @@ function assistantSearchTerms(question) {
 function answerBusinessPartnerQuestion(question, partners = [], addresses = []) {
   const normalized = String(question || '').trim().toLocaleLowerCase();
   if (!normalized) return 'Enter a question about the available Business Partners.';
+  if (/^(?:hallo|hello|hi|hey|goedemorgen|goedemiddag|goedenavond)[!.?\s]*$/iu.test(normalized)) {
+    return /^(?:hallo|goedemorgen|goedemiddag|goedenavond)/iu.test(normalized)
+      ? 'Hallo! Vraag me gerust om een Business Partner te zoeken, te controleren op duplicaten of een nieuwe Business Partner voor te bereiden.'
+      : 'Hello! Ask me to find a Business Partner, check possible duplicates, or prepare a new Business Partner.';
+  }
 
   const asksAddress = /\b(address|addresses|adres|adressen)\b/u.test(normalized);
   const asksGrouping = /\b(grouping|groep|groepering)\b/u.test(normalized);
@@ -656,6 +661,9 @@ function requestedCompanyName(question) {
   const namedLookup = source.match(
     /(?:business\s+partner|bp|bedrijf|firma|organisatie)\s+(?:called|named|genaamd|met\s+de\s+naam)\s+(.{2,80}?)(?:\s+(?:vinden|zoeken|opzoeken|find|lookup|look\s+up)\b|[?.!,;:]|$)/iu
   );
+  const informalExistenceQuestion = source.match(
+    /(?:kijken|weten|checken|controleren)\s+(?:of|als)\s+(.{2,80}?)\s+(?:al\s+)?(?:bestaat|aanwezig\s+is)(?:[?.!,;:]|$)/iu
+  );
   let name = (quoted && quoted[1])
     || (company && company[1])
     || (about && about[1])
@@ -665,6 +673,7 @@ function requestedCompanyName(question) {
     || (existenceQuestion && existenceQuestion[1])
     || (dutchExistenceQuestion && dutchExistenceQuestion[1])
     || (namedLookup && namedLookup[1])
+    || (informalExistenceQuestion && informalExistenceQuestion[1])
     || '';
   name = name
     .replace(/\s+(?:en|and)\s+(?:indien|if|zoek|search|lookup|maak|create)\b[\s\S]*$/iu, '')
@@ -700,6 +709,15 @@ function contextualCompanyName(question, conversationHistory = []) {
   const direct = requestedCompanyName(question);
   if (direct) return direct;
   const source = String(question || '');
+  const bareWords = source
+    .replace(/[?.!,;:]+$/u, '')
+    .trim()
+    .split(/\s+/u)
+    .filter(Boolean);
+  if (bareWords.length >= 2 && bareWords.length <= 6
+    && bareWords.every((word) => !ASSISTANT_STOP_WORDS.has(word.toLocaleLowerCase()))) {
+    return bareWords.join(' ');
+  }
   const isFollowUp = /(?:\ber\b[\s\S]*\bvan\b|\bit\b|\bthat\b|\bdie\b|\bdeze\b|\bhiervan\b|\bdaarvan\b)/iu.test(source)
     && /(?:business\s+partner|\bbp\b|create|maak|maken|prepare|voorstel|informatie|information|research|opzoek|zoek|vergar)/iu.test(source);
   if (!isFollowUp) return '';

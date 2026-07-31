@@ -218,6 +218,7 @@ test('Business Partner Assistant answers grounded overview and search questions'
     answerBusinessPartnerQuestion('Find Brussels', partners),
     /1 — Brussels Pharmaceuticals SA\/NV/
   );
+  assert.match(answerBusinessPartnerQuestion('Hallo', partners), /Hallo!/);
 });
 
 test('Business Partner Assistant can return address details for one partner', () => {
@@ -423,6 +424,12 @@ test('assistant recognizes free-form Dutch and English company lookup requests',
     ),
     'Spar Destelbergen'
   );
+  assert.equal(
+    BusinessPartnerService._internals.requestedCompanyName(
+      'Ik wil kijken als SPAR destelbergen al bestaat?'
+    ),
+    'SPAR destelbergen'
+  );
 });
 
 test('assistant resolves a company from prior turns for a follow-up create request', () => {
@@ -434,6 +441,7 @@ test('assistant resolves a company from prior turns for a follow-up create reque
     contextualCompanyName('Kan je informatie vergaren en er een BP van maken?', history),
     'Spar Destelbergen'
   );
+  assert.equal(contextualCompanyName('SPAR destelbergen', history), 'SPAR destelbergen');
   assert.throws(
     () => parseConversationHistory('{broken'),
     /ConversationJson must contain valid JSON/

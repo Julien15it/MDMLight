@@ -2,7 +2,7 @@
 
 const DEFAULT_MODEL = 'gpt-5';
 const DEFAULT_RESOURCE_GROUP = 'default';
-const MAX_CONTEXT_PARTNERS = 250;
+const MAX_CONTEXT_PARTNERS = 100;
 
 const SAFE_FIELDS = Object.freeze([
   'BusinessPartner',
@@ -94,7 +94,11 @@ function promptContext(
   duplicateCandidates,
   conversationHistory = []
 ) {
-  const relevant = relevantPartners(question, partners, addresses).map(safePartner);
+  const hasExternalCompanyContext = Boolean(externalResearch)
+    && !(Array.isArray(duplicateCandidates) && duplicateCandidates.length);
+  const relevant = hasExternalCompanyContext
+    ? []
+    : relevantPartners(question, partners, addresses).map(safePartner);
   const relevantIds = new Set(relevant.map((partner) => String(partner.BusinessPartner)));
   return JSON.stringify({
     totalBusinessPartners: partners.length,
@@ -112,9 +116,9 @@ function promptContext(
       }))
       : [],
     conversationHistory: Array.isArray(conversationHistory)
-      ? conversationHistory.slice(-10).map((entry) => ({
+      ? conversationHistory.slice(-8).map((entry) => ({
         role: entry.role === 'assistant' ? 'assistant' : 'user',
-        content: String(entry.content || '').slice(0, 1000)
+        content: String(entry.content || '').slice(0, 700)
       }))
       : [],
     externalResearch: externalResearch
@@ -211,6 +215,19 @@ function aiCoreFallbackReason(error, env = process.env) {
   return 'AI Core request failed';
 }
 
+async function chatCompletionWithRetry(client, request, env = process.env) {
+  const startedAt = Date.now();
+  try {
+    return { response: await client.chatCompletion(request), retried: false };
+  } catch (error) {
+    const reason = aiCoreFallbackReason(error, env);
+    const retryable = ['AI Core request failed', 'AI Core network request failed'].includes(reason);
+    if (!retryable || Date.now() - startedAt > 8000) throw error;
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    return { response: await client.chatCompletion(request), retried: true };
+  }
+}
+
 async function askSapAiCore({
   question,
   partners,
@@ -241,7 +258,7 @@ async function askSapAiCore({
       resourceGroup: env.AICORE_RESOURCE_GROUP || DEFAULT_RESOURCE_GROUP
     });
 
-    const response = await client.chatCompletion({
+    const completion = await chatCompletionWithRetry(client, {
       placeholderValues: {
         question,
         context: promptContext(
@@ -253,13 +270,16 @@ async function askSapAiCore({
           conversationHistory
         )
       }
-    });
+    }, env);
+    const response = completion.response;
     const answer = String(response.getContent() || '').trim();
     if (!answer) throw new Error('SAP AI Core returned an empty answer.');
     const intermediateFailures = response.getIntermediateFailures?.() || [];
     return {
       Answer: answer,
-      Provider: intermediateFailures.length ? 'SAP AI Core (model fallback)' : 'SAP AI Core'
+      Provider: completion.retried
+        ? 'SAP AI Core (request retry)'
+        : intermediateFailures.length ? 'SAP AI Core (model fallback)' : 'SAP AI Core'
     };
   } catch (error) {
     console.warn(
@@ -284,6 +304,7 @@ module.exports = {
   aiCoreErrorText,
   aiCoreFallbackReason,
   aiModelNames,
+  chatCompletionWithRetry,
   hasAiCoreBinding,
   orchestrationConfig,
   safeAddress,
