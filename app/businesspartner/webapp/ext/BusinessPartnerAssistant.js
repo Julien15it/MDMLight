@@ -58,15 +58,9 @@ sap.ui.define([
         return;
       }
 
-      var transcript = "Assistant: Ask me about the Business Partners currently available in S/4HANA.\n\n"
-        + "Examples:\n"
-        + "- How many Business Partners are there?\n"
-        + "- Which Business Partners are blocked?\n"
-        + "- Show BP 1\n"
-        + "- Find Brussels\n"
-        + "- Find Business Partners in Dorpstraat\n"
-        + "- What is the address of BP 1?\n"
-        + "- Give me information about the company Coca-Cola";
+      var transcript = "Assistant: Ask me a free-form question about Business Partners. "
+        + "I use the configured SAP AI Core model with live S/4HANA data, check possible duplicates, "
+        + "and can prepare a reviewed creation proposal when a company is not yet present.";
       var conversationHistory = [];
       var conversation = new TextArea({
         value: transcript,

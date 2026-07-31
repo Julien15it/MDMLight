@@ -475,6 +475,12 @@ test('assistant recognizes free-form Dutch and English company lookup requests',
     ),
     'SPAR Destelbergen'
   );
+  assert.equal(
+    BusinessPartnerService._internals.requestedCompanyName(
+      'Is Intellus a Business Partner? In case not, can you make it?'
+    ),
+    'Intellus'
+  );
 });
 
 test('assistant resolves a company from prior turns for a follow-up create request', () => {
@@ -488,6 +494,8 @@ test('assistant resolves a company from prior turns for a follow-up create reque
   );
   assert.equal(contextualCompanyName('Yes', history), 'Spar Destelbergen');
   assert.equal(contextualCompanyName('Ja graag', history), 'Spar Destelbergen');
+  assert.equal(contextualCompanyName('Intellus', []), 'Intellus');
+  assert.equal(contextualCompanyName('Hallo', []), '');
   const confirmedSuggestion = JSON.parse(businessPartnerCreationSuggestion(
     'Yes',
     [],

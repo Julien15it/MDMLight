@@ -66,12 +66,12 @@ const ASSISTANT_ADDRESS_FIELDS = Object.freeze([
 
 const ASSISTANT_STOP_WORDS = Object.freeze(new Set([
   'a', 'an', 'about', 'all', 'alle', 'and', 'are', 'business', 'called', 'de', 'een', 'find',
-  'bedrijf', 'company', 'firma', 'for', 'geef', 'hebben', 'het', 'how', 'ik',
+  'bedrijf', 'company', 'firma', 'for', 'geef', 'hebben', 'hello', 'hallo', 'hey', 'het', 'hi', 'how', 'ik',
   'in', 'info', 'informatie', 'is', 'many', 'me', 'met', 'naam', 'name', 'of', 'organisatie', 'organization',
   'partner', 'partners', 'show', 'tell', 'the', 'toon', 'van', 'wat', 'which',
   'there', 'who', 'with', 'zijn', 'zoek', 'street', 'straat', 'city', 'stad', 'postal', 'postcode',
   'country', 'land', 'region', 'regio', 'located', 'gevestigd', 'adres', 'adressen',
-  'address', 'addresses'
+  'address', 'addresses', 'thanks', 'thank', 'bedankt', 'dank'
 ]));
 
 const MAINTENANCE_ENTITIES = Object.freeze({
@@ -686,6 +686,9 @@ function requestedCompanyName(question) {
   const directDutchExistenceQuestion = source.match(
     /^bestaat\s+(?:er\s+)?(?:(?:al|een)\s+)*(?:(?:business\s+partner|bp|bedrijf|firma|organisatie)\s+)?(.{2,80}?)(?:\s+al)?(?:\s+(?:in|binnen)\s+(?:het\s+)?(?:systeem|s\/4hana))?(?:[?.!,;:]|$)/iu
   );
+  const predicateExistenceQuestion = source.match(
+    /^(?:is|are)\s+(.{2,80}?)\s+(?:an?\s+)?(?:business\s+partner|bp)\b/iu
+  );
   let name = (quoted && quoted[1])
     || (company && company[1])
     || (about && about[1])
@@ -698,6 +701,7 @@ function requestedCompanyName(question) {
     || (informalExistenceQuestion && informalExistenceQuestion[1])
     || (directEnglishExistenceQuestion && directEnglishExistenceQuestion[1])
     || (directDutchExistenceQuestion && directDutchExistenceQuestion[1])
+    || (predicateExistenceQuestion && predicateExistenceQuestion[1])
     || '';
   name = name
     .replace(/\s+(?:en|and)\s+(?:indien|if|zoek|search|lookup|maak|create)\b[\s\S]*$/iu, '')
@@ -739,7 +743,7 @@ function contextualCompanyName(question, conversationHistory = []) {
     .trim()
     .split(/\s+/u)
     .filter(Boolean);
-  if (!isAffirmativeFollowUp && bareWords.length >= 2 && bareWords.length <= 6
+  if (!isAffirmativeFollowUp && bareWords.length >= 1 && bareWords.length <= 6
     && bareWords.every((word) => !ASSISTANT_STOP_WORDS.has(word.toLocaleLowerCase()))) {
     return bareWords.join(' ');
   }

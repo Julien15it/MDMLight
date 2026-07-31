@@ -68,6 +68,13 @@ test('AI Core fallback reports whether deployment, model or authorization failed
     'AI Core model rate limit reached'
   );
   assert.equal(
+    aiCoreFallbackReason({
+      message: 'Request failed',
+      cause: { message: 'HTTP request failed', cause: { response: { status: 401 } } }
+    }, {}),
+    'AI Core authorization failed'
+  );
+  assert.equal(
     aiCoreFallbackReason(new Error('Could not resolve aicore service binding'), {}),
     'AI Core service binding unavailable'
   );
@@ -95,6 +102,8 @@ test('AI Core retries one fast transient request failure', async () => {
 
 test('AI prompt context is bounded and excludes sensitive fields', () => {
   assert.deepEqual(relevantPartners('Show BP 1', partners).map((item) => item.BusinessPartner), ['1']);
+  assert.deepEqual(relevantPartners('Does Intellus exist?', partners), []);
+  assert.deepEqual(relevantPartners('Hello', partners), []);
   const context = promptContext('Show BP 1', partners, []);
   assert.match(context, /Brussels Pharmaceuticals/);
   assert.doesNotMatch(context, /TaxNumber1|must-never-enter/);
@@ -164,7 +173,8 @@ test('assistant uses SAP AI Core when bound and reports its provider', async () 
   });
   assert.equal(captured.config.promptTemplating.model.name, 'gpt-5');
   assert.equal(captured.deployment.resourceGroup, 'default');
-  assert.match(captured.request.placeholderValues.context, /SAP S\.E\./);
+  assert.match(captured.request.placeholderValues.context, /"totalBusinessPartners":2/);
+  assert.doesNotMatch(captured.request.placeholderValues.context, /SAP S\.E\./);
 });
 
 test('assistant keeps a deterministic S/4 fallback without an AI binding', async () => {

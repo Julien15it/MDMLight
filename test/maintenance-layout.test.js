@@ -77,6 +77,8 @@ test('assistant sends bounded conversation history for follow-up reasoning', () 
   );
 
   assert.match(assistant, /var conversationHistory = \[\]/);
+  assert.match(assistant, /Ask me a free-form question about Business Partners/);
+  assert.doesNotMatch(assistant, /Examples:/);
   assert.match(assistant, /setParameter\("ConversationJson", JSON\.stringify\(conversationHistory\.slice\(-10\)\)\)/);
   assert.match(assistant, /conversationHistory\.push/);
 });

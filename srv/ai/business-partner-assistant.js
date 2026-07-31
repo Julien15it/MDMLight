@@ -2,7 +2,14 @@
 
 const DEFAULT_MODEL = 'gpt-5';
 const DEFAULT_RESOURCE_GROUP = 'default';
-const MAX_CONTEXT_PARTNERS = 100;
+const MAX_CONTEXT_PARTNERS = 25;
+
+const CONTEXT_STOP_WORDS = Object.freeze(new Set([
+  'about', 'address', 'addresses', 'are', 'bedrijf', 'bestaat', 'business', 'called',
+  'company', 'does', 'exist', 'exists', 'find', 'give', 'heeft', 'how', 'informatie',
+  'info', 'name', 'named', 'partner', 'partners', 'show', 'system', 'tell', 'there',
+  'what', 'which', 'with', 'zoek', 'zoeken'
+]));
 
 const SAFE_FIELDS = Object.freeze([
   'BusinessPartner',
@@ -65,10 +72,15 @@ function relevantPartners(question, partners, addresses = []) {
     return partners.filter((partner) => String(partner.BusinessPartner) === numberMatch[1]);
   }
 
+  if (/\b(blocked|geblokkeerd)\b/u.test(normalized)) {
+    return partners.filter((partner) => partner.BusinessPartnerIsBlocked).slice(0, MAX_CONTEXT_PARTNERS);
+  }
+
   const terms = normalized
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .split(/\s+/u)
-    .filter((term) => term.length >= 3);
+    .filter((term) => term.length >= 3 && !CONTEXT_STOP_WORDS.has(term));
+  if (!terms.length) return [];
   const directMatches = partners.filter((partner) => {
     const partnerAddresses = addresses.filter(
       (address) => String(address.BusinessPartner) === String(partner.BusinessPartner)
@@ -80,10 +92,10 @@ function relevantPartners(question, partners, addresses = []) {
       .filter((value) => value !== undefined && value !== null)
       .join(' ')
       .toLocaleLowerCase();
-    return terms.some((term) => searchable.includes(term));
+    return terms.every((term) => searchable.includes(term));
   });
 
-  return (directMatches.length ? directMatches : partners).slice(0, MAX_CONTEXT_PARTNERS);
+  return directMatches.slice(0, MAX_CONTEXT_PARTNERS);
 }
 
 function promptContext(
@@ -128,7 +140,8 @@ function promptContext(
         extract: externalResearch.extract,
         url: externalResearch.url,
         source: externalResearch.source,
-        sources: externalResearch.sources
+        sources: externalResearch.sources,
+        suggestedAddress: externalResearch.suggestedAddress
       }
       : null
   });
@@ -148,7 +161,7 @@ function orchestrationConfig(modelName) {
     promptTemplating: {
       model: {
         name: modelName,
-        timeout: 45,
+        timeout: 15,
         params: { max_tokens: 900 }
       },
       prompt: {
@@ -179,8 +192,9 @@ function orchestrationConfig(modelName) {
   };
 }
 
-function aiCoreErrorText(error) {
-  const responseBody = error?.response?.data || error?.cause?.response?.data;
+function errorDetails(error, depth = 0) {
+  if (!error || depth > 5) return [];
+  const responseBody = error.response?.data;
   let serializedBody = '';
   if (responseBody && typeof responseBody !== 'string') {
     try {
@@ -190,14 +204,19 @@ function aiCoreErrorText(error) {
     }
   }
   return [
-    error?.status || error?.statusCode || error?.response?.status,
-    error?.message,
-    error?.cause?.message,
-    error?.response?.data?.error?.message,
-    error?.cause?.response?.data?.error?.message,
-    typeof responseBody === 'string' ? responseBody : serializedBody
-  ].filter((value) => (typeof value === 'string' && value.trim()) || typeof value === 'number')
+    error.status || error.statusCode || error.response?.status,
+    error.message,
+    error.response?.data?.error?.message,
+    typeof responseBody === 'string' ? responseBody : serializedBody,
+    ...errorDetails(error.cause, depth + 1)
+  ];
+}
+
+function aiCoreErrorText(error) {
+  return errorDetails(error)
+    .filter((value) => (typeof value === 'string' && value.trim()) || typeof value === 'number')
     .map(String)
+    .filter((value, index, values) => values.indexOf(value) === index)
     .join(' | ')
     .replace(/\s+/gu, ' ')
     .slice(0, 1000);
