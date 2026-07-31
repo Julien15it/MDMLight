@@ -2,9 +2,15 @@
 
 const DEFAULT_MODEL = 'gpt-5';
 const DEFAULT_RESOURCE_GROUP = 'default';
-<<<<<<< HEAD
 const DEFAULT_MAX_TOKENS = 4000;
-const MAX_CONTEXT_PARTNERS = 60;
+const MAX_CONTEXT_PARTNERS = 25;
+
+const CONTEXT_STOP_WORDS = Object.freeze(new Set([
+  'about', 'address', 'addresses', 'are', 'bedrijf', 'bestaat', 'business', 'called',
+  'company', 'does', 'exist', 'exists', 'find', 'give', 'heeft', 'how', 'informatie',
+  'info', 'name', 'named', 'partner', 'partners', 'show', 'system', 'tell', 'there',
+  'what', 'which', 'with', 'zoek', 'zoeken'
+]));
 
 /**
  * gpt-5 and the o-series are reasoning models: their completion budget also
@@ -21,16 +27,6 @@ function modelParams(model, maxTokens) {
     ? { max_completion_tokens: maxTokens }
     : { max_tokens: maxTokens };
 }
-=======
-const MAX_CONTEXT_PARTNERS = 25;
-
-const CONTEXT_STOP_WORDS = Object.freeze(new Set([
-  'about', 'address', 'addresses', 'are', 'bedrijf', 'bestaat', 'business', 'called',
-  'company', 'does', 'exist', 'exists', 'find', 'give', 'heeft', 'how', 'informatie',
-  'info', 'name', 'named', 'partner', 'partners', 'show', 'system', 'tell', 'there',
-  'what', 'which', 'with', 'zoek', 'zoeken'
-]));
->>>>>>> e0a91dce4af0c248ca40646758dbd032a60d5a26
 
 const SAFE_FIELDS = Object.freeze([
   'BusinessPartner',
@@ -177,13 +173,16 @@ function aiModelNames(env = process.env) {
   return [...new Set([env.AICORE_MODEL || DEFAULT_MODEL, ...configuredFallbacks])];
 }
 
-function orchestrationConfig(modelName) {
+function orchestrationConfig(modelName, maxTokens = DEFAULT_MAX_TOKENS) {
   return {
     promptTemplating: {
       model: {
         name: modelName,
-        timeout: 15,
-        params: { max_tokens: 900 }
+        // Reasoning models need room for hidden reasoning tokens before they
+        // emit a single visible character, so allow more time than a plain chat
+        // model would need.
+        timeout: 45,
+        params: modelParams(modelName, maxTokens)
       },
       prompt: {
         template: [
@@ -314,42 +313,12 @@ async function askSapAiCore({
   try {
     const OrchestrationClient = Client
       || (await import('@sap-ai-sdk/orchestration')).OrchestrationClient;
-<<<<<<< HEAD
-    const model = env.AICORE_MODEL || DEFAULT_MODEL;
     const maxTokens = Number(env.AICORE_MAX_TOKENS) || DEFAULT_MAX_TOKENS;
-    const client = new OrchestrationClient({
-      promptTemplating: {
-        model: {
-          name: model,
-          params: modelParams(model, maxTokens)
-        },
-        prompt: {
-          template: [
-            {
-              role: 'system',
-              content: [
-                'You are the Business Partner Assistant inside an SAP Fiori application.',
-                'Answer only from the supplied live S/4HANA JSON context.',
-                'Never invent Business Partners or values and never claim to have changed S/4HANA.',
-                'Only the explicitly supplied safe fields may be discussed; bank and tax data are not available.',
-                'Answer in the same language as the user and keep the answer concise and business-friendly.',
-                'If the context is insufficient, say exactly what is missing.'
-              ].join(' ')
-            },
-            {
-              role: 'user',
-              content: 'Question: {{?question}}\n\nLive S/4HANA context:\n{{?context}}'
-            }
-          ]
-        }
-      }
-    }, {
-=======
-    const configurations = aiModelNames(env).map(orchestrationConfig);
+    const configurations = aiModelNames(env)
+      .map((modelName) => orchestrationConfig(modelName, maxTokens));
     const client = new OrchestrationClient(configurations.length === 1
       ? configurations[0]
       : configurations, {
->>>>>>> e0a91dce4af0c248ca40646758dbd032a60d5a26
       resourceGroup: env.AICORE_RESOURCE_GROUP || DEFAULT_RESOURCE_GROUP
     });
 
@@ -368,18 +337,14 @@ async function askSapAiCore({
     }, env);
     const response = completion.response;
     const answer = String(response.getContent() || '').trim();
-<<<<<<< HEAD
     if (!answer) {
       const finishReason = response.getFinishReason?.() ?? 'unknown';
       const usage = response.getTokenUsage?.() ?? {};
       throw new Error(
-        `SAP AI Core returned an empty answer (model ${model}, finish_reason ${finishReason}, `
+        `SAP AI Core returned an empty answer (finish_reason ${finishReason}, `
         + `tokens ${JSON.stringify(usage)}). If the budget was spent on reasoning, raise AICORE_MAX_TOKENS.`
       );
     }
-    return { Answer: answer, Provider: 'SAP AI Core' };
-=======
-    if (!answer) throw new Error('SAP AI Core returned an empty answer.');
     const intermediateFailures = response.getIntermediateFailures?.() || [];
     const primaryModel = aiModelNames(env)[0];
     return {
@@ -390,7 +355,6 @@ async function askSapAiCore({
           ? `SAP AI Core (model fallback from ${primaryModel})`
           : `SAP AI Core (${primaryModel})`
     };
->>>>>>> e0a91dce4af0c248ca40646758dbd032a60d5a26
   } catch (error) {
     console.warn(
       '[assistant] SAP AI Core unavailable, using S/4HANA search fallback:',
