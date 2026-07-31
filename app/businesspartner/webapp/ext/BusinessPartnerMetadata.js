@@ -2138,16 +2138,6 @@ sap.ui.define([], function () {
             "maxLength": 3,
             "creatable": true,
             "updatable": true
-          },
-          {
-            "name": "BR_ICMSTaxPayerType",
-            "label": "ICMS Taxpayer",
-            "type": "cds.String",
-            "key": false,
-            "nullable": true,
-            "maxLength": 2,
-            "creatable": true,
-            "updatable": true
           }
         ]
       },

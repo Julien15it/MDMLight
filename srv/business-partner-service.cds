@@ -71,7 +71,11 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
   @readonly entity TaxNumbers           as projection on S4.A_BusinessPartnerTaxNumber;
   @readonly entity Identifications      as projection on S4.A_BuPaIdentification;
   @readonly entity Industries           as projection on S4.A_BuPaIndustry;
-  @readonly entity Customers            as projection on S4.A_Customer;
+  // VF S/4HANA does not expose BR_ICMSTaxPayerType. Excluding it keeps the
+  // facade compatible while retaining all other customer fields.
+  @readonly entity Customers            as projection on S4.A_Customer excluding {
+    BR_ICMSTaxPayerType
+  };
   @readonly entity Suppliers            as projection on S4.A_Supplier;
 
   // Remaining API_BUSINESS_PARTNER entity sets. They are exposed read-only so

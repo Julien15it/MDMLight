@@ -85,7 +85,8 @@ const sections = [
     relationField: 'Customer',
     typeName: 'A_CustomerType',
     kind: 'single',
-    creatable: false
+    creatable: false,
+    excludedFields: ['BR_ICMSTaxPayerType']
   },
   {
     id: 'Suppliers',
@@ -135,7 +136,9 @@ for (const section of sections) {
   const edmxProperties = entityTypeProperties(section.typeName);
 
   section.fields = Object.entries(definition.elements)
-    .filter(([, element]) => !element.target)
+    .filter(([name, element]) => (
+      !element.target && !(section.excludedFields || []).includes(name)
+    ))
     .map(([name, element]) => {
       const property = edmxProperties[name] || {};
       return {
@@ -153,11 +156,13 @@ for (const section of sections) {
     });
 }
 
+const clientSections = sections.map(({ excludedFields, ...section }) => section);
+
 const output = [
   'sap.ui.define([], function () {',
   '  "use strict";',
   '',
-  `  return ${JSON.stringify({ sections }, null, 2).replace(/^/gmu, '  ')};`,
+  `  return ${JSON.stringify({ sections: clientSections }, null, 2).replace(/^/gmu, '  ')};`,
   '});',
   ''
 ].join('\n');

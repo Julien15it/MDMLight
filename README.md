@@ -54,7 +54,7 @@ can compile and the tests can run, but live requests cannot be completed.
 
 ```bash
 mbt build
-cf deploy mta_archives/mdm-md-businesspartner-manage_1.5.0.mtar
+cf deploy mta_archives/mdm-md-businesspartner-manage_1.6.0.mtar
 ```
 
 Open the deployed application through the standalone approuter route:

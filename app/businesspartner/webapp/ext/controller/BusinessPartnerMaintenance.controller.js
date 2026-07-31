@@ -236,11 +236,33 @@ sap.ui.define([
           var sections = await Promise.all(
             this._metadata
               .filter(function (section) { return section.kind !== "root"; })
-              .map(this._loadSection.bind(this, businessPartner))
+              .map(async function (section) {
+                try {
+                  return await this._loadSection(businessPartner, section);
+                } catch (error) {
+                  return {
+                    id: section.id,
+                    records: [],
+                    warning: section.title + ": " + errorMessage(
+                      error,
+                      "This section could not be loaded."
+                    )
+                  };
+                }
+              }.bind(this))
           );
           sections.forEach(function (result) {
             state.sections[result.id] = result.records;
           });
+          var sectionWarnings = sections
+            .filter(function (result) { return Boolean(result.warning); })
+            .map(function (result) { return result.warning; });
+          if (sectionWarnings.length) {
+            MessageToast.show(
+              "Some related sections could not be loaded. You can still edit and save the Business Partner.",
+              { duration: 6000 }
+            );
+          }
         } catch (error) {
           MessageBox.error(errorMessage(error, "The Business Partner could not be loaded."));
         } finally {
