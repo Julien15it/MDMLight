@@ -1,8 +1,10 @@
 using { API_BUSINESS_PARTNER as S4 } from './external/API_BUSINESS_PARTNER';
 
 type BusinessPartnerAssistantAnswer {
-  Answer   : LargeString;
-  Provider : String(40);
+  Answer          : LargeString;
+  Provider        : String(40);
+  SuggestedAction : String(40);
+  SuggestedData   : LargeString;
 }
 
 /**
@@ -69,10 +71,16 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
     DataJson: LargeString not null
   ) returns LargeString;
 
+  action deleteBusinessPartnerEntity(
+    Entity : String(40) not null,
+    KeyJson: LargeString not null
+  ) returns Boolean;
+
   /** Read-only assistant grounded in the Business Partners currently present
    *  in S/4HANA. It never creates or changes master data. */
   action askBusinessPartnerAssistant(
-    Question : String(1000) not null
+    Question         : String(1000) not null,
+    ConversationJson : LargeString
   ) returns BusinessPartnerAssistantAnswer;
 
   // Core business-partner details shown as sections on the object page.
@@ -87,7 +95,14 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
   @readonly entity Customers            as projection on S4.A_Customer excluding {
     BR_ICMSTaxPayerType
   };
-  @readonly entity Suppliers            as projection on S4.A_Supplier;
+  // These fields exist in newer API metadata but not in the VF on-premise
+  // implementation. Excluding them prevents section reads from failing with
+  // "Resource not found for the segment" while retaining all supported data.
+  @readonly entity Suppliers            as projection on S4.A_Supplier excluding {
+    BusinessPartnerPanNumber,
+    JP_SuplrAmtInCapitalAmount,
+    JP_SupplierCapitalAmountCrcy
+  };
 
   // Remaining API_BUSINESS_PARTNER entity sets. They are exposed read-only so
   // consumers can use the complete S/4 API without risking accidental writes.

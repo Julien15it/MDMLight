@@ -67,7 +67,28 @@ test('assistant uses the Fiori page model without requiring a selection', () => 
   const view = { name: 'list-view' };
   runtime.actions.setEnvironment(model, view);
   runtime.actions.openAssistant();
-  assert.deepEqual(runtime.assistantCalls, [{ model, view }]);
+  assert.deepEqual(runtime.assistantCalls, [{ model, view: null }]);
+});
+
+test('assistant can resolve a model from a wrapped Fiori context', () => {
+  const runtime = loadActions();
+  const model = { name: 'wrapped-service' };
+  runtime.actions.openAssistant({
+    bindingContext: {
+      getProperty: () => undefined,
+      getModel: () => model
+    }
+  });
+  assert.deepEqual(runtime.assistantCalls, [{ model, view: null }]);
+});
+
+test('a late page initialization cannot erase the component OData model', () => {
+  const runtime = loadActions();
+  const model = { name: 'component-service' };
+  runtime.actions.setEnvironment(model, null);
+  runtime.actions.setEnvironment(null, { name: 'late-list-view' });
+  runtime.actions.openAssistant();
+  assert.deepEqual(runtime.assistantCalls, [{ model, view: null }]);
 });
 
 test('list edit action accepts the selected Fiori Elements context', () => {

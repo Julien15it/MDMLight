@@ -30,7 +30,15 @@ const sections = [
     remoteEntity: 'A_BusinessPartnerAddress',
     relationField: 'BusinessPartner',
     typeName: 'A_BusinessPartnerAddressType',
-    kind: 'collection'
+    kind: 'collection',
+    fieldNames: [
+      'BusinessPartner', 'AddressID', 'StreetName', 'HouseNumber',
+      'PostalCode', 'CityName', 'Country', 'Region', 'POBox'
+    ],
+    summaryFields: [
+      'StreetName', 'HouseNumber', 'PostalCode', 'CityName', 'Country', 'Region', 'POBox'
+    ],
+    requiredCreateFields: ['Country']
   },
   {
     id: 'BusinessPartnerRoles',
@@ -39,7 +47,11 @@ const sections = [
     remoteEntity: 'A_BusinessPartnerRole',
     relationField: 'BusinessPartner',
     typeName: 'A_BusinessPartnerRoleType',
-    kind: 'collection'
+    kind: 'collection',
+    deletable: false,
+    fieldNames: ['BusinessPartner', 'BusinessPartnerRole', 'ValidFrom', 'ValidTo'],
+    summaryFields: ['BusinessPartnerRole', 'ValidFrom', 'ValidTo'],
+    requiredCreateFields: ['BusinessPartnerRole']
   },
   {
     id: 'TaxNumbers',
@@ -48,7 +60,11 @@ const sections = [
     remoteEntity: 'A_BusinessPartnerTaxNumber',
     relationField: 'BusinessPartner',
     typeName: 'A_BusinessPartnerTaxNumberType',
-    kind: 'collection'
+    kind: 'collection',
+    fieldNames: ['BusinessPartner', 'BPTaxType', 'BPTaxNumber', 'BPTaxLongNumber'],
+    summaryFields: ['BPTaxType', 'BPTaxNumber', 'BPTaxLongNumber'],
+    requiredCreateFields: ['BPTaxType'],
+    oneOfCreateFields: ['BPTaxNumber', 'BPTaxLongNumber']
   },
   {
     id: 'BankDetails',
@@ -57,7 +73,17 @@ const sections = [
     remoteEntity: 'A_BusinessPartnerBank',
     relationField: 'BusinessPartner',
     typeName: 'A_BusinessPartnerBankType',
-    kind: 'collection'
+    kind: 'collection',
+    fieldNames: [
+      'BusinessPartner', 'BankIdentification', 'BankName', 'BankCountryKey',
+      'BankNumber', 'SWIFTCode', 'BankAccountHolderName', 'BankAccountName',
+      'IBAN', 'BankAccount', 'CityName'
+    ],
+    summaryFields: [
+      'BankName', 'BankCountryKey', 'BankNumber', 'IBAN', 'BankAccount', 'CityName'
+    ],
+    requiredCreateFields: ['BankIdentification'],
+    oneOfCreateFields: ['IBAN', 'BankAccount']
   },
   {
     id: 'Identifications',
@@ -66,7 +92,16 @@ const sections = [
     remoteEntity: 'A_BuPaIdentification',
     relationField: 'BusinessPartner',
     typeName: 'A_BuPaIdentificationType',
-    kind: 'collection'
+    kind: 'collection',
+    fieldNames: [
+      'BusinessPartner', 'BPIdentificationType', 'BPIdentificationNumber',
+      'BPIdnNmbrIssuingInstitute', 'BPIdentificationEntryDate', 'Country', 'Region'
+    ],
+    summaryFields: [
+      'BPIdentificationType', 'BPIdentificationNumber',
+      'BPIdnNmbrIssuingInstitute', 'Country', 'Region'
+    ],
+    requiredCreateFields: ['BPIdentificationType', 'BPIdentificationNumber']
   },
   {
     id: 'Industries',
@@ -75,7 +110,15 @@ const sections = [
     remoteEntity: 'A_BuPaIndustry',
     relationField: 'BusinessPartner',
     typeName: 'A_BuPaIndustryType',
-    kind: 'collection'
+    kind: 'collection',
+    fieldNames: [
+      'BusinessPartner', 'IndustrySector', 'IndustrySystemType',
+      'IsStandardIndustry', 'IndustryKeyDescription'
+    ],
+    summaryFields: [
+      'IndustrySector', 'IndustrySystemType', 'IndustryKeyDescription', 'IsStandardIndustry'
+    ],
+    requiredCreateFields: ['IndustrySector', 'IndustrySystemType']
   },
   {
     id: 'Customers',
@@ -86,6 +129,16 @@ const sections = [
     typeName: 'A_CustomerType',
     kind: 'single',
     creatable: false,
+    deletable: false,
+    fieldNames: [
+      'Customer', 'CustomerFullName', 'CustomerName', 'CustomerAccountGroup',
+      'CustomerClassification', 'BillingIsBlockedForCustomer',
+      'DeliveryIsBlocked', 'OrderIsBlockedForCustomer', 'PostingIsBlocked'
+    ],
+    summaryFields: [
+      'CustomerFullName', 'CustomerAccountGroup', 'CustomerClassification',
+      'BillingIsBlockedForCustomer', 'DeliveryIsBlocked', 'PostingIsBlocked'
+    ],
     excludedFields: ['BR_ICMSTaxPayerType']
   },
   {
@@ -96,7 +149,22 @@ const sections = [
     relationField: 'Supplier',
     typeName: 'A_SupplierType',
     kind: 'single',
-    creatable: false
+    creatable: false,
+    deletable: false,
+    fieldNames: [
+      'Supplier', 'SupplierFullName', 'SupplierName', 'SupplierAccountGroup',
+      'PaymentIsBlockedForSupplier', 'PostingIsBlocked', 'PurchasingIsBlocked',
+      'SupplierProcurementBlock', 'VATRegistration'
+    ],
+    summaryFields: [
+      'SupplierFullName', 'SupplierAccountGroup', 'VATRegistration',
+      'PaymentIsBlockedForSupplier', 'PostingIsBlocked', 'PurchasingIsBlocked'
+    ],
+    excludedFields: [
+      'BusinessPartnerPanNumber',
+      'JP_SuplrAmtInCapitalAmount',
+      'JP_SupplierCapitalAmountCrcy'
+    ]
   }
 ];
 
@@ -137,7 +205,9 @@ for (const section of sections) {
 
   section.fields = Object.entries(definition.elements)
     .filter(([name, element]) => (
-      !element.target && !(section.excludedFields || []).includes(name)
+      !element.target &&
+      !(section.excludedFields || []).includes(name) &&
+      (!section.fieldNames || section.fieldNames.includes(name))
     ))
     .map(([name, element]) => {
       const property = edmxProperties[name] || {};
@@ -156,7 +226,7 @@ for (const section of sections) {
     });
 }
 
-const clientSections = sections.map(({ excludedFields, ...section }) => section);
+const clientSections = sections.map(({ excludedFields, fieldNames, ...section }) => section);
 
 const output = [
   'sap.ui.define([], function () {',

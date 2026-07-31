@@ -5,8 +5,9 @@ sap.ui.define([
   "sap/m/Text",
   "sap/m/TextArea",
   "sap/m/VBox",
-  "sap/m/MessageBox"
-], function (Dialog, Button, Input, Text, TextArea, VBox, MessageBox) {
+  "sap/m/MessageBox",
+  "sap/ui/core/routing/HashChanger"
+], function (Dialog, Button, Input, Text, TextArea, VBox, MessageBox, HashChanger) {
   "use strict";
 
   function errorMessage(error) {
@@ -32,13 +33,21 @@ sap.ui.define([
       return { answer: "No answer was returned.", provider: "Assistant" };
     }
     var payload = result.value && typeof result.value === "object" ? result.value : result;
+    var suggestedData = {};
+    try {
+      suggestedData = payload.SuggestedData ? JSON.parse(payload.SuggestedData) : {};
+    } catch (_ignored) {
+      suggestedData = {};
+    }
     return {
       answer: payload.Answer
         || payload.answer
         || payload.askBusinessPartnerAssistant
         || payload.Result
         || "No answer was returned.",
-      provider: payload.Provider || payload.provider || "Assistant"
+      provider: payload.Provider || payload.provider || "Assistant",
+      suggestedAction: payload.SuggestedAction || "",
+      suggestedData: suggestedData
     };
   }
 
@@ -49,13 +58,10 @@ sap.ui.define([
         return;
       }
 
-      var transcript = "Assistant: Ask me about the Business Partners currently available in S/4HANA.\n\n"
-        + "Examples:\n"
-        + "- How many Business Partners are there?\n"
-        + "- Which Business Partners are blocked?\n"
-        + "- Show BP 1\n"
-        + "- Find Brussels\n"
-        + "- What is the address of BP 1?";
+      var transcript = "Assistant: Ask me a free-form question about Business Partners. "
+        + "I use the configured SAP AI Core model with live S/4HANA data, check possible duplicates, "
+        + "and can prepare a reviewed creation proposal when a company is not yet present.";
+      var conversationHistory = [];
       var conversation = new TextArea({
         value: transcript,
         editable: false,
@@ -67,6 +73,20 @@ sap.ui.define([
         placeholder: "Ask a question about the available Business Partners...",
         width: "100%"
       });
+      var createSuggestionButton = new Button({
+        text: "Create Suggested Business Partner",
+        icon: "sap-icon://add-employee",
+        type: "Attention",
+        visible: false,
+        press: function () {
+          var draft = createSuggestionButton.data("draft") || {};
+          var query = Object.keys(draft).map(function (key) {
+            return encodeURIComponent(key) + "=" + encodeURIComponent(draft[key]);
+          }).join("&");
+          dialog.close();
+          HashChanger.getInstance().setHash("BusinessPartners/create" + (query ? "?" + query : ""));
+        }
+      }).addStyleClass("sapUiSmallMarginTop");
       var dialog;
 
       var send = async function () {
@@ -81,12 +101,19 @@ sap.ui.define([
 
         var binding = model.bindContext("/askBusinessPartnerAssistant(...)");
         binding.setParameter("Question", value);
+        binding.setParameter("ConversationJson", JSON.stringify(conversationHistory.slice(-10)));
         try {
           await binding.execute("$direct");
           var context = binding.getBoundContext();
           var info = resultInfo(context && context.getObject());
           transcript += "\n\nAssistant (" + info.provider + "): " + info.answer;
+          conversationHistory.push(
+            { role: "user", content: value },
+            { role: "assistant", content: info.answer }
+          );
           conversation.setValue(transcript);
+          createSuggestionButton.data("draft", info.suggestedData);
+          createSuggestionButton.setVisible(info.suggestedAction === "CREATE_BUSINESS_PARTNER");
         } catch (error) {
           var message = errorMessage(error);
           transcript += "\n\nAssistant: " + message;
@@ -110,10 +137,11 @@ sap.ui.define([
         content: new VBox({
           items: [
             new Text({
-              text: "Answers are based on live, read-only Business Partner data from S/4HANA.",
+              text: "The assistant searches live S/4HANA Business Partner and address data, checks possible duplicates, and can use clearly sourced public company information to prepare a new Business Partner.",
               wrapping: true
             }).addStyleClass("sapUiSmallMarginBottom"),
             conversation,
+            createSuggestionButton,
             question.addStyleClass("sapUiSmallMarginTop")
           ]
         }).addStyleClass("sapUiSmallMargin"),

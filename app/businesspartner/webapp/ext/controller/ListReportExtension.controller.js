@@ -20,10 +20,6 @@ sap.ui.define([
           CustomActions.setEnvironment(oModel, oView);
         },
 
-        onExit: function () {
-          CustomActions.clearEnvironment();
-        },
-
         routing: {
           onBeforeNavigation: function (contextInfo) {
             CustomActions.openDisplayPage(contextInfo && contextInfo.bindingContext);

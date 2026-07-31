@@ -2,6 +2,7 @@
 
 const cds = require('@sap/cds');
 const { askSapAiCore } = require('./ai/business-partner-assistant');
+const { researchCompany } = require('./ai/company-research');
 
 const SEARCHABLE_FIELDS = Object.freeze([
   'BusinessPartner',
@@ -51,7 +52,20 @@ const ASSISTANT_FIELDS = Object.freeze([
   'BusinessPartnerIsBlocked'
 ]);
 
+const ASSISTANT_ADDRESS_FIELDS = Object.freeze([
+  'BusinessPartner',
+  'AddressID',
+  'StreetName',
+  'HouseNumber',
+  'PostalCode',
+  'CityName',
+  'Region',
+  'Country',
+  'POBox'
+]);
+
 const ASSISTANT_STOP_WORDS = Object.freeze(new Set([
+<<<<<<< HEAD
   // English function words
   'a', 'about', 'all', 'and', 'any', 'are', 'as', 'at', 'be', 'business', 'by',
   'can', 'data', 'display', 'do', 'does', 'find', 'for', 'from', 'get', 'give',
@@ -65,17 +79,82 @@ const ASSISTANT_STOP_WORDS = Object.freeze(new Set([
   'je', 'kan', 'kun', 'kunt', 'laat', 'lijst', 'met', 'mij', 'naam', 'niet',
   'om', 'ons', 'onze', 'op', 'over', 'te', 'toon', 'tonen', 'uit', 'van',
   'voor', 'wat', 'welke', 'wie', 'wil', 'zie', 'zijn', 'zoek', 'zoeken'
+=======
+  'a', 'an', 'about', 'all', 'alle', 'and', 'are', 'business', 'called', 'de', 'een', 'find',
+  'bedrijf', 'company', 'firma', 'for', 'geef', 'hebben', 'hello', 'hallo', 'hey', 'het', 'hi', 'how', 'ik',
+  'in', 'info', 'informatie', 'is', 'many', 'me', 'met', 'naam', 'name', 'of', 'organisatie', 'organization',
+  'partner', 'partners', 'show', 'tell', 'the', 'toon', 'van', 'wat', 'which',
+  'there', 'who', 'with', 'zijn', 'zoek', 'street', 'straat', 'city', 'stad', 'postal', 'postcode',
+  'country', 'land', 'region', 'regio', 'located', 'gevestigd', 'adres', 'adressen',
+  'address', 'addresses', 'thanks', 'thank', 'bedankt', 'dank'
+>>>>>>> e0a91dce4af0c248ca40646758dbd032a60d5a26
 ]));
 
 const MAINTENANCE_ENTITIES = Object.freeze({
-  Addresses: Object.freeze({ remote: 'A_BusinessPartnerAddress', creatable: true }),
-  BusinessPartnerRoles: Object.freeze({ remote: 'A_BusinessPartnerRole', creatable: true }),
-  TaxNumbers: Object.freeze({ remote: 'A_BusinessPartnerTaxNumber', creatable: true }),
-  BankDetails: Object.freeze({ remote: 'A_BusinessPartnerBank', creatable: true }),
-  Identifications: Object.freeze({ remote: 'A_BuPaIdentification', creatable: true }),
-  Industries: Object.freeze({ remote: 'A_BuPaIndustry', creatable: true }),
-  Customers: Object.freeze({ remote: 'A_Customer', creatable: false }),
-  Suppliers: Object.freeze({ remote: 'A_Supplier', creatable: false })
+  Addresses: Object.freeze({
+    remote: 'A_BusinessPartnerAddress',
+    navigation: 'to_BusinessPartnerAddress',
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['BusinessPartner', 'Country']
+  }),
+  BusinessPartnerRoles: Object.freeze({
+    remote: 'A_BusinessPartnerRole',
+    navigation: 'to_BusinessPartnerRole',
+    creatable: true,
+    deletable: false,
+    requiredCreateFields: ['BusinessPartner', 'BusinessPartnerRole']
+  }),
+  TaxNumbers: Object.freeze({
+    remote: 'A_BusinessPartnerTaxNumber',
+    navigation: 'to_BusinessPartnerTax',
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['BusinessPartner', 'BPTaxType'],
+    oneOfCreateFields: ['BPTaxNumber', 'BPTaxLongNumber']
+  }),
+  BankDetails: Object.freeze({
+    remote: 'A_BusinessPartnerBank',
+    navigation: 'to_BusinessPartnerBank',
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['BusinessPartner', 'BankIdentification'],
+    oneOfCreateFields: ['IBAN', 'BankAccount'],
+    excludedCreateFields: ['BankName', 'SWIFTCode', 'CityName'],
+    excludedUpdateFields: ['BankName', 'SWIFTCode', 'CityName']
+  }),
+  Identifications: Object.freeze({
+    remote: 'A_BuPaIdentification',
+    navigation: 'to_BuPaIdentification',
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: [
+      'BusinessPartner', 'BPIdentificationType', 'BPIdentificationNumber'
+    ]
+  }),
+  Industries: Object.freeze({
+    remote: 'A_BuPaIndustry',
+    navigation: 'to_BuPaIndustry',
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['BusinessPartner', 'IndustrySector', 'IndustrySystemType'],
+    excludedCreateFields: ['IndustryKeyDescription'],
+    excludedUpdateFields: ['IndustryKeyDescription']
+  }),
+  Customers: Object.freeze({
+    remote: 'A_Customer',
+    navigation: 'to_Customer',
+    creatable: false,
+    deletable: false,
+    updatable: true
+  }),
+  Suppliers: Object.freeze({
+    remote: 'A_Supplier',
+    navigation: 'to_Supplier',
+    creatable: false,
+    deletable: false,
+    updatable: true
+  })
 });
 
 const ROOT_UPDATE_EXCLUDED_FIELDS = Object.freeze(new Set([
@@ -174,6 +253,77 @@ function remoteErrorMessage(error, fallback) {
 
 function remoteEntity(service, name) {
   return service.entities?.[name] || `API_BUSINESS_PARTNER.${name}`;
+}
+
+function hasMaintenanceValue(value) {
+  return value !== undefined && value !== null
+    && (typeof value !== 'string' || value.trim() !== '');
+}
+
+function validateMaintenanceCreate(entityName, payload, configuration) {
+  const missing = (configuration.requiredCreateFields || [])
+    .filter((field) => !hasMaintenanceValue(payload[field]));
+  if (missing.length) {
+    throw Object.assign(
+      new Error(`${entityName}: enter required field(s) ${missing.join(', ')}.`),
+      { statusCode: 400 }
+    );
+  }
+
+  const oneOf = configuration.oneOfCreateFields || [];
+  if (oneOf.length && !oneOf.some((field) => hasMaintenanceValue(payload[field]))) {
+    throw Object.assign(
+      new Error(`${entityName}: enter at least one of ${oneOf.join(' or ')}.`),
+      { statusCode: 400 }
+    );
+  }
+}
+
+function businessPartnerNavigationPath(configuration, payload) {
+  const businessPartner = String(payload.BusinessPartner || '').trim();
+  if (!businessPartner) {
+    throw Object.assign(new Error('Enter a business partner number.'), { statusCode: 400 });
+  }
+  const escapedBusinessPartner = businessPartner.replaceAll("'", "''");
+  return `/A_BusinessPartner('${escapedBusinessPartner}')/${configuration.navigation}`;
+}
+
+async function createBusinessPartnerChild(s4, configuration, payload) {
+  return normalizeRemoteResult(await s4.send({
+    method: 'POST',
+    path: businessPartnerNavigationPath(configuration, payload),
+    data: payload
+  }));
+}
+
+function addDefaultAddressUsage(payload, hasExistingAddress) {
+  const result = { ...payload };
+  if (!result.AddressID) delete result.AddressID;
+  if (!hasExistingAddress) {
+    result.to_AddressUsage = [{
+      AddressUsage: 'XXDEFAULT',
+      StandardUsage: true
+    }];
+  }
+  return result;
+}
+
+async function createBusinessPartnerAddress(s4, payload) {
+  const businessPartner = String(payload.BusinessPartner || '').trim();
+  if (!businessPartner) {
+    throw Object.assign(new Error('Enter a business partner number for the address.'), { statusCode: 400 });
+  }
+
+  const existing = normalizeRemoteResult(await s4.run(
+    cds.ql.SELECT.one
+      .from(remoteEntity(s4, 'A_BusinessPartnerAddress'))
+      .columns('AddressID')
+      .where({ BusinessPartner: businessPartner })
+  ));
+  const data = addDefaultAddressUsage(payload, Boolean(existing));
+  // SAP KBA 3109298 requires the first address to be created through this
+  // navigation with an explicit XXDEFAULT address usage.
+  return createBusinessPartnerChild(s4, MAINTENANCE_ENTITIES.Addresses, data);
 }
 
 function extractSearchTerms(searchExpression) {
@@ -302,6 +452,18 @@ function assistantPartnerLine(partner) {
     + ` | Blocked: ${partner.BusinessPartnerIsBlocked ? 'Yes' : 'No'}`;
 }
 
+function assistantAddressLine(address) {
+  return [
+    address.StreetName,
+    address.HouseNumber,
+    address.PostalCode,
+    address.CityName,
+    address.Region,
+    address.Country,
+    address.POBox ? `PO Box ${address.POBox}` : ''
+  ].filter(Boolean).join(' ');
+}
+
 function assistantList(title, partners) {
   if (!partners.length) return `${title}\nNo matching Business Partners were found.`;
   const visible = partners.slice(0, 10);
@@ -363,9 +525,31 @@ function assistantSearchFilter(terms) {
   );
 }
 
+function matchingBusinessPartners(terms, partners = [], addresses = []) {
+  return partners.filter((partner) => {
+    const partnerAddresses = addresses.filter(
+      (address) => String(address.BusinessPartner) === String(partner.BusinessPartner)
+    );
+    const searchable = [
+      ...ASSISTANT_FIELDS.map((field) => partner[field]),
+      ...partnerAddresses.flatMap((address) => (
+        ASSISTANT_ADDRESS_FIELDS.map((field) => address[field])
+      ))
+    ].filter((value) => value !== undefined && value !== null)
+      .join(' ')
+      .toLocaleLowerCase();
+    return terms.every((term) => searchable.includes(term));
+  });
+}
+
 function answerBusinessPartnerQuestion(question, partners = [], addresses = []) {
   const normalized = String(question || '').trim().toLocaleLowerCase();
   if (!normalized) return 'Enter a question about the available Business Partners.';
+  if (/^(?:hallo|hello|hi|hey|goedemorgen|goedemiddag|goedenavond)[!.?\s]*$/iu.test(normalized)) {
+    return /^(?:hallo|goedemorgen|goedemiddag|goedenavond)/iu.test(normalized)
+      ? 'Hallo! Vraag me gerust om een Business Partner te zoeken, te controleren op duplicaten of een nieuwe Business Partner voor te bereiden.'
+      : 'Hello! Ask me to find a Business Partner, check possible duplicates, or prepare a new Business Partner.';
+  }
 
   const asksAddress = /\b(address|addresses|adres|adressen)\b/u.test(normalized);
   const asksGrouping = /\b(grouping|groep|groepering)\b/u.test(normalized);
@@ -375,17 +559,13 @@ function answerBusinessPartnerQuestion(question, partners = [], addresses = []) 
     const number = numberMatch[1];
     const partner = partners.find((item) => String(item.BusinessPartner) === number);
     if (!partner) return `Business Partner ${number} was not found.`;
-    if (!addresses.length) return `${assistantPartnerLine(partner)}\nNo address was found.`;
+    const partnerAddresses = addresses.filter(
+      (address) => String(address.BusinessPartner || number) === number
+    );
+    if (!partnerAddresses.length) return `${assistantPartnerLine(partner)}\nNo address was found.`;
     return [
       `Addresses for ${number} — ${assistantPartnerName(partner)}:`,
-      ...addresses.map((address) => [
-        address.StreetName,
-        address.HouseNumber,
-        address.PostalCode,
-        address.CityName,
-        address.Region,
-        address.Country
-      ].filter(Boolean).join(' '))
+      ...partnerAddresses.map(assistantAddressLine)
     ].join('\n');
   }
 
@@ -440,15 +620,24 @@ function answerBusinessPartnerQuestion(question, partners = [], addresses = []) 
     );
   }
 
+  const terms = assistantSearchTerms(normalized);
   if (/\b(how many|count|aantal|hoeveel|total|totaal)\b/u.test(normalized)) {
+    if (terms.length) {
+      const matching = matchingBusinessPartners(terms, partners, addresses);
+      return `${matching.length} Business Partner${matching.length === 1 ? '' : 's'} match “${terms.join(' ')}”.`;
+    }
     return `There are ${partners.length} Business Partners available in S/4HANA.`;
   }
 
+<<<<<<< HEAD
   const terms = assistantSearchTerms(question);
+=======
+>>>>>>> e0a91dce4af0c248ca40646758dbd032a60d5a26
   if (!terms.length) {
     return 'Try asking “How many Business Partners are there?”, “Which are blocked?”, “Show BP 1”, or “Find Brussels”.';
   }
 
+<<<<<<< HEAD
   // Match on any term and rank by how many terms hit, so a natural sentence
   // still finds the partner the user means.
   const matching = partners
@@ -464,7 +653,237 @@ function answerBusinessPartnerQuestion(question, partners = [], addresses = []) 
     .sort((left, right) => right.score - left.score)
     .map((entry) => entry.partner);
 
+=======
+  const matching = matchingBusinessPartners(terms, partners, addresses);
+>>>>>>> e0a91dce4af0c248ca40646758dbd032a60d5a26
   return assistantList(`Results for “${terms.join(' ')}”`, matching);
+}
+
+function normalizedCompanyName(value) {
+  return String(value || '')
+    .normalize('NFKD')
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+}
+
+function companyFingerprint(value) {
+  const legalForms = new Set([
+    'ag', 'bv', 'bvba', 'co', 'company', 'corp', 'corporation', 'gmbh', 'inc',
+    'limited', 'llc', 'ltd', 'nv', 'plc', 'sa', 'se', 'srl'
+  ]);
+  return normalizedCompanyName(value)
+    .split(/\s+/u)
+    .filter((token) => token && !legalForms.has(token))
+    .join('');
+}
+
+function diceSimilarity(left, right) {
+  if (left === right) return 1;
+  if (left.length < 2 || right.length < 2) return 0;
+  const pairs = new Map();
+  for (let index = 0; index < left.length - 1; index += 1) {
+    const pair = left.slice(index, index + 2);
+    pairs.set(pair, (pairs.get(pair) || 0) + 1);
+  }
+  let overlap = 0;
+  for (let index = 0; index < right.length - 1; index += 1) {
+    const pair = right.slice(index, index + 2);
+    const available = pairs.get(pair) || 0;
+    if (available > 0) {
+      overlap += 1;
+      pairs.set(pair, available - 1);
+    }
+  }
+  return (2 * overlap) / (left.length + right.length - 2);
+}
+
+function findPotentialDuplicates(name, partners = []) {
+  const requested = companyFingerprint(name);
+  if (!requested) return [];
+
+  return partners
+    .map((partner) => {
+      const candidates = [
+        partner.BusinessPartnerFullName,
+        partner.BusinessPartnerName,
+        partner.OrganizationBPName1
+      ].filter(Boolean);
+      const score = Math.max(0, ...candidates.map((candidate) => {
+        const fingerprint = companyFingerprint(candidate);
+        if (!fingerprint) return 0;
+        if (fingerprint === requested) return 1;
+        const ratio = Math.min(fingerprint.length, requested.length)
+          / Math.max(fingerprint.length, requested.length);
+        if (requested.length >= 6 && ratio >= 0.75
+          && (fingerprint.includes(requested) || requested.includes(fingerprint))) return 0.92;
+        return diceSimilarity(requested, fingerprint);
+      }));
+      return { partner, score };
+    })
+    .filter(({ score }) => score >= 0.82)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 5);
+}
+
+function requestedCompanyName(question) {
+  const source = String(question || '').trim();
+  const quoted = source.match(/["“”']([^"“”']{2,80})["“”']/u);
+  const company = source.match(
+    /(?:bedrijf|company|firma|organisatie|organization)\s+(?:genaamd\s+|named\s+)?(.{2,80})$/iu
+  );
+  const about = source.match(/(?:over|about)\s+(?:het\s+|the\s+)?(.{2,80})$/iu);
+  const lookupCommand = source.match(
+    /(?:kan|kun|could|can|wil|would)\s+(?:je|jij|u|you)\s+(.{2,80}?)\s+(?:opzoeken|zoeken|nakijken|look\s+up|lookup|research|check)\b/iu
+  );
+  const lookupAfterVerb = source.match(
+    /(?:look\s+up|lookup|research|check|search\s+for)\s+(.{2,80}?)(?:\s+(?:and|if)\b|[?.!,;:]|$)/iu
+  );
+  const imperative = source.match(
+    /^(?:zoek|search|lookup|research|check)\s+(?:info(?:rmation)?\s+(?:over|about)\s+)?(.{2,80}?)(?:[?.!,;:]|$)/iu
+  );
+  const existenceQuestion = source.match(
+    /(?:is|are)\s+there\s+(?:an?\s+)?(?:business\s+partner|bp|company|organisation|organization)\s+(?:called|named)\s+(.{2,80}?)(?:[?.!,;:]|$)/iu
+  );
+  const dutchExistenceQuestion = source.match(
+    /(?:bestaat|is)\s+er\s+(?:al\s+)?(?:een\s+)?(?:business\s+partner|bp|bedrijf|firma|organisatie)\s+(?:genaamd|met\s+de\s+naam)\s+(.{2,80}?)(?:[?.!,;:]|$)/iu
+  );
+  const namedLookup = source.match(
+    /(?:business\s+partner|bp|bedrijf|firma|organisatie)\s+(?:called|named|genaamd|met\s+de\s+naam)\s+(.{2,80}?)(?:\s+(?:vinden|zoeken|opzoeken|find|lookup|look\s+up)\b|[?.!,;:]|$)/iu
+  );
+  const informalExistenceQuestion = source.match(
+    /(?:kijken|weten|checken|controleren)\s+(?:of|als)\s+(.{2,80}?)\s+(?:al\s+)?(?:bestaat|aanwezig\s+is)(?:[?.!,;:]|$)/iu
+  );
+  const directEnglishExistenceQuestion = source.match(
+    /^does\s+(?:(?:the|a)\s+)?(?:(?:business\s+partner|bp|company|organisation|organization)\s+)?(.{2,80}?)\s+exist(?:s)?(?:\s+(?:in|within)\s+(?:the\s+)?(?:system|s\/4hana))?(?:[?.!,;:]|$)/iu
+  );
+  const directDutchExistenceQuestion = source.match(
+    /^bestaat\s+(?:er\s+)?(?:(?:al|een)\s+)*(?:(?:business\s+partner|bp|bedrijf|firma|organisatie)\s+)?(.{2,80}?)(?:\s+al)?(?:\s+(?:in|binnen)\s+(?:het\s+)?(?:systeem|s\/4hana))?(?:[?.!,;:]|$)/iu
+  );
+  const predicateExistenceQuestion = source.match(
+    /^(?:is|are)\s+(.{2,80}?)\s+(?:an?\s+)?(?:business\s+partner|bp)\b/iu
+  );
+  let name = (quoted && quoted[1])
+    || (company && company[1])
+    || (about && about[1])
+    || (lookupCommand && lookupCommand[1])
+    || (lookupAfterVerb && lookupAfterVerb[1])
+    || (imperative && imperative[1])
+    || (existenceQuestion && existenceQuestion[1])
+    || (dutchExistenceQuestion && dutchExistenceQuestion[1])
+    || (namedLookup && namedLookup[1])
+    || (informalExistenceQuestion && informalExistenceQuestion[1])
+    || (directEnglishExistenceQuestion && directEnglishExistenceQuestion[1])
+    || (directDutchExistenceQuestion && directDutchExistenceQuestion[1])
+    || (predicateExistenceQuestion && predicateExistenceQuestion[1])
+    || '';
+  name = name
+    .replace(/\s+(?:en|and)\s+(?:indien|if|zoek|search|lookup|maak|create)\b[\s\S]*$/iu, '')
+    .replace(/^(?:naar|for)\s+/iu, '')
+    .replace(/[?.!,;:]+$/u, '')
+    .trim();
+  if (!name || /^(?:bedrijf|company|firma|organisatie|organization)$/iu.test(name)) return '';
+  return name;
+}
+
+function parseConversationHistory(value) {
+  if (!value) return [];
+  let parsed;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw Object.assign(new Error('ConversationJson must contain valid JSON.'), { statusCode: 400 });
+  }
+  if (!Array.isArray(parsed)) {
+    throw Object.assign(new Error('ConversationJson must contain a JSON array.'), { statusCode: 400 });
+  }
+  return parsed
+    .filter((entry) => entry && ['user', 'assistant'].includes(entry.role))
+    .map((entry) => ({
+      role: entry.role,
+      content: String(entry.content || '').trim().slice(0, 1000)
+    }))
+    .filter((entry) => entry.content)
+    .slice(-10);
+}
+
+function contextualCompanyName(question, conversationHistory = []) {
+  const direct = requestedCompanyName(question);
+  if (direct) return direct;
+  const source = String(question || '');
+  const isAffirmativeFollowUp = /^(?:yes|yes\s+please|sure|please|ja|ja\s+graag|graag|doe\s+maar|maak\s+(?:die|deze|hem)|prepare\s+it)(?:[?.!,;:]|$)/iu.test(source.trim());
+  const bareWords = source
+    .replace(/[?.!,;:]+$/u, '')
+    .trim()
+    .split(/\s+/u)
+    .filter(Boolean);
+  if (!isAffirmativeFollowUp && bareWords.length >= 1 && bareWords.length <= 6
+    && bareWords.every((word) => !ASSISTANT_STOP_WORDS.has(word.toLocaleLowerCase()))) {
+    return bareWords.join(' ');
+  }
+  const isFollowUp = isAffirmativeFollowUp || /(?:\ber\b[\s\S]*\bvan\b|\bit\b|\bthat\b|\bdie\b|\bdeze\b|\bhiervan\b|\bdaarvan\b)/iu.test(source)
+    && /(?:business\s+partner|\bbp\b|create|maak|maken|prepare|voorstel|informatie|information|research|opzoek|zoek|vergar)/iu.test(source);
+  if (!isFollowUp) return '';
+  for (let index = conversationHistory.length - 1; index >= 0; index -= 1) {
+    if (conversationHistory[index].role !== 'user') continue;
+    const name = requestedCompanyName(conversationHistory[index].content);
+    if (name) return name;
+  }
+  return '';
+}
+
+function businessPartnerCreationSuggestion(
+  question,
+  partners = [],
+  research = null,
+  resolvedCompanyName = ''
+) {
+  const name = resolvedCompanyName || requestedCompanyName(question);
+  if (!name) return null;
+  if (findPotentialDuplicates(name, partners).length) return null;
+  const proposedName = String(research?.source === 'Wikipedia' ? research.title : name).trim();
+  const address = research?.suggestedAddress || {};
+
+  return {
+    SuggestedAction: 'CREATE_BUSINESS_PARTNER',
+    SuggestedData: JSON.stringify({
+      BusinessPartnerCategory: '2',
+      OrganizationBPName1: proposedName.slice(0, 40),
+      SearchTerm1: name.replace(/[^\p{L}\p{N}]+/gu, ' ').trim().slice(0, 20),
+      ...(address.StreetName ? { AddressStreetName: address.StreetName } : {}),
+      ...(address.HouseNumber ? { AddressHouseNumber: address.HouseNumber } : {}),
+      ...(address.PostalCode ? { AddressPostalCode: address.PostalCode } : {}),
+      ...(address.CityName ? { AddressCityName: address.CityName } : {}),
+      ...(address.Country ? { AddressCountry: address.Country } : {})
+    })
+  };
+}
+
+function duplicateAnswer(name, duplicates) {
+  return [
+    `I found ${duplicates.length === 1 ? 'a possible duplicate' : 'possible duplicates'} for “${name}” in S/4HANA. No creation proposal was prepared:`,
+    ...duplicates.map(({ partner, score }) => (
+      `${assistantPartnerLine(partner)} | Name match ${Math.round(score * 100)}%`
+    )),
+    'Review the existing record before creating another Business Partner.'
+  ].join('\n');
+}
+
+function externalResearchAnswer(name, research) {
+  if (!research) {
+    return `${name} is not present as a Business Partner in S/4HANA. No verified public company information could be retrieved, but you can still prepare a new Business Partner with the company name.`;
+  }
+  return [
+    `${name} is not present as a Business Partner in S/4HANA.`,
+    '',
+    `Public company information from ${research.source || 'a public source'} (${research.title}${research.description ? ` - ${research.description}` : ''}):`,
+    research.extract,
+    ...(Array.isArray(research.sources) && research.sources.length
+      ? research.sources.map((source) => `Source: ${source.title} - ${source.url}`)
+      : [`Source: ${research.url}`]),
+    '',
+    'You can prepare a new Business Partner from this suggestion. Review all proposed data before saving it to S/4HANA.'
+  ].join('\n');
 }
 
 class BusinessPartnerService extends cds.ApplicationService {
@@ -596,17 +1015,32 @@ class BusinessPartnerService extends cds.ApplicationService {
       }
 
       const entity = this.entities[req.data.Entity];
-      const payload = sanitizeEntityPayload(data, entity, { isCreate });
+      const excludedFields = new Set(
+        isCreate
+          ? configuration.excludedCreateFields || []
+          : configuration.excludedUpdateFields || []
+      );
+      const payload = sanitizeEntityPayload(data, entity, {
+        isCreate,
+        excluded: excludedFields
+      });
       const targetEntity = remoteEntity(s4, configuration.remote);
 
       if (isCreate) {
         try {
-          const result = normalizeRemoteResult(
-            await s4.run(cds.ql.INSERT.into(targetEntity).entries(payload))
-          );
+          validateMaintenanceCreate(req.data.Entity, payload, configuration);
+          const result = req.data.Entity === 'Addresses'
+            ? await createBusinessPartnerAddress(s4, payload)
+            : await createBusinessPartnerChild(s4, configuration, payload);
           return JSON.stringify(result || payload);
         } catch (error) {
-          req.reject(error.statusCode || 502, remoteErrorMessage(error, `S/4HANA rejected the ${req.data.Entity} create request.`));
+          const message = remoteErrorMessage(error, `S/4HANA rejected the ${req.data.Entity} create request.`);
+          req.reject(
+            error.statusCode || 502,
+            /BUA_CHECK_ADDRESS_VALIDITY_ALL|check table is missing/iu.test(message)
+              ? `${message} The application supplied the required XXDEFAULT usage; verify that address usage XXDEFAULT is configured and active in this S/4HANA system.`
+              : message
+          );
         }
       }
 
@@ -627,12 +1061,51 @@ class BusinessPartnerService extends cds.ApplicationService {
       }
     });
 
+    this.on('deleteBusinessPartnerEntity', async (req) => {
+      const configuration = MAINTENANCE_ENTITIES[req.data.Entity];
+      if (!configuration) {
+        req.reject(400, `Entity ${req.data.Entity || ''} is not available for maintenance.`, 'Entity');
+      }
+      if (!configuration.deletable) {
+        req.reject(405, `${req.data.Entity} cannot be deleted through this Business Partner API.`);
+      }
+
+      let keys;
+      try {
+        keys = sanitizeEntityKeys(
+          parseJsonObject(req.data.KeyJson, 'KeyJson'),
+          this.entities[req.data.Entity]
+        );
+      } catch (error) {
+        req.reject(error.statusCode || 400, error.message, 'KeyJson');
+      }
+
+      try {
+        const affectedRows = await s4.run(
+          cds.ql.DELETE.from(remoteEntity(s4, configuration.remote)).where(keys)
+        );
+        return affectedRows !== 0;
+      } catch (error) {
+        req.reject(
+          error.statusCode || 502,
+          remoteErrorMessage(error, `S/4HANA rejected the ${req.data.Entity} delete request.`)
+        );
+      }
+    });
+
     this.on('askBusinessPartnerAssistant', async (req) => {
       const question = String(req.data.Question || '').trim();
       if (!question) req.reject(400, 'Enter a question.', 'Question');
+      let conversationHistory;
+      try {
+        conversationHistory = parseConversationHistory(req.data.ConversationJson);
+      } catch (error) {
+        req.reject(error.statusCode || 400, error.message, 'ConversationJson');
+      }
 
       const rootEntity = remoteEntity(s4, 'A_BusinessPartner');
       try {
+<<<<<<< HEAD
         const normalized = question.toLocaleLowerCase();
         const numberMatch = normalized.match(/\b(?:bp|business partner|partner)\s*#?\s*(\d{1,10})\b/u);
         // Aggregate questions need the broad set; a name search must be pushed
@@ -661,30 +1134,50 @@ class BusinessPartnerService extends cds.ApplicationService {
         let addresses = [];
         if (/\b(address|addresses|adres|adressen)\b/u.test(normalized) && numberMatch) {
           const addressResult = await s4.run(
+=======
+        const [result, addressResult] = await Promise.all([
+          s4.run(cds.ql.SELECT.from(rootEntity).columns(...ASSISTANT_FIELDS).limit(1000)),
+          s4.run(
+>>>>>>> e0a91dce4af0c248ca40646758dbd032a60d5a26
             cds.ql.SELECT
               .from(remoteEntity(s4, 'A_BusinessPartnerAddress'))
-              .columns(
-                'BusinessPartner',
-                'AddressID',
-                'StreetName',
-                'HouseNumber',
-                'PostalCode',
-                'CityName',
-                'Region',
-                'Country'
-              )
-              .where({ BusinessPartner: numberMatch[1] })
-              .limit(50)
-          );
-          addresses = Array.isArray(addressResult) ? addressResult : [];
+              .columns(...ASSISTANT_ADDRESS_FIELDS)
+              .limit(5000)
+          )
+        ]);
+        const partners = Array.isArray(result) ? result : [];
+        const addresses = Array.isArray(addressResult) ? addressResult : [];
+        const companyName = contextualCompanyName(question, conversationHistory);
+        const duplicates = companyName ? findPotentialDuplicates(companyName, partners) : [];
+        let research = null;
+        if (companyName && !duplicates.length) {
+          try {
+            research = await researchCompany(companyName);
+          } catch (error) {
+            console.warn('[assistant] Public company lookup unavailable:', error.message);
+          }
         }
-        const fallbackAnswer = answerBusinessPartnerQuestion(question, partners, addresses);
-        return await askSapAiCore({
+        const suggestion = duplicates.length
+          ? null
+          : businessPartnerCreationSuggestion(question, partners, research, companyName);
+        const fallbackAnswer = duplicates.length
+          ? duplicateAnswer(companyName, duplicates)
+          : suggestion
+            ? externalResearchAnswer(companyName, research)
+            : answerBusinessPartnerQuestion(question, partners, addresses);
+        const assistantResult = await askSapAiCore({
           question,
           partners,
           addresses,
-          fallbackAnswer
+          fallbackAnswer,
+          externalResearch: research,
+          duplicateCandidates: duplicates.map(({ partner, score }) => ({
+            ...partner,
+            MatchScore: Math.round(score * 100)
+          })),
+          conversationHistory
         });
+        return { ...assistantResult, ...(suggestion || {}) };
       } catch (error) {
         req.reject(
           error.statusCode || 502,
@@ -705,6 +1198,7 @@ class BusinessPartnerService extends cds.ApplicationService {
 
 BusinessPartnerService._internals = {
   ASSISTANT_FIELDS,
+  ASSISTANT_ADDRESS_FIELDS,
   SEARCHABLE_FIELDS,
   CREATE_FIELDS,
   UPDATE_FIELDS,
@@ -713,13 +1207,25 @@ BusinessPartnerService._internals = {
   applyBusinessPartnerSearch,
   extractSearchTerms,
   pickDefined,
+  parseConversationHistory,
   parseJsonObject,
   normalizeRemoteResult,
   remoteErrorMessage,
+  businessPartnerNavigationPath,
+  createBusinessPartnerChild,
+  addDefaultAddressUsage,
+  createBusinessPartnerAddress,
   sanitizeEntityKeys,
   sanitizeEntityPayload,
+  validateMaintenanceCreate,
   validateBusinessPartnerCreate,
-  answerBusinessPartnerQuestion
+  answerBusinessPartnerQuestion,
+  findPotentialDuplicates,
+  requestedCompanyName,
+  contextualCompanyName,
+  businessPartnerCreationSuggestion,
+  duplicateAnswer,
+  externalResearchAnswer
 };
 
 module.exports = BusinessPartnerService;

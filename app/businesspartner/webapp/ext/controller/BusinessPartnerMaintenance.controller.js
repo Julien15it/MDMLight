@@ -24,7 +24,7 @@ sap.ui.define([
   "sap/m/SearchField",
   "sap/m/VBox",
   "mdm/md/businesspartner/manage/ext/BusinessPartnerMetadata",
-  "mdm/md/businesspartner/manage/ext/CustomActions"
+  "mdm/md/businesspartner/manage/ext/BusinessPartnerAssistant"
 ], function (
   Controller,
   JSONModel,
@@ -51,7 +51,7 @@ sap.ui.define([
   SearchField,
   VBox,
   Metadata,
-  CustomActions
+  BusinessPartnerAssistant
 ) {
   "use strict";
 
@@ -191,6 +191,8 @@ sap.ui.define([
           previewSearchTerm: "",
           previewLanguage: "",
           sectionWarnings: [],
+          deletedRecords: {},
+          originalRoot: {},
           root: {
             BusinessPartnerCategory: "2",
             BusinessPartnerGrouping: ""
@@ -199,12 +201,29 @@ sap.ui.define([
         };
       },
 
-      _onCreateRoute: function () {
+      _onCreateRoute: function (event) {
         var state = this._emptyState();
+        var routeArguments = event && event.getParameter("arguments") || {};
+        var query = routeArguments["?query"] || {};
+        ["BusinessPartnerCategory", "BusinessPartnerGrouping", "OrganizationBPName1", "SearchTerm1"]
+          .forEach(function (field) {
+            if (query[field]) state.root[field] = query[field];
+          });
         this.getView().getModel("maintenance").setData(state);
         this._metadata.forEach(function (section) {
           if (section.kind !== "root") state.sections[section.id] = [];
         });
+        var suggestedAddress = {
+          StreetName: query.AddressStreetName || "",
+          HouseNumber: query.AddressHouseNumber || "",
+          PostalCode: query.AddressPostalCode || "",
+          CityName: query.AddressCityName || "",
+          Country: query.AddressCountry || ""
+        };
+        if (Object.values(suggestedAddress).some(Boolean)) {
+          suggestedAddress.__state = "new";
+          state.sections.Addresses.push(suggestedAddress);
+        }
         this.getView().getModel("maintenance").refresh(true);
         this._updatePreview(state);
         this._renderAll();
@@ -244,6 +263,7 @@ sap.ui.define([
           );
           var rootContext = rootBinding.getBoundContext();
           state.root = clone(await rootContext.requestObject());
+          state.originalRoot = clone(state.root);
           rootBinding.destroy();
 
           var sections = await Promise.all(
@@ -379,7 +399,10 @@ sap.ui.define([
       },
 
       _createForm: function (section, record, isCreate, editing) {
-        var content = section.fields.map(function (field) {
+        var content = section.fields.filter(function (field) {
+          if (field.name === section.relationField) return false;
+          return !(isCreate && field.key && field.creatable === false);
+        }).map(function (field) {
           var control = this._createFieldControl(section, field, record, isCreate, editing);
           return new VBox({
             items: [
@@ -412,6 +435,7 @@ sap.ui.define([
         if (section.kind === "root" && isCreate) {
           return ["BusinessPartnerCategory", "BusinessPartnerGrouping"].includes(field.name);
         }
+        if (isCreate && (section.requiredCreateFields || []).includes(field.name)) return true;
         return !field.nullable;
       },
 
@@ -528,6 +552,11 @@ sap.ui.define([
       },
 
       _summaryFields: function (section) {
+        var preferred = (section.summaryFields || []).map(function (fieldName) {
+          return section.fields.find(function (field) { return field.name === fieldName; });
+        }).filter(Boolean);
+        if (preferred.length) return preferred;
+
         var relationField = section.relationField;
         var keys = section.fields.filter(function (field) {
           return field.key && field.name !== relationField;
@@ -575,13 +604,26 @@ sap.ui.define([
         summaryFields.forEach(function (field) {
           table.addColumn(new Column({ header: new Text({ text: field.label }) }));
         });
+        var showDelete = state.editing && section.deletable !== false;
+        if (showDelete) {
+          table.addColumn(new Column({ width: "4rem", header: new Text({ text: "Actions" }) }));
+        }
 
         records.forEach(function (record, index) {
+          var cells = summaryFields.map(function (field) {
+            return new Text({ text: displayValue(record[field.name]), wrapping: false });
+          });
+          if (showDelete) {
+            cells.push(new Button({
+              icon: "sap-icon://delete",
+              type: "Transparent",
+              tooltip: "Delete",
+              press: this._confirmDeleteRecord.bind(this, section, index)
+            }));
+          }
           var item = new ColumnListItem({
             type: "Active",
-            cells: summaryFields.map(function (field) {
-              return new Text({ text: displayValue(record[field.name]), wrapping: false });
-            })
+            cells: cells
           });
           item.attachPress(this._openExistingRecord.bind(this, section, index));
           table.addItem(item);
@@ -600,7 +642,7 @@ sap.ui.define([
 
         container.addItem(table);
         container.addItem(new Text({
-          text: "Open a row to maintain every available field for this entity.",
+          text: "Open a row to view or maintain these fields.",
           wrapping: true
         }).addStyleClass("sapUiTinyMarginTop"));
       },
@@ -615,6 +657,51 @@ sap.ui.define([
       _openExistingRecord: function (section, index) {
         var records = this.getView().getModel("maintenance").getData().sections[section.id] || [];
         this._openRecordDialog(section, clone(records[index]), false, index);
+      },
+
+      _confirmDeleteRecord: function (section, index) {
+        MessageBox.confirm("Delete this " + section.title.toLowerCase() + " record?", {
+          emphasizedAction: MessageBox.Action.DELETE,
+          actions: [MessageBox.Action.DELETE, MessageBox.Action.CANCEL],
+          onClose: function (action) {
+            if (action !== MessageBox.Action.DELETE) return;
+            var state = this.getView().getModel("maintenance").getData();
+            var records = state.sections[section.id] || [];
+            var record = records[index];
+            if (!record) return;
+            if (record.__state !== "new") {
+              state.deletedRecords[section.id] = state.deletedRecords[section.id] || [];
+              state.deletedRecords[section.id].push(record);
+            }
+            records.splice(index, 1);
+            this.getView().getModel("maintenance").refresh(true);
+            this._renderSection(section);
+          }.bind(this)
+        });
+      },
+
+      _sectionRecordErrors: function (section, record, isCreate) {
+        if (!isCreate) return [];
+        var hasValue = function (value) {
+          return value !== undefined && value !== null
+            && (typeof value !== "string" || value.trim() !== "");
+        };
+        var label = function (fieldName) {
+          var field = section.fields.find(function (candidate) {
+            return candidate.name === fieldName;
+          });
+          return field ? field.label : fieldName;
+        };
+        var errors = (section.requiredCreateFields || [])
+          .filter(function (fieldName) { return !hasValue(record[fieldName]); })
+          .map(function (fieldName) { return "Enter " + label(fieldName) + "."; });
+        var oneOf = section.oneOfCreateFields || [];
+        if (oneOf.length && !oneOf.some(function (fieldName) {
+          return hasValue(record[fieldName]);
+        })) {
+          errors.push("Enter at least one of " + oneOf.map(label).join(" or ") + ".");
+        }
+        return errors;
       },
 
       _openRecordDialog: function (section, record, isCreate, index) {
@@ -634,6 +721,11 @@ sap.ui.define([
             type: "Emphasized",
             visible: editing,
             press: function () {
+              var validationErrors = this._sectionRecordErrors(section, record, isCreate);
+              if (validationErrors.length) {
+                MessageBox.error(validationErrors.join("\n"));
+                return;
+              }
               var state = this.getView().getModel("maintenance").getData();
               var records = state.sections[section.id] || [];
               if (isCreate) {
@@ -659,13 +751,14 @@ sap.ui.define([
         dialog.open();
       },
 
-      _writablePayload: function (section, record, isCreate) {
+      _writablePayload: function (section, record, isCreate, originalRecord) {
         return Object.fromEntries(
           section.fields
             .filter(function (field) {
               if (record[field.name] === undefined || record[field.name] === null) return false;
               if (isCreate) return field.creatable !== false;
-              return field.updatable !== false && !field.key;
+              if (field.updatable === false || field.key) return false;
+              return !originalRecord || record[field.name] !== originalRecord[field.name];
             })
             .map(function (field) { return [field.name, record[field.name]]; })
         );
@@ -751,11 +844,20 @@ sap.ui.define([
         maintenanceModel.refresh(true);
 
         try {
-          var result = await this._executeAction("saveBusinessPartner", {
-            BusinessPartner: state.businessPartner || state.root.BusinessPartner || null,
-            IsCreate: isCreate,
-            DataJson: JSON.stringify(this._writablePayload(this._rootSection, state.root, isCreate))
-          });
+          var rootPayload = this._writablePayload(
+            this._rootSection,
+            state.root,
+            isCreate,
+            isCreate ? null : state.originalRoot
+          );
+          var result = state.root;
+          if (isCreate || Object.keys(rootPayload).length > 0) {
+            result = await this._executeAction("saveBusinessPartner", {
+              BusinessPartner: state.businessPartner || state.root.BusinessPartner || null,
+              IsCreate: isCreate,
+              DataJson: JSON.stringify(rootPayload)
+            });
+          }
           var businessPartner = result && result.BusinessPartner
             ? result.BusinessPartner
             : state.businessPartner || state.root.BusinessPartner;
@@ -784,6 +886,19 @@ sap.ui.define([
                 })
               );
             }
+            var deletedRecords = state.deletedRecords[section.id] || [];
+            for (var deletedRecord of deletedRecords) {
+              var deleteKeys = deletedRecord.__keys || Object.fromEntries(
+                section.fields.filter(function (field) { return field.key; }).map(function (field) {
+                  return [field.name, deletedRecord[field.name]];
+                })
+              );
+              await this._executeAction("deleteBusinessPartnerEntity", {
+                Entity: section.id,
+                KeyJson: JSON.stringify(deleteKeys)
+              });
+            }
+            state.deletedRecords[section.id] = [];
           }
 
           state.mode = "display";
@@ -808,8 +923,8 @@ sap.ui.define([
         this._router.navTo("BusinessPartnersList", {}, true);
       },
 
-      onOpenAssistant: function (event) {
-        CustomActions.openAssistant(event);
+      onOpenAssistant: function () {
+        BusinessPartnerAssistant.open(this.getView().getModel(), this.getView());
       },
 
       onCancel: function () {

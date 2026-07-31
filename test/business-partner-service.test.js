@@ -6,15 +6,25 @@ const cds = require('@sap/cds');
 
 const BusinessPartnerService = require('../srv/business-partner-service');
 const {
+  MAINTENANCE_ENTITIES,
   SEARCHABLE_FIELDS,
   answerBusinessPartnerQuestion,
+  addDefaultAddressUsage,
+  businessPartnerCreationSuggestion,
+  businessPartnerNavigationPath,
+  createBusinessPartnerChild,
+  createBusinessPartnerAddress,
+  contextualCompanyName,
+  findPotentialDuplicates,
   applyBusinessPartnerSearch,
   normalizeRemoteResult,
+  parseConversationHistory,
   parseJsonObject,
   pickDefined,
   remoteErrorMessage,
   sanitizeEntityKeys,
   sanitizeEntityPayload,
+  validateMaintenanceCreate,
   validateBusinessPartnerCreate
 } = BusinessPartnerService._internals;
 
@@ -208,6 +218,11 @@ test('Business Partner Assistant answers grounded overview and search questions'
     answerBusinessPartnerQuestion('Find Brussels', partners),
     /1 — Brussels Pharmaceuticals SA\/NV/
   );
+  assert.match(answerBusinessPartnerQuestion('Hallo', partners), /Hallo!/);
+  assert.equal(
+    answerBusinessPartnerQuestion('How many Business Partners are there with the name Brussels?', partners),
+    '1 Business Partner match “brussels”.'
+  );
 });
 
 test('Business Partner Assistant can return address details for one partner', () => {
@@ -228,5 +243,279 @@ test('Business Partner Assistant can return address details for one partner', ()
   assert.match(
     answerBusinessPartnerQuestion('What is the address of BP 1?', partners, addresses),
     /Dorpstraat 5 1000 Brussel BE/
+  );
+});
+
+test('Business Partner Assistant searches safe address fields', () => {
+  const partners = [{
+    BusinessPartner: '1',
+    BusinessPartnerFullName: 'Brussels Pharmaceuticals SA/NV',
+    BusinessPartnerCategory: '2',
+    BusinessPartnerGrouping: '0001'
+  }];
+  const addresses = [{
+    BusinessPartner: '1',
+    StreetName: 'Dorpstraat',
+    HouseNumber: '5',
+    PostalCode: '1000',
+    CityName: 'Brussel',
+    Country: 'BE'
+  }];
+
+  assert.match(
+    answerBusinessPartnerQuestion('Find Business Partners in Dorpstraat', partners, addresses),
+    /Brussels Pharmaceuticals SA\/NV/
+  );
+});
+
+test('first address receives XXDEFAULT usage and later addresses do not', async () => {
+  assert.deepEqual(addDefaultAddressUsage({
+    BusinessPartner: '1000',
+    AddressID: '',
+    StreetName: 'Dorpstraat'
+  }, false), {
+    BusinessPartner: '1000',
+    StreetName: 'Dorpstraat',
+    to_AddressUsage: [{ AddressUsage: 'XXDEFAULT', StandardUsage: true }]
+  });
+
+  let sent;
+  const firstAddressService = {
+    run: async () => null,
+    send: async (request) => {
+      sent = request;
+      return { BusinessPartner: '1000', AddressID: '1' };
+    }
+  };
+  await createBusinessPartnerAddress(firstAddressService, {
+    BusinessPartner: '1000',
+    StreetName: 'Dorpstraat'
+  });
+  assert.equal(sent.path, "/A_BusinessPartner('1000')/to_BusinessPartnerAddress");
+  assert.deepEqual(sent.data.to_AddressUsage, [{
+    AddressUsage: 'XXDEFAULT',
+    StandardUsage: true
+  }]);
+
+  const laterAddressService = {
+    run: async () => ({ AddressID: '1' }),
+    send: async (request) => request.data
+  };
+  const later = await createBusinessPartnerAddress(laterAddressService, {
+    BusinessPartner: '1000',
+    StreetName: 'Nieuwstraat'
+  });
+  assert.equal(later.to_AddressUsage, undefined);
+});
+
+test('all creatable maintenance entities use their Business Partner navigation', async () => {
+  const expected = {
+    Addresses: 'to_BusinessPartnerAddress',
+    BusinessPartnerRoles: 'to_BusinessPartnerRole',
+    TaxNumbers: 'to_BusinessPartnerTax',
+    BankDetails: 'to_BusinessPartnerBank',
+    Identifications: 'to_BuPaIdentification',
+    Industries: 'to_BuPaIndustry'
+  };
+
+  for (const [entityName, navigation] of Object.entries(expected)) {
+    const configuration = MAINTENANCE_ENTITIES[entityName];
+    assert.equal(configuration.creatable, true);
+    assert.equal(
+      businessPartnerNavigationPath(configuration, { BusinessPartner: '1000' }),
+      `/A_BusinessPartner('1000')/${navigation}`
+    );
+    let sent;
+    await createBusinessPartnerChild({
+      send: async (request) => {
+        sent = request;
+        return { BusinessPartner: '1000' };
+      }
+    }, configuration, { BusinessPartner: '1000' });
+    assert.equal(sent.method, 'POST');
+    assert.equal(sent.path, `/A_BusinessPartner('1000')/${navigation}`);
+  }
+
+  assert.equal(MAINTENANCE_ENTITIES.Customers.creatable, false);
+  assert.equal(MAINTENANCE_ENTITIES.Customers.updatable, true);
+  assert.equal(MAINTENANCE_ENTITIES.Suppliers.creatable, false);
+  assert.equal(MAINTENANCE_ENTITIES.Suppliers.updatable, true);
+  assert.equal(MAINTENANCE_ENTITIES.Addresses.deletable, true);
+  assert.equal(MAINTENANCE_ENTITIES.TaxNumbers.deletable, true);
+  assert.equal(MAINTENANCE_ENTITIES.BankDetails.deletable, true);
+  assert.equal(MAINTENANCE_ENTITIES.Identifications.deletable, true);
+  assert.equal(MAINTENANCE_ENTITIES.Industries.deletable, true);
+  assert.equal(MAINTENANCE_ENTITIES.BusinessPartnerRoles.deletable, false);
+});
+
+test('maintenance create validation enforces entity keys and useful values', () => {
+  assert.doesNotThrow(() => validateMaintenanceCreate('TaxNumbers', {
+    BusinessPartner: '1000',
+    BPTaxType: 'BE0',
+    BPTaxNumber: 'BE0123456789'
+  }, MAINTENANCE_ENTITIES.TaxNumbers));
+  assert.throws(() => validateMaintenanceCreate('TaxNumbers', {
+    BusinessPartner: '1000',
+    BPTaxType: 'BE0'
+  }, MAINTENANCE_ENTITIES.TaxNumbers), /BPTaxNumber or BPTaxLongNumber/);
+  assert.throws(() => validateMaintenanceCreate('BankDetails', {
+    BusinessPartner: '1000',
+    IBAN: 'BE00000000000000'
+  }, MAINTENANCE_ENTITIES.BankDetails), /BankIdentification/);
+});
+
+test('assistant duplicate check catches legal-form and spelling variants', () => {
+  const partners = [{
+    BusinessPartner: '1000',
+    BusinessPartnerFullName: 'Coca-Cola European Partners NV'
+  }];
+  assert.equal(findPotentialDuplicates('Coca Cola European Partners', partners).length, 1);
+  assert.equal(findPotentialDuplicates('Completely Different Company', partners).length, 0);
+});
+
+test('assistant proposes a prefilled Business Partner when a company is absent', () => {
+  const partners = [{
+    BusinessPartner: '1',
+    BusinessPartnerFullName: 'Existing Company'
+  }];
+
+  const suggestion = businessPartnerCreationSuggestion(
+    'Geef info over het bedrijf Coca-Cola',
+    partners
+  );
+  assert.equal(suggestion.SuggestedAction, 'CREATE_BUSINESS_PARTNER');
+  assert.deepEqual(JSON.parse(suggestion.SuggestedData), {
+    BusinessPartnerCategory: '2',
+    OrganizationBPName1: 'Coca-Cola',
+    SearchTerm1: 'Coca Cola'
+  });
+  assert.equal(
+    JSON.parse(businessPartnerCreationSuggestion(
+      'Geef info over het bedrijf Coca-Cola',
+      partners,
+      { title: 'The Coca-Cola Company', source: 'Wikipedia' }
+    ).SuggestedData).OrganizationBPName1,
+    'The Coca-Cola Company'
+  );
+  assert.equal(
+    businessPartnerCreationSuggestion('Geef info over bedrijf Existing Company', partners),
+    null
+  );
+  const publicSuggestion = JSON.parse(businessPartnerCreationSuggestion(
+    'Geef info over het bedrijf SPAR Destelbergen',
+    partners,
+    {
+      title: 'Contact - Spar Destelbergen',
+      source: 'Public web search',
+      suggestedAddress: {
+        StreetName: 'Dendermondsesteenweg',
+        HouseNumber: '468',
+        PostalCode: '9070',
+        CityName: 'Destelbergen',
+        Country: 'BE'
+      }
+    }
+  ).SuggestedData);
+  assert.equal(publicSuggestion.OrganizationBPName1, 'SPAR Destelbergen');
+  assert.equal(publicSuggestion.AddressStreetName, 'Dendermondsesteenweg');
+});
+
+test('assistant recognizes free-form Dutch and English company lookup requests', () => {
+  assert.equal(
+    BusinessPartnerService._internals.requestedCompanyName(
+      'Kan je SPAR Destelbergen opzoeken en indien die niet bestaat info opzoeken op internet en de nieuwe BP aanmaken?'
+    ),
+    'SPAR Destelbergen'
+  );
+  assert.equal(
+    BusinessPartnerService._internals.requestedCompanyName(
+      'Could you look up Contoso Belgium and create a proposal if it does not exist?'
+    ),
+    'Contoso Belgium'
+  );
+  assert.equal(
+    BusinessPartnerService._internals.requestedCompanyName(
+      'Is there a Business Partner called Spar Destelbergen?'
+    ),
+    'Spar Destelbergen'
+  );
+  assert.equal(
+    BusinessPartnerService._internals.requestedCompanyName(
+      'Bestaat er een business partner met de naam Spar Destelbergen?'
+    ),
+    'Spar Destelbergen'
+  );
+  assert.equal(
+    BusinessPartnerService._internals.requestedCompanyName(
+      'Kan je een business partner met de naam Spar Destelbergen vinden?'
+    ),
+    'Spar Destelbergen'
+  );
+  assert.equal(
+    BusinessPartnerService._internals.requestedCompanyName(
+      'Ik wil kijken als SPAR destelbergen al bestaat?'
+    ),
+    'SPAR destelbergen'
+  );
+  assert.equal(
+    BusinessPartnerService._internals.requestedCompanyName(
+      'Does Spar Destelbergen exist?'
+    ),
+    'Spar Destelbergen'
+  );
+  assert.equal(
+    BusinessPartnerService._internals.requestedCompanyName(
+      'Does Intellus exist in the system?'
+    ),
+    'Intellus'
+  );
+  assert.equal(
+    BusinessPartnerService._internals.requestedCompanyName(
+      'Bestaat SPAR Destelbergen al in het systeem?'
+    ),
+    'SPAR Destelbergen'
+  );
+  assert.equal(
+    BusinessPartnerService._internals.requestedCompanyName(
+      'Is Intellus a Business Partner? In case not, can you make it?'
+    ),
+    'Intellus'
+  );
+});
+
+test('assistant resolves a company from prior turns for a follow-up create request', () => {
+  const history = parseConversationHistory(JSON.stringify([
+    { role: 'user', content: 'Kan je een business partner met de naam Spar Destelbergen vinden?' },
+    { role: 'assistant', content: 'No matching Business Partner was found.' }
+  ]));
+  assert.equal(
+    contextualCompanyName('Kan je informatie vergaren en er een BP van maken?', history),
+    'Spar Destelbergen'
+  );
+  assert.equal(contextualCompanyName('Yes', history), 'Spar Destelbergen');
+  assert.equal(contextualCompanyName('Ja graag', history), 'Spar Destelbergen');
+  assert.equal(contextualCompanyName('Intellus', []), 'Intellus');
+  assert.equal(contextualCompanyName('Hallo', []), '');
+  const confirmedSuggestion = JSON.parse(businessPartnerCreationSuggestion(
+    'Yes',
+    [],
+    {
+      source: 'Public web search',
+      suggestedAddress: {
+        StreetName: 'Dendermondsesteenweg',
+        HouseNumber: '468',
+        PostalCode: '9070',
+        CityName: 'Destelbergen',
+        Country: 'BE'
+      }
+    },
+    contextualCompanyName('Yes', history)
+  ).SuggestedData);
+  assert.equal(confirmedSuggestion.OrganizationBPName1, 'Spar Destelbergen');
+  assert.equal(confirmedSuggestion.AddressCityName, 'Destelbergen');
+  assert.equal(contextualCompanyName('SPAR destelbergen', history), 'SPAR destelbergen');
+  assert.throws(
+    () => parseConversationHistory('{broken'),
+    /ConversationJson must contain valid JSON/
   );
 });
