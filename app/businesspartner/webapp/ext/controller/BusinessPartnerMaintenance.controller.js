@@ -24,7 +24,7 @@ sap.ui.define([
   "sap/m/SearchField",
   "sap/m/VBox",
   "mdm/md/businesspartner/manage/ext/BusinessPartnerMetadata",
-  "mdm/md/businesspartner/manage/ext/CustomActions"
+  "mdm/md/businesspartner/manage/ext/BusinessPartnerAssistant"
 ], function (
   Controller,
   JSONModel,
@@ -51,7 +51,7 @@ sap.ui.define([
   SearchField,
   VBox,
   Metadata,
-  CustomActions
+  BusinessPartnerAssistant
 ) {
   "use strict";
 
@@ -808,8 +808,8 @@ sap.ui.define([
         this._router.navTo("BusinessPartnersList", {}, true);
       },
 
-      onOpenAssistant: function (event) {
-        CustomActions.openAssistant(event);
+      onOpenAssistant: function () {
+        BusinessPartnerAssistant.open(this.getView().getModel(), this.getView());
       },
 
       onCancel: function () {

@@ -96,7 +96,12 @@ const sections = [
     relationField: 'Supplier',
     typeName: 'A_SupplierType',
     kind: 'single',
-    creatable: false
+    creatable: false,
+    excludedFields: [
+      'BusinessPartnerPanNumber',
+      'JP_SuplrAmtInCapitalAmount',
+      'JP_SupplierCapitalAmountCrcy'
+    ]
   }
 ];
 

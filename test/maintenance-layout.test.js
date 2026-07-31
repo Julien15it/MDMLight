@@ -38,18 +38,36 @@ test('primary cards stay concise while every root field remains accessible', () 
   assert.match(controller, /this\._rootSection\.fields\.filter/);
 });
 
-test('customer projection excludes the field missing in the target S/4 release', async () => {
+test('facade excludes fields missing in the target S/4 release', async () => {
   const model = await cds.load(path.join(__dirname, '..', 'srv'));
   const customer = model.definitions['BusinessPartnerService.Customers'];
+  const supplier = model.definitions['BusinessPartnerService.Suppliers'];
 
   assert.ok(customer);
+  assert.ok(supplier);
   assert.equal(customer.elements.BR_ICMSTaxPayerType, undefined);
+  assert.equal(supplier.elements.BusinessPartnerPanNumber, undefined);
+  assert.equal(supplier.elements.JP_SuplrAmtInCapitalAmount, undefined);
+  assert.equal(supplier.elements.JP_SupplierCapitalAmountCrcy, undefined);
 
   const metadata = fs.readFileSync(
     path.join(webapp, 'ext', 'BusinessPartnerMetadata.js'),
     'utf8'
   );
   assert.doesNotMatch(metadata, /BR_ICMSTaxPayerType/);
+  assert.doesNotMatch(metadata, /BusinessPartnerPanNumber/);
+  assert.doesNotMatch(metadata, /JP_SuplrAmtInCapitalAmount/);
+  assert.doesNotMatch(metadata, /JP_SupplierCapitalAmountCrcy/);
+});
+
+test('maintenance page opens the assistant with its own OData model', () => {
+  const controller = fs.readFileSync(
+    path.join(webapp, 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),
+    'utf8'
+  );
+
+  assert.match(controller, /BusinessPartnerAssistant\.open\(this\.getView\(\)\.getModel\(\), this\.getView\(\)\)/);
+  assert.doesNotMatch(controller, /CustomActions\.openAssistant\(event\)/);
 });
 
 test('a failed related section does not block root editing', () => {

@@ -87,7 +87,14 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
   @readonly entity Customers            as projection on S4.A_Customer excluding {
     BR_ICMSTaxPayerType
   };
-  @readonly entity Suppliers            as projection on S4.A_Supplier;
+  // These fields exist in newer API metadata but not in the VF on-premise
+  // implementation. Excluding them prevents section reads from failing with
+  // "Resource not found for the segment" while retaining all supported data.
+  @readonly entity Suppliers            as projection on S4.A_Supplier excluding {
+    BusinessPartnerPanNumber,
+    JP_SuplrAmtInCapitalAmount,
+    JP_SupplierCapitalAmountCrcy
+  };
 
   // Remaining API_BUSINESS_PARTNER entity sets. They are exposed read-only so
   // consumers can use the complete S/4 API without risking accidental writes.

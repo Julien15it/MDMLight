@@ -2182,16 +2182,6 @@ sap.ui.define([], function () {
             "updatable": true
           },
           {
-            "name": "BusinessPartnerPanNumber",
-            "label": "PAN",
-            "type": "cds.String",
-            "key": false,
-            "nullable": true,
-            "maxLength": 40,
-            "creatable": true,
-            "updatable": true
-          },
-          {
             "name": "CreatedByUser",
             "label": "Created by",
             "type": "cds.String",
@@ -2530,27 +2520,6 @@ sap.ui.define([], function () {
             "key": false,
             "nullable": true,
             "maxLength": 2,
-            "creatable": true,
-            "updatable": true
-          },
-          {
-            "name": "JP_SuplrAmtInCapitalAmount",
-            "label": "Capital Amount",
-            "type": "cds.Decimal",
-            "key": false,
-            "nullable": true,
-            "precision": 16,
-            "scale": 3,
-            "creatable": true,
-            "updatable": true
-          },
-          {
-            "name": "JP_SupplierCapitalAmountCrcy",
-            "label": "Currency",
-            "type": "cds.String",
-            "key": false,
-            "nullable": true,
-            "maxLength": 5,
             "creatable": true,
             "updatable": true
           }
