@@ -116,6 +116,19 @@ test('related entity forms validate required and alternative create fields', () 
   assert.match(metadata, /"IBAN"/);
 });
 
+test('deletable related entities expose a confirmed delete action', async () => {
+  const controller = fs.readFileSync(
+    path.join(webapp, 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),
+    'utf8'
+  );
+  const model = await cds.load(path.join(__dirname, '..', 'srv'));
+
+  assert.match(controller, /_confirmDeleteRecord/);
+  assert.match(controller, /deleteBusinessPartnerEntity/);
+  assert.match(controller, /sap-icon:\/\/delete/);
+  assert.ok(model.definitions['BusinessPartnerService.deleteBusinessPartnerEntity']);
+});
+
 test('application component initializes list actions with the main OData model', () => {
   const component = fs.readFileSync(path.join(webapp, 'Component.js'), 'utf8');
   assert.match(component, /CustomActions\.setEnvironment\(this\.getModel\(\), null\)/);

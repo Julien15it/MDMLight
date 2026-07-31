@@ -48,6 +48,7 @@ const sections = [
     relationField: 'BusinessPartner',
     typeName: 'A_BusinessPartnerRoleType',
     kind: 'collection',
+    deletable: false,
     fieldNames: ['BusinessPartner', 'BusinessPartnerRole', 'ValidFrom', 'ValidTo'],
     summaryFields: ['BusinessPartnerRole', 'ValidFrom', 'ValidTo'],
     requiredCreateFields: ['BusinessPartnerRole']
@@ -128,6 +129,7 @@ const sections = [
     typeName: 'A_CustomerType',
     kind: 'single',
     creatable: false,
+    deletable: false,
     fieldNames: [
       'Customer', 'CustomerFullName', 'CustomerName', 'CustomerAccountGroup',
       'CustomerClassification', 'BillingIsBlockedForCustomer',
@@ -148,6 +150,7 @@ const sections = [
     typeName: 'A_SupplierType',
     kind: 'single',
     creatable: false,
+    deletable: false,
     fieldNames: [
       'Supplier', 'SupplierFullName', 'SupplierName', 'SupplierAccountGroup',
       'PaymentIsBlockedForSupplier', 'PostingIsBlocked', 'PurchasingIsBlocked',

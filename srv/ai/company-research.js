@@ -83,6 +83,40 @@ function parsePublicSearchResults(html) {
   })).filter((result) => result.url && result.title).slice(0, 5);
 }
 
+function countryFromResult(result) {
+  const text = `${result.title || ''} ${result.snippet || ''}`.toLocaleLowerCase();
+  if (/\b(?:belgium|belgië|belgique)\b/u.test(text)) return 'BE';
+  try {
+    const suffix = new URL(result.url).hostname.split('.').at(-1).toLocaleLowerCase();
+    return ({ be: 'BE', nl: 'NL', lu: 'LU', de: 'DE', fr: 'FR' })[suffix] || '';
+  } catch {
+    return '';
+  }
+}
+
+function suggestedAddressFromResults(results = []) {
+  const addressPattern = /((?:[\p{L}\p{M}'’.-]+\s+){0,3}[\p{L}\p{M}'’.-]*(?:straat|steenweg|laan|weg|lei|dreef|kaai|plein|avenue|street|road|boulevard|chaussée|rue))\s+(\d+[a-z]?)\s*,?\s*(\d{4,6})\s+([\p{L}\p{M}'’.-]+(?:\s+[\p{L}\p{M}'’.-]+){0,2})/iu;
+  for (const result of results) {
+    const match = decodeHtml(result.snippet).match(addressPattern);
+    if (!match) continue;
+    const streetWords = match[1].trim().split(/\s+/u);
+    const leadingNoise = new Set([
+      'at', 'de', 'het', 'in', 'langs', 'located', 'op', 'our', 'shop', 'the', 'visit', 'winkel'
+    ]);
+    while (streetWords.length > 1 && leadingNoise.has(streetWords[0].toLocaleLowerCase())) {
+      streetWords.shift();
+    }
+    return {
+      StreetName: streetWords.join(' '),
+      HouseNumber: match[2].trim(),
+      PostalCode: match[3].trim(),
+      CityName: match[4].trim().replace(/[,.]+$/u, ''),
+      Country: countryFromResult(result)
+    };
+  }
+  return null;
+}
+
 async function researchCompanyOnPublicWeb(name, options = {}) {
   const searchUrl = new URL(PUBLIC_SEARCH_API);
   searchUrl.search = new URLSearchParams({ q: `${name} company address` }).toString();
@@ -97,7 +131,8 @@ async function researchCompanyOnPublicWeb(name, options = {}) {
     extract: extract.slice(0, MAX_EXTRACT_LENGTH),
     url: results[0].url,
     source: 'Public web search',
-    sources: results.slice(0, 3).map(({ title, url }) => ({ title, url }))
+    sources: results.slice(0, 3).map(({ title, url }) => ({ title, url })),
+    suggestedAddress: suggestedAddressFromResults(results)
   };
 }
 
@@ -148,6 +183,7 @@ module.exports = {
   fetchText,
   parsePublicSearchResults,
   publicResultUrl,
+  suggestedAddressFromResults,
   researchCompanyOnPublicWeb,
   researchCompany
 };

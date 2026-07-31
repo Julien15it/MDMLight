@@ -219,6 +219,10 @@ test('Business Partner Assistant answers grounded overview and search questions'
     /1 — Brussels Pharmaceuticals SA\/NV/
   );
   assert.match(answerBusinessPartnerQuestion('Hallo', partners), /Hallo!/);
+  assert.equal(
+    answerBusinessPartnerQuestion('How many Business Partners are there with the name Brussels?', partners),
+    '1 Business Partner match “brussels”.'
+  );
 });
 
 test('Business Partner Assistant can return address details for one partner', () => {
@@ -336,6 +340,12 @@ test('all creatable maintenance entities use their Business Partner navigation',
   assert.equal(MAINTENANCE_ENTITIES.Customers.updatable, true);
   assert.equal(MAINTENANCE_ENTITIES.Suppliers.creatable, false);
   assert.equal(MAINTENANCE_ENTITIES.Suppliers.updatable, true);
+  assert.equal(MAINTENANCE_ENTITIES.Addresses.deletable, true);
+  assert.equal(MAINTENANCE_ENTITIES.TaxNumbers.deletable, true);
+  assert.equal(MAINTENANCE_ENTITIES.BankDetails.deletable, true);
+  assert.equal(MAINTENANCE_ENTITIES.Identifications.deletable, true);
+  assert.equal(MAINTENANCE_ENTITIES.Industries.deletable, true);
+  assert.equal(MAINTENANCE_ENTITIES.BusinessPartnerRoles.deletable, false);
 });
 
 test('maintenance create validation enforces entity keys and useful values', () => {
@@ -383,7 +393,7 @@ test('assistant proposes a prefilled Business Partner when a company is absent',
     JSON.parse(businessPartnerCreationSuggestion(
       'Geef info over het bedrijf Coca-Cola',
       partners,
-      { title: 'The Coca-Cola Company' }
+      { title: 'The Coca-Cola Company', source: 'Wikipedia' }
     ).SuggestedData).OrganizationBPName1,
     'The Coca-Cola Company'
   );
@@ -391,6 +401,23 @@ test('assistant proposes a prefilled Business Partner when a company is absent',
     businessPartnerCreationSuggestion('Geef info over bedrijf Existing Company', partners),
     null
   );
+  const publicSuggestion = JSON.parse(businessPartnerCreationSuggestion(
+    'Geef info over het bedrijf SPAR Destelbergen',
+    partners,
+    {
+      title: 'Contact - Spar Destelbergen',
+      source: 'Public web search',
+      suggestedAddress: {
+        StreetName: 'Dendermondsesteenweg',
+        HouseNumber: '468',
+        PostalCode: '9070',
+        CityName: 'Destelbergen',
+        Country: 'BE'
+      }
+    }
+  ).SuggestedData);
+  assert.equal(publicSuggestion.OrganizationBPName1, 'SPAR Destelbergen');
+  assert.equal(publicSuggestion.AddressStreetName, 'Dendermondsesteenweg');
 });
 
 test('assistant recognizes free-form Dutch and English company lookup requests', () => {

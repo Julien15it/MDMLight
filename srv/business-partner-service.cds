@@ -71,6 +71,11 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
     DataJson: LargeString not null
   ) returns LargeString;
 
+  action deleteBusinessPartnerEntity(
+    Entity : String(40) not null,
+    KeyJson: LargeString not null
+  ) returns Boolean;
+
   /** Read-only assistant grounded in the Business Partners currently present
    *  in S/4HANA. It never creates or changes master data. */
   action askBusinessPartnerAssistant(

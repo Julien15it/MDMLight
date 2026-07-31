@@ -67,9 +67,9 @@ const ASSISTANT_ADDRESS_FIELDS = Object.freeze([
 const ASSISTANT_STOP_WORDS = Object.freeze(new Set([
   'a', 'an', 'about', 'all', 'alle', 'and', 'are', 'business', 'called', 'de', 'een', 'find',
   'bedrijf', 'company', 'firma', 'for', 'geef', 'hebben', 'het', 'how', 'ik',
-  'in', 'info', 'informatie', 'is', 'me', 'met', 'of', 'organisatie', 'organization',
+  'in', 'info', 'informatie', 'is', 'many', 'me', 'met', 'naam', 'name', 'of', 'organisatie', 'organization',
   'partner', 'partners', 'show', 'tell', 'the', 'toon', 'van', 'wat', 'which',
-  'there', 'who', 'zijn', 'zoek', 'street', 'straat', 'city', 'stad', 'postal', 'postcode',
+  'there', 'who', 'with', 'zijn', 'zoek', 'street', 'straat', 'city', 'stad', 'postal', 'postcode',
   'country', 'land', 'region', 'regio', 'located', 'gevestigd', 'adres', 'adressen',
   'address', 'addresses'
 ]));
@@ -79,18 +79,21 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     remote: 'A_BusinessPartnerAddress',
     navigation: 'to_BusinessPartnerAddress',
     creatable: true,
+    deletable: true,
     requiredCreateFields: ['BusinessPartner', 'Country']
   }),
   BusinessPartnerRoles: Object.freeze({
     remote: 'A_BusinessPartnerRole',
     navigation: 'to_BusinessPartnerRole',
     creatable: true,
+    deletable: false,
     requiredCreateFields: ['BusinessPartner', 'BusinessPartnerRole']
   }),
   TaxNumbers: Object.freeze({
     remote: 'A_BusinessPartnerTaxNumber',
     navigation: 'to_BusinessPartnerTax',
     creatable: true,
+    deletable: true,
     requiredCreateFields: ['BusinessPartner', 'BPTaxType'],
     oneOfCreateFields: ['BPTaxNumber', 'BPTaxLongNumber']
   }),
@@ -98,6 +101,7 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     remote: 'A_BusinessPartnerBank',
     navigation: 'to_BusinessPartnerBank',
     creatable: true,
+    deletable: true,
     requiredCreateFields: ['BusinessPartner', 'BankIdentification'],
     oneOfCreateFields: ['IBAN', 'BankAccount'],
     excludedCreateFields: ['BankName', 'SWIFTCode', 'CityName'],
@@ -107,6 +111,7 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     remote: 'A_BuPaIdentification',
     navigation: 'to_BuPaIdentification',
     creatable: true,
+    deletable: true,
     requiredCreateFields: [
       'BusinessPartner', 'BPIdentificationType', 'BPIdentificationNumber'
     ]
@@ -115,6 +120,7 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     remote: 'A_BuPaIndustry',
     navigation: 'to_BuPaIndustry',
     creatable: true,
+    deletable: true,
     requiredCreateFields: ['BusinessPartner', 'IndustrySector', 'IndustrySystemType'],
     excludedCreateFields: ['IndustryKeyDescription'],
     excludedUpdateFields: ['IndustryKeyDescription']
@@ -123,12 +129,14 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     remote: 'A_Customer',
     navigation: 'to_Customer',
     creatable: false,
+    deletable: false,
     updatable: true
   }),
   Suppliers: Object.freeze({
     remote: 'A_Supplier',
     navigation: 'to_Supplier',
     creatable: false,
+    deletable: false,
     updatable: true
   })
 });
@@ -465,6 +473,23 @@ function assistantSearchTerms(question) {
     .filter((word) => !['address', 'addresses', 'adres', 'adressen', 'blocked', 'geblokkeerd'].includes(word));
 }
 
+function matchingBusinessPartners(terms, partners = [], addresses = []) {
+  return partners.filter((partner) => {
+    const partnerAddresses = addresses.filter(
+      (address) => String(address.BusinessPartner) === String(partner.BusinessPartner)
+    );
+    const searchable = [
+      ...ASSISTANT_FIELDS.map((field) => partner[field]),
+      ...partnerAddresses.flatMap((address) => (
+        ASSISTANT_ADDRESS_FIELDS.map((field) => address[field])
+      ))
+    ].filter((value) => value !== undefined && value !== null)
+      .join(' ')
+      .toLocaleLowerCase();
+    return terms.every((term) => searchable.includes(term));
+  });
+}
+
 function answerBusinessPartnerQuestion(question, partners = [], addresses = []) {
   const normalized = String(question || '').trim().toLocaleLowerCase();
   if (!normalized) return 'Enter a question about the available Business Partners.';
@@ -543,29 +568,20 @@ function answerBusinessPartnerQuestion(question, partners = [], addresses = []) 
     );
   }
 
+  const terms = assistantSearchTerms(normalized);
   if (/\b(how many|count|aantal|hoeveel|total|totaal)\b/u.test(normalized)) {
+    if (terms.length) {
+      const matching = matchingBusinessPartners(terms, partners, addresses);
+      return `${matching.length} Business Partner${matching.length === 1 ? '' : 's'} match “${terms.join(' ')}”.`;
+    }
     return `There are ${partners.length} Business Partners available in S/4HANA.`;
   }
 
-  const terms = assistantSearchTerms(normalized);
   if (!terms.length) {
     return 'Try asking “How many Business Partners are there?”, “Which are blocked?”, “Show BP 1”, or “Find Brussels”.';
   }
 
-  const matching = partners.filter((partner) => {
-    const partnerAddresses = addresses.filter(
-      (address) => String(address.BusinessPartner) === String(partner.BusinessPartner)
-    );
-    const searchable = [
-      ...ASSISTANT_FIELDS.map((field) => partner[field]),
-      ...partnerAddresses.flatMap((address) => (
-        ASSISTANT_ADDRESS_FIELDS.map((field) => address[field])
-      ))
-    ].filter((value) => value !== undefined && value !== null)
-      .join(' ')
-      .toLocaleLowerCase();
-    return terms.every((term) => searchable.includes(term));
-  });
+  const matching = matchingBusinessPartners(terms, partners, addresses);
   return assistantList(`Results for “${terms.join(' ')}”`, matching);
 }
 
@@ -738,14 +754,20 @@ function businessPartnerCreationSuggestion(
   const name = resolvedCompanyName || requestedCompanyName(question);
   if (!name) return null;
   if (findPotentialDuplicates(name, partners).length) return null;
-  const proposedName = String(research?.title || name).trim();
+  const proposedName = String(research?.source === 'Wikipedia' ? research.title : name).trim();
+  const address = research?.suggestedAddress || {};
 
   return {
     SuggestedAction: 'CREATE_BUSINESS_PARTNER',
     SuggestedData: JSON.stringify({
       BusinessPartnerCategory: '2',
       OrganizationBPName1: proposedName.slice(0, 40),
-      SearchTerm1: name.replace(/[^\p{L}\p{N}]+/gu, ' ').trim().slice(0, 20)
+      SearchTerm1: name.replace(/[^\p{L}\p{N}]+/gu, ' ').trim().slice(0, 20),
+      ...(address.StreetName ? { AddressStreetName: address.StreetName } : {}),
+      ...(address.HouseNumber ? { AddressHouseNumber: address.HouseNumber } : {}),
+      ...(address.PostalCode ? { AddressPostalCode: address.PostalCode } : {}),
+      ...(address.CityName ? { AddressCityName: address.CityName } : {}),
+      ...(address.Country ? { AddressCountry: address.Country } : {})
     })
   };
 }
@@ -949,6 +971,38 @@ class BusinessPartnerService extends cds.ApplicationService {
         return JSON.stringify({ affectedRows: affectedRows ?? 1 });
       } catch (error) {
         req.reject(error.statusCode || 502, remoteErrorMessage(error, `S/4HANA rejected the ${req.data.Entity} update request.`));
+      }
+    });
+
+    this.on('deleteBusinessPartnerEntity', async (req) => {
+      const configuration = MAINTENANCE_ENTITIES[req.data.Entity];
+      if (!configuration) {
+        req.reject(400, `Entity ${req.data.Entity || ''} is not available for maintenance.`, 'Entity');
+      }
+      if (!configuration.deletable) {
+        req.reject(405, `${req.data.Entity} cannot be deleted through this Business Partner API.`);
+      }
+
+      let keys;
+      try {
+        keys = sanitizeEntityKeys(
+          parseJsonObject(req.data.KeyJson, 'KeyJson'),
+          this.entities[req.data.Entity]
+        );
+      } catch (error) {
+        req.reject(error.statusCode || 400, error.message, 'KeyJson');
+      }
+
+      try {
+        const affectedRows = await s4.run(
+          cds.ql.DELETE.from(remoteEntity(s4, configuration.remote)).where(keys)
+        );
+        return affectedRows !== 0;
+      } catch (error) {
+        req.reject(
+          error.statusCode || 502,
+          remoteErrorMessage(error, `S/4HANA rejected the ${req.data.Entity} delete request.`)
+        );
       }
     });
 

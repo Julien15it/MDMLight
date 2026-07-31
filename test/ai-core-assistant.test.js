@@ -85,7 +85,7 @@ test('AI Core retries one fast transient request failure', async () => {
 
   const result = await chatCompletionWithRetry(client, {}, {});
   assert.equal(result.response.getContent(), 'Recovered');
-  assert.equal(result.retried, true);
+  assert.equal(result.attempts, 2);
   assert.equal(calls, 2);
 });
 

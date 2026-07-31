@@ -810,6 +810,7 @@ sap.ui.define([], function () {
         "relationField": "BusinessPartner",
         "typeName": "A_BusinessPartnerRoleType",
         "kind": "collection",
+        "deletable": false,
         "summaryFields": [
           "BusinessPartnerRole",
           "ValidFrom",
@@ -1229,6 +1230,7 @@ sap.ui.define([], function () {
         "typeName": "A_CustomerType",
         "kind": "single",
         "creatable": false,
+        "deletable": false,
         "summaryFields": [
           "CustomerFullName",
           "CustomerAccountGroup",
@@ -1338,6 +1340,7 @@ sap.ui.define([], function () {
         "typeName": "A_SupplierType",
         "kind": "single",
         "creatable": false,
+        "deletable": false,
         "summaryFields": [
           "SupplierFullName",
           "SupplierAccountGroup",

@@ -50,7 +50,7 @@ test('company research returns null when no public result is found', async () =>
 test('company research falls back to public web results for a local company', async () => {
   const publicHtml = `
     <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fspar-destelbergen.be%2F">Spar Destelbergen</a>
-    <a class="result__snippet">Your local fresh-food market in Destelbergen.</a>`;
+    <a class="result__snippet">Visit our shop at Dendermondsesteenweg 468 9070 Destelbergen.</a>`;
   const result = await researchCompany('SPAR Destelbergen', {
     fetchImpl: async () => ({
       ok: true,
@@ -61,7 +61,14 @@ test('company research falls back to public web results for a local company', as
 
   assert.equal(result.source, 'Public web search');
   assert.equal(result.url, 'https://spar-destelbergen.be/');
-  assert.match(result.extract, /fresh-food market/);
+  assert.match(result.extract, /Dendermondsesteenweg/);
+  assert.deepEqual(result.suggestedAddress, {
+    StreetName: 'Dendermondsesteenweg',
+    HouseNumber: '468',
+    PostalCode: '9070',
+    CityName: 'Destelbergen',
+    Country: 'BE'
+  });
 });
 
 test('company research still uses public search when Wikipedia is unavailable', async () => {

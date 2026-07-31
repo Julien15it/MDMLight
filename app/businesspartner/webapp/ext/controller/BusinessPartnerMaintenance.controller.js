@@ -191,6 +191,7 @@ sap.ui.define([
           previewSearchTerm: "",
           previewLanguage: "",
           sectionWarnings: [],
+          deletedRecords: {},
           originalRoot: {},
           root: {
             BusinessPartnerCategory: "2",
@@ -212,6 +213,17 @@ sap.ui.define([
         this._metadata.forEach(function (section) {
           if (section.kind !== "root") state.sections[section.id] = [];
         });
+        var suggestedAddress = {
+          StreetName: query.AddressStreetName || "",
+          HouseNumber: query.AddressHouseNumber || "",
+          PostalCode: query.AddressPostalCode || "",
+          CityName: query.AddressCityName || "",
+          Country: query.AddressCountry || ""
+        };
+        if (Object.values(suggestedAddress).some(Boolean)) {
+          suggestedAddress.__state = "new";
+          state.sections.Addresses.push(suggestedAddress);
+        }
         this.getView().getModel("maintenance").refresh(true);
         this._updatePreview(state);
         this._renderAll();
@@ -592,13 +604,26 @@ sap.ui.define([
         summaryFields.forEach(function (field) {
           table.addColumn(new Column({ header: new Text({ text: field.label }) }));
         });
+        var showDelete = state.editing && section.deletable !== false;
+        if (showDelete) {
+          table.addColumn(new Column({ width: "4rem", header: new Text({ text: "Actions" }) }));
+        }
 
         records.forEach(function (record, index) {
+          var cells = summaryFields.map(function (field) {
+            return new Text({ text: displayValue(record[field.name]), wrapping: false });
+          });
+          if (showDelete) {
+            cells.push(new Button({
+              icon: "sap-icon://delete",
+              type: "Transparent",
+              tooltip: "Delete",
+              press: this._confirmDeleteRecord.bind(this, section, index)
+            }));
+          }
           var item = new ColumnListItem({
             type: "Active",
-            cells: summaryFields.map(function (field) {
-              return new Text({ text: displayValue(record[field.name]), wrapping: false });
-            })
+            cells: cells
           });
           item.attachPress(this._openExistingRecord.bind(this, section, index));
           table.addItem(item);
@@ -632,6 +657,27 @@ sap.ui.define([
       _openExistingRecord: function (section, index) {
         var records = this.getView().getModel("maintenance").getData().sections[section.id] || [];
         this._openRecordDialog(section, clone(records[index]), false, index);
+      },
+
+      _confirmDeleteRecord: function (section, index) {
+        MessageBox.confirm("Delete this " + section.title.toLowerCase() + " record?", {
+          emphasizedAction: MessageBox.Action.DELETE,
+          actions: [MessageBox.Action.DELETE, MessageBox.Action.CANCEL],
+          onClose: function (action) {
+            if (action !== MessageBox.Action.DELETE) return;
+            var state = this.getView().getModel("maintenance").getData();
+            var records = state.sections[section.id] || [];
+            var record = records[index];
+            if (!record) return;
+            if (record.__state !== "new") {
+              state.deletedRecords[section.id] = state.deletedRecords[section.id] || [];
+              state.deletedRecords[section.id].push(record);
+            }
+            records.splice(index, 1);
+            this.getView().getModel("maintenance").refresh(true);
+            this._renderSection(section);
+          }.bind(this)
+        });
       },
 
       _sectionRecordErrors: function (section, record, isCreate) {
@@ -840,6 +886,19 @@ sap.ui.define([
                 })
               );
             }
+            var deletedRecords = state.deletedRecords[section.id] || [];
+            for (var deletedRecord of deletedRecords) {
+              var deleteKeys = deletedRecord.__keys || Object.fromEntries(
+                section.fields.filter(function (field) { return field.key; }).map(function (field) {
+                  return [field.name, deletedRecord[field.name]];
+                })
+              );
+              await this._executeAction("deleteBusinessPartnerEntity", {
+                Entity: section.id,
+                KeyJson: JSON.stringify(deleteKeys)
+              });
+            }
+            state.deletedRecords[section.id] = [];
           }
 
           state.mode = "display";

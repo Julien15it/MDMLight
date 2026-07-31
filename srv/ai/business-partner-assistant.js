@@ -148,7 +148,7 @@ function orchestrationConfig(modelName) {
     promptTemplating: {
       model: {
         name: modelName,
-        timeout: 25,
+        timeout: 45,
         params: { max_tokens: 900 }
       },
       prompt: {
@@ -217,15 +217,19 @@ function aiCoreFallbackReason(error, env = process.env) {
 
 async function chatCompletionWithRetry(client, request, env = process.env) {
   const startedAt = Date.now();
-  try {
-    return { response: await client.chatCompletion(request), retried: false };
-  } catch (error) {
-    const reason = aiCoreFallbackReason(error, env);
-    const retryable = ['AI Core request failed', 'AI Core network request failed'].includes(reason);
-    if (!retryable || Date.now() - startedAt > 8000) throw error;
-    await new Promise((resolve) => setTimeout(resolve, 350));
-    return { response: await client.chatCompletion(request), retried: true };
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return { response: await client.chatCompletion(request), attempts: attempt };
+    } catch (error) {
+      lastError = error;
+      const reason = aiCoreFallbackReason(error, env);
+      const retryable = ['AI Core request failed', 'AI Core network request failed'].includes(reason);
+      if (!retryable || attempt === 3 || Date.now() - startedAt > 12000) throw error;
+      await new Promise((resolve) => setTimeout(resolve, attempt * 500));
+    }
   }
+  throw lastError;
 }
 
 async function askSapAiCore({
@@ -277,8 +281,8 @@ async function askSapAiCore({
     const intermediateFailures = response.getIntermediateFailures?.() || [];
     return {
       Answer: answer,
-      Provider: completion.retried
-        ? 'SAP AI Core (request retry)'
+      Provider: completion.attempts > 1
+        ? `SAP AI Core (request attempt ${completion.attempts})`
         : intermediateFailures.length ? 'SAP AI Core (model fallback)' : 'SAP AI Core'
     };
   } catch (error) {
