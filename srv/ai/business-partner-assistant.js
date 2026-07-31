@@ -2,7 +2,24 @@
 
 const DEFAULT_MODEL = 'gpt-5-mini';
 const DEFAULT_RESOURCE_GROUP = 'default';
-const MAX_CONTEXT_PARTNERS = 250;
+const DEFAULT_MAX_TOKENS = 4000;
+const MAX_CONTEXT_PARTNERS = 60;
+
+/**
+ * gpt-5 and the o-series are reasoning models: their completion budget also
+ * covers hidden reasoning tokens, and they expect max_completion_tokens rather
+ * than max_tokens. A budget that is too small is spent entirely on reasoning
+ * and the model then returns empty content instead of an error.
+ */
+function isReasoningModel(model) {
+  return /^(gpt-5|o[1-9])/iu.test(String(model));
+}
+
+function modelParams(model, maxTokens) {
+  return isReasoningModel(model)
+    ? { max_completion_tokens: maxTokens }
+    : { max_tokens: maxTokens };
+}
 
 const SAFE_FIELDS = Object.freeze([
   'BusinessPartner',
@@ -74,13 +91,13 @@ async function askSapAiCore({ question, partners, addresses, fallbackAnswer, env
   try {
     const OrchestrationClient = Client
       || (await import('@sap-ai-sdk/orchestration')).OrchestrationClient;
+    const model = env.AICORE_MODEL || DEFAULT_MODEL;
+    const maxTokens = Number(env.AICORE_MAX_TOKENS) || DEFAULT_MAX_TOKENS;
     const client = new OrchestrationClient({
       promptTemplating: {
         model: {
-          name: env.AICORE_MODEL || DEFAULT_MODEL,
-          params: {
-            max_tokens: 900
-          }
+          name: model,
+          params: modelParams(model, maxTokens)
         },
         prompt: {
           template: [
@@ -113,7 +130,14 @@ async function askSapAiCore({ question, partners, addresses, fallbackAnswer, env
       }
     });
     const answer = String(response.getContent() || '').trim();
-    if (!answer) throw new Error('SAP AI Core returned an empty answer.');
+    if (!answer) {
+      const finishReason = response.getFinishReason?.() ?? 'unknown';
+      const usage = response.getTokenUsage?.() ?? {};
+      throw new Error(
+        `SAP AI Core returned an empty answer (model ${model}, finish_reason ${finishReason}, `
+        + `tokens ${JSON.stringify(usage)}). If the budget was spent on reasoning, raise AICORE_MAX_TOKENS.`
+      );
+    }
     return { Answer: answer, Provider: 'SAP AI Core' };
   } catch (error) {
     console.warn('[assistant] SAP AI Core unavailable, using S/4HANA search fallback:', error.message);

@@ -52,10 +52,19 @@ const ASSISTANT_FIELDS = Object.freeze([
 ]);
 
 const ASSISTANT_STOP_WORDS = Object.freeze(new Set([
-  'a', 'about', 'all', 'alle', 'and', 'are', 'business', 'de', 'een', 'find',
-  'for', 'geef', 'hebben', 'het', 'how', 'ik', 'in', 'is', 'me', 'met', 'of',
-  'partner', 'partners', 'show', 'tell', 'the', 'toon', 'van', 'wat', 'which',
-  'who', 'zijn', 'zoek'
+  // English function words
+  'a', 'about', 'all', 'and', 'any', 'are', 'as', 'at', 'be', 'business', 'by',
+  'can', 'data', 'display', 'do', 'does', 'find', 'for', 'from', 'get', 'give',
+  'has', 'have', 'how', 'i', 'in', 'is', 'it', 'list', 'me', 'my', 'name',
+  'named', 'of', 'on', 'or', 'partner', 'partners', 'please', 'record',
+  'records', 'search', 'show', 'tell', 'that', 'the', 'their', 'there', 'this',
+  'to', 'what', 'which', 'who', 'whose', 'with', 'you', 'your',
+  // Dutch function words
+  'aan', 'al', 'alle', 'alles', 'als', 'bij', 'de', 'die', 'dit', 'door', 'een',
+  'en', 'er', 'geef', 'gegevens', 'heb', 'hebben', 'heeft', 'het', 'hun', 'ik',
+  'je', 'kan', 'kun', 'kunt', 'laat', 'lijst', 'met', 'mij', 'naam', 'niet',
+  'om', 'ons', 'onze', 'op', 'over', 'te', 'toon', 'tonen', 'uit', 'van',
+  'voor', 'wat', 'welke', 'wie', 'wil', 'zie', 'zijn', 'zoek', 'zoeken'
 ]));
 
 const MAINTENANCE_ENTITIES = Object.freeze({
@@ -304,18 +313,54 @@ function assistantList(title, partners) {
   ].join('\n');
 }
 
+/**
+ * Derives the search terms from a free-form question. Must be given the
+ * original question, not a lower-cased one: quoted text wins, then capitalised
+ * words such as "Alluvion" (almost always the name the user is after), and only
+ * then the remaining content words.
+ */
 function assistantSearchTerms(question) {
-  const quoted = [...question.matchAll(/["“”']([^"“”']+)["“”']/gu)]
+  const raw = String(question || '');
+
+  const quoted = [...raw.matchAll(/["“”']([^"“”']+)["“”']/gu)]
     .map((match) => match[1].trim().toLocaleLowerCase())
     .filter(Boolean);
   if (quoted.length) return quoted;
 
-  return question
-    .toLocaleLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .split(/\s+/u)
-    .filter((word) => word.length > 1 && !ASSISTANT_STOP_WORDS.has(word))
-    .filter((word) => !['address', 'addresses', 'adres', 'adressen', 'blocked', 'geblokkeerd'].includes(word));
+  const words = raw.replace(/[^\p{L}\p{N}]+/gu, ' ').split(/\s+/u).filter(Boolean);
+  const isContentWord = (word) => (
+    word.length > 1 &&
+    !ASSISTANT_STOP_WORDS.has(word) &&
+    !['address', 'addresses', 'adres', 'adressen', 'blocked', 'geblokkeerd'].includes(word)
+  );
+
+  // A capitalised word that does not open the sentence is the strongest signal.
+  const properNouns = words
+    .filter((word, index) => index > 0 && /^\p{Lu}/u.test(word))
+    .map((word) => word.toLocaleLowerCase())
+    .filter(isContentWord);
+  if (properNouns.length) return properNouns;
+
+  return words.map((word) => word.toLocaleLowerCase()).filter(isContentWord);
+}
+
+/**
+ * Pushes the search down to S/4 so the whole data set is searched instead of
+ * only the rows that happen to be loaded first.
+ */
+function assistantSearchFilter(terms) {
+  return joinExpressions(
+    terms.map((term) => ({
+      xpr: joinExpressions(
+        SEARCHABLE_FIELDS.map((field) => ({
+          func: 'contains',
+          args: [{ ref: [field] }, { val: term.replaceAll("'", "''") }]
+        })),
+        'or'
+      )
+    })),
+    'or'
+  );
 }
 
 function answerBusinessPartnerQuestion(question, partners = [], addresses = []) {
@@ -399,19 +444,26 @@ function answerBusinessPartnerQuestion(question, partners = [], addresses = []) 
     return `There are ${partners.length} Business Partners available in S/4HANA.`;
   }
 
-  const terms = assistantSearchTerms(normalized);
+  const terms = assistantSearchTerms(question);
   if (!terms.length) {
     return 'Try asking “How many Business Partners are there?”, “Which are blocked?”, “Show BP 1”, or “Find Brussels”.';
   }
 
-  const matching = partners.filter((partner) => {
-    const searchable = ASSISTANT_FIELDS
-      .map((field) => partner[field])
-      .filter((value) => value !== undefined && value !== null)
-      .join(' ')
-      .toLocaleLowerCase();
-    return terms.every((term) => searchable.includes(term));
-  });
+  // Match on any term and rank by how many terms hit, so a natural sentence
+  // still finds the partner the user means.
+  const matching = partners
+    .map((partner) => {
+      const searchable = ASSISTANT_FIELDS
+        .map((field) => partner[field])
+        .filter((value) => value !== undefined && value !== null)
+        .join(' ')
+        .toLocaleLowerCase();
+      return { partner, score: terms.filter((term) => searchable.includes(term)).length };
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((left, right) => right.score - left.score)
+    .map((entry) => entry.partner);
+
   return assistantList(`Results for “${terms.join(' ')}”`, matching);
 }
 
@@ -581,13 +633,32 @@ class BusinessPartnerService extends cds.ApplicationService {
 
       const rootEntity = remoteEntity(s4, 'A_BusinessPartner');
       try {
-        const result = await s4.run(
-          cds.ql.SELECT.from(rootEntity).columns(...ASSISTANT_FIELDS).limit(1000)
-        );
-        const partners = Array.isArray(result) ? result : [];
-        let addresses = [];
         const normalized = question.toLocaleLowerCase();
         const numberMatch = normalized.match(/\b(?:bp|business partner|partner)\s*#?\s*(\d{1,10})\b/u);
+        // Aggregate questions need the broad set; a name search must be pushed
+        // down to S/4 so it is not limited to the first rows returned.
+        const asksAggregate = /\b(how many|count|aantal|hoeveel|total|totaal|categor|categorie|grouping|groep|groepering|blocked|geblokkeerd|blokkade)\b/u
+          .test(normalized);
+        const searchTerms = assistantSearchTerms(question);
+
+        let select = cds.ql.SELECT.from(rootEntity).columns(...ASSISTANT_FIELDS).limit(1000);
+        if (numberMatch) {
+          select = cds.ql.SELECT
+            .from(rootEntity)
+            .columns(...ASSISTANT_FIELDS)
+            .where({ BusinessPartner: numberMatch[1] })
+            .limit(1);
+        } else if (searchTerms.length && !asksAggregate) {
+          select = cds.ql.SELECT
+            .from(rootEntity)
+            .columns(...ASSISTANT_FIELDS)
+            .where(assistantSearchFilter(searchTerms))
+            .limit(200);
+        }
+
+        const result = await s4.run(select);
+        const partners = Array.isArray(result) ? result : [];
+        let addresses = [];
         if (/\b(address|addresses|adres|adressen)\b/u.test(normalized) && numberMatch) {
           const addressResult = await s4.run(
             cds.ql.SELECT
