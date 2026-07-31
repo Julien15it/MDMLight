@@ -680,6 +680,12 @@ function requestedCompanyName(question) {
   const informalExistenceQuestion = source.match(
     /(?:kijken|weten|checken|controleren)\s+(?:of|als)\s+(.{2,80}?)\s+(?:al\s+)?(?:bestaat|aanwezig\s+is)(?:[?.!,;:]|$)/iu
   );
+  const directEnglishExistenceQuestion = source.match(
+    /^does\s+(?:(?:the|a)\s+)?(?:(?:business\s+partner|bp|company|organisation|organization)\s+)?(.{2,80}?)\s+exist(?:s)?(?:\s+(?:in|within)\s+(?:the\s+)?(?:system|s\/4hana))?(?:[?.!,;:]|$)/iu
+  );
+  const directDutchExistenceQuestion = source.match(
+    /^bestaat\s+(?:er\s+)?(?:(?:al|een)\s+)*(?:(?:business\s+partner|bp|bedrijf|firma|organisatie)\s+)?(.{2,80}?)(?:\s+al)?(?:\s+(?:in|binnen)\s+(?:het\s+)?(?:systeem|s\/4hana))?(?:[?.!,;:]|$)/iu
+  );
   let name = (quoted && quoted[1])
     || (company && company[1])
     || (about && about[1])
@@ -690,6 +696,8 @@ function requestedCompanyName(question) {
     || (dutchExistenceQuestion && dutchExistenceQuestion[1])
     || (namedLookup && namedLookup[1])
     || (informalExistenceQuestion && informalExistenceQuestion[1])
+    || (directEnglishExistenceQuestion && directEnglishExistenceQuestion[1])
+    || (directDutchExistenceQuestion && directDutchExistenceQuestion[1])
     || '';
   name = name
     .replace(/\s+(?:en|and)\s+(?:indien|if|zoek|search|lookup|maak|create)\b[\s\S]*$/iu, '')
@@ -725,16 +733,17 @@ function contextualCompanyName(question, conversationHistory = []) {
   const direct = requestedCompanyName(question);
   if (direct) return direct;
   const source = String(question || '');
+  const isAffirmativeFollowUp = /^(?:yes|yes\s+please|sure|please|ja|ja\s+graag|graag|doe\s+maar|maak\s+(?:die|deze|hem)|prepare\s+it)(?:[?.!,;:]|$)/iu.test(source.trim());
   const bareWords = source
     .replace(/[?.!,;:]+$/u, '')
     .trim()
     .split(/\s+/u)
     .filter(Boolean);
-  if (bareWords.length >= 2 && bareWords.length <= 6
+  if (!isAffirmativeFollowUp && bareWords.length >= 2 && bareWords.length <= 6
     && bareWords.every((word) => !ASSISTANT_STOP_WORDS.has(word.toLocaleLowerCase()))) {
     return bareWords.join(' ');
   }
-  const isFollowUp = /(?:\ber\b[\s\S]*\bvan\b|\bit\b|\bthat\b|\bdie\b|\bdeze\b|\bhiervan\b|\bdaarvan\b)/iu.test(source)
+  const isFollowUp = isAffirmativeFollowUp || /(?:\ber\b[\s\S]*\bvan\b|\bit\b|\bthat\b|\bdie\b|\bdeze\b|\bhiervan\b|\bdaarvan\b)/iu.test(source)
     && /(?:business\s+partner|\bbp\b|create|maak|maken|prepare|voorstel|informatie|information|research|opzoek|zoek|vergar)/iu.test(source);
   if (!isFollowUp) return '';
   for (let index = conversationHistory.length - 1; index >= 0; index -= 1) {

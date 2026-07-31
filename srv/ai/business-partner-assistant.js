@@ -180,12 +180,24 @@ function orchestrationConfig(modelName) {
 }
 
 function aiCoreErrorText(error) {
+  const responseBody = error?.response?.data || error?.cause?.response?.data;
+  let serializedBody = '';
+  if (responseBody && typeof responseBody !== 'string') {
+    try {
+      serializedBody = JSON.stringify(responseBody);
+    } catch {
+      serializedBody = '';
+    }
+  }
   return [
+    error?.status || error?.statusCode || error?.response?.status,
     error?.message,
     error?.cause?.message,
     error?.response?.data?.error?.message,
-    error?.cause?.response?.data?.error?.message
-  ].filter((value) => typeof value === 'string' && value.trim())
+    error?.cause?.response?.data?.error?.message,
+    typeof responseBody === 'string' ? responseBody : serializedBody
+  ].filter((value) => (typeof value === 'string' && value.trim()) || typeof value === 'number')
+    .map(String)
     .join(' | ')
     .replace(/\s+/gu, ' ')
     .slice(0, 1000);
@@ -194,6 +206,9 @@ function aiCoreErrorText(error) {
 function aiCoreFallbackReason(error, env = process.env) {
   const message = aiCoreErrorText(error).toLocaleLowerCase();
   const resourceGroup = env.AICORE_RESOURCE_GROUP || DEFAULT_RESOURCE_GROUP;
+  if (/\b429\b|rate.?limit|too many requests|quota/u.test(message)) {
+    return 'AI Core model rate limit reached';
+  }
   if (/deployment|404|not found/u.test(message)) {
     return `orchestration deployment unavailable in resource group ${resourceGroup}`;
   }
@@ -224,7 +239,11 @@ async function chatCompletionWithRetry(client, request, env = process.env) {
     } catch (error) {
       lastError = error;
       const reason = aiCoreFallbackReason(error, env);
-      const retryable = ['AI Core request failed', 'AI Core network request failed'].includes(reason);
+      const retryable = [
+        'AI Core request failed',
+        'AI Core network request failed',
+        'AI Core model rate limit reached'
+      ].includes(reason);
       if (!retryable || attempt === 3 || Date.now() - startedAt > 12000) throw error;
       await new Promise((resolve) => setTimeout(resolve, attempt * 500));
     }
@@ -279,11 +298,14 @@ async function askSapAiCore({
     const answer = String(response.getContent() || '').trim();
     if (!answer) throw new Error('SAP AI Core returned an empty answer.');
     const intermediateFailures = response.getIntermediateFailures?.() || [];
+    const primaryModel = aiModelNames(env)[0];
     return {
       Answer: answer,
       Provider: completion.attempts > 1
-        ? `SAP AI Core (request attempt ${completion.attempts})`
-        : intermediateFailures.length ? 'SAP AI Core (model fallback)' : 'SAP AI Core'
+        ? `SAP AI Core (${primaryModel}, request attempt ${completion.attempts})`
+        : intermediateFailures.length
+          ? `SAP AI Core (model fallback from ${primaryModel})`
+          : `SAP AI Core (${primaryModel})`
     };
   } catch (error) {
     console.warn(

@@ -457,6 +457,24 @@ test('assistant recognizes free-form Dutch and English company lookup requests',
     ),
     'SPAR destelbergen'
   );
+  assert.equal(
+    BusinessPartnerService._internals.requestedCompanyName(
+      'Does Spar Destelbergen exist?'
+    ),
+    'Spar Destelbergen'
+  );
+  assert.equal(
+    BusinessPartnerService._internals.requestedCompanyName(
+      'Does Intellus exist in the system?'
+    ),
+    'Intellus'
+  );
+  assert.equal(
+    BusinessPartnerService._internals.requestedCompanyName(
+      'Bestaat SPAR Destelbergen al in het systeem?'
+    ),
+    'SPAR Destelbergen'
+  );
 });
 
 test('assistant resolves a company from prior turns for a follow-up create request', () => {
@@ -468,6 +486,25 @@ test('assistant resolves a company from prior turns for a follow-up create reque
     contextualCompanyName('Kan je informatie vergaren en er een BP van maken?', history),
     'Spar Destelbergen'
   );
+  assert.equal(contextualCompanyName('Yes', history), 'Spar Destelbergen');
+  assert.equal(contextualCompanyName('Ja graag', history), 'Spar Destelbergen');
+  const confirmedSuggestion = JSON.parse(businessPartnerCreationSuggestion(
+    'Yes',
+    [],
+    {
+      source: 'Public web search',
+      suggestedAddress: {
+        StreetName: 'Dendermondsesteenweg',
+        HouseNumber: '468',
+        PostalCode: '9070',
+        CityName: 'Destelbergen',
+        Country: 'BE'
+      }
+    },
+    contextualCompanyName('Yes', history)
+  ).SuggestedData);
+  assert.equal(confirmedSuggestion.OrganizationBPName1, 'Spar Destelbergen');
+  assert.equal(confirmedSuggestion.AddressCityName, 'Destelbergen');
   assert.equal(contextualCompanyName('SPAR destelbergen', history), 'SPAR destelbergen');
   assert.throws(
     () => parseConversationHistory('{broken'),

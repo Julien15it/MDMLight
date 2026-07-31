@@ -64,6 +64,10 @@ test('AI Core fallback reports whether deployment, model or authorization failed
     'AI Core authorization failed'
   );
   assert.equal(
+    aiCoreFallbackReason({ message: 'Request failed', response: { status: 429 } }, {}),
+    'AI Core model rate limit reached'
+  );
+  assert.equal(
     aiCoreFallbackReason(new Error('Could not resolve aicore service binding'), {}),
     'AI Core service binding unavailable'
   );
@@ -156,7 +160,7 @@ test('assistant uses SAP AI Core when bound and reports its provider', async () 
 
   assert.deepEqual(result, {
     Answer: 'There are two partners in the supplied context.',
-    Provider: 'SAP AI Core'
+    Provider: 'SAP AI Core (gpt-5)'
   });
   assert.equal(captured.config.promptTemplating.model.name, 'gpt-5');
   assert.equal(captured.deployment.resourceGroup, 'default');
