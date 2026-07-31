@@ -42,6 +42,34 @@ test('AI prompt context is bounded and excludes sensitive fields', () => {
   assert.doesNotMatch(context, /TaxNumber1|must-never-enter/);
 });
 
+test('AI prompt context finds partners by address and includes sourced research', () => {
+  const addresses = [{
+    BusinessPartner: '2',
+    AddressID: '10',
+    StreetName: 'Dorpstraat',
+    CityName: 'Brussel',
+    IBAN: 'must-never-enter-the-prompt'
+  }];
+  assert.deepEqual(
+    relevantPartners('Find Dorpstraat', partners, addresses).map((item) => item.BusinessPartner),
+    ['2']
+  );
+  const context = promptContext(
+    'Tell me about company Coca-Cola',
+    partners,
+    addresses,
+    {
+      title: 'Coca-Cola',
+      description: 'beverage company',
+      extract: 'Public company summary.',
+      url: 'https://en.wikipedia.org/wiki/Coca-Cola'
+    },
+    []
+  );
+  assert.match(context, /Public company summary/);
+  assert.doesNotMatch(context, /IBAN|must-never-enter/);
+});
+
 test('assistant uses SAP AI Core when bound and reports its provider', async () => {
   let captured;
   class MockOrchestrationClient {

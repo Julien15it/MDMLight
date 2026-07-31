@@ -64,6 +64,7 @@ sap.ui.define([
         + "- Which Business Partners are blocked?\n"
         + "- Show BP 1\n"
         + "- Find Brussels\n"
+        + "- Find Business Partners in Dorpstraat\n"
         + "- What is the address of BP 1?\n"
         + "- Give me information about the company Coca-Cola";
       var conversation = new TextArea({
@@ -136,7 +137,7 @@ sap.ui.define([
         content: new VBox({
           items: [
             new Text({
-              text: "S/4HANA answers use live read-only data. General company information from AI is clearly identified and can be used to prepare a new Business Partner.",
+              text: "The assistant searches live S/4HANA Business Partner and address data, checks possible duplicates, and can use clearly sourced public company information to prepare a new Business Partner.",
               wrapping: true
             }).addStyleClass("sapUiSmallMarginBottom"),
             conversation,

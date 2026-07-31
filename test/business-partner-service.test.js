@@ -8,7 +8,10 @@ const BusinessPartnerService = require('../srv/business-partner-service');
 const {
   SEARCHABLE_FIELDS,
   answerBusinessPartnerQuestion,
+  addDefaultAddressUsage,
   businessPartnerCreationSuggestion,
+  createBusinessPartnerAddress,
+  findPotentialDuplicates,
   applyBusinessPartnerSearch,
   normalizeRemoteResult,
   parseJsonObject,
@@ -232,6 +235,77 @@ test('Business Partner Assistant can return address details for one partner', ()
   );
 });
 
+test('Business Partner Assistant searches safe address fields', () => {
+  const partners = [{
+    BusinessPartner: '1',
+    BusinessPartnerFullName: 'Brussels Pharmaceuticals SA/NV',
+    BusinessPartnerCategory: '2',
+    BusinessPartnerGrouping: '0001'
+  }];
+  const addresses = [{
+    BusinessPartner: '1',
+    StreetName: 'Dorpstraat',
+    HouseNumber: '5',
+    PostalCode: '1000',
+    CityName: 'Brussel',
+    Country: 'BE'
+  }];
+
+  assert.match(
+    answerBusinessPartnerQuestion('Find Business Partners in Dorpstraat', partners, addresses),
+    /Brussels Pharmaceuticals SA\/NV/
+  );
+});
+
+test('first address receives XXDEFAULT usage and later addresses do not', async () => {
+  assert.deepEqual(addDefaultAddressUsage({
+    BusinessPartner: '1000',
+    AddressID: '',
+    StreetName: 'Dorpstraat'
+  }, false), {
+    BusinessPartner: '1000',
+    StreetName: 'Dorpstraat',
+    to_AddressUsage: [{ AddressUsage: 'XXDEFAULT', StandardUsage: true }]
+  });
+
+  let sent;
+  const firstAddressService = {
+    run: async () => null,
+    send: async (request) => {
+      sent = request;
+      return { BusinessPartner: '1000', AddressID: '1' };
+    }
+  };
+  await createBusinessPartnerAddress(firstAddressService, {
+    BusinessPartner: '1000',
+    StreetName: 'Dorpstraat'
+  });
+  assert.equal(sent.path, "/A_BusinessPartner('1000')/to_BusinessPartnerAddress");
+  assert.deepEqual(sent.data.to_AddressUsage, [{
+    AddressUsage: 'XXDEFAULT',
+    StandardUsage: true
+  }]);
+
+  const laterAddressService = {
+    run: async () => ({ AddressID: '1' }),
+    send: async (request) => request.data
+  };
+  const later = await createBusinessPartnerAddress(laterAddressService, {
+    BusinessPartner: '1000',
+    StreetName: 'Nieuwstraat'
+  });
+  assert.equal(later.to_AddressUsage, undefined);
+});
+
+test('assistant duplicate check catches legal-form and spelling variants', () => {
+  const partners = [{
+    BusinessPartner: '1000',
+    BusinessPartnerFullName: 'Coca-Cola European Partners NV'
+  }];
+  assert.equal(findPotentialDuplicates('Coca Cola European Partners', partners).length, 1);
+  assert.equal(findPotentialDuplicates('Completely Different Company', partners).length, 0);
+});
+
 test('assistant proposes a prefilled Business Partner when a company is absent', () => {
   const partners = [{
     BusinessPartner: '1',
@@ -248,6 +322,14 @@ test('assistant proposes a prefilled Business Partner when a company is absent',
     OrganizationBPName1: 'Coca-Cola',
     SearchTerm1: 'Coca Cola'
   });
+  assert.equal(
+    JSON.parse(businessPartnerCreationSuggestion(
+      'Geef info over het bedrijf Coca-Cola',
+      partners,
+      { title: 'The Coca-Cola Company' }
+    ).SuggestedData).OrganizationBPName1,
+    'The Coca-Cola Company'
+  );
   assert.equal(
     businessPartnerCreationSuggestion('Geef info over bedrijf Existing Company', partners),
     null
