@@ -10,15 +10,16 @@ sap.ui.define([
   "sap/m/Button",
   "sap/m/Label",
   "sap/m/Input",
+  "sap/m/Select",
   "sap/m/CheckBox",
-  "sap/ui/layout/form/SimpleForm",
+  "sap/ui/core/Item",
+  "sap/ui/layout/Grid",
   "sap/m/Table",
   "sap/m/Column",
   "sap/m/ColumnListItem",
   "sap/m/Text",
   "sap/m/Toolbar",
   "sap/m/ToolbarSpacer",
-  "sap/m/Title",
   "sap/m/ObjectStatus",
   "sap/m/VBox",
   "mdm/md/businesspartner/manage/ext/BusinessPartnerMetadata"
@@ -34,20 +35,55 @@ sap.ui.define([
   Button,
   Label,
   Input,
+  Select,
   CheckBox,
-  SimpleForm,
+  Item,
+  Grid,
   Table,
   Column,
   ColumnListItem,
   Text,
   Toolbar,
   ToolbarSpacer,
-  Title,
   ObjectStatus,
   VBox,
   Metadata
 ) {
   "use strict";
+
+  var GENERAL_FIELDS = [
+    "BusinessPartner",
+    "BusinessPartnerCategory",
+    "BusinessPartnerGrouping",
+    "SearchTerm1",
+    "SearchTerm2",
+    "CorrespondenceLanguage",
+    "BusinessPartnerIsBlocked",
+    "IsMarkedForArchiving"
+  ];
+
+  var NAME_FIELDS = [
+    "FirstName",
+    "MiddleName",
+    "LastName",
+    "OrganizationBPName1",
+    "OrganizationBPName2",
+    "GroupBusinessPartnerName1",
+    "GroupBusinessPartnerName2",
+    "BusinessPartnerFullName"
+  ];
+
+  var ROOT_LABELS = {
+    BusinessPartnerCategory: "Category",
+    BusinessPartnerGrouping: "Grouping",
+    CorrespondenceLanguage: "Correspondence Language",
+    BusinessPartnerIsBlocked: "Blocked",
+    IsMarkedForArchiving: "Marked for Archiving",
+    OrganizationBPName1: "Organization Name 1",
+    OrganizationBPName2: "Organization Name 2",
+    GroupBusinessPartnerName1: "Group Name 1",
+    GroupBusinessPartnerName2: "Group Name 2"
+  };
 
   function clone(value) {
     return JSON.parse(JSON.stringify(value || {}));
@@ -245,45 +281,70 @@ sap.ui.define([
       },
 
       _renderRootForm: function () {
-        var container = this.byId("BusinessPartnersContent");
+        var state = this.getView().getModel("maintenance").getData();
+        this._renderRootSection("GeneralInformationContent", GENERAL_FIELDS, true, state);
+        this._renderRootSection("NamesContent", NAME_FIELDS, false, state);
+      },
+
+      _renderRootSection: function (containerId, fieldNames, showAdditionalFields, state) {
+        var container = this.byId(containerId);
         if (!container) return;
         container.removeAllItems();
 
-        var state = this.getView().getModel("maintenance").getData();
-        var form = this._createForm(
-          this._rootSection,
+        var section = Object.assign({}, this._rootSection, {
+          fields: fieldNames.map(function (fieldName) {
+            var field = this._rootSection.fields.find(function (candidate) {
+              return candidate.name === fieldName;
+            });
+            return field && Object.assign({}, field, {
+              label: ROOT_LABELS[field.name] || field.label
+            });
+          }, this).filter(Boolean)
+        });
+
+        if (showAdditionalFields) {
+          container.addItem(new Toolbar({
+            design: "Transparent",
+            content: [
+              new ToolbarSpacer(),
+              new Button({
+                text: "Additional Fields",
+                icon: "sap-icon://detail-view",
+                type: "Transparent",
+                press: this._openAdditionalFields.bind(this)
+              })
+            ]
+          }).addStyleClass("bpCardToolbar"));
+        }
+
+        container.addItem(this._createForm(
+          section,
           state.root,
           state.mode === "create",
           state.editing
-        );
-        container.addItem(form);
+        ).addStyleClass("bpObjectPageCard"));
       },
 
       _createForm: function (section, record, isCreate, editing) {
-        var content = [];
-        section.fields.forEach(function (field) {
+        var content = section.fields.map(function (field) {
           var control = this._createFieldControl(section, field, record, isCreate, editing);
-          content.push(new Label({
-            text: field.label + (this._isRequired(section, field, isCreate, editing) ? " *" : ""),
-            labelFor: control
-          }));
-          content.push(control);
+          return new VBox({
+            items: [
+              new Label({
+                text: field.label + (this._isRequired(section, field, isCreate, editing) ? " *" : ""),
+                labelFor: control
+              }).addStyleClass("bpFieldLabel"),
+              control
+            ]
+          }).addStyleClass("bpField");
         }, this);
 
-        return new SimpleForm({
-          editable: true,
-          layout: "ResponsiveGridLayout",
-          columnsXL: 3,
-          columnsL: 3,
-          columnsM: 2,
-          labelSpanXL: 4,
-          labelSpanL: 4,
-          labelSpanM: 4,
-          emptySpanXL: 0,
-          emptySpanL: 0,
-          emptySpanM: 0,
+        return new Grid({
+          defaultSpan: "XL3 L3 M6 S12",
+          hSpacing: 2,
+          vSpacing: 1,
           content: content
-        }).addStyleClass("sapUiSmallMarginBottom");
+        });
       },
 
       _isEditable: function (section, field, isCreate, editing) {
@@ -305,7 +366,31 @@ sap.ui.define([
         var editable = this._isEditable(section, field, isCreate, editing);
         var control;
 
-        if (isBoolean(field)) {
+        if (!editing) {
+          return new Text({
+            text: field.name === "BusinessPartnerCategory"
+              ? categoryText(record[field.name]) || "–"
+              : displayValue(record[field.name]) || "–",
+            wrapping: true
+          }).addStyleClass("bpDisplayValue");
+        }
+
+        if (field.name === "BusinessPartnerCategory") {
+          control = new Select({
+            selectedKey: String(record[field.name] || "2"),
+            enabled: editable,
+            width: "100%",
+            items: [
+              new Item({ key: "1", text: "Person (1)" }),
+              new Item({ key: "2", text: "Organization (2)" }),
+              new Item({ key: "3", text: "Group (3)" })
+            ]
+          });
+          control.attachChange(function (event) {
+            record[field.name] = event.getSource().getSelectedKey();
+            this._updatePreview();
+          }.bind(this));
+        } else if (isBoolean(field)) {
           control = new CheckBox({ selected: Boolean(record[field.name]), enabled: editable });
           control.attachSelect(function (event) {
             record[field.name] = event.getParameter("selected");
@@ -329,10 +414,56 @@ sap.ui.define([
         return control;
       },
 
+      _openAdditionalFields: function () {
+        var maintenanceModel = this.getView().getModel("maintenance");
+        var state = maintenanceModel.getData();
+        var record = clone(state.root);
+        var primaryFields = new Set(GENERAL_FIELDS.concat(NAME_FIELDS));
+        var section = Object.assign({}, this._rootSection, {
+          fields: this._rootSection.fields.filter(function (field) {
+            return !primaryFields.has(field.name);
+          })
+        });
+        var form = this._createForm(
+          section,
+          record,
+          state.mode === "create",
+          state.editing
+        ).addStyleClass("bpAdditionalFields");
+        var dialog = new Dialog({
+          title: "Additional Business Partner Fields",
+          contentWidth: "80rem",
+          contentHeight: "75%",
+          resizable: true,
+          draggable: true,
+          stretchOnPhone: true,
+          content: new VBox({ items: [form] }).addStyleClass("sapUiSmallMargin"),
+          beginButton: new Button({
+            text: "Apply",
+            type: "Emphasized",
+            visible: state.editing,
+            press: function () {
+              Object.assign(state.root, record);
+              this._updatePreview(state);
+              this._renderRootForm();
+              dialog.close();
+            }.bind(this)
+          }),
+          endButton: new Button({
+            text: state.editing ? "Cancel" : "Close",
+            press: function () { dialog.close(); }
+          }),
+          afterClose: function () { dialog.destroy(); }
+        });
+        this.getView().addDependent(dialog);
+        dialog.open();
+      },
+
       _updatePreview: function (state) {
         var maintenanceModel = this.getView().getModel("maintenance");
         state = state || maintenanceModel.getData();
         var root = state.root || {};
+        if (state.mode === "create") state.businessPartner = root.BusinessPartner || "";
         state.headerTitle = previewName(root)
           || root.BusinessPartnerFullName
           || (state.businessPartner ? "Business Partner " + state.businessPartner : "New Business Partner");
@@ -371,7 +502,6 @@ sap.ui.define([
             : "No records yet. Choose Add to create one.",
           headerToolbar: new Toolbar({
             content: [
-              new Title({ text: section.title, level: "H3" }),
               new ToolbarSpacer(),
               new ObjectStatus({ text: records.length + " record(s)", state: "Information" }),
               new Button({

@@ -1,6 +1,6 @@
 {
   "name": "mdm.md.businesspartner.manage",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Manage Business Partner (F3163) - Fiori Elements (OData V4) List Report / Object Page",
   "keywords": [
     "ui5",

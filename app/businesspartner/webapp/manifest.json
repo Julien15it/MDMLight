@@ -5,7 +5,7 @@
     "type": "application",
     "i18n": "i18n/i18n.properties",
     "applicationVersion": {
-      "version": "1.4.0"
+      "version": "1.5.0"
     },
     "title": "{{appTitle}}",
     "description": "{{appDescription}}",
@@ -64,6 +64,7 @@
         "sap.m": {},
         "sap.ui.core": {},
         "sap.ui.layout": {},
+        "sap.uxap": {},
         "sap.ushell": {},
         "sap.fe.templates": {}
       }
@@ -104,7 +105,11 @@
       }
     },
     "resources": {
-      "css": []
+      "css": [
+        {
+          "uri": "css/maintenance.css"
+        }
+      ]
     },
     "routing": {
       "config": {

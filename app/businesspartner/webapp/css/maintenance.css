@@ -1,0 +1,48 @@
+.bpObjectPageCard {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 1rem 1.25rem;
+  background: var(--sapGroup_ContentBackground);
+  border-radius: 0.75rem;
+}
+
+.bpCardToolbar {
+  min-height: 2rem;
+  margin-bottom: 0.25rem;
+  background: transparent;
+  border: 0;
+}
+
+.bpField {
+  min-height: 4.25rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.bpFieldLabel {
+  margin-bottom: 0.3rem;
+  color: var(--sapContent_LabelColor);
+}
+
+.bpDisplayValue {
+  color: var(--sapTextColor);
+  font-size: 1rem;
+  line-height: 1.5rem;
+}
+
+.bpAdditionalFields {
+  background: var(--sapGroup_ContentBackground);
+}
+
+.sapUxAPObjectPageLayout .sapUxAPObjectPageSectionHeaderTitle {
+  text-transform: none;
+}
+
+.sapUxAPObjectPageLayout .sapUxAPBlockContainer {
+  padding-top: 0.5rem;
+}
+
+@media (max-width: 600px) {
+  .bpObjectPageCard {
+    padding: 0.75rem 0.5rem;
+  }
+}
