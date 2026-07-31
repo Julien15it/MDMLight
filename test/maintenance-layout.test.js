@@ -87,6 +87,24 @@ test('maintenance sends only changed root fields and shows concise entity fields
   assert.doesNotMatch(metadata, /"AdditionalStreetPrefixName"/);
 });
 
+test('related entity forms validate required and alternative create fields', () => {
+  const controller = fs.readFileSync(
+    path.join(webapp, 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),
+    'utf8'
+  );
+  const metadata = fs.readFileSync(
+    path.join(webapp, 'ext', 'BusinessPartnerMetadata.js'),
+    'utf8'
+  );
+
+  assert.match(controller, /_sectionRecordErrors/);
+  assert.match(controller, /Enter at least one of/);
+  assert.match(metadata, /"requiredCreateFields"/);
+  assert.match(metadata, /"oneOfCreateFields"/);
+  assert.match(metadata, /"BPTaxNumber"/);
+  assert.match(metadata, /"IBAN"/);
+});
+
 test('application component initializes list actions with the main OData model', () => {
   const component = fs.readFileSync(path.join(webapp, 'Component.js'), 'utf8');
   assert.match(component, /CustomActions\.setEnvironment\(this\.getModel\(\), null\)/);

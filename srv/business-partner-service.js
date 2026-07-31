@@ -75,14 +75,62 @@ const ASSISTANT_STOP_WORDS = Object.freeze(new Set([
 ]));
 
 const MAINTENANCE_ENTITIES = Object.freeze({
-  Addresses: Object.freeze({ remote: 'A_BusinessPartnerAddress', creatable: true }),
-  BusinessPartnerRoles: Object.freeze({ remote: 'A_BusinessPartnerRole', creatable: true }),
-  TaxNumbers: Object.freeze({ remote: 'A_BusinessPartnerTaxNumber', creatable: true }),
-  BankDetails: Object.freeze({ remote: 'A_BusinessPartnerBank', creatable: true }),
-  Identifications: Object.freeze({ remote: 'A_BuPaIdentification', creatable: true }),
-  Industries: Object.freeze({ remote: 'A_BuPaIndustry', creatable: true }),
-  Customers: Object.freeze({ remote: 'A_Customer', creatable: false }),
-  Suppliers: Object.freeze({ remote: 'A_Supplier', creatable: false })
+  Addresses: Object.freeze({
+    remote: 'A_BusinessPartnerAddress',
+    navigation: 'to_BusinessPartnerAddress',
+    creatable: true,
+    requiredCreateFields: ['BusinessPartner', 'Country']
+  }),
+  BusinessPartnerRoles: Object.freeze({
+    remote: 'A_BusinessPartnerRole',
+    navigation: 'to_BusinessPartnerRole',
+    creatable: true,
+    requiredCreateFields: ['BusinessPartner', 'BusinessPartnerRole']
+  }),
+  TaxNumbers: Object.freeze({
+    remote: 'A_BusinessPartnerTaxNumber',
+    navigation: 'to_BusinessPartnerTax',
+    creatable: true,
+    requiredCreateFields: ['BusinessPartner', 'BPTaxType'],
+    oneOfCreateFields: ['BPTaxNumber', 'BPTaxLongNumber']
+  }),
+  BankDetails: Object.freeze({
+    remote: 'A_BusinessPartnerBank',
+    navigation: 'to_BusinessPartnerBank',
+    creatable: true,
+    requiredCreateFields: ['BusinessPartner', 'BankIdentification'],
+    oneOfCreateFields: ['IBAN', 'BankAccount'],
+    excludedCreateFields: ['BankName', 'SWIFTCode', 'CityName'],
+    excludedUpdateFields: ['BankName', 'SWIFTCode', 'CityName']
+  }),
+  Identifications: Object.freeze({
+    remote: 'A_BuPaIdentification',
+    navigation: 'to_BuPaIdentification',
+    creatable: true,
+    requiredCreateFields: [
+      'BusinessPartner', 'BPIdentificationType', 'BPIdentificationNumber'
+    ]
+  }),
+  Industries: Object.freeze({
+    remote: 'A_BuPaIndustry',
+    navigation: 'to_BuPaIndustry',
+    creatable: true,
+    requiredCreateFields: ['BusinessPartner', 'IndustrySector', 'IndustrySystemType'],
+    excludedCreateFields: ['IndustryKeyDescription'],
+    excludedUpdateFields: ['IndustryKeyDescription']
+  }),
+  Customers: Object.freeze({
+    remote: 'A_Customer',
+    navigation: 'to_Customer',
+    creatable: false,
+    updatable: true
+  }),
+  Suppliers: Object.freeze({
+    remote: 'A_Supplier',
+    navigation: 'to_Supplier',
+    creatable: false,
+    updatable: true
+  })
 });
 
 const ROOT_UPDATE_EXCLUDED_FIELDS = Object.freeze(new Set([
@@ -183,6 +231,47 @@ function remoteEntity(service, name) {
   return service.entities?.[name] || `API_BUSINESS_PARTNER.${name}`;
 }
 
+function hasMaintenanceValue(value) {
+  return value !== undefined && value !== null
+    && (typeof value !== 'string' || value.trim() !== '');
+}
+
+function validateMaintenanceCreate(entityName, payload, configuration) {
+  const missing = (configuration.requiredCreateFields || [])
+    .filter((field) => !hasMaintenanceValue(payload[field]));
+  if (missing.length) {
+    throw Object.assign(
+      new Error(`${entityName}: enter required field(s) ${missing.join(', ')}.`),
+      { statusCode: 400 }
+    );
+  }
+
+  const oneOf = configuration.oneOfCreateFields || [];
+  if (oneOf.length && !oneOf.some((field) => hasMaintenanceValue(payload[field]))) {
+    throw Object.assign(
+      new Error(`${entityName}: enter at least one of ${oneOf.join(' or ')}.`),
+      { statusCode: 400 }
+    );
+  }
+}
+
+function businessPartnerNavigationPath(configuration, payload) {
+  const businessPartner = String(payload.BusinessPartner || '').trim();
+  if (!businessPartner) {
+    throw Object.assign(new Error('Enter a business partner number.'), { statusCode: 400 });
+  }
+  const escapedBusinessPartner = businessPartner.replaceAll("'", "''");
+  return `/A_BusinessPartner('${escapedBusinessPartner}')/${configuration.navigation}`;
+}
+
+async function createBusinessPartnerChild(s4, configuration, payload) {
+  return normalizeRemoteResult(await s4.send({
+    method: 'POST',
+    path: businessPartnerNavigationPath(configuration, payload),
+    data: payload
+  }));
+}
+
 function addDefaultAddressUsage(payload, hasExistingAddress) {
   const result = { ...payload };
   if (!result.AddressID) delete result.AddressID;
@@ -208,15 +297,9 @@ async function createBusinessPartnerAddress(s4, payload) {
       .where({ BusinessPartner: businessPartner })
   ));
   const data = addDefaultAddressUsage(payload, Boolean(existing));
-  const escapedBusinessPartner = businessPartner.replaceAll("'", "''");
-
   // SAP KBA 3109298 requires the first address to be created through this
   // navigation with an explicit XXDEFAULT address usage.
-  return normalizeRemoteResult(await s4.send({
-    method: 'POST',
-    path: `/A_BusinessPartner('${escapedBusinessPartner}')/to_BusinessPartnerAddress`,
-    data
-  }));
+  return createBusinessPartnerChild(s4, MAINTENANCE_ENTITIES.Addresses, data);
 }
 
 function extractSearchTerms(searchExpression) {
@@ -555,8 +638,27 @@ function requestedCompanyName(question) {
     /(?:bedrijf|company|firma|organisatie|organization)\s+(?:genaamd\s+|named\s+)?(.{2,80})$/iu
   );
   const about = source.match(/(?:over|about)\s+(?:het\s+|the\s+)?(.{2,80})$/iu);
-  let name = (quoted && quoted[1]) || (company && company[1]) || (about && about[1]) || '';
-  name = name.replace(/[?.!,;:]+$/u, '').trim();
+  const lookupCommand = source.match(
+    /(?:kan|kun|could|can|wil|would)\s+(?:je|jij|u|you)\s+(.{2,80}?)\s+(?:opzoeken|zoeken|nakijken|look\s+up|lookup|research|check)\b/iu
+  );
+  const lookupAfterVerb = source.match(
+    /(?:look\s+up|lookup|research|check|search\s+for)\s+(.{2,80}?)(?:\s+(?:and|if)\b|[?.!,;:]|$)/iu
+  );
+  const imperative = source.match(
+    /^(?:zoek|search|lookup|research|check)\s+(?:info(?:rmation)?\s+(?:over|about)\s+)?(.{2,80}?)(?:[?.!,;:]|$)/iu
+  );
+  let name = (quoted && quoted[1])
+    || (company && company[1])
+    || (about && about[1])
+    || (lookupCommand && lookupCommand[1])
+    || (lookupAfterVerb && lookupAfterVerb[1])
+    || (imperative && imperative[1])
+    || '';
+  name = name
+    .replace(/\s+(?:en|and)\s+(?:indien|if|zoek|search|lookup|maak|create)\b[\s\S]*$/iu, '')
+    .replace(/^(?:naar|for)\s+/iu, '')
+    .replace(/[?.!,;:]+$/u, '')
+    .trim();
   if (!name || /^(?:bedrijf|company|firma|organisatie|organization)$/iu.test(name)) return '';
   return name;
 }
@@ -594,9 +696,11 @@ function externalResearchAnswer(name, research) {
   return [
     `${name} is not present as a Business Partner in S/4HANA.`,
     '',
-    `Public company information (${research.title}${research.description ? ` — ${research.description}` : ''}):`,
+    `Public company information from ${research.source || 'a public source'} (${research.title}${research.description ? ` - ${research.description}` : ''}):`,
     research.extract,
-    `Source: ${research.url}`,
+    ...(Array.isArray(research.sources) && research.sources.length
+      ? research.sources.map((source) => `Source: ${source.title} - ${source.url}`)
+      : [`Source: ${research.url}`]),
     '',
     'You can prepare a new Business Partner from this suggestion. Review all proposed data before saving it to S/4HANA.'
   ].join('\n');
@@ -731,16 +835,23 @@ class BusinessPartnerService extends cds.ApplicationService {
       }
 
       const entity = this.entities[req.data.Entity];
-      const payload = sanitizeEntityPayload(data, entity, { isCreate });
+      const excludedFields = new Set(
+        isCreate
+          ? configuration.excludedCreateFields || []
+          : configuration.excludedUpdateFields || []
+      );
+      const payload = sanitizeEntityPayload(data, entity, {
+        isCreate,
+        excluded: excludedFields
+      });
       const targetEntity = remoteEntity(s4, configuration.remote);
 
       if (isCreate) {
         try {
+          validateMaintenanceCreate(req.data.Entity, payload, configuration);
           const result = req.data.Entity === 'Addresses'
             ? await createBusinessPartnerAddress(s4, payload)
-            : normalizeRemoteResult(
-              await s4.run(cds.ql.INSERT.into(targetEntity).entries(payload))
-            );
+            : await createBusinessPartnerChild(s4, configuration, payload);
           return JSON.stringify(result || payload);
         } catch (error) {
           const message = remoteErrorMessage(error, `S/4HANA rejected the ${req.data.Entity} create request.`);
@@ -849,10 +960,13 @@ BusinessPartnerService._internals = {
   parseJsonObject,
   normalizeRemoteResult,
   remoteErrorMessage,
+  businessPartnerNavigationPath,
+  createBusinessPartnerChild,
   addDefaultAddressUsage,
   createBusinessPartnerAddress,
   sanitizeEntityKeys,
   sanitizeEntityPayload,
+  validateMaintenanceCreate,
   validateBusinessPartnerCreate,
   answerBusinessPartnerQuestion,
   findPotentialDuplicates,

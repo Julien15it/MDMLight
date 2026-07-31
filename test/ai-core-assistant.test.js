@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const {
+  aiModelNames,
   askSapAiCore,
   hasAiCoreBinding,
   promptContext,
@@ -33,6 +34,17 @@ test('AI Core binding detection supports Cloud Foundry and local service keys', 
   assert.equal(hasAiCoreBinding({
     VCAP_SERVICES: JSON.stringify({ aicore: [{ credentials: { clientid: 'x' } }] })
   }), true);
+});
+
+test('AI Core model configuration provides resilient, configurable fallbacks', () => {
+  assert.deepEqual(aiModelNames({
+    AICORE_MODEL: 'gpt-5-mini',
+    AICORE_FALLBACK_MODELS: 'gpt-5,anthropic--claude-4.5-haiku,gpt-5'
+  }), ['gpt-5-mini', 'gpt-5', 'anthropic--claude-4.5-haiku']);
+  assert.deepEqual(aiModelNames({
+    AICORE_MODEL: 'gpt-5-mini',
+    AICORE_FALLBACK_MODELS: ''
+  }), ['gpt-5-mini']);
 });
 
 test('AI prompt context is bounded and excludes sensitive fields', () => {
@@ -91,6 +103,7 @@ test('assistant uses SAP AI Core when bound and reports its provider', async () 
     env: {
       AICORE_SERVICE_KEY: '{}',
       AICORE_MODEL: 'gpt-5-mini',
+      AICORE_FALLBACK_MODELS: '',
       AICORE_RESOURCE_GROUP: 'default'
     },
     Client: MockOrchestrationClient

@@ -6,10 +6,13 @@ const cds = require('@sap/cds');
 
 const BusinessPartnerService = require('../srv/business-partner-service');
 const {
+  MAINTENANCE_ENTITIES,
   SEARCHABLE_FIELDS,
   answerBusinessPartnerQuestion,
   addDefaultAddressUsage,
   businessPartnerCreationSuggestion,
+  businessPartnerNavigationPath,
+  createBusinessPartnerChild,
   createBusinessPartnerAddress,
   findPotentialDuplicates,
   applyBusinessPartnerSearch,
@@ -19,6 +22,7 @@ const {
   remoteErrorMessage,
   sanitizeEntityKeys,
   sanitizeEntityPayload,
+  validateMaintenanceCreate,
   validateBusinessPartnerCreate
 } = BusinessPartnerService._internals;
 
@@ -297,6 +301,56 @@ test('first address receives XXDEFAULT usage and later addresses do not', async 
   assert.equal(later.to_AddressUsage, undefined);
 });
 
+test('all creatable maintenance entities use their Business Partner navigation', async () => {
+  const expected = {
+    Addresses: 'to_BusinessPartnerAddress',
+    BusinessPartnerRoles: 'to_BusinessPartnerRole',
+    TaxNumbers: 'to_BusinessPartnerTax',
+    BankDetails: 'to_BusinessPartnerBank',
+    Identifications: 'to_BuPaIdentification',
+    Industries: 'to_BuPaIndustry'
+  };
+
+  for (const [entityName, navigation] of Object.entries(expected)) {
+    const configuration = MAINTENANCE_ENTITIES[entityName];
+    assert.equal(configuration.creatable, true);
+    assert.equal(
+      businessPartnerNavigationPath(configuration, { BusinessPartner: '1000' }),
+      `/A_BusinessPartner('1000')/${navigation}`
+    );
+    let sent;
+    await createBusinessPartnerChild({
+      send: async (request) => {
+        sent = request;
+        return { BusinessPartner: '1000' };
+      }
+    }, configuration, { BusinessPartner: '1000' });
+    assert.equal(sent.method, 'POST');
+    assert.equal(sent.path, `/A_BusinessPartner('1000')/${navigation}`);
+  }
+
+  assert.equal(MAINTENANCE_ENTITIES.Customers.creatable, false);
+  assert.equal(MAINTENANCE_ENTITIES.Customers.updatable, true);
+  assert.equal(MAINTENANCE_ENTITIES.Suppliers.creatable, false);
+  assert.equal(MAINTENANCE_ENTITIES.Suppliers.updatable, true);
+});
+
+test('maintenance create validation enforces entity keys and useful values', () => {
+  assert.doesNotThrow(() => validateMaintenanceCreate('TaxNumbers', {
+    BusinessPartner: '1000',
+    BPTaxType: 'BE0',
+    BPTaxNumber: 'BE0123456789'
+  }, MAINTENANCE_ENTITIES.TaxNumbers));
+  assert.throws(() => validateMaintenanceCreate('TaxNumbers', {
+    BusinessPartner: '1000',
+    BPTaxType: 'BE0'
+  }, MAINTENANCE_ENTITIES.TaxNumbers), /BPTaxNumber or BPTaxLongNumber/);
+  assert.throws(() => validateMaintenanceCreate('BankDetails', {
+    BusinessPartner: '1000',
+    IBAN: 'BE00000000000000'
+  }, MAINTENANCE_ENTITIES.BankDetails), /BankIdentification/);
+});
+
 test('assistant duplicate check catches legal-form and spelling variants', () => {
   const partners = [{
     BusinessPartner: '1000',
@@ -333,5 +387,20 @@ test('assistant proposes a prefilled Business Partner when a company is absent',
   assert.equal(
     businessPartnerCreationSuggestion('Geef info over bedrijf Existing Company', partners),
     null
+  );
+});
+
+test('assistant recognizes free-form Dutch and English company lookup requests', () => {
+  assert.equal(
+    BusinessPartnerService._internals.requestedCompanyName(
+      'Kan je SPAR Destelbergen opzoeken en indien die niet bestaat info opzoeken op internet en de nieuwe BP aanmaken?'
+    ),
+    'SPAR Destelbergen'
+  );
+  assert.equal(
+    BusinessPartnerService._internals.requestedCompanyName(
+      'Could you look up Contoso Belgium and create a proposal if it does not exist?'
+    ),
+    'Contoso Belgium'
   );
 });

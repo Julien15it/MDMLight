@@ -37,7 +37,8 @@ const sections = [
     ],
     summaryFields: [
       'StreetName', 'HouseNumber', 'PostalCode', 'CityName', 'Country', 'Region', 'POBox'
-    ]
+    ],
+    requiredCreateFields: ['Country']
   },
   {
     id: 'BusinessPartnerRoles',
@@ -48,7 +49,8 @@ const sections = [
     typeName: 'A_BusinessPartnerRoleType',
     kind: 'collection',
     fieldNames: ['BusinessPartner', 'BusinessPartnerRole', 'ValidFrom', 'ValidTo'],
-    summaryFields: ['BusinessPartnerRole', 'ValidFrom', 'ValidTo']
+    summaryFields: ['BusinessPartnerRole', 'ValidFrom', 'ValidTo'],
+    requiredCreateFields: ['BusinessPartnerRole']
   },
   {
     id: 'TaxNumbers',
@@ -59,7 +61,9 @@ const sections = [
     typeName: 'A_BusinessPartnerTaxNumberType',
     kind: 'collection',
     fieldNames: ['BusinessPartner', 'BPTaxType', 'BPTaxNumber', 'BPTaxLongNumber'],
-    summaryFields: ['BPTaxType', 'BPTaxNumber', 'BPTaxLongNumber']
+    summaryFields: ['BPTaxType', 'BPTaxNumber', 'BPTaxLongNumber'],
+    requiredCreateFields: ['BPTaxType'],
+    oneOfCreateFields: ['BPTaxNumber', 'BPTaxLongNumber']
   },
   {
     id: 'BankDetails',
@@ -76,7 +80,9 @@ const sections = [
     ],
     summaryFields: [
       'BankName', 'BankCountryKey', 'BankNumber', 'IBAN', 'BankAccount', 'CityName'
-    ]
+    ],
+    requiredCreateFields: ['BankIdentification'],
+    oneOfCreateFields: ['IBAN', 'BankAccount']
   },
   {
     id: 'Identifications',
@@ -93,7 +99,8 @@ const sections = [
     summaryFields: [
       'BPIdentificationType', 'BPIdentificationNumber',
       'BPIdnNmbrIssuingInstitute', 'Country', 'Region'
-    ]
+    ],
+    requiredCreateFields: ['BPIdentificationType', 'BPIdentificationNumber']
   },
   {
     id: 'Industries',
@@ -109,7 +116,8 @@ const sections = [
     ],
     summaryFields: [
       'IndustrySector', 'IndustrySystemType', 'IndustryKeyDescription', 'IsStandardIndustry'
-    ]
+    ],
+    requiredCreateFields: ['IndustrySector', 'IndustrySystemType']
   },
   {
     id: 'Customers',

@@ -706,6 +706,9 @@ sap.ui.define([], function () {
           "Region",
           "POBox"
         ],
+        "requiredCreateFields": [
+          "Country"
+        ],
         "fields": [
           {
             "name": "BusinessPartner",
@@ -812,6 +815,9 @@ sap.ui.define([], function () {
           "ValidFrom",
           "ValidTo"
         ],
+        "requiredCreateFields": [
+          "BusinessPartnerRole"
+        ],
         "fields": [
           {
             "name": "BusinessPartner",
@@ -863,6 +869,13 @@ sap.ui.define([], function () {
         "kind": "collection",
         "summaryFields": [
           "BPTaxType",
+          "BPTaxNumber",
+          "BPTaxLongNumber"
+        ],
+        "requiredCreateFields": [
+          "BPTaxType"
+        ],
+        "oneOfCreateFields": [
           "BPTaxNumber",
           "BPTaxLongNumber"
         ],
@@ -924,6 +937,13 @@ sap.ui.define([], function () {
           "IBAN",
           "BankAccount",
           "CityName"
+        ],
+        "requiredCreateFields": [
+          "BankIdentification"
+        ],
+        "oneOfCreateFields": [
+          "IBAN",
+          "BankAccount"
         ],
         "fields": [
           {
@@ -1053,6 +1073,10 @@ sap.ui.define([], function () {
           "Country",
           "Region"
         ],
+        "requiredCreateFields": [
+          "BPIdentificationType",
+          "BPIdentificationNumber"
+        ],
         "fields": [
           {
             "name": "BusinessPartner",
@@ -1138,6 +1162,10 @@ sap.ui.define([], function () {
           "IndustrySystemType",
           "IndustryKeyDescription",
           "IsStandardIndustry"
+        ],
+        "requiredCreateFields": [
+          "IndustrySector",
+          "IndustrySystemType"
         ],
         "fields": [
           {

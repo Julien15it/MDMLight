@@ -423,6 +423,7 @@ sap.ui.define([
         if (section.kind === "root" && isCreate) {
           return ["BusinessPartnerCategory", "BusinessPartnerGrouping"].includes(field.name);
         }
+        if (isCreate && (section.requiredCreateFields || []).includes(field.name)) return true;
         return !field.nullable;
       },
 
@@ -633,6 +634,30 @@ sap.ui.define([
         this._openRecordDialog(section, clone(records[index]), false, index);
       },
 
+      _sectionRecordErrors: function (section, record, isCreate) {
+        if (!isCreate) return [];
+        var hasValue = function (value) {
+          return value !== undefined && value !== null
+            && (typeof value !== "string" || value.trim() !== "");
+        };
+        var label = function (fieldName) {
+          var field = section.fields.find(function (candidate) {
+            return candidate.name === fieldName;
+          });
+          return field ? field.label : fieldName;
+        };
+        var errors = (section.requiredCreateFields || [])
+          .filter(function (fieldName) { return !hasValue(record[fieldName]); })
+          .map(function (fieldName) { return "Enter " + label(fieldName) + "."; });
+        var oneOf = section.oneOfCreateFields || [];
+        if (oneOf.length && !oneOf.some(function (fieldName) {
+          return hasValue(record[fieldName]);
+        })) {
+          errors.push("Enter at least one of " + oneOf.map(label).join(" or ") + ".");
+        }
+        return errors;
+      },
+
       _openRecordDialog: function (section, record, isCreate, index) {
         var state = this.getView().getModel("maintenance").getData();
         var editing = Boolean(state.editing);
@@ -650,6 +675,11 @@ sap.ui.define([
             type: "Emphasized",
             visible: editing,
             press: function () {
+              var validationErrors = this._sectionRecordErrors(section, record, isCreate);
+              if (validationErrors.length) {
+                MessageBox.error(validationErrors.join("\n"));
+                return;
+              }
               var state = this.getView().getModel("maintenance").getData();
               var records = state.sections[section.id] || [];
               if (isCreate) {
