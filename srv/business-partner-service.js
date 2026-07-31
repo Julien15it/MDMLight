@@ -1,6 +1,7 @@
 'use strict';
 
 const cds = require('@sap/cds');
+const { askSapAiCore } = require('./ai/business-partner-assistant');
 
 const SEARCHABLE_FIELDS = Object.freeze([
   'BusinessPartner',
@@ -606,7 +607,13 @@ class BusinessPartnerService extends cds.ApplicationService {
           );
           addresses = Array.isArray(addressResult) ? addressResult : [];
         }
-        return answerBusinessPartnerQuestion(question, partners, addresses);
+        const fallbackAnswer = answerBusinessPartnerQuestion(question, partners, addresses);
+        return await askSapAiCore({
+          question,
+          partners,
+          addresses,
+          fallbackAnswer
+        });
       } catch (error) {
         req.reject(
           error.statusCode || 502,

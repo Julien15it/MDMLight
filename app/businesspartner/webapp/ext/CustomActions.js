@@ -7,24 +7,39 @@ sap.ui.define([
 
   var environment = { model: null, view: null };
 
-  function contextsFrom(bindingContext, selectedContexts) {
-    if (Array.isArray(selectedContexts)) return selectedContexts;
-    if (Array.isArray(bindingContext)) return bindingContext;
-    if (bindingContext && typeof bindingContext.getProperty === "function") return [bindingContext];
-    return [];
+  function contextsFrom() {
+    var result = [];
+    var seen = [];
+
+    function collect(value) {
+      if (!value || seen.includes(value)) return;
+      if (typeof value === "object" || typeof value === "function") seen.push(value);
+      if (Array.isArray(value)) {
+        value.forEach(collect);
+        return;
+      }
+      if (typeof value.getProperty === "function") {
+        result.push(value);
+        return;
+      }
+      ["bindingContext", "sourceBindingContext", "context", "contexts", "selectedContexts"]
+        .forEach(function (property) { collect(value[property]); });
+      if (typeof value.getParameter === "function") {
+        ["bindingContext", "contexts", "selectedContexts"]
+          .forEach(function (name) { collect(value.getParameter(name)); });
+      }
+      if (typeof value.getSource === "function") {
+        var source = value.getSource();
+        if (source && typeof source.getBindingContext === "function") collect(source.getBindingContext());
+      }
+    }
+
+    Array.prototype.forEach.call(arguments, collect);
+    return result.filter(function (context, index) { return result.indexOf(context) === index; });
   }
 
   function contextFrom(value) {
-    if (!value) return null;
-    if (typeof value.getProperty === "function") return value;
-    if (Array.isArray(value)) return contextFrom(value[0]);
-    if (typeof value.getSource === "function") {
-      var source = value.getSource();
-      if (source && typeof source.getBindingContext === "function") {
-        return source.getBindingContext();
-      }
-    }
-    return null;
+    return contextsFrom(value)[0] || null;
   }
 
   function businessPartnerFromHash() {

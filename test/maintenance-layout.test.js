@@ -58,6 +58,18 @@ test('a failed related section does not block root editing', () => {
     'utf8'
   );
 
-  assert.match(controller, /Some related sections could not be loaded/);
   assert.match(controller, /records: \[\],\s+warning:/);
+  assert.match(controller, /unsupportedFieldFromError/);
+  assert.match(controller, /omittedFields\.push/);
+  assert.match(controller, /state\.sectionWarnings = sectionWarnings/);
+});
+
+test('list row navigation uses the supported Fiori binding context', () => {
+  const extension = fs.readFileSync(
+    path.join(webapp, 'ext', 'controller', 'ListReportExtension.controller.js'),
+    'utf8'
+  );
+
+  assert.match(extension, /contextInfo && contextInfo\.bindingContext/);
+  assert.doesNotMatch(extension, /sourceBindingContext/);
 });

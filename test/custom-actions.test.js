@@ -85,6 +85,22 @@ test('row navigation opens the complete Business Partner display page', () => {
   assert.deepEqual(runtime.errors, []);
 });
 
+test('row navigation accepts the official Fiori bindingContext wrapper', () => {
+  const runtime = loadActions();
+  runtime.actions.openDisplayPage({ bindingContext: context('3') });
+  assert.equal(runtime.getHash(), 'BusinessPartners/3/display');
+  assert.deepEqual(runtime.errors, []);
+});
+
+test('list edit accepts contexts wrapped by the Fiori action runtime', () => {
+  const runtime = loadActions();
+  const actionParameters = { selectedContexts: [context('149')] };
+  assert.equal(runtime.actions.isSingleSelection(actionParameters), true);
+  runtime.actions.openEditPage(actionParameters);
+  assert.equal(runtime.getHash(), 'BusinessPartners/149/maintain');
+  assert.deepEqual(runtime.errors, []);
+});
+
 test('object-page edit action uses its context or current object-page hash', () => {
   const direct = loadActions();
   direct.actions.openEditCurrentPage(context('149'));

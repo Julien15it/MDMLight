@@ -1,11 +1,15 @@
 {
   "name": "mdm-md-businesspartner-manage",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "Manage Business Partner (F3163) - CAP + Fiori Elements (OData V4) recreation of the SAP standard app mdm.md.businesspartner.manage",
   "repository": "https://github.com/julien15it/mdmlight",
   "license": "UNLICENSED",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "dependencies": {
+    "@sap-ai-sdk/orchestration": "^2.13.0",
     "@sap-cloud-sdk/connectivity": "^4.8.0",
     "@sap-cloud-sdk/http-client": "^4.8.0",
     "@sap-cloud-sdk/resilience": "^4.8.0",

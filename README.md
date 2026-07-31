@@ -15,8 +15,10 @@ S/4HANA OData V2 service `API_BUSINESS_PARTNER` through BTP destination
 - Editable related sections for addresses, roles, tax numbers, bank details,
   identifications, industries, customer data, and supplier data
 - Complete imported `API_BUSINESS_PARTNER` model with all 65 entity sets
+- Conversational Business Partner Assistant powered by SAP AI Core orchestration,
+  with a read-only S/4HANA search fallback when AI Core is unavailable
 - Standalone application router, XSUAA, Destination service, Connectivity
-  service, and HTML5 Application Repository deployment
+  service, SAP AI Core, and HTML5 Application Repository deployment
 
 Deletion is deliberately disabled in the CAP facade.
 
@@ -29,6 +31,27 @@ For an on-premise S/4HANA system, configure the destination with Cloud Connector
 (`ProxyType=OnPremise`) and an authentication method that is allowed to read and
 maintain business partners. Creation also requires CSRF token support, which is
 enabled in `package.json`.
+
+## SAP AI Core and AI Launchpad
+
+SAP AI Launchpad manages prompts and deployments; the application runtime calls
+the Generative AI Hub through an SAP AI Core `extended` service binding. The MTA
+creates and binds `mdm-businesspartner-aicore` automatically. In AI Launchpad,
+ensure that the `default` resource group has a running orchestration deployment
+and access to `gpt-5-mini`.
+
+The chatbot sends only a bounded set of Business Partner identifiers, names,
+categories, groupings, search terms, block status, and explicitly requested
+addresses. Bank and tax data are never included in an AI prompt. To use another
+model or resource group, change `AICORE_MODEL` or `AICORE_RESOURCE_GROUP` on the
+`mdm-businesspartner-srv` module in `mta.yaml`.
+
+For local hybrid testing after the service exists in Cloud Foundry:
+
+```bash
+cds bind -2 mdm-businesspartner-aicore
+cds watch --profile hybrid
+```
 
 ## Run in BAS or VS Code
 
@@ -54,7 +77,7 @@ can compile and the tests can run, but live requests cannot be completed.
 
 ```bash
 mbt build
-cf deploy mta_archives/mdm-md-businesspartner-manage_1.7.0.mtar
+cf deploy mta_archives/mdm-md-businesspartner-manage_1.8.0.mtar
 ```
 
 Open the deployed application through the standalone approuter route:

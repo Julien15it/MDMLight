@@ -26,7 +26,7 @@ sap.ui.define([
 
         routing: {
           onBeforeNavigation: function (contextInfo) {
-            CustomActions.openDisplayPage(contextInfo && contextInfo.sourceBindingContext);
+            CustomActions.openDisplayPage(contextInfo && contextInfo.bindingContext);
             return true;
           }
         }

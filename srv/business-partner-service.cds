@@ -1,5 +1,10 @@
 using { API_BUSINESS_PARTNER as S4 } from './external/API_BUSINESS_PARTNER';
 
+type BusinessPartnerAssistantAnswer {
+  Answer   : LargeString;
+  Provider : String(40);
+}
+
 /**
  * OData V4 facade for the complete S/4HANA Business Partner (A2X) API.
  * Data is never persisted in CAP; requests are delegated live to S/4HANA.
@@ -68,7 +73,7 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
    *  in S/4HANA. It never creates or changes master data. */
   action askBusinessPartnerAssistant(
     Question : String(1000) not null
-  ) returns LargeString;
+  ) returns BusinessPartnerAssistantAnswer;
 
   // Core business-partner details shown as sections on the object page.
   @readonly entity Addresses            as projection on S4.A_BusinessPartnerAddress;

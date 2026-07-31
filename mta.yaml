@@ -1,6 +1,6 @@
 _schema-version: "3.2"
 ID: mdm-md-businesspartner-manage
-version: 1.7.0
+version: 1.8.0
 description: "Manage Business Partner (F3163) - CAP + Fiori Elements"
 parameters:
   enable-parallel-deployments: true
@@ -31,6 +31,10 @@ modules:
       - name: mdm-businesspartner-auth
       - name: mdm-businesspartner-destination-service
       - name: mdm-businesspartner-connectivity
+      - name: mdm-businesspartner-aicore
+    properties:
+      AICORE_MODEL: gpt-5-mini
+      AICORE_RESOURCE_GROUP: default
 
   # --- Standalone application router ------------------------------------------
   - name: mdm-businesspartner-approuter
@@ -131,3 +135,8 @@ resources:
     parameters:
       service: connectivity
       service-plan: lite
+  - name: mdm-businesspartner-aicore
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: aicore
+      service-plan: extended

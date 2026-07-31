@@ -26,13 +26,20 @@ sap.ui.define([
       || "The Business Partner Assistant is unavailable.";
   }
 
-  function resultText(result) {
-    if (typeof result === "string") return result;
-    if (!result || typeof result !== "object") return "No answer was returned.";
-    return result.value
-      || result.askBusinessPartnerAssistant
-      || result.Result
-      || "No answer was returned.";
+  function resultInfo(result) {
+    if (typeof result === "string") return { answer: result, provider: "S/4HANA" };
+    if (!result || typeof result !== "object") {
+      return { answer: "No answer was returned.", provider: "Assistant" };
+    }
+    var payload = result.value && typeof result.value === "object" ? result.value : result;
+    return {
+      answer: payload.Answer
+        || payload.answer
+        || payload.askBusinessPartnerAssistant
+        || payload.Result
+        || "No answer was returned.",
+      provider: payload.Provider || payload.provider || "Assistant"
+    };
   }
 
   return {
@@ -44,11 +51,11 @@ sap.ui.define([
 
       var transcript = "Assistant: Ask me about the Business Partners currently available in S/4HANA.\n\n"
         + "Examples:\n"
-        + "• How many Business Partners are there?\n"
-        + "• Which Business Partners are blocked?\n"
-        + "• Show BP 1\n"
-        + "• Find Brussels\n"
-        + "• What is the address of BP 1?";
+        + "- How many Business Partners are there?\n"
+        + "- Which Business Partners are blocked?\n"
+        + "- Show BP 1\n"
+        + "- Find Brussels\n"
+        + "- What is the address of BP 1?";
       var conversation = new TextArea({
         value: transcript,
         editable: false,
@@ -57,7 +64,7 @@ sap.ui.define([
         growing: false
       }).addStyleClass("bpAssistantConversation");
       var question = new Input({
-        placeholder: "Ask a question about the available Business Partners…",
+        placeholder: "Ask a question about the available Business Partners...",
         width: "100%"
       });
       var dialog;
@@ -67,7 +74,7 @@ sap.ui.define([
         if (!value) return;
 
         transcript += "\n\nYou: " + value;
-        conversation.setValue(transcript + "\n\nAssistant: Looking up live S/4HANA data…");
+        conversation.setValue(transcript + "\n\nAssistant: Looking up live S/4HANA data...");
         question.setValue("");
         question.setEnabled(false);
         dialog.setBusy(true);
@@ -77,8 +84,8 @@ sap.ui.define([
         try {
           await binding.execute("$direct");
           var context = binding.getBoundContext();
-          var answer = resultText(context && context.getObject());
-          transcript += "\n\nAssistant: " + answer;
+          var info = resultInfo(context && context.getObject());
+          transcript += "\n\nAssistant (" + info.provider + "): " + info.answer;
           conversation.setValue(transcript);
         } catch (error) {
           var message = errorMessage(error);

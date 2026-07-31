@@ -114,6 +114,14 @@ sap.ui.define([
       || fallback;
   }
 
+  function unsupportedFieldFromError(error, availableFields) {
+    var message = errorMessage(error, "");
+    var match = message.match(/(?:segment|property)\s+['"]([^'"]+)['"]/iu)
+      || message.match(/property\s+([^\s.]+)\s+(?:not found|does not exist)/iu);
+    if (!match) return "";
+    return availableFields.includes(match[1]) ? match[1] : "";
+  }
+
   function isBoolean(field) {
     return field.type === "cds.Boolean";
   }
@@ -182,6 +190,7 @@ sap.ui.define([
           previewGrouping: "",
           previewSearchTerm: "",
           previewLanguage: "",
+          sectionWarnings: [],
           root: {
             BusinessPartnerCategory: "2",
             BusinessPartnerGrouping: ""
@@ -261,12 +270,7 @@ sap.ui.define([
           var sectionWarnings = sections
             .filter(function (result) { return Boolean(result.warning); })
             .map(function (result) { return result.warning; });
-          if (sectionWarnings.length) {
-            MessageToast.show(
-              "Some related sections could not be loaded. You can still edit and save the Business Partner.",
-              { duration: 6000 }
-            );
-          }
+          state.sectionWarnings = sectionWarnings;
         } catch (error) {
           MessageBox.error(errorMessage(error, "The Business Partner could not be loaded."));
         } finally {
@@ -279,23 +283,46 @@ sap.ui.define([
 
       _loadSection: async function (businessPartner, section) {
         var model = this.getView().getModel();
-        var listBinding = model.bindList(
-          "/" + section.entitySet,
-          null,
-          null,
-          [new Filter(section.relationField, FilterOperator.EQ, businessPartner)]
-        );
-        var contexts = await listBinding.requestContexts(0, 1000);
-        var records = contexts.map(function (context) {
-          var record = clone(context.getObject());
-          record.__keys = Object.fromEntries(
-            section.fields.filter(function (field) { return field.key; }).map(function (field) {
-              return [field.name, record[field.name]];
-            })
+        var availableFields = section.fields.map(function (field) { return field.name; });
+        if (!availableFields.includes(section.relationField)) availableFields.push(section.relationField);
+        var omittedFields = [];
+        var records;
+
+        while (true) {
+          var parameters = omittedFields.length
+            ? { $select: availableFields.filter(function (field) {
+              return !omittedFields.includes(field);
+            }).join(",") }
+            : undefined;
+          var listBinding = model.bindList(
+            "/" + section.entitySet,
+            null,
+            null,
+            [new Filter(section.relationField, FilterOperator.EQ, businessPartner)],
+            parameters
           );
-          return record;
-        });
-        listBinding.destroy();
+          try {
+            var contexts = await listBinding.requestContexts(0, 1000);
+            records = contexts.map(function (context) {
+              var record = clone(context.getObject());
+              record.__keys = Object.fromEntries(
+                section.fields.filter(function (field) { return field.key; }).map(function (field) {
+                  return [field.name, record[field.name]];
+                })
+              );
+              return record;
+            });
+            break;
+          } catch (error) {
+            var unsupportedField = unsupportedFieldFromError(error, availableFields);
+            if (!unsupportedField || omittedFields.includes(unsupportedField) || omittedFields.length >= 20) {
+              throw error;
+            }
+            omittedFields.push(unsupportedField);
+          } finally {
+            listBinding.destroy();
+          }
+        }
         return { id: section.id, records: records };
       },
 
