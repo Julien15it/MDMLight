@@ -123,6 +123,28 @@ function sanitizeEntityKeys(data, entity) {
   return sanitized;
 }
 
+function normalizeRemoteResult(result) {
+  if (Array.isArray(result)) return result[0] || null;
+  if (!result || typeof result !== 'object') return null;
+  if (Array.isArray(result.value)) return result.value[0] || null;
+  if (result.d && Array.isArray(result.d.results)) return result.d.results[0] || null;
+  if (result.d && typeof result.d === 'object') return result.d;
+  return result;
+}
+
+function remoteErrorMessage(error, fallback) {
+  const data = error?.response?.data || error?.cause?.response?.data;
+  const message = data?.error?.message?.value
+    || data?.error?.message
+    || error?.cause?.message
+    || error?.message;
+  return typeof message === 'string' && message.trim() ? message : fallback;
+}
+
+function remoteEntity(service, name) {
+  return service.entities?.[name] || `API_BUSINESS_PARTNER.${name}`;
+}
+
 function extractSearchTerms(searchExpression) {
   const values = [];
 
@@ -250,9 +272,13 @@ class BusinessPartnerService extends cds.ApplicationService {
       }
 
       const payload = pickDefined(req.data, CREATE_FIELDS);
-      return s4.run(
-        cds.ql.INSERT.into('API_BUSINESS_PARTNER.A_BusinessPartner').entries(payload)
-      );
+      try {
+        return normalizeRemoteResult(await s4.run(
+          cds.ql.INSERT.into(remoteEntity(s4, 'A_BusinessPartner')).entries(payload)
+        ));
+      } catch (error) {
+        req.reject(error.statusCode || 502, remoteErrorMessage(error, 'S/4HANA rejected the create request.'));
+      }
     });
 
     this.on('updateBusinessPartner', async (req) => {
@@ -264,19 +290,19 @@ class BusinessPartnerService extends cds.ApplicationService {
         req.reject(400, 'Enter at least one value to update.');
       }
 
-      const affectedRows = await s4.run(
-        cds.ql.UPDATE('API_BUSINESS_PARTNER.A_BusinessPartner')
-          .set(payload)
-          .where({ BusinessPartner: businessPartner })
-      );
-
-      if (!affectedRows) req.reject(404, `Business partner ${businessPartner} was not found.`);
-
-      return s4.run(
-        cds.ql.SELECT.one
-          .from('API_BUSINESS_PARTNER.A_BusinessPartner')
-          .where({ BusinessPartner: businessPartner })
-      );
+      const rootEntity = remoteEntity(s4, 'A_BusinessPartner');
+      try {
+        await s4.run(
+          cds.ql.UPDATE(rootEntity).set(payload).where({ BusinessPartner: businessPartner })
+        );
+        const updated = normalizeRemoteResult(await s4.run(
+          cds.ql.SELECT.one.from(rootEntity).where({ BusinessPartner: businessPartner })
+        ));
+        if (!updated) req.reject(404, `Business partner ${businessPartner} was not found.`);
+        return updated;
+      } catch (error) {
+        req.reject(error.statusCode || 502, remoteErrorMessage(error, 'S/4HANA rejected the update request.'));
+      }
     });
 
     this.on('saveBusinessPartner', async (req) => {
@@ -300,27 +326,36 @@ class BusinessPartnerService extends cds.ApplicationService {
           for (const error of errors) req.error(400, error.message, error.target);
           return;
         }
-        return s4.run(
-          cds.ql.INSERT.into('API_BUSINESS_PARTNER.A_BusinessPartner').entries(payload)
-        );
+        try {
+          const created = normalizeRemoteResult(await s4.run(
+            cds.ql.INSERT.into(remoteEntity(s4, 'A_BusinessPartner')).entries(payload)
+          ));
+          if (!created?.BusinessPartner) {
+            req.reject(502, 'S/4HANA did not return the number of the created Business Partner.');
+          }
+          return created;
+        } catch (error) {
+          req.reject(error.statusCode || 502, remoteErrorMessage(error, 'S/4HANA rejected the create request.'));
+        }
       }
 
       const businessPartner = req.data.BusinessPartner;
       if (!businessPartner) req.reject(400, 'Enter a business partner number.', 'BusinessPartner');
       if (Object.keys(payload).length === 0) req.reject(400, 'There are no fields to update.');
 
-      const affectedRows = await s4.run(
-        cds.ql.UPDATE('API_BUSINESS_PARTNER.A_BusinessPartner')
-          .set(payload)
-          .where({ BusinessPartner: businessPartner })
-      );
-      if (!affectedRows) req.reject(404, `Business partner ${businessPartner} was not found.`);
-
-      return s4.run(
-        cds.ql.SELECT.one
-          .from('API_BUSINESS_PARTNER.A_BusinessPartner')
-          .where({ BusinessPartner: businessPartner })
-      );
+      const rootEntity = remoteEntity(s4, 'A_BusinessPartner');
+      try {
+        await s4.run(
+          cds.ql.UPDATE(rootEntity).set(payload).where({ BusinessPartner: businessPartner })
+        );
+        const updated = normalizeRemoteResult(await s4.run(
+          cds.ql.SELECT.one.from(rootEntity).where({ BusinessPartner: businessPartner })
+        ));
+        if (!updated) req.reject(404, `Business partner ${businessPartner} was not found.`);
+        return updated;
+      } catch (error) {
+        req.reject(error.statusCode || 502, remoteErrorMessage(error, 'S/4HANA rejected the update request.'));
+      }
     });
 
     this.on('saveBusinessPartnerEntity', async (req) => {
@@ -345,11 +380,17 @@ class BusinessPartnerService extends cds.ApplicationService {
 
       const entity = this.entities[req.data.Entity];
       const payload = sanitizeEntityPayload(data, entity, { isCreate });
-      const remoteEntity = `API_BUSINESS_PARTNER.${configuration.remote}`;
+      const targetEntity = remoteEntity(s4, configuration.remote);
 
       if (isCreate) {
-        const result = await s4.run(cds.ql.INSERT.into(remoteEntity).entries(payload));
-        return JSON.stringify(result || payload);
+        try {
+          const result = normalizeRemoteResult(
+            await s4.run(cds.ql.INSERT.into(targetEntity).entries(payload))
+          );
+          return JSON.stringify(result || payload);
+        } catch (error) {
+          req.reject(error.statusCode || 502, remoteErrorMessage(error, `S/4HANA rejected the ${req.data.Entity} create request.`));
+        }
       }
 
       try {
@@ -359,11 +400,14 @@ class BusinessPartnerService extends cds.ApplicationService {
       }
       if (Object.keys(payload).length === 0) req.reject(400, 'There are no fields to update.');
 
-      const affectedRows = await s4.run(
-        cds.ql.UPDATE(remoteEntity).set(payload).where(keys)
-      );
-      if (!affectedRows) req.reject(404, `${req.data.Entity} record was not found.`);
-      return JSON.stringify({ affectedRows });
+      try {
+        const affectedRows = await s4.run(
+          cds.ql.UPDATE(targetEntity).set(payload).where(keys)
+        );
+        return JSON.stringify({ affectedRows: affectedRows ?? 1 });
+      } catch (error) {
+        req.reject(error.statusCode || 502, remoteErrorMessage(error, `S/4HANA rejected the ${req.data.Entity} update request.`));
+      }
     });
 
     this.on(['READ', 'CREATE', 'UPDATE'], '*', (req) => s4.run(req.query));
@@ -386,6 +430,8 @@ BusinessPartnerService._internals = {
   extractSearchTerms,
   pickDefined,
   parseJsonObject,
+  normalizeRemoteResult,
+  remoteErrorMessage,
   sanitizeEntityKeys,
   sanitizeEntityPayload,
   validateBusinessPartnerCreate

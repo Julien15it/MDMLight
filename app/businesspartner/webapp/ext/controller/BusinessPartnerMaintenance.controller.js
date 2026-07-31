@@ -58,7 +58,20 @@ sap.ui.define([
   }
 
   function errorMessage(error, fallback) {
-    return error && error.message ? error.message : fallback;
+    var responseText = error && error.cause && error.cause.responseText;
+    if (responseText) {
+      try {
+        var response = JSON.parse(responseText);
+        var remoteMessage = response.error && response.error.message;
+        if (typeof remoteMessage === "object") remoteMessage = remoteMessage.value;
+        if (remoteMessage) return remoteMessage;
+      } catch (_ignored) {
+        // Fall through to the regular UI5 error message.
+      }
+    }
+    return error && error.cause && error.cause.message
+      || error && error.message
+      || fallback;
   }
 
   function isBoolean(field) {
@@ -75,6 +88,25 @@ sap.ui.define([
     return String(value);
   }
 
+  function categoryText(category) {
+    return ({ "1": "Person (1)", "2": "Organization (2)", "3": "Group (3)" })[category]
+      || category
+      || "";
+  }
+
+  function previewName(root) {
+    if (root.BusinessPartnerCategory === "1") {
+      return [root.FirstName, root.MiddleName, root.LastName].filter(Boolean).join(" ");
+    }
+    if (root.BusinessPartnerCategory === "3") {
+      return [root.GroupBusinessPartnerName1, root.GroupBusinessPartnerName2].filter(Boolean).join(" ");
+    }
+    return [root.OrganizationBPName1, root.OrganizationBPName2].filter(Boolean).join(" ")
+      || root.BusinessPartnerFullName
+      || root.BusinessPartnerName
+      || "";
+  }
+
   return Controller.extend(
     "mdm.md.businesspartner.manage.ext.controller.BusinessPartnerMaintenance",
     {
@@ -85,6 +117,7 @@ sap.ui.define([
         });
         this._router = UIComponent.getRouterFor(this);
         this._router.getRoute("BusinessPartnerCreate").attachPatternMatched(this._onCreateRoute, this);
+        this._router.getRoute("BusinessPartnerDisplay").attachPatternMatched(this._onDisplayRoute, this);
         this._router.getRoute("BusinessPartnerMaintain").attachPatternMatched(this._onEditRoute, this);
 
         this.getView().setModel(new JSONModel(this._emptyState()), "maintenance");
@@ -98,6 +131,17 @@ sap.ui.define([
           title: "Create Business Partner",
           headerTitle: "New Business Partner",
           businessPartner: "",
+          editing: true,
+          showEditButton: false,
+          showPreviewButton: true,
+          showSaveButton: false,
+          showFooter: true,
+          saveButtonText: "Create in S/4HANA",
+          cancelButtonText: "Cancel",
+          previewCategory: "Organization (2)",
+          previewGrouping: "",
+          previewSearchTerm: "",
+          previewLanguage: "",
           root: {
             BusinessPartnerCategory: "2",
             BusinessPartnerGrouping: ""
@@ -113,19 +157,35 @@ sap.ui.define([
           if (section.kind !== "root") state.sections[section.id] = [];
         });
         this.getView().getModel("maintenance").refresh(true);
+        this._updatePreview(state);
         this._renderAll();
       },
 
-      _onEditRoute: async function (event) {
+      _onDisplayRoute: function (event) {
+        return this._loadBusinessPartner(event, false);
+      },
+
+      _onEditRoute: function (event) {
+        return this._loadBusinessPartner(event, true);
+      },
+
+      _loadBusinessPartner: async function (event, editing) {
         var businessPartner = decodeURIComponent(event.getParameter("arguments").businessPartner);
         var maintenanceModel = this.getView().getModel("maintenance");
         var state = this._emptyState();
         state.busy = true;
-        state.mode = "edit";
-        state.modeText = "Edit";
-        state.title = "Maintain Business Partner " + businessPartner;
+        state.mode = editing ? "edit" : "display";
+        state.modeText = editing ? "Edit" : "Display";
+        state.title = (editing ? "Edit" : "Business Partner") + " " + businessPartner;
         state.headerTitle = "Business Partner";
         state.businessPartner = businessPartner;
+        state.editing = editing;
+        state.showEditButton = !editing;
+        state.showPreviewButton = false;
+        state.showSaveButton = editing;
+        state.showFooter = true;
+        state.saveButtonText = "Save Changes";
+        state.cancelButtonText = editing ? "Cancel" : "Back";
         maintenanceModel.setData(state);
 
         try {
@@ -149,6 +209,7 @@ sap.ui.define([
           MessageBox.error(errorMessage(error, "The Business Partner could not be loaded."));
         } finally {
           state.busy = false;
+          this._updatePreview(state);
           maintenanceModel.refresh(true);
           this._renderAll();
         }
@@ -189,16 +250,21 @@ sap.ui.define([
         container.removeAllItems();
 
         var state = this.getView().getModel("maintenance").getData();
-        var form = this._createForm(this._rootSection, state.root, state.mode === "create");
+        var form = this._createForm(
+          this._rootSection,
+          state.root,
+          state.mode === "create",
+          state.editing
+        );
         container.addItem(form);
       },
 
-      _createForm: function (section, record, isCreate) {
+      _createForm: function (section, record, isCreate, editing) {
         var content = [];
         section.fields.forEach(function (field) {
-          var control = this._createFieldControl(section, field, record, isCreate);
+          var control = this._createFieldControl(section, field, record, isCreate, editing);
           content.push(new Label({
-            text: field.label + (this._isRequired(section, field, isCreate) ? " *" : ""),
+            text: field.label + (this._isRequired(section, field, isCreate, editing) ? " *" : ""),
             labelFor: control
           }));
           content.push(control);
@@ -220,29 +286,31 @@ sap.ui.define([
         }).addStyleClass("sapUiSmallMarginBottom");
       },
 
-      _isEditable: function (section, field, isCreate) {
+      _isEditable: function (section, field, isCreate, editing) {
+        if (!editing) return false;
         if (section.kind !== "root" && field.name === section.relationField) return false;
         if (isCreate) return field.creatable !== false;
         return field.updatable !== false && !field.key;
       },
 
-      _isRequired: function (section, field, isCreate) {
-        if (!this._isEditable(section, field, isCreate)) return false;
+      _isRequired: function (section, field, isCreate, editing) {
+        if (!this._isEditable(section, field, isCreate, editing)) return false;
         if (section.kind === "root" && isCreate) {
           return ["BusinessPartnerCategory", "BusinessPartnerGrouping"].includes(field.name);
         }
         return !field.nullable;
       },
 
-      _createFieldControl: function (section, field, record, isCreate) {
-        var editable = this._isEditable(section, field, isCreate);
+      _createFieldControl: function (section, field, record, isCreate, editing) {
+        var editable = this._isEditable(section, field, isCreate, editing);
         var control;
 
         if (isBoolean(field)) {
           control = new CheckBox({ selected: Boolean(record[field.name]), enabled: editable });
           control.attachSelect(function (event) {
             record[field.name] = event.getParameter("selected");
-          });
+            if (section.kind === "root") this._updatePreview();
+          }.bind(this));
         } else {
           control = new Input({
             value: displayValue(record[field.name]),
@@ -251,13 +319,28 @@ sap.ui.define([
             type: isNumber(field) ? "Number" : "Text",
             width: "100%"
           });
-          control.attachChange(function (event) {
+          control.attachLiveChange(function (event) {
             var value = event.getParameter("value");
             record[field.name] = isNumber(field) && value !== "" ? Number(value) : value;
-          });
+            if (section.kind === "root") this._updatePreview();
+          }.bind(this));
         }
 
         return control;
+      },
+
+      _updatePreview: function (state) {
+        var maintenanceModel = this.getView().getModel("maintenance");
+        state = state || maintenanceModel.getData();
+        var root = state.root || {};
+        state.headerTitle = previewName(root)
+          || root.BusinessPartnerFullName
+          || (state.businessPartner ? "Business Partner " + state.businessPartner : "New Business Partner");
+        state.previewCategory = categoryText(root.BusinessPartnerCategory);
+        state.previewGrouping = root.BusinessPartnerGrouping || "";
+        state.previewSearchTerm = root.SearchTerm1 || root.SearchTerm2 || "";
+        state.previewLanguage = root.CorrespondenceLanguage || root.Language || "";
+        maintenanceModel.refresh(true);
       },
 
       _summaryFields: function (section) {
@@ -294,7 +377,7 @@ sap.ui.define([
               new Button({
                 text: "Add",
                 icon: "sap-icon://add",
-                visible: section.creatable !== false,
+                visible: state.editing && section.creatable !== false,
                 press: this._openNewRecord.bind(this, section)
               })
             ]
@@ -336,9 +419,11 @@ sap.ui.define([
       },
 
       _openRecordDialog: function (section, record, isCreate, index) {
-        var form = this._createForm(section, record, isCreate);
+        var state = this.getView().getModel("maintenance").getData();
+        var editing = Boolean(state.editing);
+        var form = this._createForm(section, record, isCreate, editing);
         var dialog = new Dialog({
-          title: (isCreate ? "Add " : "Edit ") + section.title,
+          title: (isCreate ? "Add " : editing ? "Edit " : "View ") + section.title,
           contentWidth: "70rem",
           contentHeight: "70%",
           resizable: true,
@@ -348,6 +433,7 @@ sap.ui.define([
           beginButton: new Button({
             text: "Apply",
             type: "Emphasized",
+            visible: editing,
             press: function () {
               var state = this.getView().getModel("maintenance").getData();
               var records = state.sections[section.id] || [];
@@ -364,7 +450,10 @@ sap.ui.define([
               dialog.close();
             }.bind(this)
           }),
-          endButton: new Button({ text: "Cancel", press: function () { dialog.close(); } }),
+          endButton: new Button({
+            text: editing ? "Cancel" : "Close",
+            press: function () { dialog.close(); }
+          }),
           afterClose: function () { dialog.destroy(); }
         });
         this.getView().addDependent(dialog);
@@ -395,10 +484,70 @@ sap.ui.define([
         return result;
       },
 
+      _validationErrors: function (root) {
+        var errors = [];
+        if (!root.BusinessPartnerCategory) errors.push("Enter a Business Partner category.");
+        if (!["1", "2", "3"].includes(root.BusinessPartnerCategory)) {
+          errors.push("Category must be 1 (Person), 2 (Organization), or 3 (Group).");
+        }
+        if (!root.BusinessPartnerGrouping) errors.push("Enter a Business Partner grouping.");
+        if (root.BusinessPartnerCategory === "1" && !root.LastName) {
+          errors.push("Enter the last name for the person.");
+        }
+        if (root.BusinessPartnerCategory === "2" && !root.OrganizationBPName1) {
+          errors.push("Enter the organization name.");
+        }
+        if (root.BusinessPartnerCategory === "3" && !root.GroupBusinessPartnerName1) {
+          errors.push("Enter the group name.");
+        }
+        return errors;
+      },
+
+      onPreview: function () {
+        var maintenanceModel = this.getView().getModel("maintenance");
+        var state = maintenanceModel.getData();
+        var errors = this._validationErrors(state.root);
+        if (errors.length) {
+          MessageBox.error(errors.join("\n"));
+          return;
+        }
+
+        state.editing = false;
+        state.modeText = "Preview";
+        state.title = "Preview New Business Partner";
+        state.showEditButton = true;
+        state.showPreviewButton = false;
+        state.showSaveButton = true;
+        state.cancelButtonText = "Cancel";
+        this._updatePreview(state);
+        this._renderAll();
+      },
+
+      onEdit: function () {
+        var maintenanceModel = this.getView().getModel("maintenance");
+        var state = maintenanceModel.getData();
+        state.editing = true;
+        state.showEditButton = false;
+        state.showPreviewButton = state.mode === "create";
+        state.showSaveButton = state.mode !== "create";
+        state.modeText = state.mode === "create" ? "Create" : "Edit";
+        state.title = state.mode === "create"
+          ? "Create Business Partner"
+          : "Edit Business Partner " + state.businessPartner;
+        state.cancelButtonText = "Cancel";
+        maintenanceModel.refresh(true);
+        this._renderAll();
+      },
+
       onSave: async function () {
         var maintenanceModel = this.getView().getModel("maintenance");
         var state = maintenanceModel.getData();
         var isCreate = state.mode === "create";
+        var validationErrors = isCreate ? this._validationErrors(state.root) : [];
+        if (validationErrors.length) {
+          MessageBox.error(validationErrors.join("\n"));
+          return;
+        }
         state.busy = true;
         maintenanceModel.refresh(true);
 
@@ -438,16 +587,16 @@ sap.ui.define([
             }
           }
 
-          state.mode = "edit";
-          state.modeText = "Edit";
+          state.mode = "display";
+          state.modeText = "Display";
           state.businessPartner = businessPartner;
           state.root.BusinessPartner = businessPartner;
-          state.title = "Maintain Business Partner " + businessPartner;
+          state.title = "Business Partner " + businessPartner;
           state.headerTitle = (result && result.BusinessPartnerFullName)
             || state.root.BusinessPartnerFullName
             || "Business Partner";
           MessageToast.show("Business Partner " + businessPartner + " was saved in S/4HANA.");
-          this._router.navTo("BusinessPartnerMaintain", { businessPartner: businessPartner }, true);
+          this._router.navTo("BusinessPartnerDisplay", { businessPartner: businessPartner }, true);
         } catch (error) {
           MessageBox.error(errorMessage(error, "The Business Partner could not be saved in S/4HANA."));
         } finally {
@@ -457,6 +606,11 @@ sap.ui.define([
       },
 
       onCancel: function () {
+        var state = this.getView().getModel("maintenance").getData();
+        if (state.mode === "edit" && state.businessPartner) {
+          this._router.navTo("BusinessPartnerDisplay", { businessPartner: state.businessPartner }, true);
+          return;
+        }
         this._router.navTo("BusinessPartnersList", {}, true);
       }
     }

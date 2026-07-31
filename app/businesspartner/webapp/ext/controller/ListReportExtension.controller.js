@@ -22,6 +22,13 @@ sap.ui.define([
 
         onExit: function () {
           CustomActions.clearEnvironment();
+        },
+
+        routing: {
+          onBeforeNavigation: function (contextInfo) {
+            CustomActions.openDisplayPage(contextInfo && contextInfo.sourceBindingContext);
+            return true;
+          }
         }
       }
     }

@@ -9,9 +9,17 @@
     showNavButton="true"
     navButtonPress=".onCancel"
     busy="{maintenance>/busy}">
+    <headerContent>
+      <Button
+        text="Edit"
+        icon="sap-icon://edit"
+        type="Emphasized"
+        visible="{maintenance>/showEditButton}"
+        press=".onEdit" />
+    </headerContent>
     <content>
       <MessageStrip
-        text="Maintain the complete Business Partner and its related master-data entities. Changes are written live to S/4HANA when you choose Save."
+        text="Maintain and preview the complete Business Partner. Data is written to S/4HANA only when you choose Create in S/4HANA or Save Changes."
         type="Information"
         showIcon="true"
         class="sapUiSmallMargin" />
@@ -20,7 +28,14 @@
         number="{maintenance>/businessPartner}"
         numberUnit="Business Partner"
         intro="{maintenance>/modeText}"
-        responsive="true" />
+        responsive="true">
+        <attributes>
+          <ObjectAttribute title="Category" text="{maintenance>/previewCategory}" />
+          <ObjectAttribute title="Grouping" text="{maintenance>/previewGrouping}" />
+          <ObjectAttribute title="Search Term" text="{maintenance>/previewSearchTerm}" />
+          <ObjectAttribute title="Language" text="{maintenance>/previewLanguage}" />
+        </attributes>
+      </ObjectHeader>
       <IconTabBar id="maintenanceTabs" class="sapUiResponsiveContentPadding">
         <items>
           <IconTabFilter key="general" text="General" icon="sap-icon://business-card">
@@ -54,10 +69,20 @@
       </IconTabBar>
     </content>
     <footer>
-      <OverflowToolbar>
+      <OverflowToolbar visible="{maintenance>/showFooter}">
         <ToolbarSpacer />
-        <Button text="Save" type="Emphasized" press=".onSave" />
-        <Button text="Cancel" press=".onCancel" />
+        <Button
+          text="Preview"
+          icon="sap-icon://show"
+          type="Emphasized"
+          visible="{maintenance>/showPreviewButton}"
+          press=".onPreview" />
+        <Button
+          text="{maintenance>/saveButtonText}"
+          type="Emphasized"
+          visible="{maintenance>/showSaveButton}"
+          press=".onSave" />
+        <Button text="{maintenance>/cancelButtonText}" press=".onCancel" />
       </OverflowToolbar>
     </footer>
   </Page>

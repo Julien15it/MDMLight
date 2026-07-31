@@ -60,6 +60,13 @@ test('list edit action accepts the selected Fiori Elements context', () => {
   assert.deepEqual(runtime.errors, []);
 });
 
+test('row navigation opens the complete Business Partner display page', () => {
+  const runtime = loadActions();
+  runtime.actions.openDisplayPage(context('3'));
+  assert.equal(runtime.getHash(), 'BusinessPartners/3/display');
+  assert.deepEqual(runtime.errors, []);
+});
+
 test('object-page edit action uses its context or current object-page hash', () => {
   const direct = loadActions();
   direct.actions.openEditCurrentPage(context('149'));

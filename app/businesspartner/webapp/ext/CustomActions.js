@@ -42,6 +42,14 @@ sap.ui.define([
     navigate("BusinessPartners/" + encodeURIComponent(businessPartner) + "/maintain");
   }
 
+  function navigateToDisplay(businessPartner) {
+    if (!businessPartner) {
+      MessageBox.error("A Business Partner number could not be determined.");
+      return;
+    }
+    navigate("BusinessPartners/" + encodeURIComponent(businessPartner) + "/display");
+  }
+
   return {
     setEnvironment: function () {},
 
@@ -62,6 +70,11 @@ sap.ui.define([
         return;
       }
       navigateToEdit(selected[0].getProperty("BusinessPartner"));
+    },
+
+    openDisplayPage: function (bindingContext) {
+      var context = contextFrom(bindingContext);
+      navigateToDisplay(context && context.getProperty("BusinessPartner"));
     },
 
     openEditCurrentPage: function (bindingContext) {

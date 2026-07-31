@@ -8,8 +8,10 @@ const BusinessPartnerService = require('../srv/business-partner-service');
 const {
   SEARCHABLE_FIELDS,
   applyBusinessPartnerSearch,
+  normalizeRemoteResult,
   parseJsonObject,
   pickDefined,
+  remoteErrorMessage,
   sanitizeEntityKeys,
   sanitizeEntityPayload,
   validateBusinessPartnerCreate
@@ -149,4 +151,28 @@ test('full-screen maintenance validates JSON objects and complete keys', () => {
     () => sanitizeEntityKeys({ BusinessPartner: '1000' }, entity),
     /AddressID/
   );
+});
+
+test('normalizes the common OData V2 create response shapes', () => {
+  const partner = { BusinessPartner: '1000' };
+  assert.deepEqual(normalizeRemoteResult(partner), partner);
+  assert.deepEqual(normalizeRemoteResult([partner]), partner);
+  assert.deepEqual(normalizeRemoteResult({ value: [partner] }), partner);
+  assert.deepEqual(normalizeRemoteResult({ d: partner }), partner);
+  assert.deepEqual(normalizeRemoteResult({ d: { results: [partner] } }), partner);
+  assert.equal(normalizeRemoteResult(1), null);
+});
+
+test('extracts the original S/4 error instead of hiding it behind a generic error', () => {
+  assert.equal(
+    remoteErrorMessage({
+      response: {
+        data: {
+          error: { message: { value: 'Grouping BP99 is not permitted.' } }
+        }
+      }
+    }, 'fallback'),
+    'Grouping BP99 is not permitted.'
+  );
+  assert.equal(remoteErrorMessage({}, 'fallback'), 'fallback');
 });
