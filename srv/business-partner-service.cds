@@ -74,7 +74,8 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
   /** Read-only assistant grounded in the Business Partners currently present
    *  in S/4HANA. It never creates or changes master data. */
   action askBusinessPartnerAssistant(
-    Question : String(1000) not null
+    Question         : String(1000) not null,
+    ConversationJson : LargeString
   ) returns BusinessPartnerAssistantAnswer;
 
   // Core business-partner details shown as sections on the object page.

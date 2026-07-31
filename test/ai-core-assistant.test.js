@@ -5,6 +5,7 @@ const test = require('node:test');
 
 const {
   aiCoreFallbackReason,
+  aiCoreErrorText,
   aiModelNames,
   askSapAiCore,
   hasAiCoreBinding,
@@ -61,6 +62,14 @@ test('AI Core fallback reports whether deployment, model or authorization failed
     aiCoreFallbackReason(new Error('HTTP 403 Forbidden'), {}),
     'AI Core authorization failed'
   );
+  assert.equal(
+    aiCoreFallbackReason(new Error('Could not resolve aicore service binding'), {}),
+    'AI Core service binding unavailable'
+  );
+  assert.equal(
+    aiCoreErrorText({ message: 'Request failed', cause: { message: 'Deployment not found' } }),
+    'Request failed | Deployment not found'
+  );
 });
 
 test('AI prompt context is bounded and excludes sensitive fields', () => {
@@ -92,9 +101,11 @@ test('AI prompt context finds partners by address and includes sourced research'
       extract: 'Public company summary.',
       url: 'https://en.wikipedia.org/wiki/Coca-Cola'
     },
-    []
+    [],
+    [{ role: 'user', content: 'Tell me about that company.' }]
   );
   assert.match(context, /Public company summary/);
+  assert.match(context, /Tell me about that company/);
   assert.doesNotMatch(context, /IBAN|must-never-enter/);
 });
 

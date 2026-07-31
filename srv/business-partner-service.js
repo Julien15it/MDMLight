@@ -653,6 +653,9 @@ function requestedCompanyName(question) {
   const dutchExistenceQuestion = source.match(
     /(?:bestaat|is)\s+er\s+(?:al\s+)?(?:een\s+)?(?:business\s+partner|bp|bedrijf|firma|organisatie)\s+(?:genaamd|met\s+de\s+naam)\s+(.{2,80}?)(?:[?.!,;:]|$)/iu
   );
+  const namedLookup = source.match(
+    /(?:business\s+partner|bp|bedrijf|firma|organisatie)\s+(?:called|named|genaamd|met\s+de\s+naam)\s+(.{2,80}?)(?:\s+(?:vinden|zoeken|opzoeken|find|lookup|look\s+up)\b|[?.!,;:]|$)/iu
+  );
   let name = (quoted && quoted[1])
     || (company && company[1])
     || (about && about[1])
@@ -661,6 +664,7 @@ function requestedCompanyName(question) {
     || (imperative && imperative[1])
     || (existenceQuestion && existenceQuestion[1])
     || (dutchExistenceQuestion && dutchExistenceQuestion[1])
+    || (namedLookup && namedLookup[1])
     || '';
   name = name
     .replace(/\s+(?:en|and)\s+(?:indien|if|zoek|search|lookup|maak|create)\b[\s\S]*$/iu, '')
@@ -671,8 +675,49 @@ function requestedCompanyName(question) {
   return name;
 }
 
-function businessPartnerCreationSuggestion(question, partners = [], research = null) {
-  const name = requestedCompanyName(question);
+function parseConversationHistory(value) {
+  if (!value) return [];
+  let parsed;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw Object.assign(new Error('ConversationJson must contain valid JSON.'), { statusCode: 400 });
+  }
+  if (!Array.isArray(parsed)) {
+    throw Object.assign(new Error('ConversationJson must contain a JSON array.'), { statusCode: 400 });
+  }
+  return parsed
+    .filter((entry) => entry && ['user', 'assistant'].includes(entry.role))
+    .map((entry) => ({
+      role: entry.role,
+      content: String(entry.content || '').trim().slice(0, 1000)
+    }))
+    .filter((entry) => entry.content)
+    .slice(-10);
+}
+
+function contextualCompanyName(question, conversationHistory = []) {
+  const direct = requestedCompanyName(question);
+  if (direct) return direct;
+  const source = String(question || '');
+  const isFollowUp = /(?:\ber\b[\s\S]*\bvan\b|\bit\b|\bthat\b|\bdie\b|\bdeze\b|\bhiervan\b|\bdaarvan\b)/iu.test(source)
+    && /(?:business\s+partner|\bbp\b|create|maak|maken|prepare|voorstel|informatie|information|research|opzoek|zoek|vergar)/iu.test(source);
+  if (!isFollowUp) return '';
+  for (let index = conversationHistory.length - 1; index >= 0; index -= 1) {
+    if (conversationHistory[index].role !== 'user') continue;
+    const name = requestedCompanyName(conversationHistory[index].content);
+    if (name) return name;
+  }
+  return '';
+}
+
+function businessPartnerCreationSuggestion(
+  question,
+  partners = [],
+  research = null,
+  resolvedCompanyName = ''
+) {
+  const name = resolvedCompanyName || requestedCompanyName(question);
   if (!name) return null;
   if (findPotentialDuplicates(name, partners).length) return null;
   const proposedName = String(research?.title || name).trim();
@@ -892,6 +937,12 @@ class BusinessPartnerService extends cds.ApplicationService {
     this.on('askBusinessPartnerAssistant', async (req) => {
       const question = String(req.data.Question || '').trim();
       if (!question) req.reject(400, 'Enter a question.', 'Question');
+      let conversationHistory;
+      try {
+        conversationHistory = parseConversationHistory(req.data.ConversationJson);
+      } catch (error) {
+        req.reject(error.statusCode || 400, error.message, 'ConversationJson');
+      }
 
       const rootEntity = remoteEntity(s4, 'A_BusinessPartner');
       try {
@@ -906,7 +957,7 @@ class BusinessPartnerService extends cds.ApplicationService {
         ]);
         const partners = Array.isArray(result) ? result : [];
         const addresses = Array.isArray(addressResult) ? addressResult : [];
-        const companyName = requestedCompanyName(question);
+        const companyName = contextualCompanyName(question, conversationHistory);
         const duplicates = companyName ? findPotentialDuplicates(companyName, partners) : [];
         let research = null;
         if (companyName && !duplicates.length) {
@@ -918,7 +969,7 @@ class BusinessPartnerService extends cds.ApplicationService {
         }
         const suggestion = duplicates.length
           ? null
-          : businessPartnerCreationSuggestion(question, partners, research);
+          : businessPartnerCreationSuggestion(question, partners, research, companyName);
         const fallbackAnswer = duplicates.length
           ? duplicateAnswer(companyName, duplicates)
           : suggestion
@@ -933,7 +984,8 @@ class BusinessPartnerService extends cds.ApplicationService {
           duplicateCandidates: duplicates.map(({ partner, score }) => ({
             ...partner,
             MatchScore: Math.round(score * 100)
-          }))
+          })),
+          conversationHistory
         });
         return { ...assistantResult, ...(suggestion || {}) };
       } catch (error) {
@@ -965,6 +1017,7 @@ BusinessPartnerService._internals = {
   applyBusinessPartnerSearch,
   extractSearchTerms,
   pickDefined,
+  parseConversationHistory,
   parseJsonObject,
   normalizeRemoteResult,
   remoteErrorMessage,
@@ -979,6 +1032,7 @@ BusinessPartnerService._internals = {
   answerBusinessPartnerQuestion,
   findPotentialDuplicates,
   requestedCompanyName,
+  contextualCompanyName,
   businessPartnerCreationSuggestion,
   duplicateAnswer,
   externalResearchAnswer

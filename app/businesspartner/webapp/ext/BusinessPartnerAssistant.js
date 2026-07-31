@@ -67,6 +67,7 @@ sap.ui.define([
         + "- Find Business Partners in Dorpstraat\n"
         + "- What is the address of BP 1?\n"
         + "- Give me information about the company Coca-Cola";
+      var conversationHistory = [];
       var conversation = new TextArea({
         value: transcript,
         editable: false,
@@ -106,11 +107,16 @@ sap.ui.define([
 
         var binding = model.bindContext("/askBusinessPartnerAssistant(...)");
         binding.setParameter("Question", value);
+        binding.setParameter("ConversationJson", JSON.stringify(conversationHistory.slice(-10)));
         try {
           await binding.execute("$direct");
           var context = binding.getBoundContext();
           var info = resultInfo(context && context.getObject());
           transcript += "\n\nAssistant (" + info.provider + "): " + info.answer;
+          conversationHistory.push(
+            { role: "user", content: value },
+            { role: "assistant", content: info.answer }
+          );
           conversation.setValue(transcript);
           createSuggestionButton.data("draft", info.suggestedData);
           createSuggestionButton.setVisible(info.suggestedAction === "CREATE_BUSINESS_PARTNER");

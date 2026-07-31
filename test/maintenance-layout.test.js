@@ -70,6 +70,17 @@ test('maintenance page opens the assistant with its own OData model', () => {
   assert.doesNotMatch(controller, /CustomActions\.openAssistant\(event\)/);
 });
 
+test('assistant sends bounded conversation history for follow-up reasoning', () => {
+  const assistant = fs.readFileSync(
+    path.join(webapp, 'ext', 'BusinessPartnerAssistant.js'),
+    'utf8'
+  );
+
+  assert.match(assistant, /var conversationHistory = \[\]/);
+  assert.match(assistant, /setParameter\("ConversationJson", JSON\.stringify\(conversationHistory\.slice\(-10\)\)\)/);
+  assert.match(assistant, /conversationHistory\.push/);
+});
+
 test('maintenance sends only changed root fields and shows concise entity fields', () => {
   const controller = fs.readFileSync(
     path.join(webapp, 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),

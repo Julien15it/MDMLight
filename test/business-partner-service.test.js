@@ -14,9 +14,11 @@ const {
   businessPartnerNavigationPath,
   createBusinessPartnerChild,
   createBusinessPartnerAddress,
+  contextualCompanyName,
   findPotentialDuplicates,
   applyBusinessPartnerSearch,
   normalizeRemoteResult,
+  parseConversationHistory,
   parseJsonObject,
   pickDefined,
   remoteErrorMessage,
@@ -414,5 +416,26 @@ test('assistant recognizes free-form Dutch and English company lookup requests',
       'Bestaat er een business partner met de naam Spar Destelbergen?'
     ),
     'Spar Destelbergen'
+  );
+  assert.equal(
+    BusinessPartnerService._internals.requestedCompanyName(
+      'Kan je een business partner met de naam Spar Destelbergen vinden?'
+    ),
+    'Spar Destelbergen'
+  );
+});
+
+test('assistant resolves a company from prior turns for a follow-up create request', () => {
+  const history = parseConversationHistory(JSON.stringify([
+    { role: 'user', content: 'Kan je een business partner met de naam Spar Destelbergen vinden?' },
+    { role: 'assistant', content: 'No matching Business Partner was found.' }
+  ]));
+  assert.equal(
+    contextualCompanyName('Kan je informatie vergaren en er een BP van maken?', history),
+    'Spar Destelbergen'
+  );
+  assert.throws(
+    () => parseConversationHistory('{broken'),
+    /ConversationJson must contain valid JSON/
   );
 });
