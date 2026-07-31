@@ -70,6 +70,28 @@ test('maintenance page opens the assistant with its own OData model', () => {
   assert.doesNotMatch(controller, /CustomActions\.openAssistant\(event\)/);
 });
 
+test('maintenance sends only changed root fields and shows concise entity fields', () => {
+  const controller = fs.readFileSync(
+    path.join(webapp, 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),
+    'utf8'
+  );
+  const metadata = fs.readFileSync(
+    path.join(webapp, 'ext', 'BusinessPartnerMetadata.js'),
+    'utf8'
+  );
+
+  assert.match(controller, /record\[field\.name\] !== originalRecord\[field\.name\]/);
+  assert.match(controller, /Object\.keys\(rootPayload\)\.length > 0/);
+  assert.match(metadata, /"summaryFields"/);
+  assert.match(metadata, /"StreetName"/);
+  assert.doesNotMatch(metadata, /"AdditionalStreetPrefixName"/);
+});
+
+test('application component initializes list actions with the main OData model', () => {
+  const component = fs.readFileSync(path.join(webapp, 'Component.js'), 'utf8');
+  assert.match(component, /CustomActions\.setEnvironment\(this\.getModel\(\), null\)/);
+});
+
 test('a failed related section does not block root editing', () => {
   const controller = fs.readFileSync(
     path.join(webapp, 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),

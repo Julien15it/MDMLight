@@ -191,6 +191,7 @@ sap.ui.define([
           previewSearchTerm: "",
           previewLanguage: "",
           sectionWarnings: [],
+          originalRoot: {},
           root: {
             BusinessPartnerCategory: "2",
             BusinessPartnerGrouping: ""
@@ -199,8 +200,14 @@ sap.ui.define([
         };
       },
 
-      _onCreateRoute: function () {
+      _onCreateRoute: function (event) {
         var state = this._emptyState();
+        var routeArguments = event && event.getParameter("arguments") || {};
+        var query = routeArguments["?query"] || {};
+        ["BusinessPartnerCategory", "BusinessPartnerGrouping", "OrganizationBPName1", "SearchTerm1"]
+          .forEach(function (field) {
+            if (query[field]) state.root[field] = query[field];
+          });
         this.getView().getModel("maintenance").setData(state);
         this._metadata.forEach(function (section) {
           if (section.kind !== "root") state.sections[section.id] = [];
@@ -244,6 +251,7 @@ sap.ui.define([
           );
           var rootContext = rootBinding.getBoundContext();
           state.root = clone(await rootContext.requestObject());
+          state.originalRoot = clone(state.root);
           rootBinding.destroy();
 
           var sections = await Promise.all(
@@ -379,7 +387,10 @@ sap.ui.define([
       },
 
       _createForm: function (section, record, isCreate, editing) {
-        var content = section.fields.map(function (field) {
+        var content = section.fields.filter(function (field) {
+          if (field.name === section.relationField) return false;
+          return !(isCreate && field.key && field.creatable === false);
+        }).map(function (field) {
           var control = this._createFieldControl(section, field, record, isCreate, editing);
           return new VBox({
             items: [
@@ -528,6 +539,11 @@ sap.ui.define([
       },
 
       _summaryFields: function (section) {
+        var preferred = (section.summaryFields || []).map(function (fieldName) {
+          return section.fields.find(function (field) { return field.name === fieldName; });
+        }).filter(Boolean);
+        if (preferred.length) return preferred;
+
         var relationField = section.relationField;
         var keys = section.fields.filter(function (field) {
           return field.key && field.name !== relationField;
@@ -600,7 +616,7 @@ sap.ui.define([
 
         container.addItem(table);
         container.addItem(new Text({
-          text: "Open a row to maintain every available field for this entity.",
+          text: "Open a row to view or maintain these fields.",
           wrapping: true
         }).addStyleClass("sapUiTinyMarginTop"));
       },
@@ -659,13 +675,14 @@ sap.ui.define([
         dialog.open();
       },
 
-      _writablePayload: function (section, record, isCreate) {
+      _writablePayload: function (section, record, isCreate, originalRecord) {
         return Object.fromEntries(
           section.fields
             .filter(function (field) {
               if (record[field.name] === undefined || record[field.name] === null) return false;
               if (isCreate) return field.creatable !== false;
-              return field.updatable !== false && !field.key;
+              if (field.updatable === false || field.key) return false;
+              return !originalRecord || record[field.name] !== originalRecord[field.name];
             })
             .map(function (field) { return [field.name, record[field.name]]; })
         );
@@ -751,11 +768,20 @@ sap.ui.define([
         maintenanceModel.refresh(true);
 
         try {
-          var result = await this._executeAction("saveBusinessPartner", {
-            BusinessPartner: state.businessPartner || state.root.BusinessPartner || null,
-            IsCreate: isCreate,
-            DataJson: JSON.stringify(this._writablePayload(this._rootSection, state.root, isCreate))
-          });
+          var rootPayload = this._writablePayload(
+            this._rootSection,
+            state.root,
+            isCreate,
+            isCreate ? null : state.originalRoot
+          );
+          var result = state.root;
+          if (isCreate || Object.keys(rootPayload).length > 0) {
+            result = await this._executeAction("saveBusinessPartner", {
+              BusinessPartner: state.businessPartner || state.root.BusinessPartner || null,
+              IsCreate: isCreate,
+              DataJson: JSON.stringify(rootPayload)
+            });
+          }
           var businessPartner = result && result.BusinessPartner
             ? result.BusinessPartner
             : state.businessPartner || state.root.BusinessPartner;

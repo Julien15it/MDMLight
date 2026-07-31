@@ -5,8 +5,9 @@ sap.ui.define([
   "sap/m/Text",
   "sap/m/TextArea",
   "sap/m/VBox",
-  "sap/m/MessageBox"
-], function (Dialog, Button, Input, Text, TextArea, VBox, MessageBox) {
+  "sap/m/MessageBox",
+  "sap/ui/core/routing/HashChanger"
+], function (Dialog, Button, Input, Text, TextArea, VBox, MessageBox, HashChanger) {
   "use strict";
 
   function errorMessage(error) {
@@ -32,13 +33,21 @@ sap.ui.define([
       return { answer: "No answer was returned.", provider: "Assistant" };
     }
     var payload = result.value && typeof result.value === "object" ? result.value : result;
+    var suggestedData = {};
+    try {
+      suggestedData = payload.SuggestedData ? JSON.parse(payload.SuggestedData) : {};
+    } catch (_ignored) {
+      suggestedData = {};
+    }
     return {
       answer: payload.Answer
         || payload.answer
         || payload.askBusinessPartnerAssistant
         || payload.Result
         || "No answer was returned.",
-      provider: payload.Provider || payload.provider || "Assistant"
+      provider: payload.Provider || payload.provider || "Assistant",
+      suggestedAction: payload.SuggestedAction || "",
+      suggestedData: suggestedData
     };
   }
 
@@ -55,7 +64,8 @@ sap.ui.define([
         + "- Which Business Partners are blocked?\n"
         + "- Show BP 1\n"
         + "- Find Brussels\n"
-        + "- What is the address of BP 1?";
+        + "- What is the address of BP 1?\n"
+        + "- Give me information about the company Coca-Cola";
       var conversation = new TextArea({
         value: transcript,
         editable: false,
@@ -67,6 +77,20 @@ sap.ui.define([
         placeholder: "Ask a question about the available Business Partners...",
         width: "100%"
       });
+      var createSuggestionButton = new Button({
+        text: "Create Suggested Business Partner",
+        icon: "sap-icon://add-employee",
+        type: "Attention",
+        visible: false,
+        press: function () {
+          var draft = createSuggestionButton.data("draft") || {};
+          var query = Object.keys(draft).map(function (key) {
+            return encodeURIComponent(key) + "=" + encodeURIComponent(draft[key]);
+          }).join("&");
+          dialog.close();
+          HashChanger.getInstance().setHash("BusinessPartners/create" + (query ? "?" + query : ""));
+        }
+      }).addStyleClass("sapUiSmallMarginTop");
       var dialog;
 
       var send = async function () {
@@ -87,6 +111,8 @@ sap.ui.define([
           var info = resultInfo(context && context.getObject());
           transcript += "\n\nAssistant (" + info.provider + "): " + info.answer;
           conversation.setValue(transcript);
+          createSuggestionButton.data("draft", info.suggestedData);
+          createSuggestionButton.setVisible(info.suggestedAction === "CREATE_BUSINESS_PARTNER");
         } catch (error) {
           var message = errorMessage(error);
           transcript += "\n\nAssistant: " + message;
@@ -110,10 +136,11 @@ sap.ui.define([
         content: new VBox({
           items: [
             new Text({
-              text: "Answers are based on live, read-only Business Partner data from S/4HANA.",
+              text: "S/4HANA answers use live read-only data. General company information from AI is clearly identified and can be used to prepare a new Business Partner.",
               wrapping: true
             }).addStyleClass("sapUiSmallMarginBottom"),
             conversation,
+            createSuggestionButton,
             question.addStyleClass("sapUiSmallMarginTop")
           ]
         }).addStyleClass("sapUiSmallMargin"),

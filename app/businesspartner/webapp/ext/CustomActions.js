@@ -70,6 +70,8 @@ sap.ui.define([
 
   function modelFrom(value) {
     if (value && typeof value.getModel === "function") return value.getModel();
+    var context = contextFrom(value);
+    if (context && typeof context.getModel === "function") return context.getModel();
     if (value && typeof value.getSource === "function") {
       var source = value.getSource();
       if (source && typeof source.getModel === "function") return source.getModel();
@@ -79,8 +81,8 @@ sap.ui.define([
 
   return {
     setEnvironment: function (model, view) {
-      environment.model = model;
-      environment.view = view;
+      if (model) environment.model = model;
+      if (view) environment.view = view;
     },
 
     clearEnvironment: function () {
@@ -100,8 +102,12 @@ sap.ui.define([
       navigate("");
     },
 
-    openAssistant: function (bindingContext) {
-      BusinessPartnerAssistant.open(modelFrom(bindingContext), environment.view);
+    openAssistant: function () {
+      var values = Array.prototype.slice.call(arguments);
+      var model = values.map(modelFrom).find(Boolean) || environment.model;
+      // The assistant dialog owns and destroys itself; no page dependency is
+      // required, which also keeps it working after returning to the list.
+      BusinessPartnerAssistant.open(model, null);
     },
 
     openEditPage: function (bindingContext, selectedContexts) {

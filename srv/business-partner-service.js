@@ -53,7 +53,8 @@ const ASSISTANT_FIELDS = Object.freeze([
 
 const ASSISTANT_STOP_WORDS = Object.freeze(new Set([
   'a', 'about', 'all', 'alle', 'and', 'are', 'business', 'de', 'een', 'find',
-  'for', 'geef', 'hebben', 'het', 'how', 'ik', 'in', 'is', 'me', 'met', 'of',
+  'bedrijf', 'company', 'firma', 'for', 'geef', 'hebben', 'het', 'how', 'ik',
+  'in', 'info', 'informatie', 'is', 'me', 'met', 'of', 'organisatie', 'organization',
   'partner', 'partners', 'show', 'tell', 'the', 'toon', 'van', 'wat', 'which',
   'who', 'zijn', 'zoek'
 ]));
@@ -415,6 +416,47 @@ function answerBusinessPartnerQuestion(question, partners = [], addresses = []) 
   return assistantList(`Results for “${terms.join(' ')}”`, matching);
 }
 
+function normalizedCompanyName(value) {
+  return String(value || '')
+    .normalize('NFKD')
+    .replace(/[^\p{L}\p{N}]+/gu, '')
+    .toLocaleLowerCase();
+}
+
+function requestedCompanyName(question) {
+  const source = String(question || '').trim();
+  const quoted = source.match(/["“”']([^"“”']{2,80})["“”']/u);
+  const company = source.match(
+    /(?:bedrijf|company|firma|organisatie|organization)\s+(?:genaamd\s+|named\s+)?(.{2,80})$/iu
+  );
+  const about = source.match(/(?:over|about)\s+(?:het\s+|the\s+)?(.{2,80})$/iu);
+  let name = (quoted && quoted[1]) || (company && company[1]) || (about && about[1]) || '';
+  name = name.replace(/[?.!,;:]+$/u, '').trim();
+  if (!name || /^(?:bedrijf|company|firma|organisatie|organization)$/iu.test(name)) return '';
+  return name;
+}
+
+function businessPartnerCreationSuggestion(question, partners = []) {
+  const name = requestedCompanyName(question);
+  if (!name) return null;
+  const normalizedName = normalizedCompanyName(name);
+  const exists = partners.some((partner) => normalizedCompanyName([
+    partner.BusinessPartnerFullName,
+    partner.BusinessPartnerName,
+    partner.OrganizationBPName1
+  ].filter(Boolean).join(' ')).includes(normalizedName));
+  if (exists) return null;
+
+  return {
+    SuggestedAction: 'CREATE_BUSINESS_PARTNER',
+    SuggestedData: JSON.stringify({
+      BusinessPartnerCategory: '2',
+      OrganizationBPName1: name.slice(0, 40),
+      SearchTerm1: name.replace(/[^\p{L}\p{N}]+/gu, ' ').trim().slice(0, 20)
+    })
+  };
+}
+
 class BusinessPartnerService extends cds.ApplicationService {
   async init() {
     const s4 = await cds.connect.to('API_BUSINESS_PARTNER');
@@ -607,13 +649,18 @@ class BusinessPartnerService extends cds.ApplicationService {
           );
           addresses = Array.isArray(addressResult) ? addressResult : [];
         }
-        const fallbackAnswer = answerBusinessPartnerQuestion(question, partners, addresses);
-        return await askSapAiCore({
+        const suggestion = businessPartnerCreationSuggestion(question, partners);
+        const baseFallback = answerBusinessPartnerQuestion(question, partners, addresses);
+        const fallbackAnswer = suggestion
+          ? `${baseFallback}\n\n${requestedCompanyName(question)} is not present as a Business Partner in S/4HANA. You can prepare a new Business Partner from this suggestion.`
+          : baseFallback;
+        const assistantResult = await askSapAiCore({
           question,
           partners,
           addresses,
           fallbackAnswer
         });
+        return { ...assistantResult, ...(suggestion || {}) };
       } catch (error) {
         req.reject(
           error.statusCode || 502,
@@ -648,7 +695,9 @@ BusinessPartnerService._internals = {
   sanitizeEntityKeys,
   sanitizeEntityPayload,
   validateBusinessPartnerCreate,
-  answerBusinessPartnerQuestion
+  answerBusinessPartnerQuestion,
+  requestedCompanyName,
+  businessPartnerCreationSuggestion
 };
 
 module.exports = BusinessPartnerService;

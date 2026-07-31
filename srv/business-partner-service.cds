@@ -1,8 +1,10 @@
 using { API_BUSINESS_PARTNER as S4 } from './external/API_BUSINESS_PARTNER';
 
 type BusinessPartnerAssistantAnswer {
-  Answer   : LargeString;
-  Provider : String(40);
+  Answer          : LargeString;
+  Provider        : String(40);
+  SuggestedAction : String(40);
+  SuggestedData   : LargeString;
 }
 
 /**

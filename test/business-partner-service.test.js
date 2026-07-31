@@ -8,6 +8,7 @@ const BusinessPartnerService = require('../srv/business-partner-service');
 const {
   SEARCHABLE_FIELDS,
   answerBusinessPartnerQuestion,
+  businessPartnerCreationSuggestion,
   applyBusinessPartnerSearch,
   normalizeRemoteResult,
   parseJsonObject,
@@ -228,5 +229,27 @@ test('Business Partner Assistant can return address details for one partner', ()
   assert.match(
     answerBusinessPartnerQuestion('What is the address of BP 1?', partners, addresses),
     /Dorpstraat 5 1000 Brussel BE/
+  );
+});
+
+test('assistant proposes a prefilled Business Partner when a company is absent', () => {
+  const partners = [{
+    BusinessPartner: '1',
+    BusinessPartnerFullName: 'Existing Company'
+  }];
+
+  const suggestion = businessPartnerCreationSuggestion(
+    'Geef info over het bedrijf Coca-Cola',
+    partners
+  );
+  assert.equal(suggestion.SuggestedAction, 'CREATE_BUSINESS_PARTNER');
+  assert.deepEqual(JSON.parse(suggestion.SuggestedData), {
+    BusinessPartnerCategory: '2',
+    OrganizationBPName1: 'Coca-Cola',
+    SearchTerm1: 'Coca Cola'
+  });
+  assert.equal(
+    businessPartnerCreationSuggestion('Geef info over bedrijf Existing Company', partners),
+    null
   );
 });
