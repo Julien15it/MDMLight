@@ -1,8 +1,11 @@
 sap.ui.define([
   "sap/ui/core/routing/HashChanger",
-  "sap/m/MessageBox"
-], function (HashChanger, MessageBox) {
+  "sap/m/MessageBox",
+  "mdm/md/businesspartner/manage/ext/BusinessPartnerAssistant"
+], function (HashChanger, MessageBox, BusinessPartnerAssistant) {
   "use strict";
+
+  var environment = { model: null, view: null };
 
   function contextsFrom(bindingContext, selectedContexts) {
     if (Array.isArray(selectedContexts)) return selectedContexts;
@@ -50,10 +53,25 @@ sap.ui.define([
     navigate("BusinessPartners/" + encodeURIComponent(businessPartner) + "/display");
   }
 
-  return {
-    setEnvironment: function () {},
+  function modelFrom(value) {
+    if (value && typeof value.getModel === "function") return value.getModel();
+    if (value && typeof value.getSource === "function") {
+      var source = value.getSource();
+      if (source && typeof source.getModel === "function") return source.getModel();
+    }
+    return environment.model;
+  }
 
-    clearEnvironment: function () {},
+  return {
+    setEnvironment: function (model, view) {
+      environment.model = model;
+      environment.view = view;
+    },
+
+    clearEnvironment: function () {
+      environment.model = null;
+      environment.view = null;
+    },
 
     isSingleSelection: function (bindingContext, selectedContexts) {
       return contextsFrom(bindingContext, selectedContexts).length === 1;
@@ -61,6 +79,14 @@ sap.ui.define([
 
     openCreatePage: function () {
       navigate("BusinessPartners/create");
+    },
+
+    openListPage: function () {
+      navigate("");
+    },
+
+    openAssistant: function (bindingContext) {
+      BusinessPartnerAssistant.open(modelFrom(bindingContext), environment.view);
     },
 
     openEditPage: function (bindingContext, selectedContexts) {

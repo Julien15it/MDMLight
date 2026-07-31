@@ -64,6 +64,12 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
     DataJson: LargeString not null
   ) returns LargeString;
 
+  /** Read-only assistant grounded in the Business Partners currently present
+   *  in S/4HANA. It never creates or changes master data. */
+  action askBusinessPartnerAssistant(
+    Question : String(1000) not null
+  ) returns LargeString;
+
   // Core business-partner details shown as sections on the object page.
   @readonly entity Addresses            as projection on S4.A_BusinessPartnerAddress;
   @readonly entity BusinessPartnerRoles as projection on S4.A_BusinessPartnerRole;

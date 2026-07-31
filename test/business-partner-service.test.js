@@ -7,6 +7,7 @@ const cds = require('@sap/cds');
 const BusinessPartnerService = require('../srv/business-partner-service');
 const {
   SEARCHABLE_FIELDS,
+  answerBusinessPartnerQuestion,
   applyBusinessPartnerSearch,
   normalizeRemoteResult,
   parseJsonObject,
@@ -175,4 +176,57 @@ test('extracts the original S/4 error instead of hiding it behind a generic erro
     'Grouping BP99 is not permitted.'
   );
   assert.equal(remoteErrorMessage({}, 'fallback'), 'fallback');
+});
+
+test('Business Partner Assistant answers grounded overview and search questions', () => {
+  const partners = [
+    {
+      BusinessPartner: '1',
+      BusinessPartnerFullName: 'Brussels Pharmaceuticals SA/NV',
+      BusinessPartnerCategory: '2',
+      BusinessPartnerGrouping: '0001',
+      BusinessPartnerIsBlocked: false
+    },
+    {
+      BusinessPartner: '2',
+      BusinessPartnerFullName: 'Blocked Example',
+      BusinessPartnerCategory: '1',
+      BusinessPartnerGrouping: 'BP02',
+      BusinessPartnerIsBlocked: true
+    }
+  ];
+
+  assert.equal(
+    answerBusinessPartnerQuestion('How many Business Partners are there?', partners),
+    'There are 2 Business Partners available in S/4HANA.'
+  );
+  assert.match(
+    answerBusinessPartnerQuestion('Which Business Partners are blocked?', partners),
+    /2 — Blocked Example/
+  );
+  assert.match(
+    answerBusinessPartnerQuestion('Find Brussels', partners),
+    /1 — Brussels Pharmaceuticals SA\/NV/
+  );
+});
+
+test('Business Partner Assistant can return address details for one partner', () => {
+  const partners = [{
+    BusinessPartner: '1',
+    BusinessPartnerFullName: 'Brussels Pharmaceuticals SA/NV',
+    BusinessPartnerCategory: '2',
+    BusinessPartnerGrouping: '0001'
+  }];
+  const addresses = [{
+    StreetName: 'Dorpstraat',
+    HouseNumber: '5',
+    PostalCode: '1000',
+    CityName: 'Brussel',
+    Country: 'BE'
+  }];
+
+  assert.match(
+    answerBusinessPartnerQuestion('What is the address of BP 1?', partners, addresses),
+    /Dorpstraat 5 1000 Brussel BE/
+  );
 });

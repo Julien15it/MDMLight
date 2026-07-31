@@ -21,6 +21,8 @@ test('maintenance uses one Object Page layout for create, preview and edit', () 
   assert.match(view, /title="Customer Data"/);
   assert.match(view, /title="Supplier Data"/);
   assert.match(view, /text="Edit Business Partner"/);
+  assert.match(view, /text="Business Partners"/);
+  assert.match(view, /text="Ask Assistant"/);
   assert.doesNotMatch(view, /<IconTabBar/);
 });
 

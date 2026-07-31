@@ -10,6 +10,7 @@ function loadActions(initialHash = '') {
   let actions;
   let hash = initialHash;
   const errors = [];
+  const assistantCalls = [];
   const hashChanger = {
     getHash: () => hash,
     setHash: (value) => { hash = value; }
@@ -25,7 +26,8 @@ function loadActions(initialHash = '') {
         define: (_dependencies, factory) => {
           actions = factory(
             { getInstance: () => hashChanger },
-            { error: (message) => errors.push(message) }
+            { error: (message) => errors.push(message) },
+            { open: (model, view) => assistantCalls.push({ model, view }) }
           );
         }
       }
@@ -34,6 +36,7 @@ function loadActions(initialHash = '') {
 
   return {
     actions,
+    assistantCalls,
     errors,
     getHash: () => hash
   };
@@ -50,6 +53,21 @@ test('create action navigates directly to the maintenance route', () => {
   runtime.actions.openCreatePage();
   assert.equal(runtime.getHash(), 'BusinessPartners/create');
   assert.deepEqual(runtime.errors, []);
+});
+
+test('home action returns to the Business Partner list', () => {
+  const runtime = loadActions('BusinessPartners/1/display');
+  runtime.actions.openListPage();
+  assert.equal(runtime.getHash(), '');
+});
+
+test('assistant uses the Fiori page model without requiring a selection', () => {
+  const runtime = loadActions();
+  const model = { name: 'main-service' };
+  const view = { name: 'list-view' };
+  runtime.actions.setEnvironment(model, view);
+  runtime.actions.openAssistant();
+  assert.deepEqual(runtime.assistantCalls, [{ model, view }]);
 });
 
 test('list edit action accepts the selected Fiori Elements context', () => {

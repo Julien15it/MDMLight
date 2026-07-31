@@ -33,6 +33,12 @@
   background: var(--sapGroup_ContentBackground);
 }
 
+.bpAssistantConversation textarea {
+  font-family: var(--sapFontFamily);
+  line-height: 1.45;
+  background: var(--sapGroup_ContentBackground);
+}
+
 .sapUxAPObjectPageLayout .sapUxAPObjectPageSectionHeaderTitle {
   text-transform: none;
 }

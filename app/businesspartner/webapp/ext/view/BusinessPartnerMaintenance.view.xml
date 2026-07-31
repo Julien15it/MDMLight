@@ -32,6 +32,16 @@
             </uxap:snappedHeading>
             <uxap:actions>
               <Button
+                text="Business Partners"
+                icon="sap-icon://nav-back"
+                type="Transparent"
+                press=".onBackToList" />
+              <Button
+                text="Ask Assistant"
+                icon="sap-icon://discussion-2"
+                type="Transparent"
+                press=".onOpenAssistant" />
+              <Button
                 text="Edit Business Partner"
                 icon="sap-icon://edit"
                 type="Emphasized"

@@ -21,8 +21,10 @@ sap.ui.define([
   "sap/m/Toolbar",
   "sap/m/ToolbarSpacer",
   "sap/m/ObjectStatus",
+  "sap/m/SearchField",
   "sap/m/VBox",
-  "mdm/md/businesspartner/manage/ext/BusinessPartnerMetadata"
+  "mdm/md/businesspartner/manage/ext/BusinessPartnerMetadata",
+  "mdm/md/businesspartner/manage/ext/CustomActions"
 ], function (
   Controller,
   JSONModel,
@@ -46,8 +48,10 @@ sap.ui.define([
   Toolbar,
   ToolbarSpacer,
   ObjectStatus,
+  SearchField,
   VBox,
-  Metadata
+  Metadata,
+  CustomActions
 ) {
   "use strict";
 
@@ -515,6 +519,10 @@ sap.ui.define([
         var state = this.getView().getModel("maintenance").getData();
         var records = state.sections[section.id] || [];
         var summaryFields = this._summaryFields(section);
+        var searchField = new SearchField({
+          width: "18rem",
+          placeholder: "Search"
+        });
         var table = new Table({
           inset: false,
           growing: true,
@@ -525,6 +533,7 @@ sap.ui.define([
           headerToolbar: new Toolbar({
             content: [
               new ToolbarSpacer(),
+              searchField,
               new ObjectStatus({ text: records.length + " record(s)", state: "Information" }),
               new Button({
                 text: "Add",
@@ -550,6 +559,17 @@ sap.ui.define([
           item.attachPress(this._openExistingRecord.bind(this, section, index));
           table.addItem(item);
         }, this);
+
+        searchField.attachLiveChange(function (event) {
+          var query = event.getParameter("newValue").trim().toLocaleLowerCase();
+          table.getItems().forEach(function (item, index) {
+            var searchable = summaryFields
+              .map(function (field) { return displayValue(records[index][field.name]); })
+              .join(" ")
+              .toLocaleLowerCase();
+            item.setVisible(!query || searchable.includes(query));
+          });
+        });
 
         container.addItem(table);
         container.addItem(new Text({
@@ -755,6 +775,14 @@ sap.ui.define([
           state.busy = false;
           maintenanceModel.refresh(true);
         }
+      },
+
+      onBackToList: function () {
+        this._router.navTo("BusinessPartnersList", {}, true);
+      },
+
+      onOpenAssistant: function (event) {
+        CustomActions.openAssistant(event);
       },
 
       onCancel: function () {

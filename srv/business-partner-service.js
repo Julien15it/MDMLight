@@ -36,6 +36,27 @@ const UPDATE_FIELDS = Object.freeze([
   'BusinessPartnerIsBlocked'
 ]);
 
+const ASSISTANT_FIELDS = Object.freeze([
+  'BusinessPartner',
+  'BusinessPartnerFullName',
+  'BusinessPartnerName',
+  'BusinessPartnerCategory',
+  'BusinessPartnerGrouping',
+  'SearchTerm1',
+  'SearchTerm2',
+  'FirstName',
+  'LastName',
+  'OrganizationBPName1',
+  'BusinessPartnerIsBlocked'
+]);
+
+const ASSISTANT_STOP_WORDS = Object.freeze(new Set([
+  'a', 'about', 'all', 'alle', 'and', 'are', 'business', 'de', 'een', 'find',
+  'for', 'geef', 'hebben', 'het', 'how', 'ik', 'in', 'is', 'me', 'met', 'of',
+  'partner', 'partners', 'show', 'tell', 'the', 'toon', 'van', 'wat', 'which',
+  'who', 'zijn', 'zoek'
+]));
+
 const MAINTENANCE_ENTITIES = Object.freeze({
   Addresses: Object.freeze({ remote: 'A_BusinessPartnerAddress', creatable: true }),
   BusinessPartnerRoles: Object.freeze({ remote: 'A_BusinessPartnerRole', creatable: true }),
@@ -250,6 +271,149 @@ function validateBusinessPartnerCreate(data = {}) {
   return errors;
 }
 
+function assistantPartnerName(partner) {
+  return partner.BusinessPartnerFullName
+    || partner.BusinessPartnerName
+    || partner.OrganizationBPName1
+    || [partner.FirstName, partner.LastName].filter(Boolean).join(' ')
+    || 'Unnamed Business Partner';
+}
+
+function assistantCategory(category) {
+  return ({ '1': 'Person', '2': 'Organization', '3': 'Group' })[category]
+    || category
+    || 'Unknown';
+}
+
+function assistantPartnerLine(partner) {
+  return `${partner.BusinessPartner} — ${assistantPartnerName(partner)}`
+    + ` | ${assistantCategory(partner.BusinessPartnerCategory)}`
+    + ` | Grouping ${partner.BusinessPartnerGrouping || '–'}`
+    + ` | Blocked: ${partner.BusinessPartnerIsBlocked ? 'Yes' : 'No'}`;
+}
+
+function assistantList(title, partners) {
+  if (!partners.length) return `${title}\nNo matching Business Partners were found.`;
+  const visible = partners.slice(0, 10);
+  const remainder = partners.length - visible.length;
+  return [
+    `${title} (${partners.length})`,
+    ...visible.map(assistantPartnerLine),
+    ...(remainder > 0 ? [`…and ${remainder} more.`] : [])
+  ].join('\n');
+}
+
+function assistantSearchTerms(question) {
+  const quoted = [...question.matchAll(/["“”']([^"“”']+)["“”']/gu)]
+    .map((match) => match[1].trim().toLocaleLowerCase())
+    .filter(Boolean);
+  if (quoted.length) return quoted;
+
+  return question
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .split(/\s+/u)
+    .filter((word) => word.length > 1 && !ASSISTANT_STOP_WORDS.has(word))
+    .filter((word) => !['address', 'addresses', 'adres', 'adressen', 'blocked', 'geblokkeerd'].includes(word));
+}
+
+function answerBusinessPartnerQuestion(question, partners = [], addresses = []) {
+  const normalized = String(question || '').trim().toLocaleLowerCase();
+  if (!normalized) return 'Enter a question about the available Business Partners.';
+
+  const asksAddress = /\b(address|addresses|adres|adressen)\b/u.test(normalized);
+  const asksGrouping = /\b(grouping|groep|groepering)\b/u.test(normalized);
+  const numberMatch = normalized.match(/\b(?:bp|business partner|partner)\s*#?\s*(\d{1,10})\b/u);
+
+  if (asksAddress && numberMatch) {
+    const number = numberMatch[1];
+    const partner = partners.find((item) => String(item.BusinessPartner) === number);
+    if (!partner) return `Business Partner ${number} was not found.`;
+    if (!addresses.length) return `${assistantPartnerLine(partner)}\nNo address was found.`;
+    return [
+      `Addresses for ${number} — ${assistantPartnerName(partner)}:`,
+      ...addresses.map((address) => [
+        address.StreetName,
+        address.HouseNumber,
+        address.PostalCode,
+        address.CityName,
+        address.Region,
+        address.Country
+      ].filter(Boolean).join(' '))
+    ].join('\n');
+  }
+
+  if (numberMatch && !asksGrouping) {
+    const number = numberMatch[1];
+    const partner = partners.find((item) => String(item.BusinessPartner) === number);
+    return partner
+      ? `Business Partner details:\n${assistantPartnerLine(partner)}`
+      : `Business Partner ${number} was not found.`;
+  }
+
+  if (/\b(blocked|geblokkeerd|blokkade)\b/u.test(normalized)) {
+    const blocked = partners.filter((partner) => Boolean(partner.BusinessPartnerIsBlocked));
+    if (/\b(how many|count|aantal|hoeveel)\b/u.test(normalized)) {
+      return `${blocked.length} of ${partners.length} Business Partners are blocked.`;
+    }
+    return assistantList('Blocked Business Partners', blocked);
+  }
+
+  if (/\b(category|categories|categorie|type)\b/u.test(normalized)) {
+    const counts = partners.reduce((result, partner) => {
+      const category = assistantCategory(partner.BusinessPartnerCategory);
+      result[category] = (result[category] || 0) + 1;
+      return result;
+    }, {});
+    return [
+      `Business Partners by category (${partners.length} total):`,
+      ...Object.entries(counts).map(([category, count]) => `${category}: ${count}`)
+    ].join('\n');
+  }
+
+  if (asksGrouping) {
+    const groupingMatch = normalized.match(/\b([a-z0-9]{4})\b/iu);
+    if (!groupingMatch) {
+      const counts = partners.reduce((result, partner) => {
+        const grouping = partner.BusinessPartnerGrouping || '–';
+        result[grouping] = (result[grouping] || 0) + 1;
+        return result;
+      }, {});
+      return [
+        'Business Partners by grouping:',
+        ...Object.entries(counts)
+          .sort((left, right) => right[1] - left[1])
+          .slice(0, 15)
+          .map(([grouping, count]) => `${grouping}: ${count}`)
+      ].join('\n');
+    }
+    const grouping = groupingMatch[1].toUpperCase();
+    return assistantList(
+      `Business Partners in grouping ${grouping}`,
+      partners.filter((partner) => String(partner.BusinessPartnerGrouping || '').toUpperCase() === grouping)
+    );
+  }
+
+  if (/\b(how many|count|aantal|hoeveel|total|totaal)\b/u.test(normalized)) {
+    return `There are ${partners.length} Business Partners available in S/4HANA.`;
+  }
+
+  const terms = assistantSearchTerms(normalized);
+  if (!terms.length) {
+    return 'Try asking “How many Business Partners are there?”, “Which are blocked?”, “Show BP 1”, or “Find Brussels”.';
+  }
+
+  const matching = partners.filter((partner) => {
+    const searchable = ASSISTANT_FIELDS
+      .map((field) => partner[field])
+      .filter((value) => value !== undefined && value !== null)
+      .join(' ')
+      .toLocaleLowerCase();
+    return terms.every((term) => searchable.includes(term));
+  });
+  return assistantList(`Results for “${terms.join(' ')}”`, matching);
+}
+
 class BusinessPartnerService extends cds.ApplicationService {
   async init() {
     const s4 = await cds.connect.to('API_BUSINESS_PARTNER');
@@ -410,6 +574,47 @@ class BusinessPartnerService extends cds.ApplicationService {
       }
     });
 
+    this.on('askBusinessPartnerAssistant', async (req) => {
+      const question = String(req.data.Question || '').trim();
+      if (!question) req.reject(400, 'Enter a question.', 'Question');
+
+      const rootEntity = remoteEntity(s4, 'A_BusinessPartner');
+      try {
+        const result = await s4.run(
+          cds.ql.SELECT.from(rootEntity).columns(...ASSISTANT_FIELDS).limit(1000)
+        );
+        const partners = Array.isArray(result) ? result : [];
+        let addresses = [];
+        const normalized = question.toLocaleLowerCase();
+        const numberMatch = normalized.match(/\b(?:bp|business partner|partner)\s*#?\s*(\d{1,10})\b/u);
+        if (/\b(address|addresses|adres|adressen)\b/u.test(normalized) && numberMatch) {
+          const addressResult = await s4.run(
+            cds.ql.SELECT
+              .from(remoteEntity(s4, 'A_BusinessPartnerAddress'))
+              .columns(
+                'BusinessPartner',
+                'AddressID',
+                'StreetName',
+                'HouseNumber',
+                'PostalCode',
+                'CityName',
+                'Region',
+                'Country'
+              )
+              .where({ BusinessPartner: numberMatch[1] })
+              .limit(50)
+          );
+          addresses = Array.isArray(addressResult) ? addressResult : [];
+        }
+        return answerBusinessPartnerQuestion(question, partners, addresses);
+      } catch (error) {
+        req.reject(
+          error.statusCode || 502,
+          remoteErrorMessage(error, 'The Business Partner Assistant could not read S/4HANA data.')
+        );
+      }
+    });
+
     this.on(['READ', 'CREATE', 'UPDATE'], '*', (req) => s4.run(req.query));
 
     this.on('DELETE', '*', (req) => {
@@ -421,6 +626,7 @@ class BusinessPartnerService extends cds.ApplicationService {
 }
 
 BusinessPartnerService._internals = {
+  ASSISTANT_FIELDS,
   SEARCHABLE_FIELDS,
   CREATE_FIELDS,
   UPDATE_FIELDS,
@@ -434,7 +640,8 @@ BusinessPartnerService._internals = {
   remoteErrorMessage,
   sanitizeEntityKeys,
   sanitizeEntityPayload,
-  validateBusinessPartnerCreate
+  validateBusinessPartnerCreate,
+  answerBusinessPartnerQuestion
 };
 
 module.exports = BusinessPartnerService;
