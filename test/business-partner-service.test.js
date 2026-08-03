@@ -9,6 +9,9 @@ const {
   MAINTENANCE_ENTITIES,
   SEARCHABLE_FIELDS,
   answerBusinessPartnerQuestion,
+  assistantAddressFilter,
+  readAllPages,
+  readAssistantAddresses,
   addDefaultAddressUsage,
   businessPartnerCreationSuggestion,
   businessPartnerNavigationPath,
@@ -518,4 +521,74 @@ test('assistant resolves a company from prior turns for a follow-up create reque
     () => parseConversationHistory('{broken'),
     /ConversationJson must contain valid JSON/
   );
+});
+
+test('scopes the address filter to the partners in context', () => {
+  const filter = assistantAddressFilter([
+    { BusinessPartner: '1' },
+    { BusinessPartner: '2' }
+  ]);
+
+  assert.deepEqual(filter, [
+    { xpr: [{ ref: ['BusinessPartner'] }, '=', { val: '1' }] },
+    'or',
+    { xpr: [{ ref: ['BusinessPartner'] }, '=', { val: '2' }] }
+  ]);
+  assert.deepEqual(assistantAddressFilter([]), []);
+});
+
+test('pages through every row instead of truncating at the first page', async () => {
+  const pageSize = 2;
+  const rows = [{ n: 1 }, { n: 2 }, { n: 3 }, { n: 4 }, { n: 5 }];
+  const requested = [];
+  const s4 = {
+    run: async ({ top, skip }) => {
+      requested.push({ top, skip });
+      return rows.slice(skip, skip + top);
+    }
+  };
+
+  const read = await readAllPages(s4, (top, skip) => ({ top, skip }), pageSize);
+
+  assert.deepEqual(read, rows);
+  assert.deepEqual(requested, [
+    { top: 2, skip: 0 },
+    { top: 2, skip: 2 },
+    { top: 2, skip: 4 }
+  ]);
+});
+
+test('performs one confirming read when the final page is exactly full', async () => {
+  const rows = [{ n: 1 }, { n: 2 }];
+  let calls = 0;
+  const s4 = {
+    run: async ({ top, skip }) => {
+      calls += 1;
+      return rows.slice(skip, skip + top);
+    }
+  };
+
+  assert.deepEqual(await readAllPages(s4, (top, skip) => ({ top, skip }), 2), rows);
+  assert.equal(calls, 2);
+});
+
+test('reads addresses in chunks so the generated filter stays short', async () => {
+  const partners = Array.from({ length: 120 }, (_, index) => ({
+    BusinessPartner: String(index + 1)
+  }));
+  const filterSizes = [];
+  const s4 = {
+    entities: {},
+    run: async (query) => {
+      const serialized = JSON.stringify(query.SELECT.where || []);
+      filterSizes.push((serialized.match(/"BusinessPartner"/gu) || []).length);
+      return [];
+    }
+  };
+
+  await readAssistantAddresses(s4, partners);
+
+  assert.equal(filterSizes.length, 3);
+  assert.deepEqual(filterSizes, [50, 50, 20]);
+  assert.deepEqual(await readAssistantAddresses(s4, []), []);
 });

@@ -64,6 +64,11 @@ const ASSISTANT_ADDRESS_FIELDS = Object.freeze([
   'POBox'
 ]);
 
+// The assistant reads every matching row by paging; these only size the pages.
+const ASSISTANT_PAGE_SIZE = 1000;
+const ASSISTANT_ADDRESS_CHUNK = 50;
+const ASSISTANT_MAX_ROWS = 100000;
+
 const ASSISTANT_STOP_WORDS = Object.freeze(new Set([
   // English function words
   'a', 'an', 'about', 'all', 'and', 'any', 'are', 'as', 'at', 'be', 'business',
@@ -524,6 +529,51 @@ function assistantSearchFilter(terms) {
     })),
     'or'
   );
+}
+
+// Scopes an address read to the partners actually in context.
+function assistantAddressFilter(partners = []) {
+  return joinExpressions(
+    partners.map((partner) => ({
+      xpr: [{ ref: ['BusinessPartner'] }, '=', { val: String(partner.BusinessPartner) }]
+    })),
+    'or'
+  );
+}
+
+// Pages through S/4 until every matching row has been read.
+async function readAllPages(s4, buildQuery, pageSize = ASSISTANT_PAGE_SIZE) {
+  const rows = [];
+  for (let skip = 0; ; skip += pageSize) {
+    const page = await s4.run(buildQuery(pageSize, skip));
+    if (!Array.isArray(page) || page.length === 0) break;
+    rows.push(...page);
+    if (page.length < pageSize) break;
+    if (rows.length >= ASSISTANT_MAX_ROWS) {
+      console.warn(`[assistant] read stopped at the ${ASSISTANT_MAX_ROWS} row safety cap`);
+      break;
+    }
+  }
+  return rows;
+}
+
+// Chunks the partner list so the generated $filter stays a sane length.
+async function readAssistantAddresses(s4, partners = []) {
+  if (!partners.length) return [];
+  const entity = remoteEntity(s4, 'A_BusinessPartnerAddress');
+  const chunks = [];
+  for (let index = 0; index < partners.length; index += ASSISTANT_ADDRESS_CHUNK) {
+    chunks.push(partners.slice(index, index + ASSISTANT_ADDRESS_CHUNK));
+  }
+  const pages = await Promise.all(chunks.map((chunk) => readAllPages(
+    s4,
+    (top, skip) => cds.ql.SELECT
+      .from(entity)
+      .columns(...ASSISTANT_ADDRESS_FIELDS)
+      .where(assistantAddressFilter(chunk))
+      .limit(top, skip)
+  )));
+  return pages.flat();
 }
 
 /**
@@ -1103,32 +1153,23 @@ class BusinessPartnerService extends cds.ApplicationService {
           .test(normalized);
         const searchTerms = assistantSearchTerms(question);
 
-        let partnerSelect = cds.ql.SELECT.from(rootEntity).columns(...ASSISTANT_FIELDS).limit(1000);
-        if (numberMatch) {
-          partnerSelect = cds.ql.SELECT
-            .from(rootEntity)
-            .columns(...ASSISTANT_FIELDS)
-            .where({ BusinessPartner: numberMatch[1] })
-            .limit(1);
-        } else if (searchTerms.length && !asksAggregate) {
-          partnerSelect = cds.ql.SELECT
-            .from(rootEntity)
-            .columns(...ASSISTANT_FIELDS)
-            .where(assistantSearchFilter(searchTerms))
-            .limit(200);
-        }
+        const partnerFilter = numberMatch
+          ? { BusinessPartner: numberMatch[1] }
+          : searchTerms.length && !asksAggregate
+            ? assistantSearchFilter(searchTerms)
+            : null;
 
-        const [result, addressResult] = await Promise.all([
-          s4.run(partnerSelect),
-          s4.run(
-            cds.ql.SELECT
-              .from(remoteEntity(s4, 'A_BusinessPartnerAddress'))
-              .columns(...ASSISTANT_ADDRESS_FIELDS)
-              .limit(5000)
-          )
-        ]);
-        const partners = Array.isArray(result) ? result : [];
-        const addresses = Array.isArray(addressResult) ? addressResult : [];
+        // Greetings and unrecognised questions need no business partner data at all.
+        const needsPartnerData = Boolean(numberMatch) || asksAggregate || searchTerms.length > 0;
+        const partners = needsPartnerData
+          ? await readAllPages(s4, (top, skip) => {
+            const select = cds.ql.SELECT.from(rootEntity).columns(...ASSISTANT_FIELDS);
+            if (partnerFilter) select.where(partnerFilter);
+            return select.limit(top, skip);
+          })
+          : [];
+        // Only targeted questions use addresses; aggregates never reference them.
+        const addresses = partnerFilter ? await readAssistantAddresses(s4, partners) : [];
         const companyName = contextualCompanyName(question, conversationHistory);
         const duplicates = companyName ? findPotentialDuplicates(companyName, partners) : [];
         let research = null;
@@ -1157,7 +1198,8 @@ class BusinessPartnerService extends cds.ApplicationService {
             ...partner,
             MatchScore: Math.round(score * 100)
           })),
-          conversationHistory
+          conversationHistory,
+          totalBusinessPartners: needsPartnerData ? partners.length : null
         });
         return { ...assistantResult, ...(suggestion || {}) };
       } catch (error) {
@@ -1186,7 +1228,13 @@ BusinessPartnerService._internals = {
   UPDATE_FIELDS,
   MAINTENANCE_ENTITIES,
   ROOT_UPDATE_EXCLUDED_FIELDS,
+  ASSISTANT_PAGE_SIZE,
+  ASSISTANT_ADDRESS_CHUNK,
+  ASSISTANT_MAX_ROWS,
   applyBusinessPartnerSearch,
+  assistantAddressFilter,
+  readAllPages,
+  readAssistantAddresses,
   extractSearchTerms,
   pickDefined,
   parseConversationHistory,

@@ -121,7 +121,8 @@ function promptContext(
   addresses,
   externalResearch,
   duplicateCandidates,
-  conversationHistory = []
+  conversationHistory = [],
+  totalBusinessPartners
 ) {
   const hasExternalCompanyContext = Boolean(externalResearch)
     && !(Array.isArray(duplicateCandidates) && duplicateCandidates.length);
@@ -129,8 +130,10 @@ function promptContext(
     ? []
     : relevantPartners(question, partners, addresses).map(safePartner);
   const relevantIds = new Set(relevant.map((partner) => String(partner.BusinessPartner)));
+  // null means no read was made; omit rather than report a misleading zero.
+  const total = totalBusinessPartners === undefined ? partners.length : totalBusinessPartners;
   return JSON.stringify({
-    totalBusinessPartners: partners.length,
+    ...(total === null ? {} : { totalBusinessPartners: total }),
     businessPartnersIncluded: relevant,
     addressesIncluded: Array.isArray(addresses)
       ? addresses
@@ -298,6 +301,7 @@ async function askSapAiCore({
   externalResearch,
   duplicateCandidates,
   conversationHistory,
+  totalBusinessPartners,
   env = process.env,
   Client
 }) {
@@ -331,7 +335,8 @@ async function askSapAiCore({
           addresses,
           externalResearch,
           duplicateCandidates,
-          conversationHistory
+          conversationHistory,
+          totalBusinessPartners
         )
       }
     }, env);

@@ -105,6 +105,11 @@ test('AI prompt context is bounded and excludes sensitive fields', () => {
   assert.deepEqual(relevantPartners('Does Intellus exist?', partners), []);
   assert.deepEqual(relevantPartners('Hello', partners), []);
   const context = promptContext('Show BP 1', partners, []);
+  assert.match(context, /"totalBusinessPartners":2/);
+  assert.doesNotMatch(
+    promptContext('Hello', [], [], null, [], [], null),
+    /totalBusinessPartners/
+  );
   assert.match(context, /Brussels Pharmaceuticals/);
   assert.doesNotMatch(context, /TaxNumber1|must-never-enter/);
 });
