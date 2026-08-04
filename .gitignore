@@ -13,3 +13,6 @@ dist/
 resources/
 archive.zip
 credentials.json
+
+# added by cds
+.cdsrc-private.json

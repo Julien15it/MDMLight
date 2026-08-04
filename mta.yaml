@@ -32,10 +32,13 @@ modules:
       - name: mdm-businesspartner-destination-service
       - name: mdm-businesspartner-connectivity
       - name: mdm-businesspartner-aicore
+      - name: mdmlight-bpa-key
+      - name: mdmlight-bpa-uaa
     properties:
       AICORE_MODEL: gpt-5
       AICORE_FALLBACK_MODELS: gpt-5-mini,anthropic--claude-4.5-haiku
       AICORE_RESOURCE_GROUP: default
+  
 
   # --- Standalone application router ------------------------------------------
   - name: mdm-businesspartner-approuter
@@ -141,3 +144,8 @@ resources:
     parameters:
       service: aicore
       service-plan: extended
+# --- SAP Build Process Automation API key (user-provided service) ------------
+  - name: mdmlight-bpa-key
+    type: org.cloudfoundry.existing-service
+  - name: mdmlight-bpa-uaa
+    type: org.cloudfoundry.existing-service

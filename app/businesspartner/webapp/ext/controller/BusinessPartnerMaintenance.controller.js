@@ -917,6 +917,8 @@ sap.ui.define([
           state.busy = false;
           maintenanceModel.refresh(true);
         }
+ 
+
       },
 
       onBackToList: function () {

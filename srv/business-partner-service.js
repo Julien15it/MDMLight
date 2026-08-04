@@ -3,6 +3,7 @@
 const cds = require('@sap/cds');
 const { askSapAiCore } = require('./ai/business-partner-assistant');
 const { researchCompany } = require('./ai/company-research');
+const { startWorkflow } = require("./wf/processAutomation");
 
 const SEARCHABLE_FIELDS = Object.freeze([
   'BusinessPartner',
@@ -890,22 +891,50 @@ class BusinessPartnerService extends cds.ApplicationService {
       }
     });
 
-    this.on('createBusinessPartner', async (req) => {
-      const errors = validateBusinessPartnerCreate(req.data);
-      if (errors.length) {
-        for (const error of errors) req.error(400, error.message, error.target);
-        return;
-      }
+   this.on('createBusinessPartner', async (req) => {
+  const payload = pickDefined(req.data, CREATE_FIELDS);
+  let created;
 
-      const payload = pickDefined(req.data, CREATE_FIELDS);
-      try {
-        return normalizeRemoteResult(await s4.run(
-          cds.ql.INSERT.into(remoteEntity(s4, 'A_BusinessPartner')).entries(payload)
-        ));
-      } catch (error) {
-        req.reject(error.statusCode || 502, remoteErrorMessage(error, 'S/4HANA rejected the create request.'));
+  try {
+    created = normalizeRemoteResult(await s4.run(
+      cds.ql.INSERT.into(remoteEntity(s4, 'A_BusinessPartner')).entries(payload)
+    ));
+  } catch (error) {
+    return req.reject(error.statusCode || 502, remoteErrorMessage(error, 'S/4HANA rejected the create request.'));
+  }
+
+  try {
+    console.log("Starting approval workflow...");
+
+    const workflowResult = await startWorkflow(
+      "eu10.alluvion-dev-cf.mdmlightapproval.mDM_LIGHT_APPROVAL_WF",
+      {
+        businesspartner: created.BusinessPartner ?? "",
+        lastname: created.LastName ?? "",
+        firstname: created.FirstName ?? "",
+        legalform: created.LegalForm ?? "",
+        formofaddress: created.FormOfAddress ?? "",
+        organizationbpname1: created.OrganizationBPName1 ?? "",
+        organizationbpname2: created.OrganizationBPName2 ?? "",
+        organizationbpname3: created.OrganizationBPName3 ?? "",
+        organizationbpname4: created.OrganizationBPName4 ?? "",
+        businesspartnercategory: created.BusinessPartnerCategory ?? ""
       }
-    });
+    );
+
+    console.log("Workflow started successfully.");
+    console.log(workflowResult);
+
+    return created;
+
+  } catch (error) {
+    console.error("Workflow start failed:");
+    console.error(error);
+
+    req.info(500, `Business Partner created, but approval workflow could not be started: ${error.message}`);
+    return created;
+  }
+});
 
     this.on('updateBusinessPartner', async (req) => {
       const businessPartner = req.data.BusinessPartner;
@@ -932,56 +961,79 @@ class BusinessPartnerService extends cds.ApplicationService {
     });
 
     this.on('saveBusinessPartner', async (req) => {
-      let data;
-      try {
-        data = parseJsonObject(req.data.DataJson, 'DataJson');
-      } catch (error) {
-        req.reject(error.statusCode || 400, error.message, 'DataJson');
-      }
+      // let data;
+      // try {
+      //   data = parseJsonObject(req.data.DataJson, 'DataJson');
+      // } catch (error) {
+      //   req.reject(error.statusCode || 400, error.message, 'DataJson');
+      // }
 
-      const isCreate = Boolean(req.data.IsCreate);
-      const entity = this.entities.BusinessPartners;
-      const payload = sanitizeEntityPayload(data, entity, {
-        isCreate,
-        excluded: isCreate ? new Set() : ROOT_UPDATE_EXCLUDED_FIELDS
-      });
+      // const isCreate = Boolean(req.data.IsCreate);
+      // const entity = this.entities.BusinessPartners;
+      // const payload = sanitizeEntityPayload(data, entity, {
+      //   isCreate,
+      //   excluded: isCreate ? new Set() : ROOT_UPDATE_EXCLUDED_FIELDS
+      // });
 
-      if (isCreate) {
-        const errors = validateBusinessPartnerCreate(payload);
-        if (errors.length) {
-          for (const error of errors) req.error(400, error.message, error.target);
-          return;
-        }
+      // if (isCreate) {
+      //   const errors = validateBusinessPartnerCreate(payload);
+      //   if (errors.length) {
+      //     for (const error of errors) req.error(400, error.message, error.target);
+      //     return;
+      //   }
+      //   let created;
+      //   try {
+      //     created = normalizeRemoteResult(await s4.run(
+      //       cds.ql.INSERT.into(remoteEntity(s4, 'A_BusinessPartner')).entries(payload)
+      //     ));
+      //     if (!created?.BusinessPartner) {
+      //       req.reject(502, 'S/4HANA did not return the number of the created Business Partner.');
+      //     }
+      //   } catch (error) {
+      //     req.reject(error.statusCode || 502, remoteErrorMessage(error, 'S/4HANA rejected the create request.'));
+      //     return;
+      //   }
+
         try {
-          const created = normalizeRemoteResult(await s4.run(
-            cds.ql.INSERT.into(remoteEntity(s4, 'A_BusinessPartner')).entries(payload)
-          ));
-          if (!created?.BusinessPartner) {
-            req.reject(502, 'S/4HANA did not return the number of the created Business Partner.');
-          }
-          return created;
+          console.log('start wf attempt');
+          await startWorkflow('eu10.alluvion-dev-cf.mdmlightapproval.mDM_LIGHT_APPROVAL_WF', {
+           businesspartner: req.data.BusinessPartner ?? "",
+        lastname: req.data.LastName ?? "",
+        firstname: req.data.FirstName ?? "",
+        legalform: req.data.LegalForm ?? "",
+        formofaddress: req.data.FormOfAddress ?? "",
+        organizationbpname1: req.data.OrganizationBPName1 ?? "",
+        organizationbpname2: req.data.OrganizationBPName2 ?? "",
+        organizationbpname3: req.data.OrganizationBPName3 ?? "",
+        organizationbpname4: req.data.OrganizationBPName4 ?? "",
+        businesspartnercategory: req.data.BusinessPartnerCategory ?? ""
+          });
         } catch (error) {
-          req.reject(error.statusCode || 502, remoteErrorMessage(error, 'S/4HANA rejected the create request.'));
+          req.info(500, `Business Partner aangemaakt, maar goedkeuringsworkflow kon niet gestart worden: ${error.message}`);
+          console.log(error)
         }
-      }
 
-      const businessPartner = req.data.BusinessPartner;
-      if (!businessPartner) req.reject(400, 'Enter a business partner number.', 'BusinessPartner');
-      if (Object.keys(payload).length === 0) req.reject(400, 'There are no fields to update.');
+        //return created;
+      // }
 
-      const rootEntity = remoteEntity(s4, 'A_BusinessPartner');
-      try {
-        await s4.run(
-          cds.ql.UPDATE(rootEntity).set(payload).where({ BusinessPartner: businessPartner })
-        );
-        const updated = normalizeRemoteResult(await s4.run(
-          cds.ql.SELECT.one.from(rootEntity).where({ BusinessPartner: businessPartner })
-        ));
-        if (!updated) req.reject(404, `Business partner ${businessPartner} was not found.`);
-        return updated;
-      } catch (error) {
-        req.reject(error.statusCode || 502, remoteErrorMessage(error, 'S/4HANA rejected the update request.'));
-      }
+      // const businessPartner = req.data.BusinessPartner;
+      // if (!businessPartner) req.reject(400, 'Enter a business partner number.', 'BusinessPartner');
+      // if (Object.keys(payload).length === 0) req.reject(400, 'There are no fields to update.');
+
+      // const rootEntity = remoteEntity(s4, 'A_BusinessPartner');
+      // try {
+      //   await s4.run(
+      //     cds.ql.UPDATE(rootEntity).set(payload).where({ BusinessPartner: businessPartner })
+      //   );
+      //   const updated = normalizeRemoteResult(await s4.run(
+      //     cds.ql.SELECT.one.from(rootEntity).where({ BusinessPartner: businessPartner })
+      //   ));
+      //   if (!updated) req.reject(404, `Business partner ${businessPartner} was not found.`);
+      //   return updated;
+      // } catch (error) {
+      //   req.reject(error.statusCode || 502, remoteErrorMessage(error, 'S/4HANA rejected the update request.'));
+      // }
+
     });
 
     this.on('saveBusinessPartnerEntity', async (req) => {
