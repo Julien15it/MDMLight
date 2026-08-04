@@ -3,6 +3,12 @@
 const cds = require('@sap/cds');
 const { askSapAiCore } = require('./ai/business-partner-assistant');
 const { researchCompany } = require('./ai/company-research');
+const { createCache } = require('./ai/cache');
+const { rankDuplicates, partnerFingerprints } = require('./ai/name-match');
+const { createNameIndex, INDEX_FIELDS } = require('./ai/name-index');
+
+const assistantCache = createCache();
+const nameIndex = createNameIndex();
 
 const SEARCHABLE_FIELDS = Object.freeze([
   'BusinessPartner',
@@ -576,6 +582,28 @@ async function readAssistantAddresses(s4, partners = []) {
   return pages.flat();
 }
 
+// Feeds the name index: a null filter reads everything, a delta filter only what changed.
+function readIndexPartners(s4, filter) {
+  const entity = remoteEntity(s4, 'A_BusinessPartner');
+  return readAllPages(s4, (top, skip) => {
+    const select = cds.ql.SELECT.from(entity).columns(...INDEX_FIELDS);
+    if (filter) select.where(filter);
+    return select.limit(top, skip);
+  });
+}
+
+// Falls back to the rows already read, so a failed index build never blocks an answer.
+async function findIndexedDuplicates(s4, name, partners = []) {
+  try {
+    await nameIndex.refresh((filter) => readIndexPartners(s4, filter));
+  } catch (error) {
+    console.warn('[assistant] Name index unavailable, matching on the filtered read:', error.message);
+  }
+  return nameIndex.isBuilt()
+    ? nameIndex.find(name)
+    : findPotentialDuplicates(name, partners);
+}
+
 /**
  * Matches on any term and ranks by how many terms hit. Requiring every term to
  * match makes a natural sentence such as "toon alle data die Alluvion als naam
@@ -699,71 +727,13 @@ function answerBusinessPartnerQuestion(question, partners = [], addresses = []) 
   return assistantList(`Results for “${terms.join(' ')}”`, matching);
 }
 
-function normalizedCompanyName(value) {
-  return String(value || '')
-    .normalize('NFKD')
-    .toLocaleLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .trim();
-}
-
-function companyFingerprint(value) {
-  const legalForms = new Set([
-    'ag', 'bv', 'bvba', 'co', 'company', 'corp', 'corporation', 'gmbh', 'inc',
-    'limited', 'llc', 'ltd', 'nv', 'plc', 'sa', 'se', 'srl'
-  ]);
-  return normalizedCompanyName(value)
-    .split(/\s+/u)
-    .filter((token) => token && !legalForms.has(token))
-    .join('');
-}
-
-function diceSimilarity(left, right) {
-  if (left === right) return 1;
-  if (left.length < 2 || right.length < 2) return 0;
-  const pairs = new Map();
-  for (let index = 0; index < left.length - 1; index += 1) {
-    const pair = left.slice(index, index + 2);
-    pairs.set(pair, (pairs.get(pair) || 0) + 1);
-  }
-  let overlap = 0;
-  for (let index = 0; index < right.length - 1; index += 1) {
-    const pair = right.slice(index, index + 2);
-    const available = pairs.get(pair) || 0;
-    if (available > 0) {
-      overlap += 1;
-      pairs.set(pair, available - 1);
-    }
-  }
-  return (2 * overlap) / (left.length + right.length - 2);
-}
-
-function findPotentialDuplicates(name, partners = []) {
-  const requested = companyFingerprint(name);
-  if (!requested) return [];
-
-  return partners
-    .map((partner) => {
-      const candidates = [
-        partner.BusinessPartnerFullName,
-        partner.BusinessPartnerName,
-        partner.OrganizationBPName1
-      ].filter(Boolean);
-      const score = Math.max(0, ...candidates.map((candidate) => {
-        const fingerprint = companyFingerprint(candidate);
-        if (!fingerprint) return 0;
-        if (fingerprint === requested) return 1;
-        const ratio = Math.min(fingerprint.length, requested.length)
-          / Math.max(fingerprint.length, requested.length);
-        if (requested.length >= 6 && ratio >= 0.75
-          && (fingerprint.includes(requested) || requested.includes(fingerprint))) return 0.92;
-        return diceSimilarity(requested, fingerprint);
-      }));
-      return { partner, score };
-    })
-    .filter(({ score }) => score >= 0.82)
-    .sort((left, right) => right.score - left.score)
-    .slice(0, 5);
+// Fingerprints rows on the fly; the name index precomputes the same thing once per partner.
+function findPotentialDuplicates(name, partners = [], options = {}) {
+  return rankDuplicates(
+    name,
+    partners.map((partner) => ({ partner, fingerprints: partnerFingerprints(partner) })),
+    options
+  );
 }
 
 function requestedCompanyName(question) {
@@ -929,6 +899,13 @@ function externalResearchAnswer(name, research) {
 class BusinessPartnerService extends cds.ApplicationService {
   async init() {
     const s4 = await cds.connect.to('API_BUSINESS_PARTNER');
+
+    // Any write invalidates this instance's cached assistant reads.
+    this.before('*', (req) => {
+      if (['READ', 'askBusinessPartnerAssistant'].includes(req.event)) return;
+      assistantCache.clear();
+      nameIndex.markStale();
+    });
 
     this.before('READ', 'BusinessPartners', (req) => {
       applyBusinessPartnerSearch(req.query);
@@ -1161,17 +1138,20 @@ class BusinessPartnerService extends cds.ApplicationService {
 
         // Greetings and unrecognised questions need no business partner data at all.
         const needsPartnerData = Boolean(numberMatch) || asksAggregate || searchTerms.length > 0;
+        const cacheKey = JSON.stringify(partnerFilter);
         const partners = needsPartnerData
-          ? await readAllPages(s4, (top, skip) => {
+          ? await assistantCache.get(`partners:${cacheKey}`, () => readAllPages(s4, (top, skip) => {
             const select = cds.ql.SELECT.from(rootEntity).columns(...ASSISTANT_FIELDS);
             if (partnerFilter) select.where(partnerFilter);
             return select.limit(top, skip);
-          })
+          }))
           : [];
         // Only targeted questions use addresses; aggregates never reference them.
-        const addresses = partnerFilter ? await readAssistantAddresses(s4, partners) : [];
+        const addresses = partnerFilter
+          ? await assistantCache.get(`addresses:${cacheKey}`, () => readAssistantAddresses(s4, partners))
+          : [];
         const companyName = contextualCompanyName(question, conversationHistory);
-        const duplicates = companyName ? findPotentialDuplicates(companyName, partners) : [];
+        const duplicates = companyName ? await findIndexedDuplicates(s4, companyName, partners) : [];
         let research = null;
         if (companyName && !duplicates.length) {
           try {
@@ -1235,6 +1215,9 @@ BusinessPartnerService._internals = {
   assistantAddressFilter,
   readAllPages,
   readAssistantAddresses,
+  readIndexPartners,
+  findIndexedDuplicates,
+  nameIndex,
   extractSearchTerms,
   pickDefined,
   parseConversationHistory,
