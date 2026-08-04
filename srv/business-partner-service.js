@@ -5,10 +5,14 @@ const { askSapAiCore } = require('./ai/business-partner-assistant');
 const { researchCompany } = require('./ai/company-research');
 const { createCache } = require('./ai/cache');
 const { rankDuplicates, partnerFingerprints } = require('./ai/name-match');
-const { createNameIndex, INDEX_FIELDS } = require('./ai/name-index');
+const { createNameIndex } = require('./ai/name-index');
+const { createCapPartnerReader, createMcpPartnerReader, ENTITY_SET } = require('./ai/partner-readers');
+const { createMcpToolCaller } = require('./ai/mcp-client');
+const { executeHttpRequest } = require('@sap-cloud-sdk/http-client');
 
 const assistantCache = createCache();
 const nameIndex = createNameIndex();
+let indexReader = null;
 
 const SEARCHABLE_FIELDS = Object.freeze([
   'BusinessPartner',
@@ -582,20 +586,29 @@ async function readAssistantAddresses(s4, partners = []) {
   return pages.flat();
 }
 
-// Feeds the name index: a null filter reads everything, a delta filter only what changed.
-function readIndexPartners(s4, filter) {
-  const entity = remoteEntity(s4, 'A_BusinessPartner');
-  return readAllPages(s4, (top, skip) => {
-    const select = cds.ql.SELECT.from(entity).columns(...INDEX_FIELDS);
-    if (filter) select.where(filter);
-    return select.limit(top, skip);
+// Selected by config so the same index can be fed by either transport.
+function createIndexReader(s4, env = cds.env.requires?.ASSISTANT_INDEX_SOURCE) {
+  const source = String(process.env.ASSISTANT_INDEX_SOURCE || env?.kind || 'cap').toLowerCase();
+  if (source !== 'mcp') {
+    return createCapPartnerReader({ service: s4, entity: remoteEntity(s4, ENTITY_SET) });
+  }
+  const destinationName = process.env.MCP_DESTINATION || env?.destination;
+  const serviceId = process.env.MCP_SERVICE_ID || env?.serviceId;
+  if (!destinationName || !serviceId) {
+    throw new Error('ASSISTANT_INDEX_SOURCE=mcp needs MCP_DESTINATION and MCP_SERVICE_ID');
+  }
+  console.log(`[assistant] Name index reading through MCP service ${serviceId}`);
+  return createMcpPartnerReader({
+    callTool: createMcpToolCaller({ destinationName, executeHttpRequest }),
+    serviceId
   });
 }
 
 // Falls back to the rows already read, so a failed index build never blocks an answer.
 async function findIndexedDuplicates(s4, name, partners = []) {
   try {
-    await nameIndex.refresh((filter) => readIndexPartners(s4, filter));
+    if (!indexReader) indexReader = createIndexReader(s4);
+    await nameIndex.refresh(indexReader);
   } catch (error) {
     console.warn('[assistant] Name index unavailable, matching on the filtered read:', error.message);
   }
@@ -1215,7 +1228,7 @@ BusinessPartnerService._internals = {
   assistantAddressFilter,
   readAllPages,
   readAssistantAddresses,
-  readIndexPartners,
+  createIndexReader,
   findIndexedDuplicates,
   nameIndex,
   extractSearchTerms,

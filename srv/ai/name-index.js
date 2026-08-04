@@ -29,15 +29,8 @@ function toDateKey(value) {
   return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString().slice(0, 10);
 }
 
-function changedSinceFilter(since) {
-  return {
-    xpr: [
-      '(', { ref: ['LastChangeDate'] }, '>=', { val: since }, ')',
-      'or',
-      '(', { ref: ['CreationDate'] }, '>=', { val: since }, ')'
-    ]
-  };
-}
+// Readers receive a plain watermark, never a CQN filter, so a non-CAP transport can serve them too.
+
 
 /**
  * Full-recall duplicate index. The old matcher only ever saw rows the OData
@@ -71,7 +64,7 @@ function createNameIndex({
   async function load(readPartners) {
     const full = !builtAt || (now() - builtAt) >= rebuildAfterMs || !watermark;
     // Read before discarding anything, so a failed rebuild cannot empty a working index.
-    const rows = await readPartners(full ? null : changedSinceFilter(watermark));
+    const rows = await readPartners({ since: full ? '' : watermark });
     if (full) {
       entries = new Map();
       watermark = '';
@@ -118,6 +111,5 @@ module.exports = {
   REBUILD_AFTER_MS,
   REFRESH_INTERVAL_MS,
   toDateKey,
-  changedSinceFilter,
   createNameIndex
 };

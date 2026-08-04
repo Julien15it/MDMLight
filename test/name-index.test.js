@@ -6,7 +6,6 @@ const assert = require('node:assert/strict');
 const {
   INDEX_FIELDS,
   toDateKey,
-  changedSinceFilter,
   createNameIndex
 } = require('../srv/ai/name-index');
 
@@ -18,11 +17,11 @@ const partner = (id, name, dates = {}) => ({
   LastChangeDate: dates.changed || '2026-07-01'
 });
 
-// Records every filter it was asked for so tests can assert full vs delta reads.
+// Records every watermark it was asked for so tests can assert full vs delta reads.
 function fakeReader(pages) {
   const calls = [];
-  const reader = async (filter) => {
-    calls.push(filter);
+  const reader = async ({ since } = {}) => {
+    calls.push(since);
     const page = pages.shift();
     if (page instanceof Error) throw page;
     return page || [];
@@ -64,12 +63,12 @@ test('the first refresh reads everything and later ones only what changed', asyn
   ]);
 
   await index.refresh(read);
-  assert.equal(read.calls[0], null);
+  assert.equal(read.calls[0], '');
   assert.equal(index.watermark(), '2026-07-01');
 
   clock += 300001;
   const result = await index.refresh(read);
-  assert.deepEqual(read.calls[1], changedSinceFilter('2026-07-01'));
+  assert.equal(read.calls[1], '2026-07-01');
   assert.equal(result.full, false);
   assert.equal(index.size(), 2);
   assert.equal(index.watermark(), '2026-07-20');
@@ -133,7 +132,7 @@ test('rebuilds in full once a day so deletions cannot linger', async () => {
   const result = await index.refresh(read);
 
   assert.equal(result.full, true);
-  assert.equal(read.calls[1], null);
+  assert.equal(read.calls[1], '');
   assert.equal(index.size(), 1);
 });
 
