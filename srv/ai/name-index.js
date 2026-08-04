@@ -24,6 +24,16 @@ function fromEpoch(ms) {
   return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString().slice(0, 10);
 }
 
+// The MCP hands back __metadata the CAP client strips; keeping it would waste ~200 bytes a row
+// and make the two transports store different objects.
+function project(row) {
+  const projected = {};
+  for (const field of INDEX_FIELDS) {
+    if (row[field] !== undefined) projected[field] = row[field];
+  }
+  return projected;
+}
+
 function toDateKey(value) {
   if (!value) return '';
   if (value instanceof Date) return fromEpoch(value.getTime());
@@ -59,7 +69,7 @@ function createNameIndex({
     for (const row of rows) {
       const id = row?.BusinessPartner;
       if (id === undefined || id === null) continue;
-      entries.set(String(id), { partner: row, fingerprints: partnerFingerprints(row) });
+      entries.set(String(id), { partner: project(row), fingerprints: partnerFingerprints(row) });
       // The watermark tracks S/4's own dates, not this instance's clock.
       for (const field of ['LastChangeDate', 'CreationDate']) {
         const key = toDateKey(row[field]);

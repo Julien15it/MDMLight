@@ -191,6 +191,21 @@ test('a where filter narrows matching without rebuilding the index', async () =>
   assert.equal(organisations[0].partner.BusinessPartner, '1');
 });
 
+test('keeps only indexed fields, so MCP __metadata never reaches the index', async () => {
+  const index = createNameIndex();
+  await index.refresh(fakeReader([[{
+    __metadata: { id: 'https://host/A_BusinessPartner(\'1\')', uri: 'https://host', type: 'x' },
+    BusinessPartner: '1',
+    OrganizationBPName1: 'Alluvion NV',
+    LastChangeDate: '2026-07-01',
+    SomeUnrequestedField: 'dropped'
+  }]]));
+
+  const stored = index.find('Alluvion')[0].partner;
+  assert.deepEqual(Object.keys(stored).sort(), ['BusinessPartner', 'LastChangeDate', 'OrganizationBPName1']);
+  assert.ok(!('__metadata' in stored));
+});
+
 test('rows without a key are ignored', async () => {
   const index = createNameIndex();
   await index.refresh(fakeReader([[{ OrganizationBPName1: 'Alluvion NV' }, partner('1', 'Alluvion NV')]]));

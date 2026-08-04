@@ -4,7 +4,15 @@ const { INDEX_FIELDS } = require('./name-index');
 
 const ENTITY_SET = 'A_BusinessPartner';
 const PAGE_SIZE = 1000;
-const MAX_ROWS = 100000;
+// Above the 200k top of the agreed customer range, so the cap is a safety net and not a limit.
+const MAX_ROWS = 250000;
+
+// Truncation silently under-reports duplicates, so it must never pass unnoticed.
+function reachedCap(rows, maxRows, transport) {
+  if (rows.length < maxRows) return false;
+  console.warn(`[assistant] ${transport} name index stopped at the ${maxRows} row cap — duplicate checks are now partial`);
+  return true;
+}
 
 // A never-changed partner can have a null LastChangeDate, so CreationDate has to be in the OR.
 const WATERMARK_FIELDS = Object.freeze(['LastChangeDate', 'CreationDate']);
@@ -39,7 +47,7 @@ function createCapPartnerReader({ service, entity, pageSize = PAGE_SIZE, maxRows
       const page = await service.run(select.limit(pageSize, skip));
       if (!Array.isArray(page) || page.length === 0) break;
       rows.push(...page);
-      if (page.length < pageSize || rows.length >= maxRows) break;
+      if (page.length < pageSize || reachedCap(rows, maxRows, 'CAP')) break;
     }
     return rows;
   };
@@ -100,7 +108,7 @@ function createMcpPartnerReader({
       const page = unwrapRows(result);
       if (page.length === 0) break;
       rows.push(...page);
-      if (page.length < pageSize || rows.length >= maxRows) break;
+      if (page.length < pageSize || reachedCap(rows, maxRows, 'MCP')) break;
     }
     return rows;
   };

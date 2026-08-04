@@ -8,6 +8,7 @@ const {
   createNameIndex
 } = require('../srv/ai/name-index');
 const {
+  MAX_ROWS,
   changedSinceFilter,
   changedSinceQuery,
   indexQueryPath,
@@ -175,6 +176,28 @@ for (const [name, makeReader] of TRANSPORTS) {
     await assert.rejects(() => reader({ since: '' }), /transport down/);
   });
 }
+
+test('the row cap sits above the agreed 200k customer ceiling', () => {
+  assert.ok(MAX_ROWS > 200000, `${MAX_ROWS} would silently truncate a 200k customer`);
+});
+
+test('hitting the cap warns instead of truncating in silence', async () => {
+  const warnings = [];
+  const warn = console.warn;
+  console.warn = (message) => warnings.push(message);
+  try {
+    const reader = createCapPartnerReader({
+      service: { run: async () => [row({ BusinessPartner: '1' }), row({ BusinessPartner: '2' })] },
+      entity: 'X',
+      pageSize: 2,
+      maxRows: 2
+    });
+    await reader({ since: '' });
+  } finally {
+    console.warn = warn;
+  }
+  assert.match(warnings.join('\n'), /stopped at the 2 row cap/u);
+});
 
 // Raw rows differ by date encoding, so parity is asserted on what the index makes of them.
 test('both transports drive the index to the same keys, watermark and matches', async () => {

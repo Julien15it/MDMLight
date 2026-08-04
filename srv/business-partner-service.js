@@ -586,8 +586,9 @@ async function readAssistantAddresses(s4, partners = []) {
   return pages.flat();
 }
 
-// Selected by config so the same index can be fed by either transport.
-function createIndexReader(s4, env = cds.env.requires?.ASSISTANT_INDEX_SOURCE) {
+// Selected by config so the same index can be fed by either transport. Deliberately not under
+// cds.env.requires — CAP resolves that namespace as services and would try to connect this.
+function createIndexReader(s4, env = cds.env.assistant?.indexSource) {
   const source = String(process.env.ASSISTANT_INDEX_SOURCE || env?.kind || 'cap').toLowerCase();
   if (source !== 'mcp') {
     return createCapPartnerReader({ service: s4, entity: remoteEntity(s4, ENTITY_SET) });
