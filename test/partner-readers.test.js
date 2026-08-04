@@ -32,6 +32,15 @@ const CHANGED = [
 
 const row = (partner) => ({ CreationDate: '2026-07-01', BusinessPartnerCategory: '2', ...partner });
 
+// Verified against the sandbox: the MCP returns raw V2 JSON dates, CAP returns parsed ones.
+const asV2Date = (value) => (value ? `/Date(${Date.parse(`${value}T00:00:00Z`)})/` : null);
+
+const asV2Row = (partner) => ({
+  ...partner,
+  CreationDate: asV2Date(partner.CreationDate),
+  LastChangeDate: asV2Date(partner.LastChangeDate)
+});
+
 // One dataset behind both transports, so any difference is the transport and not the fixture.
 function serve({ since, top, skip }) {
   const source = (since ? CHANGED : DATA).map(row);
@@ -71,7 +80,8 @@ function mcpReader(calls) {
     const filter = args.path.match(/\$filter=([^&]+)/u);
     const since = filter ? decodeURIComponent(filter[1]).match(/datetime'([\d-]+)T/u)[1] : '';
     calls.push({ since, top, skip });
-    return { content: [{ type: 'text', text: JSON.stringify({ d: { results: serve({ since, top, skip }) } }) }] };
+    const results = serve({ since, top, skip }).map(asV2Row);
+    return { content: [{ type: 'text', text: JSON.stringify({ d: { results } }) }] };
   };
   return createMcpPartnerReader({ callTool, serviceId: 'S4', pageSize: PAGE_SIZE });
 }
@@ -166,10 +176,25 @@ for (const [name, makeReader] of TRANSPORTS) {
   });
 }
 
-test('both transports return identical rows for identical requests', async () => {
-  const [capRows, mcpRows] = await Promise.all([
-    capReader([])({ since: '' }),
-    mcpReader([])({ since: '' })
+// Raw rows differ by date encoding, so parity is asserted on what the index makes of them.
+test('both transports drive the index to the same keys, watermark and matches', async () => {
+  const build = async (makeReader) => {
+    const index = createNameIndex();
+    await index.refresh(makeReader([]));
+    return {
+      size: index.size(),
+      watermark: index.watermark(),
+      match: index.find('Alluvion').map((hit) => hit.partner.BusinessPartner)
+    };
+  };
+
+  assert.deepEqual(await build(capReader), await build(mcpReader));
+});
+
+test('the index reads a V2 wire date, which is what the MCP actually returns', async () => {
+  const index = createNameIndex();
+  await index.refresh(async () => [
+    { BusinessPartner: '1', OrganizationBPName1: 'Alluvion NV', LastChangeDate: '/Date(1785715200000)/' }
   ]);
-  assert.deepEqual(capRows, mcpRows);
+  assert.equal(index.watermark(), '2026-08-03');
 });

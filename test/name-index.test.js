@@ -41,6 +41,10 @@ test('normalises S/4 dates to a comparable day key', () => {
   assert.equal(toDateKey(new Date('2026-07-15T12:00:00Z')), '2026-07-15');
   assert.equal(toDateKey(null), '');
   assert.equal(toDateKey('not a date'), '');
+  // OData V2 JSON, confirmed against the sandbox on 2026-08-04.
+  assert.equal(toDateKey('/Date(1712275200000)/'), '2024-04-05');
+  assert.equal(toDateKey('/Date(1785715200000)/'), '2026-08-03');
+  assert.equal(toDateKey('/Date(1785715200000+0060)/'), '2026-08-03');
 });
 
 test('finds a duplicate the contains prefilter could never have returned', async () => {

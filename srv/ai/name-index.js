@@ -19,14 +19,21 @@ const INDEX_FIELDS = Object.freeze([
 const REBUILD_AFTER_MS = 86400000;
 const REFRESH_INTERVAL_MS = 300000;
 
+function fromEpoch(ms) {
+  const parsed = new Date(ms);
+  return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString().slice(0, 10);
+}
+
 function toDateKey(value) {
   if (!value) return '';
-  if (value instanceof Date) return Number.isNaN(value.getTime()) ? '' : value.toISOString().slice(0, 10);
+  if (value instanceof Date) return fromEpoch(value.getTime());
   const text = String(value);
-  const match = text.match(/^(\d{4}-\d{2}-\d{2})/u);
-  if (match) return match[1];
-  const parsed = new Date(text);
-  return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString().slice(0, 10);
+  // The MCP hands back raw OData V2 JSON, where a date is /Date(1712275200000)/.
+  const odata = text.match(/^\/Date\((-?\d+)(?:[+-]\d+)?\)\/$/u);
+  if (odata) return fromEpoch(Number(odata[1]));
+  const iso = text.match(/^(\d{4}-\d{2}-\d{2})/u);
+  if (iso) return iso[1];
+  return fromEpoch(Date.parse(text));
 }
 
 // Readers receive a plain watermark, never a CQN filter, so a non-CAP transport can serve them too.

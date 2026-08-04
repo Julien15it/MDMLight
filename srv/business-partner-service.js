@@ -593,10 +593,9 @@ function createIndexReader(s4, env = cds.env.requires?.ASSISTANT_INDEX_SOURCE) {
     return createCapPartnerReader({ service: s4, entity: remoteEntity(s4, ENTITY_SET) });
   }
   const destinationName = process.env.MCP_DESTINATION || env?.destination;
-  const serviceId = process.env.MCP_SERVICE_ID || env?.serviceId;
-  if (!destinationName || !serviceId) {
-    throw new Error('ASSISTANT_INDEX_SOURCE=mcp needs MCP_DESTINATION and MCP_SERVICE_ID');
-  }
+  // Confirmed against the sandbox; the destination has no default because it is landscape-specific.
+  const serviceId = process.env.MCP_SERVICE_ID || env?.serviceId || 'ZAPI_BUSINESS_PARTNER_0001';
+  if (!destinationName) throw new Error('ASSISTANT_INDEX_SOURCE=mcp needs MCP_DESTINATION');
   console.log(`[assistant] Name index reading through MCP service ${serviceId}`);
   return createMcpPartnerReader({
     callTool: createMcpToolCaller({ destinationName, executeHttpRequest }),
