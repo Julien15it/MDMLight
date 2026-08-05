@@ -99,8 +99,9 @@ test('null is returned whenever the model cannot be trusted or reached', async (
   });
   assert.equal(malformed, null);
 
+  // Unauthorized classifies as non-retryable, so this asserts the fallback without paying for two backoffs.
   class Broken {
-    async chatCompletion() { throw new Error('AI Core exploded'); }
+    async chatCompletion() { throw new Error('unauthorized'); }
   }
   const threw = await parseIntent({ question: 'Alluvion?', env: BOUND, Client: Broken });
   assert.equal(threw, null);
