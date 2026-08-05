@@ -5,12 +5,7 @@ const DEFAULT_RESOURCE_GROUP = 'default';
 const DEFAULT_MAX_TOKENS = 4000;
 const MAX_CONTEXT_PARTNERS = 25;
 
-const CONTEXT_STOP_WORDS = Object.freeze(new Set([
-  'about', 'address', 'addresses', 'are', 'bedrijf', 'bestaat', 'business', 'called',
-  'company', 'does', 'exist', 'exists', 'find', 'give', 'heeft', 'how', 'informatie',
-  'info', 'name', 'named', 'partner', 'partners', 'show', 'system', 'tell', 'there',
-  'what', 'which', 'with', 'zoek', 'zoeken'
-]));
+const { STOP_WORDS: CONTEXT_STOP_WORDS } = require('./stop-words');
 
 /**
  * gpt-5 and the o-series are reasoning models: their completion budget also
@@ -98,7 +93,10 @@ function relevantPartners(question, partners, addresses = []) {
     .split(/\s+/u)
     .filter((term) => term.length >= 3 && !CONTEXT_STOP_WORDS.has(term));
   if (!terms.length) return [];
-  const directMatches = partners.filter((partner) => {
+  // Any term is enough, ranked by how many matched. Requiring all of them emptied the context
+  // whenever a question carried an extra word the S/4 filter had already ignored.
+  const scored = [];
+  for (const partner of partners) {
     const partnerAddresses = addresses.filter(
       (address) => String(address.BusinessPartner) === String(partner.BusinessPartner)
     );
@@ -109,10 +107,14 @@ function relevantPartners(question, partners, addresses = []) {
       .filter((value) => value !== undefined && value !== null)
       .join(' ')
       .toLocaleLowerCase();
-    return terms.every((term) => searchable.includes(term));
-  });
+    const hits = terms.filter((term) => searchable.includes(term)).length;
+    if (hits) scored.push({ partner, hits });
+  }
 
-  return directMatches.slice(0, MAX_CONTEXT_PARTNERS);
+  return scored
+    .sort((left, right) => right.hits - left.hits)
+    .slice(0, MAX_CONTEXT_PARTNERS)
+    .map((entry) => entry.partner);
 }
 
 function promptContext(

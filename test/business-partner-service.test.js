@@ -498,7 +498,11 @@ test('an existence question yields the bare company name, whatever the phrasing'
     'Is there a company called Alluvion?',
     'Any companies called Alluvion?',
     'Is Alluvion a business partner?',
-    '"Alluvion"'
+    '"Alluvion"',
+    // Trailing words used to be captured as part of the name, typo and all.
+    'Are there any companies called Alluvion availebe in our system already?',
+    'Is there a company called Alluvion in our system?',
+    'Does Alluvion already exist in our system?'
   ];
   for (const phrasing of phrasings) {
     assert.equal(

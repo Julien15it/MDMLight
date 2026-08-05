@@ -80,32 +80,7 @@ const ASSISTANT_PAGE_SIZE = 1000;
 const ASSISTANT_ADDRESS_CHUNK = 50;
 const ASSISTANT_MAX_ROWS = 100000;
 
-const ASSISTANT_STOP_WORDS = Object.freeze(new Set([
-  // English function words
-  'a', 'an', 'about', 'all', 'and', 'any', 'are', 'as', 'at', 'be', 'business',
-  'by', 'called', 'can', 'data', 'display', 'do', 'does', 'find', 'for', 'from',
-  'get', 'give', 'has', 'have', 'hello', 'hey', 'hi', 'how', 'i', 'in', 'is',
-  'it', 'list', 'many', 'me', 'my', 'name', 'named', 'of', 'on', 'or',
-  'partner', 'partners', 'please', 'record', 'records', 'search', 'show',
-  'tell', 'thank', 'thanks', 'that', 'the', 'their', 'there', 'this', 'to',
-  'what', 'which', 'who', 'whose', 'with', 'you', 'your',
-  // Dutch function words
-  'aan', 'al', 'alle', 'alles', 'als', 'bedankt', 'bij', 'dank', 'de', 'die',
-  'dit', 'door', 'een', 'en', 'er', 'geef', 'gegevens', 'hallo', 'heb',
-  'hebben', 'heeft', 'het', 'hun', 'ik', 'je', 'kan', 'kun', 'kunt', 'laat',
-  'lijst', 'met', 'mij', 'naam', 'niet', 'om', 'ons', 'onze', 'op', 'over',
-  'te', 'toon', 'tonen', 'uit', 'van', 'voor', 'wat', 'welke', 'wie', 'wil',
-  'zie', 'zijn', 'zoek', 'zoeken',
-  // Generic company and address nouns, never part of a partner name
-  'address', 'addresses', 'adres', 'adressen', 'bedrijf', 'city', 'company',
-  'country', 'firma', 'gevestigd', 'info', 'informatie', 'land', 'located',
-  'organisatie', 'organization', 'postal', 'postcode', 'regio', 'region',
-  'stad', 'straat', 'street',
-  // Words that select a report rather than name a partner
-  'aantal', 'blocked', 'blokkade', 'categorie', 'category', 'count',
-  'geblokkeerd', 'groep', 'groepering', 'grouping', 'hoeveel', 'total',
-  'totaal'
-]));
+const { STOP_WORDS: ASSISTANT_STOP_WORDS } = require('./ai/stop-words');
 
 const MAINTENANCE_ENTITIES = Object.freeze({
   Addresses: Object.freeze({
@@ -750,6 +725,21 @@ function findPotentialDuplicates(name, partners = [], options = {}) {
   );
 }
 
+// Every capture above ends at punctuation or end of line, so the words after the name come along.
+// Cutting them here fixes all of the patterns at once instead of thirteen times over.
+const TRAILING_CLAUSES = Object.freeze([
+  /\s+(?:en|and)\s+(?:indien|if|zoek|search|lookup|maak|create)\b[\s\S]*$/iu,
+  /\s+(?:in|within|binnen|op)\s+(?:our|the|my|your|their|het|de|ons|onze|dit|deze)\b[\s\S]*$/iu,
+  /\s+(?:in|within|binnen|op)\s+(?:\w+\s+){0,2}?(?:system|systeem|s\/4hana|database)\b[\s\S]*$/iu,
+  /\s+(?:avail\w*|beschikbaar\w*)\b[\s\S]*$/iu,
+  /\s+(?:already|reeds|nog)\b[\s\S]*$/iu,
+  /\s+(?:exists?|bestaat|aanwezig)\b[\s\S]*$/iu
+]);
+
+function stripTrailingClause(name) {
+  return TRAILING_CLAUSES.reduce((result, pattern) => result.replace(pattern, ''), name);
+}
+
 function requestedCompanyName(question) {
   const source = String(question || '').trim();
   const quoted = source.match(/["“”']([^"“”']{2,80})["“”']/u);
@@ -807,8 +797,7 @@ function requestedCompanyName(question) {
     || (company && company[1])
     || (about && about[1])
     || '';
-  name = name
-    .replace(/\s+(?:en|and)\s+(?:indien|if|zoek|search|lookup|maak|create)\b[\s\S]*$/iu, '')
+  name = stripTrailingClause(name)
     .replace(/^(?:naar|for)\s+/iu, '')
     .replace(/[?.!,;:]+$/u, '')
     .trim();
