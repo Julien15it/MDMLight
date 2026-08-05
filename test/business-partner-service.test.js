@@ -486,6 +486,29 @@ test('assistant recognizes free-form Dutch and English company lookup requests',
   );
 });
 
+// The generic "company <rest>" pattern used to win over these and capture the rest of the sentence,
+// so the duplicate check ran against "Alluvion already exist in our system" and found nothing.
+test('an existence question yields the bare company name, whatever the phrasing', () => {
+  const phrasings = [
+    'does the company Alluvion already exist in our system?',
+    'does the company Alluvion exist in the system?',
+    'does the company Alluvion exist?',
+    'Does Alluvion already exist in our system?',
+    'Does Alluvion exist?',
+    'Is there a company called Alluvion?',
+    'Any companies called Alluvion?',
+    'Is Alluvion a business partner?',
+    '"Alluvion"'
+  ];
+  for (const phrasing of phrasings) {
+    assert.equal(
+      BusinessPartnerService._internals.requestedCompanyName(phrasing),
+      'Alluvion',
+      `extracted the wrong name from “${phrasing}”`
+    );
+  }
+});
+
 test('assistant resolves a company from prior turns for a follow-up create request', () => {
   const history = parseConversationHistory(JSON.stringify([
     { role: 'user', content: 'Kan je een business partner met de naam Spar Destelbergen vinden?' },

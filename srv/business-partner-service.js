@@ -752,10 +752,11 @@ function findPotentialDuplicates(name, partners = [], options = {}) {
 function requestedCompanyName(question) {
   const source = String(question || '').trim();
   const quoted = source.match(/["“”']([^"“”']{2,80})["“”']/u);
+  // Bounded, and tried last: an unbounded capture here used to swallow "Alluvion exist in our system".
   const company = source.match(
-    /(?:bedrijf|company|firma|organisatie|organization)\s+(?:genaamd\s+|named\s+)?(.{2,80})$/iu
+    /(?:bedrijf|bedrijven|company|companies|firma|organisatie|organisation|organization)\s+(?:genaamd\s+|named\s+|called\s+)?(.{2,80}?)(?:\s+(?:al|already|nog)\b)?(?:\s+(?:exists?|bestaat|aanwezig)\b[\s\S]*)?(?:[?.!,;:]|$)/iu
   );
-  const about = source.match(/(?:over|about)\s+(?:het\s+|the\s+)?(.{2,80})$/iu);
+  const about = source.match(/(?:over|about)\s+(?:het\s+|the\s+)?(.{2,80}?)(?:[?.!,;:]|$)/iu);
   const lookupCommand = source.match(
     /(?:kan|kun|could|can|wil|would)\s+(?:je|jij|u|you)\s+(.{2,80}?)\s+(?:opzoeken|zoeken|nakijken|look\s+up|lookup|research|check)\b/iu
   );
@@ -766,19 +767,22 @@ function requestedCompanyName(question) {
     /^(?:zoek|search|lookup|research|check)\s+(?:info(?:rmation)?\s+(?:over|about)\s+)?(.{2,80}?)(?:[?.!,;:]|$)/iu
   );
   const existenceQuestion = source.match(
-    /(?:is|are)\s+there\s+(?:an?\s+)?(?:business\s+partner|bp|company|organisation|organization)\s+(?:called|named)\s+(.{2,80}?)(?:[?.!,;:]|$)/iu
+    /(?:is|are)\s+there\s+(?:an?\s+)?(?:business\s+partners?|bps?|companies|company|organisations?|organizations?)\s+(?:called|named)\s+(.{2,80}?)(?:[?.!,;:]|$)/iu
+  );
+  const anyNamedQuestion = source.match(
+    /\b(?:any|welke|which)\s+(?:business\s+partners?|bps?|companies|company|organisations?|organizations?|bedrijven|bedrijf)\s+(?:called|named|genaamd|met\s+de\s+naam)\s+(.{2,80}?)(?:[?.!,;:]|$)/iu
   );
   const dutchExistenceQuestion = source.match(
     /(?:bestaat|is)\s+er\s+(?:al\s+)?(?:een\s+)?(?:business\s+partner|bp|bedrijf|firma|organisatie)\s+(?:genaamd|met\s+de\s+naam)\s+(.{2,80}?)(?:[?.!,;:]|$)/iu
   );
   const namedLookup = source.match(
-    /(?:business\s+partner|bp|bedrijf|firma|organisatie)\s+(?:called|named|genaamd|met\s+de\s+naam)\s+(.{2,80}?)(?:\s+(?:vinden|zoeken|opzoeken|find|lookup|look\s+up)\b|[?.!,;:]|$)/iu
+    /(?:business\s+partners?|bps?|companies|company|bedrijven|bedrijf|firma|organisaties?|organisations?|organizations?)\s+(?:called|named|genaamd|met\s+de\s+naam)\s+(.{2,80}?)(?:\s+(?:vinden|zoeken|opzoeken|find|lookup|look\s+up)\b|[?.!,;:]|$)/iu
   );
   const informalExistenceQuestion = source.match(
     /(?:kijken|weten|checken|controleren)\s+(?:of|als)\s+(.{2,80}?)\s+(?:al\s+)?(?:bestaat|aanwezig\s+is)(?:[?.!,;:]|$)/iu
   );
   const directEnglishExistenceQuestion = source.match(
-    /^does\s+(?:(?:the|a)\s+)?(?:(?:business\s+partner|bp|company|organisation|organization)\s+)?(.{2,80}?)\s+exist(?:s)?(?:\s+(?:in|within)\s+(?:the\s+)?(?:system|s\/4hana))?(?:[?.!,;:]|$)/iu
+    /^does\s+(?:(?:the|a)\s+)?(?:(?:business\s+partner|bp|company|organisation|organization)\s+)?(.{2,80}?)\s+(?:already\s+)?exist(?:s)?(?:\s+(?:in|within)\s+(?:the\s+|our\s+|my\s+|their\s+)?(?:system|s\/4hana))?(?:[?.!,;:]|$)/iu
   );
   const directDutchExistenceQuestion = source.match(
     /^bestaat\s+(?:er\s+)?(?:(?:al|een)\s+)*(?:(?:business\s+partner|bp|bedrijf|firma|organisatie)\s+)?(.{2,80}?)(?:\s+al)?(?:\s+(?:in|binnen)\s+(?:het\s+)?(?:systeem|s\/4hana))?(?:[?.!,;:]|$)/iu
@@ -786,26 +790,28 @@ function requestedCompanyName(question) {
   const predicateExistenceQuestion = source.match(
     /^(?:is|are)\s+(.{2,80}?)\s+(?:an?\s+)?(?:business\s+partner|bp)\b/iu
   );
+  // Specific patterns first: the generic "company <rest>" and "about <rest>" catch-alls are backstops.
   let name = (quoted && quoted[1])
-    || (company && company[1])
-    || (about && about[1])
-    || (lookupCommand && lookupCommand[1])
-    || (lookupAfterVerb && lookupAfterVerb[1])
-    || (imperative && imperative[1])
     || (existenceQuestion && existenceQuestion[1])
+    || (anyNamedQuestion && anyNamedQuestion[1])
     || (dutchExistenceQuestion && dutchExistenceQuestion[1])
     || (namedLookup && namedLookup[1])
     || (informalExistenceQuestion && informalExistenceQuestion[1])
     || (directEnglishExistenceQuestion && directEnglishExistenceQuestion[1])
     || (directDutchExistenceQuestion && directDutchExistenceQuestion[1])
     || (predicateExistenceQuestion && predicateExistenceQuestion[1])
+    || (lookupCommand && lookupCommand[1])
+    || (lookupAfterVerb && lookupAfterVerb[1])
+    || (imperative && imperative[1])
+    || (company && company[1])
+    || (about && about[1])
     || '';
   name = name
     .replace(/\s+(?:en|and)\s+(?:indien|if|zoek|search|lookup|maak|create)\b[\s\S]*$/iu, '')
     .replace(/^(?:naar|for)\s+/iu, '')
     .replace(/[?.!,;:]+$/u, '')
     .trim();
-  if (!name || /^(?:bedrijf|company|firma|organisatie|organization)$/iu.test(name)) return '';
+  if (!name || /^(?:bedrijf|bedrijven|company|companies|firma|organisaties?|organisation|organization)$/iu.test(name)) return '';
   return name;
 }
 
