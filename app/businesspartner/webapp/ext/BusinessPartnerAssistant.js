@@ -27,6 +27,16 @@ sap.ui.define([
       || "The Business Partner Assistant is unavailable.";
   }
 
+  // An idle approuter session answers an XHR with a bare 401, which only a reload can recover.
+  function isSessionExpired(error) {
+    var cause = error && error.cause;
+    var status = (cause && (cause.status || cause.statusCode))
+      || (error && (error.status || error.statusCode));
+    if (Number(status) === 401) return true;
+    var text = (cause && cause.message) || (error && error.message) || "";
+    return /\b401\b/.test(String(text));
+  }
+
   function resultInfo(result) {
     if (typeof result === "string") return { answer: result, provider: "S/4HANA" };
     if (!result || typeof result !== "object") {
@@ -52,6 +62,8 @@ sap.ui.define([
   }
 
   return {
+    // Exposed so the session-expiry branch can be tested without a browser.
+    _isSessionExpired: isSessionExpired,
     open: function (model, view) {
       if (!model) {
         MessageBox.error("The Business Partner service is not available.");
@@ -115,9 +127,24 @@ sap.ui.define([
           createSuggestionButton.data("draft", info.suggestedData);
           createSuggestionButton.setVisible(info.suggestedAction === "CREATE_BUSINESS_PARTNER");
         } catch (error) {
-          var message = errorMessage(error);
-          transcript += "\n\nAssistant: " + message;
-          conversation.setValue(transcript);
+          if (isSessionExpired(error)) {
+            transcript += "\n\nAssistant: Your session expired, so the question was not sent. "
+              + "Reload the page to sign in again.";
+            conversation.setValue(transcript);
+            MessageBox.error(
+              "Your session expired, so the question was not sent. Reload the page to sign in again.",
+              {
+                actions: ["Reload", MessageBox.Action.CANCEL],
+                emphasizedAction: "Reload",
+                onClose: function (action) {
+                  if (action === "Reload") window.location.reload();
+                }
+              }
+            );
+          } else {
+            transcript += "\n\nAssistant: " + errorMessage(error);
+            conversation.setValue(transcript);
+          }
         } finally {
           binding.destroy();
           dialog.setBusy(false);
