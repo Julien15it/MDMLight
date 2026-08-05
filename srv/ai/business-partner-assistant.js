@@ -386,6 +386,7 @@ module.exports = {
   aiModelNames,
   chatCompletionWithRetry,
   hasAiCoreBinding,
+  modelParams,
   orchestrationConfig,
   safeAddress,
   promptContext,

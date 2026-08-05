@@ -2,6 +2,7 @@
 
 const cds = require('@sap/cds');
 const { askSapAiCore } = require('./ai/business-partner-assistant');
+const { parseIntent, useModelIntent } = require('./ai/intent');
 const { researchCompany } = require('./ai/company-research');
 const { createCache } = require('./ai/cache');
 const { rankDuplicates, partnerFingerprints } = require('./ai/name-match');
@@ -861,6 +862,37 @@ function contextualCompanyName(question, conversationHistory = []) {
   return '';
 }
 
+const AGGREGATE_PATTERN = /\b(how many|count|aantal|hoeveel|total|totaal|categor|categorie|grouping|groep|groepering|blocked|geblokkeerd|blokkade)\b/u;
+
+// The model resolves the reference itself, so it only needs the earlier name, not the follow-up heuristics.
+function companyNameFromHistory(conversationHistory = []) {
+  for (let index = conversationHistory.length - 1; index >= 0; index -= 1) {
+    if (conversationHistory[index].role !== 'user') continue;
+    const name = requestedCompanyName(conversationHistory[index].content);
+    if (name) return name;
+  }
+  return '';
+}
+
+// One shape whichever parser answered, so the handler never branches on the source.
+function resolveQuestionIntent(question, conversationHistory = [], modelIntent = null) {
+  const patterns = {
+    asksAggregate: AGGREGATE_PATTERN.test(question.toLocaleLowerCase()),
+    searchTerms: assistantSearchTerms(question),
+    companyName: contextualCompanyName(question, conversationHistory)
+  };
+  if (!modelIntent) return { ...patterns, isSmalltalk: false, source: 'patterns' };
+
+  return {
+    asksAggregate: modelIntent.intent === 'aggregate',
+    searchTerms: modelIntent.searchTerms.length ? modelIntent.searchTerms : patterns.searchTerms,
+    companyName: modelIntent.companyName
+      || (modelIntent.referencesPriorTurn ? companyNameFromHistory(conversationHistory) : ''),
+    isSmalltalk: modelIntent.intent === 'smalltalk',
+    source: 'model'
+  };
+}
+
 function businessPartnerCreationSuggestion(
   question,
   partners = [],
@@ -1142,12 +1174,18 @@ class BusinessPartnerService extends cds.ApplicationService {
       const rootEntity = remoteEntity(s4, 'A_BusinessPartner');
       try {
         const normalized = question.toLocaleLowerCase();
+        // A digit after "BP" is not something a model improves on, so this stays a pattern.
         const numberMatch = normalized.match(/\b(?:bp|business partner|partner)\s*#?\s*(\d{1,10})\b/u);
+        const modelIntent = useModelIntent()
+          ? await parseIntent({ question, conversationHistory })
+          : null;
         // Aggregate questions need the broad set; a name search must be pushed
         // down to S/4 so it is not limited to the first rows returned.
-        const asksAggregate = /\b(how many|count|aantal|hoeveel|total|totaal|categor|categorie|grouping|groep|groepering|blocked|geblokkeerd|blokkade)\b/u
-          .test(normalized);
-        const searchTerms = assistantSearchTerms(question);
+        const { asksAggregate, searchTerms, companyName, isSmalltalk } = resolveQuestionIntent(
+          question,
+          conversationHistory,
+          modelIntent
+        );
 
         const partnerFilter = numberMatch
           ? { BusinessPartner: numberMatch[1] }
@@ -1156,7 +1194,8 @@ class BusinessPartnerService extends cds.ApplicationService {
             : null;
 
         // Greetings and unrecognised questions need no business partner data at all.
-        const needsPartnerData = Boolean(numberMatch) || asksAggregate || searchTerms.length > 0;
+        const needsPartnerData = !isSmalltalk
+          && (Boolean(numberMatch) || asksAggregate || searchTerms.length > 0);
         const cacheKey = JSON.stringify(partnerFilter);
         const partners = needsPartnerData
           ? await assistantCache.get(`partners:${cacheKey}`, () => readAllPages(s4, (top, skip) => {
@@ -1169,7 +1208,6 @@ class BusinessPartnerService extends cds.ApplicationService {
         const addresses = partnerFilter
           ? await assistantCache.get(`addresses:${cacheKey}`, () => readAssistantAddresses(s4, partners))
           : [];
-        const companyName = contextualCompanyName(question, conversationHistory);
         const duplicates = companyName ? await findIndexedDuplicates(s4, companyName, partners) : [];
         let research = null;
         if (companyName && !duplicates.length) {
@@ -1240,6 +1278,8 @@ BusinessPartnerService._internals = {
   extractSearchTerms,
   pickDefined,
   parseConversationHistory,
+  companyNameFromHistory,
+  resolveQuestionIntent,
   parseJsonObject,
   normalizeRemoteResult,
   remoteErrorMessage,
