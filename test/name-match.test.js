@@ -45,7 +45,7 @@ test('short names must match exactly because Dice is noisy below five characters
   assert.equal(scoreFingerprint('acme', 'acme'), 1);
 });
 
-test('ranks by score and caps the shortlist', () => {
+test('ranks by score, returns every match, and still honours an explicit limit', () => {
   const partners = [
     { BusinessPartner: '1', OrganizationBPName1: 'Alluvion' },
     { BusinessPartner: '2', OrganizationBPName1: 'Aluvion NV' },
@@ -56,6 +56,15 @@ test('ranks by score and caps the shortlist', () => {
   assert.deepEqual(ranked.map(({ partner }) => partner.BusinessPartner), ['1', '2']);
   assert.equal(ranked[0].score, 1);
   assert.equal(rankDuplicates('Alluvion', entriesFor(partners), { limit: 1 }).length, 1);
+});
+
+// The sandbox holds more Alluvion rows than the old limit of 5 ever showed.
+test('every match is returned, not a shortlist', () => {
+  const partners = Array.from({ length: 12 }, (unused, index) => ({
+    BusinessPartner: String(index + 1),
+    OrganizationBPName1: 'Alluvion'
+  }));
+  assert.equal(rankDuplicates('Alluvion', entriesFor(partners)).length, 12);
 });
 
 test('an unusable name matches nothing', () => {

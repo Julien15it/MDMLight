@@ -2,7 +2,8 @@
 
 // Raised from 0.82: a full-index scan produces far more candidates than a prefiltered read did.
 const DUPLICATE_THRESHOLD = 0.86;
-const DUPLICATE_LIMIT = 5;
+// Unbounded: a silently truncated list hides exactly the record the user is looking for.
+const DUPLICATE_LIMIT = Infinity;
 // Dice is noisy on very short strings, so those must match exactly.
 const MIN_FUZZY_LENGTH = 5;
 
