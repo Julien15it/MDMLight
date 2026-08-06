@@ -55,14 +55,45 @@ request model settles.
 
 ## Model
 
-`staging.cds` — `ChangeRequests` as the root, with:
+`staging.cds` follows the MDG pattern: one typed table per Business Partner
+node, mirroring the sections of the Maintain BP app.
 
-- `ChangeRequestPayloads` — requested state as JSON, the source for the S/4 write
-- `ChangeRequestBeforeImages` — BP state read at request creation
-- `Approvals` — one row per approval step
-- `CheckFindings` — duplicate and data-quality results
+| Staging entity | App section | S/4 entity |
+|---|---|---|
+| `StagedGeneral` (1:1) | General Information | `A_BusinessPartner` |
+| `StagedAddresses` | Addresses | `A_BusinessPartnerAddress` |
+| `StagedRoles` | Roles | `A_BusinessPartnerRole` |
+| `StagedBankDetails` | Bank Details | `A_BusinessPartnerBank` |
+| `StagedTaxNumbers` | Tax Numbers | `A_BusinessPartnerTaxNumber` |
+| `StagedIdentifications` | Identifications | `A_BuPaIdentification` |
+| `StagedIndustries` | Industries | `A_BuPaIndustry` |
+| `StagedCustomer` (1:1) | Customer Data | `A_Customer` |
+| `StagedSupplier` (1:1) | Supplier Data | `A_Supplier` |
 
-Two fields carry design intent worth preserving: `sourceETag` is compared
-against S/4 before posting so a concurrent change is detected rather than
-overwritten, and `postedBP` is the idempotency guard — a request that already
-has a number must never post again.
+`ChangeRequests` is the header; `CheckFindings` holds duplicate and
+data-quality results.
+
+### Decisions worth not undoing by accident
+
+**Types come from the S/4 metadata.** Every column length was read out of
+`srv/external/API_BUSINESS_PARTNER.csn`, so a staged value can never be
+truncated on the way to S/4. If a field changes there, change it here.
+
+**Approvals are not modelled.** SAP Process Automation owns approval state. The
+header keeps `processInstanceId`, `submittedAt` and `submittedBy` to correlate
+with the running process, and `status` collapses the whole approval phase into
+`inApproval` regardless of how many steps SPA runs.
+
+**Collection rows are keyed by a surrogate `ID`, not the S/4 key.** On a create
+there is no `AddressID` yet — S/4 assigns it. The natural key fields stay
+nullable and are filled once known. `action` (`C`/`U`/`D`) carries per-row
+intent, as MDG's change indicator does.
+
+**Derived and system fields are absent from `StagedGeneral`** — full names,
+UUID, ETag, created/changed by and on. S/4 owns them; staging them would invite
+writing stale values back.
+
+**No before-image tables.** Staging holds the requested state only, as MDG
+does. Concurrency is handled by `sourceETag` on the header, compared against
+S/4 immediately before posting. `postedBP` is the idempotency guard — a request
+that already carries a number must never post again.
