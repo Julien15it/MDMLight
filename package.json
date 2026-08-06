@@ -1,60 +1,69 @@
 {
-	"name": "mdm-md-businesspartner-manage",
-	"version": "1.13.2",
-	"description": "Manage Business Partner (F3163) - CAP + Fiori Elements (OData V4) recreation of the SAP standard app mdm.md.businesspartner.manage",
-	"repository": "https://github.com/julien15it/mdmlight",
-	"license": "UNLICENSED",
-	"private": true,
-	"engines": {
-		"node": ">=22"
-	},
-	"dependencies": {
-		"@sap-ai-sdk/orchestration": "^2.13.0",
-		"@sap-cloud-sdk/connectivity": "^4.8.0",
-		"@sap-cloud-sdk/http-client": "^4.8.0",
-		"@sap-cloud-sdk/resilience": "^4.8.0",
-		"@sap/cds": "^8",
-		"axios": "^1.19.0",
-		"express": "^4"
-	},
-	"devDependencies": {
-		"@cap-js/sqlite": "^1",
-		"@sap/cds-dk": "^8",
-		"@sap/dev-cap-tools": "^1.31.0"
-	},
-	"overrides": {
-		"better-sqlite3": "^12"
-	},
-	"scripts": {
-		"start": "cds-serve",
-		"watch": "cds watch",
-		"build": "cds build --production",
-		"deploy": "cds deploy",
-		"test": "node --test test/*.test.js",
-		"local": "cds watch --profile hybrid"
-	},
-	"cds": {
-		"requires": {
-			"API_BUSINESS_PARTNER": {
-				"kind": "odata-v2",
-				"model": "srv/external/API_BUSINESS_PARTNER",
-				"csrf": true,
-				"csrfInBatch": true,
-				"credentials": {
-					"destination": "VF_S4HANA_DEST",
-					"path": "/API_BUSINESS_PARTNER"
-				}
-			},	
-			"SBPA_DESTINATION": {
-					"kind": "rest",
-					 "csrf": false,
-				"credentials": {
-					"destination": "sbpa-destination"
-				}
-			}
-		}
-	},
-	"sapux": [
-		"app/businesspartner"
-	]
+  "name": "mdm-md-businesspartner-manage",
+  "version": "1.13.2",
+  "description": "Manage Business Partner (F3163) - CAP + Fiori Elements (OData V4) recreation of the SAP standard app mdm.md.businesspartner.manage",
+  "repository": "https://github.com/julien15it/mdmlight",
+  "license": "UNLICENSED",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@sap-ai-sdk/orchestration": "^2.13.0",
+    "@sap-cloud-sdk/connectivity": "^4.8.0",
+    "@sap-cloud-sdk/http-client": "^4.8.0",
+    "@sap-cloud-sdk/resilience": "^4.8.0",
+    "@sap/cds": "^8",
+    "axios": "^1.19.0",
+    "express": "^4"
+  },
+  "devDependencies": {
+    "@cap-js/sqlite": "^1",
+    "@sap/cds-dk": "^8",
+    "@sap/dev-cap-tools": "^1.31.0"
+  },
+  "overrides": {
+    "better-sqlite3": "^12"
+  },
+  "scripts": {
+    "start": "cds-serve",
+    "watch": "cds watch",
+    "build": "cds build --production",
+    "deploy": "cds deploy",
+    "test": "node --test test/*.test.js",
+    "local": "cds watch --profile hybrid"
+  },
+  "cds": {
+    "requires": {
+      "API_BUSINESS_PARTNER": {
+        "kind": "odata-v2",
+        "model": "srv/external/API_BUSINESS_PARTNER",
+        "csrf": true,
+        "csrfInBatch": true,
+        "credentials": {
+          "destination": "VF_S4HANA_DEST",
+          "path": "/API_BUSINESS_PARTNER"
+        }
+      },
+      "SBPA_DESTINATION": {
+        "kind": "rest",
+        "csrf": false,
+        "credentials": {
+          "destination": "sbpa-destination"
+        }
+      },
+      "ZSRVB_MDMLIGHT_VH": {
+        "kind": "odata-v2",
+        "model": "srv/external/ZSRVB_MDMLIGHT_VH",
+        "csrf": false,
+        "credentials": {
+          "destination": "VF_S4HANA_DEST",
+          "path": "/ZSRVB_MDMLIGHT_VH"
+        }
+      }
+    }
+  },
+  "sapux": [
+    "app/businesspartner"
+  ]
 }
