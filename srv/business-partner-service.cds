@@ -1,4 +1,5 @@
 using { API_BUSINESS_PARTNER as S4 } from './external/API_BUSINESS_PARTNER';
+using { ZSRVB_MDMLIGHT_VH as VH } from './external/ZSRVB_MDMLIGHT_VH';
 
 type BusinessPartnerAssistantAnswer {
   Answer          : LargeString;
@@ -30,6 +31,32 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
     DeleteRestrictions: { Deletable: false }
   }
   entity BusinessPartners as projection on S4.A_BusinessPartner;
+
+  // Value-help lookups sourced from the custom S/4 value-help service
+  // ZSRVB_MDMLIGHT_VH — API_BUSINESS_PARTNER itself exposes none of these.
+  // Referenced from srv/annotations.cds via @Common.ValueList and, in the
+  // full-screen maintenance UI, via VALUE_HELP_FIELDS in
+  // BusinessPartnerMaintenance.controller.js.
+  @readonly entity BusinessPartnerGroupings  as projection on VH.BusinessPartnerGroupings;
+  @readonly entity BusinessPartnerCategories as projection on VH.BusinessPartnerCategories;
+  @readonly entity LegalForms                as projection on VH.LegalForms;
+  @readonly entity FormsOfAddress            as projection on VH.FormsOfAddress;
+  @readonly entity AcademicTitles            as projection on VH.AcademicTitles;
+  @readonly entity Genders                   as projection on VH.Genders;
+  @readonly entity IndustryCodes             as projection on VH.IndustryCodes;
+  @readonly entity Languages                 as projection on VH.Languages;
+  @readonly entity Countries                 as projection on VH.Countries;
+  @readonly entity Regions                   as projection on VH.Regions;
+  @readonly entity IndustrySectors           as projection on VH.IndustrySectors;
+  @readonly entity IndustrySystems           as projection on VH.IndustrySystems;
+  @readonly entity AddressDependentTaxTypes  as projection on VH.AddressDependentTaxTypes;
+  @readonly entity IdentificationTypes       as projection on VH.IdentificationTypes;
+  @readonly entity CustomerAccountGroups     as projection on VH.CustomerAccountGroups;
+  @readonly entity CustomerClassifications   as projection on VH.CustomerClassifications;
+  @readonly entity SupplierAccountGroups     as projection on VH.SupplierAccountGroups;
+  // Renamed to avoid clashing with the existing BusinessPartnerRoles child
+  // entity below (S4.A_BusinessPartnerRole) — this one is the code/text list.
+  @readonly entity BusinessPartnerRoleCodes  as projection on VH.BusinessPartnerRoles;
 
   /** Explicit maintenance operations used by the non-draft Fiori UI. */
   action createBusinessPartner(
@@ -74,6 +101,14 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
   action deleteBusinessPartnerEntity(
     Entity : String(40) not null,
     KeyJson: LargeString not null
+  ) returns Boolean;
+
+  /** Starts the approval workflow for a newly created Business Partner. Called
+   *  by the UI only after every section (root + addresses + ...) has been
+   *  saved to S/4, so the workflow sees the complete record instead of the
+   *  bare root that exists right after saveBusinessPartner's create call. */
+  action startBusinessPartnerApprovalWorkflow(
+    BusinessPartner: String(10) not null
   ) returns Boolean;
 
   /** Read-only assistant grounded in the Business Partners currently present

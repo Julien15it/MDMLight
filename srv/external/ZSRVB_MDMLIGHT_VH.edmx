@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx xmlns:edmx="http://schemas.microsoft.com/ado/2007/06/edmx" xmlns:m="http://schemas.microsoft.com/ado/2007/08/dataservices/metadata" xmlns:sap="http://www.sap.com/Protocols/SAPData" Version="1.0">
+<edmx:DataServices m:DataServiceVersion="2.0">
+<Schema xmlns="http://schemas.microsoft.com/ado/2008/09/edm" Namespace="cds_zmdml_vh_entity" xml:lang="en" sap:schema-version="1">
+<EntityType Name="AcademicTitlesType" sap:label="Academic Title" sap:content-version="1">
+<Key><PropertyRef Name="AcademicTitle"/></Key>
+<Property Name="AcademicTitle" Type="Edm.String" Nullable="false" MaxLength="4" sap:display-format="UpperCase" sap:text="AcademicTitle_Text" sap:label="Academic Title 1" sap:quickinfo="Academic Title: Key"/>
+<Property Name="AcademicTitle_Text" Type="Edm.String" MaxLength="40" sap:label="Academ. Title Descr." sap:quickinfo="Academic title description" sap:creatable="false" sap:updatable="false"/>
+<Property Name="AcademicTitleName" Type="Edm.String" MaxLength="20" sap:label="Academic Title" sap:quickinfo="Academic Title: Written Form"/>
+</EntityType>
+<EntityType Name="GendersType" sap:label="Business Partner Gender Value help" sap:content-version="1">
+<Key><PropertyRef Name="GenderCodeName"/></Key>
+<Property Name="GenderCodeName" Type="Edm.String" Nullable="false" MaxLength="1" sap:display-format="UpperCase" sap:text="GenderCodeName_Text" sap:label="Sex" sap:quickinfo="Sex of business partner (person)"/>
+<Property Name="GenderCodeName_Text" Type="Edm.String" MaxLength="50" sap:label="Sex Description" sap:quickinfo="Gender of Business Partner" sap:creatable="false" sap:updatable="false"/>
+</EntityType>
+<EntityType Name="TradingPartnersType" sap:label="Trading Partner of Business Partner" sap:content-version="1">
+<Key><PropertyRef Name="TradingPartner"/></Key>
+<Property Name="TradingPartner" Type="Edm.String" Nullable="false" MaxLength="6" sap:display-format="UpperCase" sap:label="Company"/>
+</EntityType>
+<EntityType Name="IdentificationTypesType" sap:label="CDS View for BP Identification Types" sap:content-version="1">
+<Key><PropertyRef Name="BPIdentificationType"/></Key>
+<Property Name="BPIdentificationType" Type="Edm.String" Nullable="false" MaxLength="6" sap:display-format="UpperCase" sap:label="Identification Type"/>
+<Property Name="BPIdentificationCategory" Type="Edm.String" MaxLength="6" sap:display-format="UpperCase" sap:label="Identification Cat." sap:quickinfo="BP Identification Category"/>
+<Property Name="IsBPPerson" Type="Edm.Boolean" sap:label="ID Type for Persons" sap:quickinfo="Indicator: ID Type Relevant for Persons"/>
+<Property Name="IsBPOrganization" Type="Edm.Boolean" sap:label="ID Type f.Organizn" sap:quickinfo="Indicator: ID Type Relevant for Organizations"/>
+<Property Name="IsBPGroup" Type="Edm.Boolean" sap:label="ID Type for Groups" sap:quickinfo="Indicator: ID Type Relevant for Groups"/>
+</EntityType>
+<EntityType Name="BanksType" sap:label="Business Partner Bank" sap:content-version="1">
+<Key><PropertyRef Name="BusinessPartner"/><PropertyRef Name="BankIdentification"/></Key>
+<Property Name="BusinessPartner" Type="Edm.String" Nullable="false" MaxLength="10" sap:display-format="UpperCase" sap:label="Business Partner"/>
+<Property Name="BankIdentification" Type="Edm.String" Nullable="false" MaxLength="4" sap:display-format="UpperCase" sap:label="Bank Details ID"/>
+<Property Name="BankCountryKey" Type="Edm.String" MaxLength="3" sap:display-format="UpperCase" sap:label="Bank Country/Region"/>
+<Property Name="BankName" Type="Edm.String" MaxLength="60" sap:label="Bank Name"/>
+<Property Name="BankNumber" Type="Edm.String" MaxLength="15" sap:display-format="UpperCase" sap:label="Bank Key"/>
+<Property Name="SWIFTCode" Type="Edm.String" MaxLength="11" sap:display-format="UpperCase" sap:label="SWIFT/BIC"/>
+</EntityType>
+<EntityType Name="BusinessPartnerGroupingsType" sap:label="Business Partner Grouping" sap:content-version="1">
+<Key><PropertyRef Name="BusinessPartnerGrouping"/></Key>
+<Property Name="BusinessPartnerGrouping" Type="Edm.String" Nullable="false" MaxLength="4" sap:display-format="UpperCase" sap:text="BusinessPartnerGrouping_Text" sap:label="Grouping"/>
+<Property Name="BusinessPartnerGrouping_Text" Type="Edm.String" MaxLength="40" sap:label="Grouping Description" sap:creatable="false" sap:updatable="false"/>
+</EntityType>
+<EntityType Name="LegalFormsType" sap:label="Business Partner Legal Form" sap:content-version="1">
+<Key><PropertyRef Name="LegalForm"/></Key>
+<Property Name="LegalForm" Type="Edm.String" Nullable="false" MaxLength="2" sap:display-format="UpperCase" sap:text="LegalForm_Text" sap:label="Legal form"/>
+<Property Name="LegalForm_Text" Type="Edm.String" MaxLength="15" sap:label="Short name" sap:creatable="false" sap:updatable="false"/>
+</EntityType>
+<EntityType Name="OccupationsType" sap:label="Business Partner Occupation" sap:content-version="1">
+<Key><PropertyRef Name="BusinessPartnerOccupation"/></Key>
+<Property Name="BusinessPartnerOccupation" Type="Edm.String" Nullable="false" MaxLength="4" sap:display-format="UpperCase" sap:text="BusinessPartnerOccupation_Text" sap:label="Occupation"/>
+<Property Name="BusinessPartnerOccupation_Text" Type="Edm.String" MaxLength="70" sap:label="Description" sap:creatable="false" sap:updatable="false"/>
+</EntityType>
+<EntityType Name="PrintFormatsType" sap:label="Business Partner Print Format" sap:content-version="1">
+<Key><PropertyRef Name="BusinessPartnerPrintFormat"/></Key>
+<Property Name="BusinessPartnerPrintFormat" Type="Edm.String" Nullable="false" MaxLength="1" sap:display-format="UpperCase" sap:text="BusinessPartnerPrintFormat_Text" sap:label="Print Format"/>
+<Property Name="BusinessPartnerPrintFormat_Text" Type="Edm.String" MaxLength="60" sap:label="Description" sap:creatable="false" sap:updatable="false"/>
+</EntityType>
+<EntityType Name="BusinessPartnerRolesType" sap:label="Business Partner Role" sap:content-version="1">
+<Key><PropertyRef Name="BusinessPartnerRole"/></Key>
+<Property Name="BusinessPartnerRole" Type="Edm.String" Nullable="false" MaxLength="6" sap:display-format="UpperCase" sap:text="BusinessPartnerRole_Text" sap:label="BP Role"/>
+<Property Name="BusinessPartnerRole_Text" Type="Edm.String" MaxLength="25" sap:label="Role Description" sap:creatable="false" sap:updatable="false"/>
+<Property Name="RoleCategory" Type="Edm.String" MaxLength="6" sap:display-format="UpperCase" sap:label="BP Role Category"/>
+</EntityType>
+<EntityType Name="BusinessPartnerTypesType" sap:label="Business Partner Types" sap:content-version="1">
+<Key><PropertyRef Name="BusinessPartnerType"/></Key>
+<Property Name="BusinessPartnerType" Type="Edm.String" Nullable="false" MaxLength="4" sap:display-format="UpperCase" sap:text="BusinessPartnerType_Text" sap:label="BP Type"/>
+<Property Name="BusinessPartnerType_Text" Type="Edm.String" MaxLength="40" sap:label="Business Partner Description" sap:creatable="false" sap:updatable="false"/>
+</EntityType>
+<EntityType Name="AddressDependentTaxTypesType" sap:label="BP Address Dependent Tax Category" sap:content-version="1">
+<Key><PropertyRef Name="BPTaxType"/></Key>
+<Property Name="BPTaxType" Type="Edm.String" Nullable="false" MaxLength="4" sap:display-format="UpperCase" sap:label="Tax Number Category"/>
+<Property Name="BPTaxTypeName" Type="Edm.String" MaxLength="40" sap:label="Tax Category Description"/>
+</EntityType>
+<EntityType Name="BirthDateStatusesType" sap:label="Business Partner Birth Date status" sap:content-version="1">
+<Key><PropertyRef Name="BusinessPartnerBirthDateStatus"/></Key>
+<Property Name="BusinessPartnerBirthDateStatus" Type="Edm.String" Nullable="false" MaxLength="10" sap:display-format="UpperCase" sap:text="BusinessPartnerBirthDateStatus_Text" sap:label="Birth Date Status"/>
+<Property Name="BusinessPartnerBirthDateStatus_Text" Type="Edm.String" MaxLength="60" sap:label="Short Description" sap:creatable="false" sap:updatable="false"/>
+</EntityType>
+<EntityType Name="BusinessPartnerCategoriesType" sap:label="Business Partner Category" sap:content-version="1">
+<Key><PropertyRef Name="BusinessPartnerCategory"/></Key>
+<Property Name="BusinessPartnerCategory" Type="Edm.String" Nullable="false" MaxLength="1" sap:display-format="UpperCase" sap:text="BusinessPartnerCategory_Text" sap:label="Category"/>
+<Property Name="BusinessPartnerCategory_Text" Type="Edm.String" MaxLength="60" sap:label="Business Partner Category Description" sap:creatable="false" sap:updatable="false"/>
+</EntityType>
+<EntityType Name="IndustryCodesType" sap:label="Business Partner Industry Code" sap:content-version="1">
+<Key><PropertyRef Name="BusinessPartnerIndustryCode"/></Key>
+<Property Name="BusinessPartnerIndustryCode" Type="Edm.String" Nullable="false" MaxLength="10" sap:display-format="UpperCase" sap:text="BusinessPartnerIndustryCode_Text" sap:label="Industry Code"/>
+<Property Name="BusinessPartnerIndustryCode_Text" Type="Edm.String" MaxLength="20" sap:label="Industry Code Description" sap:creatable="false" sap:updatable="false"/>
+</EntityType>
+<EntityType Name="IndustrySectorsType" sap:label="Business Partner Industry Key" sap:content-version="1">
+<Key><PropertyRef Name="IndustrySystemType"/><PropertyRef Name="IndustrySector"/></Key>
+<Property Name="IndustrySystemType" Type="Edm.String" Nullable="false" MaxLength="4" sap:display-format="UpperCase" sap:label="Industry System"/>
+<Property Name="IndustrySector" Type="Edm.String" Nullable="false" MaxLength="10" sap:display-format="UpperCase" sap:text="IndustrySector_Text" sap:label="Industry"/>
+<Property Name="IndustrySector_Text" Type="Edm.String" MaxLength="100" sap:label="Description" sap:creatable="false" sap:updatable="false"/>
+</EntityType>
+<EntityType Name="IndustrySystemsType" sap:label="Business Partner Industry System" sap:content-version="1">
+<Key><PropertyRef Name="IndustrySystemType"/></Key>
+<Property Name="IndustrySystemType" Type="Edm.String" Nullable="false" MaxLength="4" sap:display-format="UpperCase" sap:text="IndustrySystemType_Text" sap:label="Industry System"/>
+<Property Name="IndustrySystemType_Text" Type="Edm.String" MaxLength="30" sap:label="Description" sap:creatable="false" sap:updatable="false"/>
+</EntityType>
+<EntityType Name="MaritalStatusesType" sap:label="BUPA Marital Status" sap:content-version="1">
+<Key><PropertyRef Name="MaritalStatus"/></Key>
+<Property Name="MaritalStatus" Type="Edm.String" Nullable="false" MaxLength="1" sap:display-format="UpperCase" sap:text="MaritalStatus_Text" sap:label="Marital Status"/>
+<Property Name="MaritalStatus_Text" Type="Edm.String" MaxLength="20" sap:label="Description" sap:creatable="false" sap:updatable="false"/>
+</EntityType>
+<EntityType Name="TaxTypesType" sap:label="Business Partner Tax Type - Text" sap:content-version="1">
+<Key><PropertyRef Name="Language"/><PropertyRef Name="BPTaxType"/></Key>
+<Property Name="Language" Type="Edm.String" Nullable="false" MaxLength="2" sap:label="Language Key"/>
+<Property Name="BPTaxType" Type="Edm.String" Nullable="false" MaxLength="4" sap:display-format="UpperCase" sap:label="Tax Number Category"/>
+<Property Name="TaxTypeName" Type="Edm.String" MaxLength="40" sap:label="Tax Category Description"/>
+</EntityType>
+<EntityType Name="CountriesType" sap:label="Country/Region" sap:content-version="1">
+<Key><PropertyRef Name="Country"/></Key>
+<Property Name="Country" Type="Edm.String" Nullable="false" MaxLength="3" sap:display-format="UpperCase" sap:text="Country_Text" sap:label="Country/Region Key"/>
+<Property Name="Country_Text" Type="Edm.String" MaxLength="50" sap:label="Country/Region Name" sap:creatable="false" sap:updatable="false"/>
+<Property Name="CountryThreeLetterISOCode" Type="Edm.String" MaxLength="3" sap:display-format="UpperCase" sap:label="ISO Code 3 Char"/>
+</EntityType>
+<EntityType Name="CustomerAccountGroupsType" sap:label="Customer Account Group" sap:content-version="1">
+<Key><PropertyRef Name="CustomerAccountGroup"/></Key>
+<Property Name="CustomerAccountGroup" Type="Edm.String" Nullable="false" MaxLength="4" sap:display-format="UpperCase" sap:text="CustomerAccountGroup_Text" sap:label="Account group"/>
+<Property Name="CustomerAccountGroup_Text" Type="Edm.String" MaxLength="30" sap:label="Name" sap:creatable="false" sap:updatable="false"/>
+</EntityType>
+<EntityType Name="CustomerClassificationsType" sap:label="Customer Classification" sap:content-version="1">
+<Key><PropertyRef Name="CustomerClassification"/></Key>
+<Property Name="CustomerClassification" Type="Edm.String" Nullable="false" MaxLength="2" sap:display-format="UpperCase" sap:text="CustomerClassification_Text" sap:label="Customer Classific."/>
+<Property Name="CustomerClassification_Text" Type="Edm.String" MaxLength="20" sap:label="Customer Classification Description" sap:creatable="false" sap:updatable="false"/>
+</EntityType>
+<EntityType Name="FormsOfAddressType" sap:label="Form of Address" sap:content-version="1">
+<Key><PropertyRef Name="FormOfAddress"/></Key>
+<Property Name="FormOfAddress" Type="Edm.String" Nullable="false" MaxLength="4" sap:display-format="UpperCase" sap:text="FormOfAddress_Text" sap:label="Title Key"/>
+<Property Name="FormOfAddress_Text" Type="Edm.String" MaxLength="30" sap:label="Title Text" sap:creatable="false" sap:updatable="false"/>
+</EntityType>
+<EntityType Name="LanguagesType" sap:label="Language" sap:content-version="1">
+<Key><PropertyRef Name="Language"/></Key>
+<Property Name="Language" Type="Edm.String" Nullable="false" MaxLength="2" sap:text="Language_Text" sap:label="Language Key"/>
+<Property Name="Language_Text" Type="Edm.String" MaxLength="16" sap:label="Name" sap:creatable="false" sap:updatable="false"/>
+<Property Name="LanguageISOCode" Type="Edm.String" MaxLength="2" sap:display-format="UpperCase" sap:label="Language Code"/>
+</EntityType>
+<EntityType Name="RegionsType" sap:label="Region" sap:content-version="1">
+<Key><PropertyRef Name="Country"/><PropertyRef Name="Region"/></Key>
+<Property Name="Country" Type="Edm.String" Nullable="false" MaxLength="3" sap:display-format="UpperCase" sap:label="Country/Region Key"/>
+<Property Name="Region" Type="Edm.String" Nullable="false" MaxLength="3" sap:display-format="UpperCase" sap:text="Region_Text" sap:label="Region"/>
+<Property Name="Region_Text" Type="Edm.String" MaxLength="20" sap:label="Description" sap:creatable="false" sap:updatable="false"/>
+</EntityType>
+<EntityType Name="SupplierAccountGroupsType" sap:label="Supplier Account Group" sap:content-version="1">
+<Key><PropertyRef Name="SupplierAccountGroup"/></Key>
+<Property Name="SupplierAccountGroup" Type="Edm.String" Nullable="false" MaxLength="4" sap:display-format="UpperCase" sap:text="SupplierAccountGroup_Text" sap:label="Account group"/>
+<Property Name="SupplierAccountGroup_Text" Type="Edm.String" MaxLength="30" sap:label="Name" sap:creatable="false" sap:updatable="false"/>
+</EntityType>
+<EntityContainer Name="cds_zmdml_vh_entity_Entities" m:IsDefaultEntityContainer="true">
+<EntitySet Name="AcademicTitles" EntityType="cds_zmdml_vh_entity.AcademicTitlesType" sap:creatable="false" sap:updatable="false" sap:deletable="false"/>
+<EntitySet Name="Genders" EntityType="cds_zmdml_vh_entity.GendersType" sap:creatable="false" sap:updatable="false" sap:deletable="false"/>
+<EntitySet Name="TradingPartners" EntityType="cds_zmdml_vh_entity.TradingPartnersType" sap:creatable="false" sap:updatable="false" sap:deletable="false"/>
+<EntitySet Name="IdentificationTypes" EntityType="cds_zmdml_vh_entity.IdentificationTypesType" sap:creatable="false" sap:updatable="false" sap:deletable="false"/>
+<EntitySet Name="Banks" EntityType="cds_zmdml_vh_entity.BanksType" sap:creatable="false" sap:updatable="false" sap:deletable="false"/>
+<EntitySet Name="BusinessPartnerGroupings" EntityType="cds_zmdml_vh_entity.BusinessPartnerGroupingsType" sap:creatable="false" sap:updatable="false" sap:deletable="false"/>
+<EntitySet Name="LegalForms" EntityType="cds_zmdml_vh_entity.LegalFormsType" sap:creatable="false" sap:updatable="false" sap:deletable="false"/>
+<EntitySet Name="Occupations" EntityType="cds_zmdml_vh_entity.OccupationsType" sap:creatable="false" sap:updatable="false" sap:deletable="false"/>
+<EntitySet Name="PrintFormats" EntityType="cds_zmdml_vh_entity.PrintFormatsType" sap:creatable="false" sap:updatable="false" sap:deletable="false"/>
+<EntitySet Name="BusinessPartnerRoles" EntityType="cds_zmdml_vh_entity.BusinessPartnerRolesType" sap:creatable="false" sap:updatable="false" sap:deletable="false"/>
+<EntitySet Name="BusinessPartnerTypes" EntityType="cds_zmdml_vh_entity.BusinessPartnerTypesType" sap:creatable="false" sap:updatable="false" sap:deletable="false"/>
+<EntitySet Name="AddressDependentTaxTypes" EntityType="cds_zmdml_vh_entity.AddressDependentTaxTypesType" sap:creatable="false" sap:updatable="false" sap:deletable="false"/>
+<EntitySet Name="BirthDateStatuses" EntityType="cds_zmdml_vh_entity.BirthDateStatusesType" sap:creatable="false" sap:updatable="false" sap:deletable="false"/>
+<EntitySet Name="BusinessPartnerCategories" EntityType="cds_zmdml_vh_entity.BusinessPartnerCategoriesType" sap:creatable="false" sap:updatable="false" sap:deletable="false"/>
+<EntitySet Name="IndustryCodes" EntityType="cds_zmdml_vh_entity.IndustryCodesType" sap:creatable="false" sap:updatable="false" sap:deletable="false"/>
+<EntitySet Name="IndustrySectors" EntityType="cds_zmdml_vh_entity.IndustrySectorsType" sap:creatable="false" sap:updatable="false" sap:deletable="false"/>
+<EntitySet Name="IndustrySystems" EntityType="cds_zmdml_vh_entity.IndustrySystemsType" sap:creatable="false" sap:updatable="false" sap:deletable="false"/>
+<EntitySet Name="MaritalStatuses" EntityType="cds_zmdml_vh_entity.MaritalStatusesType" sap:creatable="false" sap:updatable="false" sap:deletable="false"/>
+<EntitySet Name="TaxTypes" EntityType="cds_zmdml_vh_entity.TaxTypesType" sap:creatable="false" sap:updatable="false" sap:deletable="false"/>
+<EntitySet Name="Countries" EntityType="cds_zmdml_vh_entity.CountriesType" sap:creatable="false" sap:updatable="false" sap:deletable="false"/>
+<EntitySet Name="CustomerAccountGroups" EntityType="cds_zmdml_vh_entity.CustomerAccountGroupsType" sap:creatable="false" sap:updatable="false" sap:deletable="false"/>
+<EntitySet Name="CustomerClassifications" EntityType="cds_zmdml_vh_entity.CustomerClassificationsType" sap:creatable="false" sap:updatable="false" sap:deletable="false"/>
+<EntitySet Name="FormsOfAddress" EntityType="cds_zmdml_vh_entity.FormsOfAddressType" sap:creatable="false" sap:updatable="false" sap:deletable="false"/>
+<EntitySet Name="Languages" EntityType="cds_zmdml_vh_entity.LanguagesType" sap:creatable="false" sap:updatable="false" sap:deletable="false"/>
+<EntitySet Name="Regions" EntityType="cds_zmdml_vh_entity.RegionsType" sap:creatable="false" sap:updatable="false" sap:deletable="false"/>
+<EntitySet Name="SupplierAccountGroups" EntityType="cds_zmdml_vh_entity.SupplierAccountGroupsType" sap:creatable="false" sap:updatable="false" sap:deletable="false"/>
+</EntityContainer>
+</Schema>
+</edmx:DataServices>
+</edmx:Edmx>

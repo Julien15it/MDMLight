@@ -4,6 +4,7 @@ const cds = require('@sap/cds');
 const { askSapAiCore } = require('./ai/business-partner-assistant');
 const { parseIntent, useModelIntent } = require('./ai/intent');
 const { researchCompany } = require('./ai/company-research');
+const { startWorkflow } = require("./wf/processAutomation");
 const { createCache } = require('./ai/cache');
 const { rankDuplicates, partnerFingerprints } = require('./ai/name-match');
 const { createNameIndex } = require('./ai/name-index');
@@ -81,6 +82,32 @@ const ASSISTANT_ADDRESS_CHUNK = 50;
 const ASSISTANT_MAX_ROWS = 100000;
 
 const { STOP_WORDS: ASSISTANT_STOP_WORDS } = require('./ai/stop-words');
+
+// Entities projected onto ZSRVB_MDMLIGHT_VH in business-partner-service.cds —
+// read from that service instead of being forwarded to S4 (see the READ
+// handler loop in init()). Kept in one place so CDS, routing and the UI's
+// VALUE_HELP_FIELDS config (BusinessPartnerMaintenance.controller.js) stay in
+// sync when a lookup is added or removed.
+const VALUE_HELP_ENTITIES = Object.freeze([
+  'BusinessPartnerGroupings',
+  'BusinessPartnerCategories',
+  'LegalForms',
+  'FormsOfAddress',
+  'AcademicTitles',
+  'Genders',
+  'IndustryCodes',
+  'Languages',
+  'Countries',
+  'Regions',
+  'IndustrySectors',
+  'IndustrySystems',
+  'AddressDependentTaxTypes',
+  'IdentificationTypes',
+  'CustomerAccountGroups',
+  'CustomerClassifications',
+  'SupplierAccountGroups',
+  'BusinessPartnerRoleCodes'
+]);
 
 const MAINTENANCE_ENTITIES = Object.freeze({
   Addresses: Object.freeze({
@@ -919,6 +946,234 @@ function duplicateAnswer(name, duplicates) {
   ].join('\n');
 }
 
+// req.user.attr.email is populated from the XSUAA JWT's `email` claim (see
+// @sap/cds jwt-auth middleware); req.user.id is the logon name/fallback for
+// auth kinds or local mocked users that don't carry an email claim.
+function requestingUserEmail(req) {
+  return req.user?.attr?.email || req.user?.id || '';
+}
+
+function lowerFirst(name) {
+  return name.charAt(0).toLowerCase() + name.slice(1);
+}
+
+const WORKFLOW_DATE_TYPES = Object.freeze(new Set(['cds.Date', 'cds.DateTime', 'cds.Timestamp']));
+const WORKFLOW_TIME_TYPES = Object.freeze(new Set(['cds.Time']));
+const WORKFLOW_NUMBER_TYPES = Object.freeze(new Set(['cds.Decimal', 'cds.Double', 'cds.Integer', 'cds.Integer64']));
+
+// ABAP's "initial" (never-set) value for a date field is 00000000, which the
+// @sap/cds odata-v2 remote client (libx/_runtime/remote/utils/data.js)
+// converts into the epoch-derived date "0001-01-01" — a syntactically valid
+// ISO date, but not a real one. Likewise, an initial TIME (000000) comes
+// through as the plain string "00:00:00". BPA's schema validation rejects
+// both as "not a valid date"/"not a valid time" (SAP_IPA_12094), so they must
+// be treated the same as no value at all and omitted, not sent through.
+function isAbapInitialDate(date) {
+  return date.getUTCFullYear() <= 1;
+}
+
+function isAbapInitialTime(value) {
+  return value === '00:00:00';
+}
+
+// Standard SAP audit-trail fields, present on almost every S4 entity. BPA's
+// schema rejects at least CreationDate/CreationTime with SAP_IPA_12094 ("not
+// a valid date"/"not a valid time") even when S/4 returns a real, current
+// value for them — and who/when a record was technically created isn't
+// useful context for an approval decision anyway — so these are dropped
+// everywhere, unconditionally, rather than only when blank.
+const WORKFLOW_AUDIT_FIELDS = Object.freeze(new Set([
+  'CreationDate', 'CreationTime', 'CreatedByUser',
+  'LastChangeDate', 'LastChangeTime', 'LastChangedByUser'
+]));
+
+// Per-entity date/time fields BPA's schema rejects even given the exact same
+// well-formed ISO datetime string that's accepted elsewhere (confirmed: the
+// identical value for A_BusinessPartnerAddress.validityStartDate is accepted
+// while A_BuPaAddressUsage.validityStartDate is not) — so this isn't a value
+// formatting issue, it's that specific BPA context variable being typed
+// differently (e.g. plain "date" instead of "datetime"). Add an entry here
+// whenever SAP_IPA_12094 points at a field not already covered by
+// WORKFLOW_AUDIT_FIELDS or the ABAP-initial-value checks above.
+const WORKFLOW_FIELD_EXCLUSIONS = Object.freeze({
+  A_BuPaAddressUsage: new Set(['ValidityStartDate', 'ValidityEndDate']),
+  A_BusinessPartnerRole: new Set(['ValidFrom', 'ValidTo'])
+});
+
+function isWorkflowFieldExcluded(entityName, name) {
+  return WORKFLOW_FIELD_EXCLUSIONS[entityName]?.has(name) ?? false;
+}
+
+function defaultWorkflowValue(element) {
+  if (element.type === 'cds.Boolean') return false;
+  if (WORKFLOW_NUMBER_TYPES.has(element.type)) return 0;
+  return '';
+}
+
+function toWorkflowValue(element, value) {
+  if (value === undefined || value === null || value === '') return defaultWorkflowValue(element);
+  if (element.type === 'cds.Boolean') return Boolean(value);
+  if (WORKFLOW_NUMBER_TYPES.has(element.type)) return Number(value);
+  return value;
+}
+
+// Shapes any S4 entity row into the form BPA expects: every scalar field
+// present, camelCased the same way S/4 already does for its own OData V4
+// proxies (lower-case the first letter only, e.g. BusinessPartner ->
+// businessPartner, POBox -> pOBox, BPTaxType -> bPTaxType) — EXCEPT date/time
+// fields, which are omitted entirely whenever there's no real value (blank,
+// unparseable, or an ABAP-initial sentinel). BPA's schema validates
+// date/time-typed context variables strictly and rejects both "" and those
+// sentinels as invalid (SAP_IPA_12094), so an unset date must be a missing
+// key, never a blank string or a fake "0001-01-01"/"00:00:00".
+function toWorkflowShape(entity, row, entityName) {
+  const shaped = {};
+  for (const [name, element] of Object.entries(entity.elements || {})) {
+    if (element.target) continue; // skip associations/navigation properties
+    if (WORKFLOW_AUDIT_FIELDS.has(name)) continue;
+    if (entityName && isWorkflowFieldExcluded(entityName, name)) continue;
+    const rawValue = row ? row[name] : undefined;
+    const hasValue = rawValue !== undefined && rawValue !== null && rawValue !== '';
+    const key = lowerFirst(name);
+
+    if (WORKFLOW_TIME_TYPES.has(element.type)) {
+      if (hasValue && !isAbapInitialTime(rawValue)) shaped[key] = rawValue;
+      continue;
+    }
+
+    if (WORKFLOW_DATE_TYPES.has(element.type)) {
+      if (hasValue) {
+        const date = rawValue instanceof Date ? rawValue : new Date(rawValue);
+        if (!Number.isNaN(date.getTime()) && !isAbapInitialDate(date)) shaped[key] = date.toISOString();
+      }
+      continue;
+    }
+
+    shaped[key] = toWorkflowValue(element, rawValue);
+  }
+  return shaped;
+}
+
+// Every API_BUSINESS_PARTNER entity the approval workflow's businesspartnerinput
+// wants, and how each relates back to the Business Partner being approved.
+// cardinality 'one' -> single object (first/only row, or an all-blank shape
+// if none exists); 'many' -> array of shaped rows (possibly empty). This
+// mirrors the workflow's own schema, not true S/4 key cardinality — several
+// composite-keyed entities (e.g. A_BuPaIndustry) are still modeled as 'one'.
+const WORKFLOW_ENTITIES = Object.freeze([
+  { name: 'A_BPAddrDepdntIntlLocNumber', cardinality: 'one', filterBy: 'businessPartner' },
+  { name: 'A_BPContactToAddress', cardinality: 'many', filterBy: 'businessPartnerCompany' },
+  { name: 'A_BPContactToFuncAndDept', cardinality: 'many', filterBy: 'businessPartnerCompany' },
+  { name: 'A_BPCreditWorthiness', cardinality: 'one', filterBy: 'businessPartner' },
+  { name: 'A_BPDataController', cardinality: 'many', filterBy: 'businessPartner' },
+  { name: 'A_BPFinancialServicesReporting', cardinality: 'one', filterBy: 'businessPartner' },
+  { name: 'A_BPFiscalYearInformation', cardinality: 'many', filterBy: 'businessPartner' },
+  { name: 'A_BPRelationship', cardinality: 'many', filterBy: 'businessPartner1' },
+  { name: 'A_BuPaAddressUsage', cardinality: 'many', filterBy: 'businessPartner' },
+  { name: 'A_BuPaIdentification', cardinality: 'many', filterBy: 'businessPartner' },
+  { name: 'A_BuPaIndustry', cardinality: 'one', filterBy: 'businessPartner' },
+  { name: 'A_BusinessPartnerBank', cardinality: 'many', filterBy: 'businessPartner' },
+  { name: 'A_BPIntlAddressVersion', cardinality: 'many', filterBy: 'businessPartner' },
+  { name: 'A_BusinessPartnerContact', cardinality: 'many', filterBy: 'businessPartnerCompany' },
+  { name: 'A_BusinessPartnerPaymentCard', cardinality: 'many', filterBy: 'businessPartner' },
+  { name: 'A_BusinessPartnerRating', cardinality: 'many', filterBy: 'businessPartner' },
+  { name: 'A_BusinessPartnerRole', cardinality: 'many', filterBy: 'businessPartner' },
+  { name: 'A_BusinessPartnerTaxNumber', cardinality: 'many', filterBy: 'businessPartner' },
+  { name: 'A_BusPartAddrDepdntTaxNmbr', cardinality: 'many', filterBy: 'businessPartner' },
+  { name: 'A_Customer', cardinality: 'one', filterBy: 'customer' },
+  { name: 'A_CustAddrDepdntExtIdentifier', cardinality: 'many', filterBy: 'customer' },
+  { name: 'A_CustAddrDepdntInformation', cardinality: 'many', filterBy: 'customer' },
+  { name: 'A_CustomerCompany', cardinality: 'many', filterBy: 'customer' },
+  { name: 'A_CustomerCompanyText', cardinality: 'many', filterBy: 'customer' },
+  { name: 'A_CustomerDunning', cardinality: 'many', filterBy: 'customer' },
+  { name: 'A_CustomerSalesArea', cardinality: 'many', filterBy: 'customer' },
+  { name: 'A_CustomerSalesAreaTax', cardinality: 'one', filterBy: 'customer' },
+  { name: 'A_CustomerSalesAreaText', cardinality: 'many', filterBy: 'customer' },
+  { name: 'A_CustomerTaxGrouping', cardinality: 'many', filterBy: 'customer' },
+  { name: 'A_CustomerText', cardinality: 'many', filterBy: 'customer' },
+  { name: 'A_CustomerUnloadingPoint', cardinality: 'many', filterBy: 'customer' },
+  { name: 'A_CustomerWithHoldingTax', cardinality: 'many', filterBy: 'customer' },
+  { name: 'A_CustSalesPartnerFunc', cardinality: 'many', filterBy: 'customer' },
+  { name: 'A_CustSlsAreaAddrDepdntInfo', cardinality: 'one', filterBy: 'customer' },
+  { name: 'A_CustSlsAreaAddrDepdntTaxInfo', cardinality: 'many', filterBy: 'customer' },
+  { name: 'A_CustUnldgPtAddrDepdntInfo', cardinality: 'many', filterBy: 'customer' },
+  { name: 'A_Supplier', cardinality: 'one', filterBy: 'supplier' },
+  { name: 'A_SupplierCompany', cardinality: 'many', filterBy: 'supplier' },
+  { name: 'A_SupplierCompanyText', cardinality: 'many', filterBy: 'supplier' },
+  { name: 'A_SupplierDunning', cardinality: 'many', filterBy: 'supplier' },
+  { name: 'A_SupplierPartnerFunc', cardinality: 'many', filterBy: 'supplier' },
+  { name: 'A_SupplierPurchasingOrg', cardinality: 'many', filterBy: 'supplier' },
+  { name: 'A_SupplierPurchasingOrgText', cardinality: 'many', filterBy: 'supplier' },
+  { name: 'A_SupplierText', cardinality: 'many', filterBy: 'supplier' },
+  { name: 'A_SupplierWithHoldingTax', cardinality: 'many', filterBy: 'supplier' },
+  // Address-level communication data isn't keyed by BusinessPartner at all
+  // (key is AddressID+Person+OrdinalNumber) — filtered by the AddressIDs
+  // found via A_BusinessPartnerAddress instead, see filterBy: 'address' below.
+  { name: 'A_AddressEmailAddress', cardinality: 'many', filterBy: 'address' },
+  { name: 'A_AddressFaxNumber', cardinality: 'many', filterBy: 'address' },
+  { name: 'A_AddressHomePageURL', cardinality: 'many', filterBy: 'address' },
+  { name: 'A_AddressPhoneNumber', cardinality: 'many', filterBy: 'address' }
+]);
+
+async function fetchWorkflowEntityRows(s4, entity, where, cardinality, name) {
+  try {
+    if (cardinality === 'many') {
+      const rows = await s4.run(cds.ql.SELECT.from(entity).where(where));
+      return (Array.isArray(rows) ? rows : []).map((row) => toWorkflowShape(entity, row, name));
+    }
+    const row = await s4.run(cds.ql.SELECT.one.from(entity).where(where));
+    return toWorkflowShape(entity, row, name);
+  } catch (error) {
+    console.error(`Could not load ${name} for the approval workflow payload:`, error);
+    return cardinality === 'many' ? [] : toWorkflowShape(entity, null, name);
+  }
+}
+
+// Builds the complete businesspartnerinput object the approval workflow
+// expects: A_BusinessPartner itself plus every related entity S/4 exposes,
+// each shaped via toWorkflowShape. Best-effort per entity — one failing
+// lookup blanks out just that block instead of aborting workflow start.
+async function fetchBusinessPartnerInputForWorkflow(s4, businessPartner) {
+  const result = {};
+
+  const bpEntity = remoteEntity(s4, 'A_BusinessPartner');
+  const bpRow = await fetchWorkflowEntityRows(s4, bpEntity, { BusinessPartner: businessPartner }, 'one', 'A_BusinessPartner');
+  result.A_BusinessPartner = bpRow;
+  const customer = bpRow.customer;
+  const supplier = bpRow.supplier;
+
+  const addressEntity = remoteEntity(s4, 'A_BusinessPartnerAddress');
+  const addressRows = await fetchWorkflowEntityRows(s4, addressEntity, { BusinessPartner: businessPartner }, 'many', 'A_BusinessPartnerAddress');
+  result.A_BusinessPartnerAddress = addressRows;
+  const addressIds = addressRows.map((row) => row.addressID).filter(Boolean);
+
+  for (const config of WORKFLOW_ENTITIES) {
+    const entity = remoteEntity(s4, config.name);
+    let where = null;
+    if (config.filterBy === 'businessPartner') where = { BusinessPartner: businessPartner };
+    else if (config.filterBy === 'businessPartner1') where = { BusinessPartner1: businessPartner };
+    else if (config.filterBy === 'businessPartnerCompany') where = { BusinessPartnerCompany: businessPartner };
+    else if (config.filterBy === 'customer' && customer) where = { Customer: customer };
+    else if (config.filterBy === 'supplier' && supplier) where = { Supplier: supplier };
+    else if (config.filterBy === 'address' && addressIds.length) where = { AddressID: addressIds };
+
+    result[config.name] = where
+      ? await fetchWorkflowEntityRows(s4, entity, where, config.cardinality, config.name)
+      : (config.cardinality === 'many' ? [] : toWorkflowShape(entity, null, config.name));
+  }
+
+  return result;
+}
+
+const APPROVAL_WORKFLOW_DEFINITION_ID = 'eu10.alluvion-dev-cf.mdmlightapproval.mDM_LIGHT_APPROVAL_WF';
+
+function triggerApprovalWorkflow(req, businessPartnerInput) {
+  return startWorkflow(APPROVAL_WORKFLOW_DEFINITION_ID, {
+    emailadressinitiator: requestingUserEmail(req),
+    businesspartnerinput: businessPartnerInput
+  });
+}
+
 function externalResearchAnswer(name, research) {
   if (!research) {
     return `${name} is not present as a Business Partner in S/4HANA. No verified public company information could be retrieved, but you can still prepare a new Business Partner with the company name.`;
@@ -939,6 +1194,10 @@ function externalResearchAnswer(name, research) {
 class BusinessPartnerService extends cds.ApplicationService {
   async init() {
     const s4 = await cds.connect.to('API_BUSINESS_PARTNER');
+    // Custom S/4 value-help service (ZSRVB_MDMLIGHT_VH) backing every
+    // @Common.ValueList lookup — see srv/external/ZSRVB_MDMLIGHT_VH and
+    // VALUE_HELP_ENTITIES below. API_BUSINESS_PARTNER exposes none of these.
+    const valueHelp = await cds.connect.to('ZSRVB_MDMLIGHT_VH');
 
     // Any write invalidates this instance's cached assistant reads.
     this.before('*', (req) => {
@@ -957,22 +1216,37 @@ class BusinessPartnerService extends cds.ApplicationService {
       }
     });
 
-    this.on('createBusinessPartner', async (req) => {
-      const errors = validateBusinessPartnerCreate(req.data);
-      if (errors.length) {
-        for (const error of errors) req.error(400, error.message, error.target);
-        return;
-      }
+   this.on('createBusinessPartner', async (req) => {
+    const payload = pickDefined(req.data, CREATE_FIELDS);
+    let created;
 
-      const payload = pickDefined(req.data, CREATE_FIELDS);
-      try {
-        return normalizeRemoteResult(await s4.run(
-          cds.ql.INSERT.into(remoteEntity(s4, 'A_BusinessPartner')).entries(payload)
-        ));
-      } catch (error) {
-        req.reject(error.statusCode || 502, remoteErrorMessage(error, 'S/4HANA rejected the create request.'));
-      }
-    });
+  try {
+    created = normalizeRemoteResult(await s4.run(
+      cds.ql.INSERT.into(remoteEntity(s4, 'A_BusinessPartner')).entries(payload)
+    ));
+  } catch (error) {
+    return req.reject(error.statusCode || 502, remoteErrorMessage(error, 'S/4HANA rejected the create request.'));
+  }
+
+  try {
+    console.log("Starting approval workflow...");
+
+    const businessPartnerInput = await fetchBusinessPartnerInputForWorkflow(s4, created.BusinessPartner);
+    const workflowResult = await triggerApprovalWorkflow(req, businessPartnerInput);
+
+    console.log("Workflow started successfully.");
+    console.log(workflowResult);
+
+    return created;
+
+  } catch (error) {
+    console.error("Workflow start failed:");
+    console.error(error);
+
+    req.info(500, `Business Partner created, but approval workflow could not be started: ${error.message}`);
+    return created;
+  }
+});
 
     this.on('updateBusinessPartner', async (req) => {
       const businessPartner = req.data.BusinessPartner;
@@ -1003,7 +1277,7 @@ class BusinessPartnerService extends cds.ApplicationService {
       try {
         data = parseJsonObject(req.data.DataJson, 'DataJson');
       } catch (error) {
-        req.reject(error.statusCode || 400, error.message, 'DataJson');
+        return req.reject(error.statusCode || 400, error.message, 'DataJson');
       }
 
       const isCreate = Boolean(req.data.IsCreate);
@@ -1019,22 +1293,32 @@ class BusinessPartnerService extends cds.ApplicationService {
           for (const error of errors) req.error(400, error.message, error.target);
           return;
         }
+
+        let created;
         try {
-          const created = normalizeRemoteResult(await s4.run(
+          created = normalizeRemoteResult(await s4.run(
             cds.ql.INSERT.into(remoteEntity(s4, 'A_BusinessPartner')).entries(payload)
           ));
           if (!created?.BusinessPartner) {
-            req.reject(502, 'S/4HANA did not return the number of the created Business Partner.');
+            return req.reject(502, 'S/4HANA did not return the number of the created Business Partner.');
           }
-          return created;
         } catch (error) {
-          req.reject(error.statusCode || 502, remoteErrorMessage(error, 'S/4HANA rejected the create request.'));
+          return req.reject(error.statusCode || 502, remoteErrorMessage(error, 'S/4HANA rejected the create request.'));
         }
+
+        // The approval workflow is deliberately NOT started here: at this
+        // point only the root Business Partner exists in S/4 — the UI still
+        // has to save addresses/roles/etc. via saveBusinessPartnerEntity
+        // afterwards. Starting it now would always send an empty address
+        // list. The UI calls startBusinessPartnerApprovalWorkflow once every
+        // section has been saved.
+
+        return created;
       }
 
       const businessPartner = req.data.BusinessPartner;
-      if (!businessPartner) req.reject(400, 'Enter a business partner number.', 'BusinessPartner');
-      if (Object.keys(payload).length === 0) req.reject(400, 'There are no fields to update.');
+      if (!businessPartner) return req.reject(400, 'Enter a business partner number.', 'BusinessPartner');
+      if (Object.keys(payload).length === 0) return req.reject(400, 'There are no fields to update.');
 
       const rootEntity = remoteEntity(s4, 'A_BusinessPartner');
       try {
@@ -1044,10 +1328,10 @@ class BusinessPartnerService extends cds.ApplicationService {
         const updated = normalizeRemoteResult(await s4.run(
           cds.ql.SELECT.one.from(rootEntity).where({ BusinessPartner: businessPartner })
         ));
-        if (!updated) req.reject(404, `Business partner ${businessPartner} was not found.`);
+        if (!updated) return req.reject(404, `Business partner ${businessPartner} was not found.`);
         return updated;
       } catch (error) {
-        req.reject(error.statusCode || 502, remoteErrorMessage(error, 'S/4HANA rejected the update request.'));
+        return req.reject(error.statusCode || 502, remoteErrorMessage(error, 'S/4HANA rejected the update request.'));
       }
     });
 
@@ -1150,6 +1434,36 @@ class BusinessPartnerService extends cds.ApplicationService {
       }
     });
 
+    this.on('startBusinessPartnerApprovalWorkflow', async (req) => {
+      const businessPartner = req.data.BusinessPartner;
+      if (!businessPartner) return req.reject(400, 'Enter a business partner number.', 'BusinessPartner');
+
+      let record;
+      try {
+        record = normalizeRemoteResult(await s4.run(
+          cds.ql.SELECT.one.from(remoteEntity(s4, 'A_BusinessPartner')).where({ BusinessPartner: businessPartner })
+        ));
+      } catch (error) {
+        req.info(500, `The approval workflow could not be started: ${remoteErrorMessage(error, error.message)}`);
+        return false;
+      }
+      if (!record) {
+        req.info(500, `The approval workflow could not be started: Business Partner ${businessPartner} was not found.`);
+        return false;
+      }
+
+      try {
+        console.log('Starting approval workflow...');
+        const businessPartnerInput = await fetchBusinessPartnerInputForWorkflow(s4, businessPartner);
+        await triggerApprovalWorkflow(req, businessPartnerInput);
+        return true;
+      } catch (error) {
+        req.info(500, `Business Partner ${businessPartner} was saved, but the approval workflow could not be started: ${error.message}`);
+        console.error(error);
+        return false;
+      }
+    });
+
     this.on('askBusinessPartnerAssistant', async (req) => {
       const question = String(req.data.Question || '').trim();
       if (!question) req.reject(400, 'Enter a question.', 'Question');
@@ -1236,6 +1550,12 @@ class BusinessPartnerService extends cds.ApplicationService {
       }
     });
 
+    // Value-help entities backed by ZSRVB_MDMLIGHT_VH — read from there
+    // instead of being forwarded to S4 by the catch-all handler below.
+    for (const entity of VALUE_HELP_ENTITIES) {
+      this.on('READ', entity, (req) => valueHelp.run(req.query));
+    }
+
     this.on(['READ', 'CREATE', 'UPDATE'], '*', (req) => s4.run(req.query));
 
     this.on('DELETE', '*', (req) => {
@@ -1253,6 +1573,7 @@ BusinessPartnerService._internals = {
   CREATE_FIELDS,
   UPDATE_FIELDS,
   MAINTENANCE_ENTITIES,
+  VALUE_HELP_ENTITIES,
   ROOT_UPDATE_EXCLUDED_FIELDS,
   ASSISTANT_PAGE_SIZE,
   ASSISTANT_ADDRESS_CHUNK,
@@ -1286,7 +1607,14 @@ BusinessPartnerService._internals = {
   contextualCompanyName,
   businessPartnerCreationSuggestion,
   duplicateAnswer,
-  externalResearchAnswer
+  externalResearchAnswer,
+  requestingUserEmail,
+  WORKFLOW_ENTITIES,
+  WORKFLOW_AUDIT_FIELDS,
+  WORKFLOW_FIELD_EXCLUSIONS,
+  lowerFirst,
+  toWorkflowValue,
+  toWorkflowShape
 };
 
 module.exports = BusinessPartnerService;

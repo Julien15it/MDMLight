@@ -12,11 +12,14 @@ sap.ui.define([
   "sap/m/Input",
   "sap/m/Select",
   "sap/m/CheckBox",
+  "sap/m/DatePicker",
   "sap/ui/core/Item",
   "sap/ui/layout/Grid",
   "sap/m/Table",
   "sap/m/Column",
   "sap/m/ColumnListItem",
+  "sap/m/SelectDialog",
+  "sap/m/StandardListItem",
   "sap/m/Text",
   "sap/m/Toolbar",
   "sap/m/ToolbarSpacer",
@@ -39,11 +42,14 @@ sap.ui.define([
   Input,
   Select,
   CheckBox,
+  DatePicker,
   Item,
   Grid,
   Table,
   Column,
   ColumnListItem,
+  SelectDialog,
+  StandardListItem,
   Text,
   Toolbar,
   ToolbarSpacer,
@@ -77,6 +83,24 @@ sap.ui.define([
     "BusinessPartnerFullName"
   ];
 
+  // S/4 only persists the name fields that match the chosen
+  // BusinessPartnerCategory — e.g. FirstName/LastName are silently dropped
+  // for an Organization (category 2), even though the create request sends
+  // them. Showing only the applicable fields avoids that surprise instead of
+  // letting the user fill in fields S/4 will discard.
+  var CATEGORY_NAME_FIELDS = {
+    "1": ["FirstName", "MiddleName", "LastName"],
+    "2": ["OrganizationBPName1", "OrganizationBPName2"],
+    "3": ["GroupBusinessPartnerName1", "GroupBusinessPartnerName2"]
+  };
+
+  function nameFieldsForCategory(category) {
+    var fields = CATEGORY_NAME_FIELDS[category] || NAME_FIELDS.filter(function (name) {
+      return name !== "BusinessPartnerFullName";
+    });
+    return fields.concat(["BusinessPartnerFullName"]);
+  }
+
   var ROOT_LABELS = {
     BusinessPartnerCategory: "Category",
     BusinessPartnerGrouping: "Grouping",
@@ -87,6 +111,94 @@ sap.ui.define([
     OrganizationBPName2: "Organization Name 2",
     GroupBusinessPartnerName1: "Group Name 1",
     GroupBusinessPartnerName2: "Group Name 2"
+  };
+
+  // F4 search helps backed by the S/4 value-help service ZSRVB_MDMLIGHT_VH
+  // (see srv/external/ZSRVB_MDMLIGHT_VH, srv/annotations.cds and
+  // VALUE_HELP_ENTITIES in business-partner-service.js — keep all three in
+  // sync). Applies wherever _createFieldControl renders this field name, so
+  // one entry here covers every section that has the field (e.g. Country
+  // applies to both Addresses and Identifications).
+  //
+  // BusinessPartnerCategory is intentionally NOT listed here: it keeps its
+  // own fixed 3-value Select below instead of an F4 dialog. It still has a
+  // matching @Common.ValueList in annotations.cds for other OData consumers.
+  var VALUE_HELP_FIELDS = {
+    BusinessPartnerGrouping: {
+      collectionPath: "BusinessPartnerGroupings", keyField: "BusinessPartnerGrouping",
+      descriptionField: "BusinessPartnerGrouping_Text", title: "Select Grouping"
+    },
+    LegalForm: {
+      collectionPath: "LegalForms", keyField: "LegalForm",
+      descriptionField: "LegalForm_Text", title: "Select Legal Form"
+    },
+    FormOfAddress: {
+      collectionPath: "FormsOfAddress", keyField: "FormOfAddress",
+      descriptionField: "FormOfAddress_Text", title: "Select Form of Address"
+    },
+    AcademicTitle: {
+      collectionPath: "AcademicTitles", keyField: "AcademicTitle",
+      descriptionField: "AcademicTitle_Text", title: "Select Academic Title"
+    },
+    GenderCodeName: {
+      collectionPath: "Genders", keyField: "GenderCodeName",
+      descriptionField: "GenderCodeName_Text", title: "Select Gender"
+    },
+    Industry: {
+      collectionPath: "IndustryCodes", keyField: "BusinessPartnerIndustryCode",
+      descriptionField: "BusinessPartnerIndustryCode_Text", title: "Select Industry Code"
+    },
+    CorrespondenceLanguage: {
+      collectionPath: "Languages", keyField: "Language",
+      descriptionField: "Language_Text", title: "Select Language"
+    },
+    Language: {
+      collectionPath: "Languages", keyField: "Language",
+      descriptionField: "Language_Text", title: "Select Language"
+    },
+    Country: {
+      collectionPath: "Countries", keyField: "Country",
+      descriptionField: "Country_Text", title: "Select Country"
+    },
+    Region: {
+      collectionPath: "Regions", keyField: "Region",
+      descriptionField: "Region_Text", title: "Select Region"
+    },
+    IndustrySystemType: {
+      collectionPath: "IndustrySystems", keyField: "IndustrySystemType",
+      descriptionField: "IndustrySystemType_Text", title: "Select Industry System"
+    },
+    IndustrySector: {
+      collectionPath: "IndustrySectors", keyField: "IndustrySector",
+      descriptionField: "IndustrySector_Text", title: "Select Industry"
+    },
+    BPTaxType: {
+      collectionPath: "AddressDependentTaxTypes", keyField: "BPTaxType",
+      descriptionField: "BPTaxTypeName", title: "Select Tax Type"
+    },
+    // IdentificationTypes has no description column in ZSRVB_MDMLIGHT_VH.
+    BPIdentificationType: {
+      collectionPath: "IdentificationTypes", keyField: "BPIdentificationType",
+      descriptionField: null, title: "Select Identification Type"
+    },
+    CustomerAccountGroup: {
+      collectionPath: "CustomerAccountGroups", keyField: "CustomerAccountGroup",
+      descriptionField: "CustomerAccountGroup_Text", title: "Select Account Group"
+    },
+    CustomerClassification: {
+      collectionPath: "CustomerClassifications", keyField: "CustomerClassification",
+      descriptionField: "CustomerClassification_Text", title: "Select Customer Classification"
+    },
+    SupplierAccountGroup: {
+      collectionPath: "SupplierAccountGroups", keyField: "SupplierAccountGroup",
+      descriptionField: "SupplierAccountGroup_Text", title: "Select Account Group"
+    },
+    // BusinessPartnerRoleCodes, not BusinessPartnerRoles — that name is
+    // already used by the child-entity section itself.
+    BusinessPartnerRole: {
+      collectionPath: "BusinessPartnerRoleCodes", keyField: "BusinessPartnerRole",
+      descriptionField: "BusinessPartnerRole_Text", title: "Select Role"
+    }
   };
 
   function clone(value) {
@@ -128,6 +240,23 @@ sap.ui.define([
 
   function isNumber(field) {
     return ["cds.Decimal", "cds.Double", "cds.Integer", "cds.Integer64"].includes(field.type);
+  }
+
+  function isDate(field) {
+    // Fields like BusinessPartnerRole's ValidFrom/ValidTo are typed
+    // cds.DateTime in the metadata even though they only ever carry a
+    // calendar date (no meaningful time-of-day) — a plain date picker suits
+    // both cds.Date and cds.DateTime fields in this maintenance UI.
+    return ["cds.Date", "cds.DateTime"].includes(field.type);
+  }
+
+  // DatePicker's valueFormat/displayFormat expect a bare "yyyy-MM-dd" —
+  // values coming from the OData model may carry a time/offset suffix
+  // (e.g. "2026-08-06T00:00:00.000Z"), which this strips.
+  function dateOnly(value) {
+    if (!value) return "";
+    var text = String(value);
+    return text.length >= 10 ? text.slice(0, 10) : text;
   }
 
   function displayValue(value) {
@@ -356,7 +485,7 @@ sap.ui.define([
       _renderRootForm: function () {
         var state = this.getView().getModel("maintenance").getData();
         this._renderRootSection("GeneralInformationContent", GENERAL_FIELDS, true, state);
-        this._renderRootSection("NamesContent", NAME_FIELDS, false, state);
+        this._renderRootSection("NamesContent", nameFieldsForCategory(state.root.BusinessPartnerCategory), false, state);
       },
 
       _renderRootSection: function (containerId, fieldNames, showAdditionalFields, state) {
@@ -464,13 +593,47 @@ sap.ui.define([
             ]
           });
           control.attachChange(function (event) {
-            record[field.name] = event.getSource().getSelectedKey();
+            var newCategory = event.getSource().getSelectedKey();
+            record[field.name] = newCategory;
             this._updatePreview();
+            // Re-render the Names card so it only shows the fields S/4 will
+            // actually keep for this category (see nameFieldsForCategory).
+            var state = this.getView().getModel("maintenance").getData();
+            this._renderRootSection("NamesContent", nameFieldsForCategory(newCategory), false, state);
           }.bind(this));
         } else if (isBoolean(field)) {
           control = new CheckBox({ selected: Boolean(record[field.name]), enabled: editable });
           control.attachSelect(function (event) {
             record[field.name] = event.getParameter("selected");
+            if (section.kind === "root") this._updatePreview();
+          }.bind(this));
+        } else if (VALUE_HELP_FIELDS[field.name]) {
+          var valueHelpConfig = VALUE_HELP_FIELDS[field.name];
+          control = new Input({
+            value: displayValue(record[field.name]),
+            editable: editable,
+            maxLength: field.maxLength || 0,
+            showValueHelp: editable,
+            width: "100%"
+          });
+          control.attachLiveChange(function (event) {
+            record[field.name] = event.getParameter("value");
+            if (section.kind === "root") this._updatePreview();
+          }.bind(this));
+          control.attachValueHelpRequest(function (event) {
+            this._openValueHelp(valueHelpConfig, event.getSource(), record, field, section);
+          }.bind(this));
+        } else if (isDate(field)) {
+          control = new DatePicker({
+            value: dateOnly(record[field.name]),
+            editable: editable,
+            displayFormat: "yyyy-MM-dd",
+            valueFormat: "yyyy-MM-dd",
+            width: "100%"
+          });
+          control.attachChange(function (event) {
+            if (event.getParameter("valid") === false) return;
+            record[field.name] = event.getParameter("value");
             if (section.kind === "root") this._updatePreview();
           }.bind(this));
         } else {
@@ -489,6 +652,57 @@ sap.ui.define([
         }
 
         return control;
+      },
+
+      /** Generic F4 search-help dialog, config-driven via VALUE_HELP_FIELDS.
+       *  One dialog instance is cached per collectionPath (this._valueHelpDialogs)
+       *  so fields that share a lookup — e.g. CorrespondenceLanguage (root) and
+       *  Language (Addresses) both use "Languages" — reuse the same dialog. */
+      _openValueHelp: function (config, input, record, field, section) {
+        this._valueHelpDialogs = this._valueHelpDialogs || {};
+        var dialog = this._valueHelpDialogs[config.collectionPath];
+        if (!dialog) {
+          dialog = new SelectDialog({
+            title: config.title,
+            noDataText: "No matching values found.",
+            confirm: function (event) {
+              var selectedItem = event.getParameter("selectedItem");
+              if (!selectedItem) return;
+              var context = selectedItem.getBindingContext();
+              var value = context.getProperty(this._valueHelpTarget.config.keyField);
+              this._valueHelpTarget.record[this._valueHelpTarget.field.name] = value;
+              this._valueHelpTarget.input.setValue(value);
+              if (this._valueHelpTarget.section.kind === "root") this._updatePreview();
+            }.bind(this),
+            search: function (event) {
+              var searchValue = event.getParameter("value");
+              var searchConfig = this._valueHelpTarget.config;
+              var filters = searchValue
+                ? [new Filter({
+                    filters: searchConfig.descriptionField
+                      ? [
+                          new Filter(searchConfig.keyField, FilterOperator.Contains, searchValue),
+                          new Filter(searchConfig.descriptionField, FilterOperator.Contains, searchValue)
+                        ]
+                      : [new Filter(searchConfig.keyField, FilterOperator.Contains, searchValue)],
+                    and: false
+                  })]
+                : [];
+              event.getSource().getBinding("items").filter(filters);
+            }.bind(this)
+          });
+          dialog.setModel(this.getView().getModel());
+          var itemSettings = { title: "{" + config.keyField + "}" };
+          if (config.descriptionField) itemSettings.description = "{" + config.descriptionField + "}";
+          dialog.bindAggregation("items", {
+            path: "/" + config.collectionPath,
+            template: new StandardListItem(itemSettings)
+          });
+          this.getView().addDependent(dialog);
+          this._valueHelpDialogs[config.collectionPath] = dialog;
+        }
+        this._valueHelpTarget = { input: input, record: record, field: field, section: section, config: config };
+        dialog.open();
       },
 
       _openAdditionalFields: function () {
@@ -873,12 +1087,30 @@ sap.ui.define([
                   return [field.name, record[field.name]];
                 })
               ));
-              await this._executeAction("saveBusinessPartnerEntity", {
+              var actionResult = await this._executeAction("saveBusinessPartnerEntity", {
                 Entity: section.id,
                 IsCreate: createRecord,
                 KeyJson: JSON.stringify(keys),
                 DataJson: JSON.stringify(this._writablePayload(section, record, createRecord))
               });
+              if (createRecord) {
+                // S/4 assigns key fields such as AddressID on create; without
+                // merging the response back in, __keys below would capture
+                // the still-blank client value, and any later edit of this
+                // same record would fail server-side with "Missing key
+                // field(s)" because KeyJson would be incomplete.
+                var createdJson = actionResult && typeof actionResult === "object"
+                  ? actionResult.value
+                  : actionResult;
+                if (typeof createdJson === "string") {
+                  try {
+                    Object.assign(record, JSON.parse(createdJson));
+                  } catch (parseError) {
+                    // saveBusinessPartnerEntity's create branch always returns
+                    // JSON on success; ignore defensively otherwise.
+                  }
+                }
+              }
               delete record.__state;
               record.__keys = Object.fromEntries(
                 section.fields.filter(function (field) { return field.key; }).map(function (field) {
@@ -901,6 +1133,21 @@ sap.ui.define([
             state.deletedRecords[section.id] = [];
           }
 
+          if (isCreate) {
+            // Only now does S/4 have the full record (root + addresses +
+            // ... saved above) — starting the workflow any earlier would
+            // send it an empty address list.
+            try {
+              await this._executeAction("startBusinessPartnerApprovalWorkflow", {
+                BusinessPartner: businessPartner
+              });
+            } catch (workflowError) {
+              MessageToast.show(
+                "Business Partner " + businessPartner + " was saved, but the approval workflow could not be started."
+              );
+            }
+          }
+
           state.mode = "display";
           state.modeText = "Display";
           state.businessPartner = businessPartner;
@@ -917,6 +1164,8 @@ sap.ui.define([
           state.busy = false;
           maintenanceModel.refresh(true);
         }
+ 
+
       },
 
       onBackToList: function () {

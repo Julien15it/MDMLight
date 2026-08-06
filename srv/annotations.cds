@@ -127,8 +127,66 @@ annotate service.BusinessPartners with {
   LastChangeTime          @Core.Computed;
   LastChangedByUser       @Core.Computed;
   ETag                    @Core.Computed;
-  BusinessPartnerCategory @Core.Immutable;
-  BusinessPartnerGrouping @Core.Immutable;
+  // Value help backed by ZSRVB_MDMLIGHT_VH (see srv/external/ZSRVB_MDMLIGHT_VH).
+  // The UI additionally renders BusinessPartnerCategory as a fixed 3-value
+  // Select (see BusinessPartnerMaintenance.controller.js) rather than this F4
+  // dialog — the annotation is kept for OData consumers other than our UI.
+  BusinessPartnerCategory @Core.Immutable @Common.ValueList: {
+    CollectionPath: 'BusinessPartnerCategories',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: BusinessPartnerCategory, ValueListProperty: 'BusinessPartnerCategory' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'BusinessPartnerCategory_Text' }
+    ]
+  };
+  BusinessPartnerGrouping @Core.Immutable @Common.ValueList: {
+    CollectionPath: 'BusinessPartnerGroupings',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: BusinessPartnerGrouping, ValueListProperty: 'BusinessPartnerGrouping' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'BusinessPartnerGrouping_Text' }
+    ]
+  };
+  LegalForm @Common.ValueList: {
+    CollectionPath: 'LegalForms',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: LegalForm, ValueListProperty: 'LegalForm' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'LegalForm_Text' }
+    ]
+  };
+  FormOfAddress @Common.ValueList: {
+    CollectionPath: 'FormsOfAddress',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: FormOfAddress, ValueListProperty: 'FormOfAddress' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'FormOfAddress_Text' }
+    ]
+  };
+  AcademicTitle @Common.ValueList: {
+    CollectionPath: 'AcademicTitles',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: AcademicTitle, ValueListProperty: 'AcademicTitle' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'AcademicTitle_Text' }
+    ]
+  };
+  GenderCodeName @Common.ValueList: {
+    CollectionPath: 'Genders',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: GenderCodeName, ValueListProperty: 'GenderCodeName' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'GenderCodeName_Text' }
+    ]
+  };
+  Industry @Common.ValueList: {
+    CollectionPath: 'IndustryCodes',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: Industry, ValueListProperty: 'BusinessPartnerIndustryCode' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'BusinessPartnerIndustryCode_Text' }
+    ]
+  };
+  CorrespondenceLanguage @Common.ValueList: {
+    CollectionPath: 'Languages',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: CorrespondenceLanguage, ValueListProperty: 'Language' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Language_Text' }
+    ]
+  };
 };
 
 annotate service.Addresses with @(
@@ -143,6 +201,37 @@ annotate service.Addresses with @(
   ]
 );
 
+annotate service.Addresses with {
+  Country @Common.ValueList: {
+    CollectionPath: 'Countries',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: Country, ValueListProperty: 'Country' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Country_Text' }
+    ]
+  };
+  Region @Common.ValueList: {
+    CollectionPath: 'Regions',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: Region, ValueListProperty: 'Region' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Region_Text' }
+    ]
+  };
+  Language @Common.ValueList: {
+    CollectionPath: 'Languages',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: Language, ValueListProperty: 'Language' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Language_Text' }
+    ]
+  };
+  FormOfAddress @Common.ValueList: {
+    CollectionPath: 'FormsOfAddress',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: FormOfAddress, ValueListProperty: 'FormOfAddress' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'FormOfAddress_Text' }
+    ]
+  };
+};
+
 annotate service.BusinessPartnerRoles with @(
   UI.LineItem: [
     { Value: BusinessPartnerRole, Label: 'Role' },
@@ -151,6 +240,18 @@ annotate service.BusinessPartnerRoles with @(
   ]
 );
 
+annotate service.BusinessPartnerRoles with {
+  // BusinessPartnerRoleCodes (not BusinessPartnerRoles — that name is already
+  // this entity itself) is the code/text list from ZSRVB_MDMLIGHT_VH.
+  BusinessPartnerRole @Common.ValueList: {
+    CollectionPath: 'BusinessPartnerRoleCodes',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: BusinessPartnerRole, ValueListProperty: 'BusinessPartnerRole' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'BusinessPartnerRole_Text' }
+    ]
+  };
+};
+
 annotate service.TaxNumbers with @(
   UI.LineItem: [
     { Value: BPTaxType,       Label: 'Tax Type' },
@@ -158,6 +259,16 @@ annotate service.TaxNumbers with @(
     { Value: BPTaxLongNumber, Label: 'Long Tax Number' }
   ]
 );
+
+annotate service.TaxNumbers with {
+  BPTaxType @Common.ValueList: {
+    CollectionPath: 'AddressDependentTaxTypes',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: BPTaxType, ValueListProperty: 'BPTaxType' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'BPTaxTypeName' }
+    ]
+  };
+};
 
 annotate service.BankDetails with @(
   UI.LineItem: [
@@ -181,6 +292,24 @@ annotate service.Identifications with @(
   ]
 );
 
+annotate service.Identifications with {
+  // IdentificationTypes has no description column in ZSRVB_MDMLIGHT_VH —
+  // the value help lists the raw code only.
+  BPIdentificationType @Common.ValueList: {
+    CollectionPath: 'IdentificationTypes',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: BPIdentificationType, ValueListProperty: 'BPIdentificationType' }
+    ]
+  };
+  Country @Common.ValueList: {
+    CollectionPath: 'Countries',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: Country, ValueListProperty: 'Country' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Country_Text' }
+    ]
+  };
+};
+
 annotate service.Industries with @(
   UI.LineItem: [
     { Value: IndustrySystemType,     Label: 'Industry System' },
@@ -189,6 +318,26 @@ annotate service.Industries with @(
     { Value: IsStandardIndustry,     Label: 'Standard Industry' }
   ]
 );
+
+annotate service.Industries with {
+  IndustrySystemType @Common.ValueList: {
+    CollectionPath: 'IndustrySystems',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: IndustrySystemType, ValueListProperty: 'IndustrySystemType' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'IndustrySystemType_Text' }
+    ]
+  };
+  // IndustrySectors is keyed by IndustrySystemType + IndustrySector in S/4;
+  // this value help searches by IndustrySector alone (not scoped to the
+  // system already chosen on the record).
+  IndustrySector @Common.ValueList: {
+    CollectionPath: 'IndustrySectors',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: IndustrySector, ValueListProperty: 'IndustrySector' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'IndustrySector_Text' }
+    ]
+  };
+};
 
 annotate service.Customers with @(
   UI.FieldGroup #Customer: {
@@ -204,6 +353,23 @@ annotate service.Customers with @(
   }
 );
 
+annotate service.Customers with {
+  CustomerAccountGroup @Common.ValueList: {
+    CollectionPath: 'CustomerAccountGroups',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: CustomerAccountGroup, ValueListProperty: 'CustomerAccountGroup' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'CustomerAccountGroup_Text' }
+    ]
+  };
+  CustomerClassification @Common.ValueList: {
+    CollectionPath: 'CustomerClassifications',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: CustomerClassification, ValueListProperty: 'CustomerClassification' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'CustomerClassification_Text' }
+    ]
+  };
+};
+
 annotate service.Suppliers with @(
   UI.FieldGroup #Supplier: {
     Data: [
@@ -216,3 +382,13 @@ annotate service.Suppliers with @(
     ]
   }
 );
+
+annotate service.Suppliers with {
+  SupplierAccountGroup @Common.ValueList: {
+    CollectionPath: 'SupplierAccountGroups',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: SupplierAccountGroup, ValueListProperty: 'SupplierAccountGroup' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'SupplierAccountGroup_Text' }
+    ]
+  };
+};

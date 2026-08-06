@@ -15,11 +15,13 @@
     "@sap-cloud-sdk/http-client": "^4.8.0",
     "@sap-cloud-sdk/resilience": "^4.8.0",
     "@sap/cds": "^8",
+    "axios": "^1.19.0",
     "express": "^4"
   },
   "devDependencies": {
     "@cap-js/sqlite": "^1",
-    "@sap/cds-dk": "^8"
+    "@sap/cds-dk": "^8",
+    "@sap/dev-cap-tools": "^1.31.0"
   },
   "overrides": {
     "better-sqlite3": "^12"
@@ -29,7 +31,8 @@
     "watch": "cds watch",
     "build": "cds build --production",
     "deploy": "cds deploy",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "local": "cds watch --profile hybrid"
   },
   "cds": {
     "requires": {
@@ -47,6 +50,22 @@
         "credentials": {
           "destination": "VF_S4HANA_DEST",
           "path": "/API_BUSINESS_PARTNER"
+        }
+      },
+      "SBPA_DESTINATION": {
+        "kind": "rest",
+        "csrf": false,
+        "credentials": {
+          "destination": "sbpa-destination"
+        }
+      },
+      "ZSRVB_MDMLIGHT_VH": {
+        "kind": "odata-v2",
+        "model": "srv/external/ZSRVB_MDMLIGHT_VH",
+        "csrf": false,
+        "credentials": {
+          "destination": "VF_S4HANA_DEST",
+          "path": "/ZSRVB_MDMLIGHT_VH"
         }
       }
     }
