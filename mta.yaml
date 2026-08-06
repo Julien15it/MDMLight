@@ -32,10 +32,30 @@ modules:
       - name: mdm-businesspartner-destination-service
       - name: mdm-businesspartner-connectivity
       - name: mdm-businesspartner-aicore
+      - name: mdm-businesspartner-db
     properties:
       AICORE_MODEL: gpt-5
       AICORE_FALLBACK_MODELS: gpt-5-mini,anthropic--claude-4.5-haiku
       AICORE_RESOURCE_GROUP: default
+
+  # --- PostgreSQL schema deployer ----------------------------------------------
+  # Runs cds-deploy as a one-off task; creates and evolves the staging tables.
+  - name: mdm-businesspartner-db-deployer
+    type: nodejs
+    path: gen/pg
+    parameters:
+      buildpack: nodejs_buildpack
+      no-route: true
+      no-start: true
+      disk-quota: 512M
+      memory: 256M
+      tasks:
+        - name: deploy_to_postgresql
+          command: npm start
+          disk-quota: 512M
+          memory: 256M
+    requires:
+      - name: mdm-businesspartner-db
 
   # --- Standalone application router ------------------------------------------
   - name: mdm-businesspartner-approuter
@@ -102,6 +122,16 @@ modules:
       no-source: true
 
 resources:
+  # Binds the existing shared instance rather than provisioning a new one -
+  # the subaccount is at its PostgreSQL instance quota. Point service-name at
+  # the user-provided service carrying the mdmlight_app role, not at
+  # sap-mcp-postgres-aidataenabler directly, so this app connects with its own
+  # role and lands in its own schema.
+  - name: mdm-businesspartner-db
+    type: org.cloudfoundry.existing-service
+    parameters:
+      service-name: mdmlight-postgres
+
   - name: mdm-businesspartner-auth
     type: org.cloudfoundry.managed-service
     parameters:
