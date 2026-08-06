@@ -122,15 +122,13 @@ modules:
       no-source: true
 
 resources:
-  # Binds the existing shared instance rather than provisioning a new one -
-  # the subaccount is at its PostgreSQL instance quota. Point service-name at
-  # the user-provided service carrying the mdmlight_app role, not at
-  # sap-mcp-postgres-aidataenabler directly, so this app connects with its own
-  # role and lands in its own schema.
   - name: mdm-businesspartner-db
-    type: org.cloudfoundry.existing-service
+    type: org.cloudfoundry.managed-service
     parameters:
-      service-name: mdmlight-postgres
+      service: postgresql-db
+      service-plan: free
+      config:
+        engine_version: "16"
 
   - name: mdm-businesspartner-auth
     type: org.cloudfoundry.managed-service

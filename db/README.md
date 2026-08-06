@@ -1,52 +1,48 @@
 # Persistence
 
-Staging for MDMLight change requests, on the shared PostgreSQL instance
-`sap-mcp-postgres-aidataenabler` (free plan, eu-central-1, PG 16).
+Staging for MDMLight change requests, on a dedicated PostgreSQL instance in the
+MDMLight dev space.
 
-## Why a shared instance
+## Setup
 
-The subaccount is at its PostgreSQL instance quota, and the instance already in
-use is a sandbox, not production. MDMLight therefore binds the existing
-instance instead of provisioning one, and isolates itself in its own schema.
+None. `mta.yaml` provisions the instance as a managed service, and the
+`mdm-businesspartner-db-deployer` module runs `cds-deploy` against it as a
+one-off task. There are no roles, schemas or grants to create — the app owns
+the whole database, so CAP deploys into `public`.
 
-## Setup, once
+Verify the plan name before the first deploy, since it varies by subaccount
+entitlement:
 
-1. Run `setup-schema.sql` against database `JeKIkfeREeNq` as the currently
-   bound user. This creates role `mdmlight_app`, schema `mdmlight`, and pins
-   the role's `search_path` to that schema.
+```sh
+cf marketplace -e postgresql-db
+```
 
-2. Create a user-provided service holding that role's credentials — same host,
-   port and database as the existing binding, but the new user and password:
-
-   ```sh
-   cf cups mdmlight-postgres -p '{
-     "hostname": "<host>",
-     "port": "<port>",
-     "dbname": "JeKIkfeREeNq",
-     "username": "mdmlight_app",
-     "password": "<password>",
-     "uri": "postgres://mdmlight_app:<password>@<host>:<port>/JeKIkfeREeNq"
-   }'
-   ```
-
-   `mta.yaml` binds `mdmlight-postgres`, not the managed instance directly.
-
-3. Deploy. The `mdm-businesspartner-db-deployer` task runs `cds-deploy`, which
-   creates the tables and the `cds_model` table used for schema evolution.
-
-## Why the schema is set server-side
-
-`@cap-js/postgres` credentials are `host`, `port`, `user`, `password`,
-`database` — there is no `schema` key. Setting `search_path` on the role means
-every connection resolves to `mdmlight` with no client-side configuration, and
-nothing in the app needs to know the schema exists.
+`mta.yaml` currently requests plan `free` and `engine_version: "16"`.
 
 ## Local development
 
 `db.kind` is `sqlite` by default and `postgres` only under the `production`
-profile, so `cds watch` keeps working with no database service. To test against
-real PostgreSQL locally, put credentials in `.env` (git-ignored) under a
-profile, then `cds watch --profile pg`.
+profile, so `cds watch` needs no database service. To test against real
+PostgreSQL locally, run one in Docker (see the CAP PostgreSQL guide) and use
+`cds watch --profile pg` — not the cloud instance, which is unreachable from
+outside Cloud Foundry.
+
+## Admin access to the cloud instance
+
+BTP PostgreSQL instances get private addresses (the previous one resolved to
+`10.16.180.188`), so no client on a laptop or in BAS can connect directly, and
+the instance will never appear in the BAS Database Explorer — that tool only
+lists HANA anyway.
+
+To inspect data, tunnel through an app bound to the instance:
+
+```sh
+cf ssh mdm-businesspartner-srv -L 15432:<db-host>:<db-port> -N
+```
+
+then connect a client to `localhost:15432`. Get the host and port from
+`cf env mdm-businesspartner-srv`. SSH may need enabling first
+(`cf enable-ssh <app>` plus a restart).
 
 ## Schema evolution
 
