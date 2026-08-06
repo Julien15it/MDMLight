@@ -296,6 +296,7 @@ sap.ui.define([
         this._router.getRoute("BusinessPartnerCreate").attachPatternMatched(this._onCreateRoute, this);
         this._router.getRoute("BusinessPartnerDisplay").attachPatternMatched(this._onDisplayRoute, this);
         this._router.getRoute("BusinessPartnerMaintain").attachPatternMatched(this._onEditRoute, this);
+        this._router.getRoute("ChangeRequestApprove").attachPatternMatched(this._onApproveRoute, this);
 
         this.getView().setModel(new JSONModel(this._emptyState()), "maintenance");
       },
@@ -312,9 +313,14 @@ sap.ui.define([
           showEditButton: false,
           showPreviewButton: true,
           showSaveButton: false,
+          showSaveRequestButton: false,
+          showDecisionButtons: false,
           showFooter: true,
-          saveButtonText: "Create in S/4HANA",
+          saveButtonText: "Submit Request",
           cancelButtonText: "Cancel",
+          changeRequest: "",
+          requestType: "",
+          requestStatus: "",
           previewCategory: "Organization (2)",
           previewGrouping: "",
           previewSearchTerm: "",
@@ -978,8 +984,10 @@ sap.ui.define([
         );
       },
 
-      _executeAction: async function (name, parameters) {
-        var binding = this.getView().getModel().bindContext("/" + name + "(...)");
+      // modelName selects the service: undefined is BusinessPartnerService,
+      // "cr" is ChangeRequestService (the staging actions).
+      _executeAction: async function (name, parameters, modelName) {
+        var binding = this.getView().getModel(modelName).bindContext("/" + name + "(...)");
         Object.keys(parameters).forEach(function (parameter) {
           binding.setParameter(parameter, parameters[parameter]);
         });
@@ -1024,6 +1032,10 @@ sap.ui.define([
         state.showEditButton = true;
         state.showPreviewButton = false;
         state.showSaveButton = true;
+        // Preview is the point of no return for the requester: from here the
+        // request goes to staging and into approval, not to S/4.
+        state.saveButtonText = "Submit Request";
+        state.showSaveRequestButton = true;
         state.cancelButtonText = "Cancel";
         this._updatePreview(state);
         this._renderAll();
@@ -1036,6 +1048,7 @@ sap.ui.define([
         state.showEditButton = false;
         state.showPreviewButton = state.mode === "create";
         state.showSaveButton = state.mode !== "create";
+        state.showSaveRequestButton = state.mode === "create";
         state.modeText = state.mode === "create" ? "Create" : "Edit";
         state.title = state.mode === "create"
           ? "Create Business Partner"
@@ -1054,6 +1067,9 @@ sap.ui.define([
           MessageBox.error(validationErrors.join("\n"));
           return;
         }
+        // A create never reaches S/4 from here. It goes to the staging tables
+        // and into approval; S/4 is written only once an approver approves.
+        if (isCreate) return this._sendChangeRequest("submitRequest");
         state.busy = true;
         maintenanceModel.refresh(true);
 
@@ -1166,6 +1182,181 @@ sap.ui.define([
         }
  
 
+      },
+
+      /**
+       * The screen state as the staging service expects it. Section ids are the
+       * generated metadata ids, which are also the staging node names, so
+       * nothing has to be translated on either side.
+       */
+      _requestDataJson: function (state) {
+        var sections = {};
+        var deleted = {};
+        this._metadata
+          .filter(function (section) { return section.kind !== "root"; })
+          .forEach(function (section) {
+            sections[section.id] = (state.sections[section.id] || []).slice();
+            deleted[section.id] = (state.deletedRecords[section.id] || []).slice();
+          });
+        return JSON.stringify({ root: state.root, sections: sections, deleted: deleted });
+      },
+
+      /** action is "saveRequest" (stays a draft) or "submitRequest". */
+      _sendChangeRequest: async function (action) {
+        var maintenanceModel = this.getView().getModel("maintenance");
+        var state = maintenanceModel.getData();
+        state.busy = true;
+        maintenanceModel.refresh(true);
+
+        try {
+          var result = await this._executeAction(action, {
+            ChangeRequest: state.changeRequest || null,
+            RequestType: state.requestType || "create",
+            BusinessPartner: state.businessPartner || null,
+            Reason: null,
+            DataJson: this._requestDataJson(state)
+          }, "cr");
+
+          state.changeRequest = (result && result.ChangeRequest) || state.changeRequest;
+          state.requestStatus = (result && result.Status) || "";
+
+          if (action === "saveRequest") {
+            MessageToast.show("Request saved as a draft.");
+            return;
+          }
+
+          state.mode = "display";
+          state.modeText = "Submitted";
+          state.editing = false;
+          state.showSaveButton = false;
+          state.showSaveRequestButton = false;
+          state.showPreviewButton = false;
+          state.showEditButton = false;
+          state.title = "Request submitted for approval";
+          MessageToast.show("Request submitted for approval.");
+          this._router.navTo("BusinessPartnersList", {}, true);
+        } catch (error) {
+          MessageBox.error(errorMessage(error, "The request could not be saved."));
+        } finally {
+          state.busy = false;
+          maintenanceModel.refresh(true);
+          this._renderAll();
+        }
+      },
+
+      onSaveRequest: function () {
+        return this._sendChangeRequest("saveRequest");
+      },
+
+      // --- Approver view -----------------------------------------------------
+
+      _onApproveRoute: async function (event) {
+        var changeRequest = decodeURIComponent(
+          event.getParameter("arguments").changeRequest
+        );
+        var maintenanceModel = this.getView().getModel("maintenance");
+        var state = this._emptyState();
+        state.busy = true;
+        state.mode = "approve";
+        state.modeText = "Approval";
+        state.editing = false;
+        state.changeRequest = changeRequest;
+        state.showEditButton = false;
+        state.showPreviewButton = false;
+        state.showSaveButton = false;
+        state.showSaveRequestButton = false;
+        state.showDecisionButtons = true;
+        state.showFooter = true;
+        state.cancelButtonText = "Back";
+        maintenanceModel.setData(state);
+
+        try {
+          var payload = await this._executeAction(
+            "getRequestPayload", { ChangeRequest: changeRequest }, "cr"
+          );
+          var data = JSON.parse((payload && payload.DataJson) || "{}");
+
+          state.root = data.root || {};
+          state.originalRoot = clone(state.root);
+          this._metadata
+            .filter(function (section) { return section.kind !== "root"; })
+            .forEach(function (section) {
+              var value = data.sections && data.sections[section.id];
+              state.sections[section.id] = Array.isArray(value)
+                ? value
+                : (value ? [value] : []);
+            });
+
+          state.requestType = (payload && payload.RequestType) || "";
+          state.requestStatus = (payload && payload.Status) || "";
+          state.businessPartner = (payload && payload.BusinessPartner) || "";
+          state.title = "Approve request " + changeRequest;
+          state.headerTitle = previewName(state.root) || "Requested Business Partner";
+          // Only a request still awaiting a decision can be decided on. Opening
+          // an already-decided task must not offer the buttons again.
+          state.showDecisionButtons = state.requestStatus === "inApproval";
+        } catch (error) {
+          MessageBox.error(errorMessage(error, "The change request could not be loaded."));
+        } finally {
+          state.busy = false;
+          this._updatePreview(state);
+          maintenanceModel.refresh(true);
+          this._renderAll();
+        }
+      },
+
+      _decide: async function (decision, comment) {
+        var maintenanceModel = this.getView().getModel("maintenance");
+        var state = maintenanceModel.getData();
+        state.busy = true;
+        maintenanceModel.refresh(true);
+
+        try {
+          var result = await this._executeAction("decideRequest", {
+            ChangeRequest: state.changeRequest,
+            Decision: decision,
+            Comment: comment || null
+          }, "cr");
+
+          state.requestStatus = (result && result.Status) || "";
+          state.showDecisionButtons = false;
+          if (result && result.BusinessPartner) {
+            state.businessPartner = result.BusinessPartner;
+            MessageToast.show("Approved. Business Partner " + result.BusinessPartner + " was created in S/4HANA.");
+          } else {
+            MessageToast.show("Request rejected.");
+          }
+        } catch (error) {
+          MessageBox.error(errorMessage(error, "The decision could not be recorded."));
+        } finally {
+          state.busy = false;
+          maintenanceModel.refresh(true);
+          this._renderAll();
+        }
+      },
+
+      onApprove: function () {
+        var that = this;
+        MessageBox.confirm(
+          "Approve this request and create the Business Partner in S/4HANA?",
+          {
+            onClose: function (choice) {
+              if (choice === MessageBox.Action.OK) that._decide("approve");
+            }
+          }
+        );
+      },
+
+      onReject: function () {
+        var that = this;
+        MessageBox.confirm(
+          "Reject this request? The Business Partner will not be created.",
+          {
+            onClose: function (choice) {
+              if (choice === MessageBox.Action.OK) that._decide("reject");
+            }
+          }
+        );
       },
 
       onBackToList: function () {

@@ -23,6 +23,14 @@
           "annotations": [],
           "odataVersion": "4.0"
         }
+      },
+      "changeRequestService": {
+        "uri": "service/changerequest/",
+        "type": "OData",
+        "settings": {
+          "annotations": [],
+          "odataVersion": "4.0"
+        }
       }
     },
     "crossNavigation": {
@@ -102,6 +110,16 @@
       "@i18n": {
         "type": "sap.ui.model.resource.ResourceModel",
         "uri": "i18n/i18n.properties"
+      },
+      "cr": {
+        "dataSource": "changeRequestService",
+        "preload": true,
+        "settings": {
+          "synchronizationMode": "None",
+          "operationMode": "Server",
+          "autoExpandSelect": true,
+          "earlyRequests": false
+        }
       }
     },
     "resources": {
@@ -142,6 +160,11 @@
           "target": "BusinessPartnerMaintenance"
         },
         {
+          "pattern": "ChangeRequests/{changeRequest}/approve",
+          "name": "ChangeRequestApprove",
+          "target": "BusinessPartnerMaintenance"
+        },
+        {
           "pattern": "BusinessPartners({key}):?query:",
           "name": "BusinessPartnersObjectPage",
           "target": "BusinessPartnersObjectPage"
@@ -159,7 +182,7 @@
               "navigation": {
                 "BusinessPartners": {
                   "detail": {
-                      "route": "BusinessPartnerDisplay"
+                    "route": "BusinessPartnerDisplay"
                   }
                 }
               },
