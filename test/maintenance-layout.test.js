@@ -83,6 +83,48 @@ test('assistant sends bounded conversation history for follow-up reasoning', () 
   assert.match(assistant, /conversationHistory\.push/);
 });
 
+// Loads the UI5 module with stubbed dependencies so its logic can be exercised outside a browser.
+function loadAssistantModule() {
+  const source = fs.readFileSync(path.join(webapp, 'ext', 'BusinessPartnerAssistant.js'), 'utf8');
+  let loaded;
+  const sap = {
+    ui: {
+      define: (dependencies, factory) => {
+        loaded = factory(...dependencies.map(() => function stub() {}));
+      }
+    }
+  };
+  new Function('sap', source)(sap);
+  return loaded;
+}
+
+// An idle approuter answers the assistant's XHR with a bare 401 that no retry can recover.
+test('an expired session is recognised however the 401 is reported', () => {
+  const { _isSessionExpired } = loadAssistantModule();
+
+  assert.equal(_isSessionExpired({ cause: { status: 401 } }), true);
+  assert.equal(_isSessionExpired({ cause: { statusCode: 401 } }), true);
+  assert.equal(_isSessionExpired({ status: 401 }), true);
+  assert.equal(_isSessionExpired({ cause: { message: 'Communication error: 401 error' } }), true);
+
+  assert.equal(_isSessionExpired({ cause: { status: 502 } }), false);
+  assert.equal(_isSessionExpired({ message: 'S/4HANA rejected the request' }), false);
+  assert.equal(_isSessionExpired({ cause: { message: 'no 4010 partners found' } }), false);
+  assert.equal(_isSessionExpired(null), false);
+});
+
+test('the assistant offers a reload instead of a dead dialog when the session expires', () => {
+  const assistant = fs.readFileSync(
+    path.join(webapp, 'ext', 'BusinessPartnerAssistant.js'),
+    'utf8'
+  );
+
+  assert.match(assistant, /Your session expired, so the question was not sent/);
+  assert.match(assistant, /window\.location\.reload\(\)/);
+  // The generic path must survive: not every failure is an expired session.
+  assert.match(assistant, /transcript \+= "\\n\\nAssistant: " \+ errorMessage\(error\)/);
+});
+
 test('maintenance sends only changed root fields and shows concise entity fields', () => {
   const controller = fs.readFileSync(
     path.join(webapp, 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),

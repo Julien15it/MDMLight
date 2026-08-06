@@ -1,0 +1,43 @@
+@EndUserText.label: 'Entity to expose Value Helps for MDM Light'
+define service ZMDML_VH_ENTITY {
+  expose I_CountryVH                    as Countries;
+  expose I_RegionVH                     as Regions;
+  expose I_Language                     as Languages;
+  expose I_LanguageText                 as LanguageTexts;
+  expose I_AcademicTitleVH              as AcademicTitles;
+  expose I_FormOfAddress                as FormsOfAddress;
+  expose I_FormOfAddressText            as FormOfAddressTexts;
+  expose I_BusPartCategory              as BusinessPartnerCategories;
+  expose I_BusPartCategoryText          as BusinessPartnerCategoryTexts;
+  expose I_BusinessPartnerGrouping      as BusinessPartnerGroupings;
+  expose I_BusinessPartnerGroupingText  as BusinessPartnerGroupingTexts;
+  expose I_BusinessPartnerRoleStdVH     as BusinessPartnerRoles;
+  expose I_BusinessPartnerType          as BusinessPartnerTypes;
+  expose I_BusinessPartnerTypeText      as BusinessPartnerTypeTexts;
+  expose I_BusinessPartnerLegalForm     as LegalForms;
+  expose I_BusinessPartnerLegalFormText as LegalFormTexts;
+  expose I_BusinessPartnerOccupation    as Occupations;
+  expose I_BusPartOccupationText        as OccupationTexts;
+  expose I_BusinessPartnerPrintFormat   as PrintFormats;
+  expose I_BusinessPartnerPrintFormatT  as PrintFormatTexts;
+  expose I_BusPartMaritalStatus         as MaritalStatuses;
+  expose I_BusPartMaritalStatusText     as MaritalStatusTexts;
+  expose I_BusPartBirthDateStatus       as BirthDateStatuses;
+  expose I_BusPartBirthDateStatusText   as BirthDateStatusTexts;
+  expose I_BPGenderValueHelp            as Genders;
+  expose I_BPTradingPartner             as TradingPartners;
+  expose I_BuPaIdentificationType       as IdentificationTypes;
+  expose I_BusPartTaxTypeText           as TaxTypes;
+  expose I_BusPartAddrDepdntTaxTypeVH   as AddressDependentTaxTypes;
+  expose I_BusPartIndustrySystem        as IndustrySystems;
+  expose I_BusPartIndustrySystemText    as IndustrySystemTexts;
+  expose I_BusPartIndustryKey           as IndustrySectors;
+  expose I_BusPartIndustryKeyText       as IndustrySectorTexts;
+  expose I_BusPartIndustryCode          as IndustryCodes;
+  expose I_BusPartIndustryCodeText      as IndustryCodeTexts;
+  expose I_BusinessPartnerBank          as Banks;
+  expose I_CustomerAccountGroupStdVH    as CustomerAccountGroups;
+  expose I_CustomerClassification       as CustomerClassifications;
+  expose I_CustomerClassificationText   as CustomerClassificationTexts;
+  expose I_SupplierAccountGroupStdVH    as SupplierAccountGroups;
+}

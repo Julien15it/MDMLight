@@ -9,6 +9,9 @@ const {
   MAINTENANCE_ENTITIES,
   SEARCHABLE_FIELDS,
   answerBusinessPartnerQuestion,
+  assistantAddressFilter,
+  readAllPages,
+  readAssistantAddresses,
   addDefaultAddressUsage,
   businessPartnerCreationSuggestion,
   businessPartnerNavigationPath,
@@ -490,6 +493,33 @@ test('assistant recognizes free-form Dutch and English company lookup requests',
   );
 });
 
+// The generic "company <rest>" pattern used to win over these and capture the rest of the sentence,
+// so the duplicate check ran against "Alluvion already exist in our system" and found nothing.
+test('an existence question yields the bare company name, whatever the phrasing', () => {
+  const phrasings = [
+    'does the company Alluvion already exist in our system?',
+    'does the company Alluvion exist in the system?',
+    'does the company Alluvion exist?',
+    'Does Alluvion already exist in our system?',
+    'Does Alluvion exist?',
+    'Is there a company called Alluvion?',
+    'Any companies called Alluvion?',
+    'Is Alluvion a business partner?',
+    '"Alluvion"',
+    // Trailing words used to be captured as part of the name, typo and all.
+    'Are there any companies called Alluvion availebe in our system already?',
+    'Is there a company called Alluvion in our system?',
+    'Does Alluvion already exist in our system?'
+  ];
+  for (const phrasing of phrasings) {
+    assert.equal(
+      BusinessPartnerService._internals.requestedCompanyName(phrasing),
+      'Alluvion',
+      `extracted the wrong name from “${phrasing}”`
+    );
+  }
+});
+
 test('assistant resolves a company from prior turns for a follow-up create request', () => {
   const history = parseConversationHistory(JSON.stringify([
     { role: 'user', content: 'Kan je een business partner met de naam Spar Destelbergen vinden?' },
@@ -721,4 +751,72 @@ test('every entity the approval workflow needs has a valid filter strategy', () 
     assert.ok(['one', 'many'].includes(config.cardinality), `${config.name} has an invalid cardinality`);
     assert.ok(validFilters.has(config.filterBy), `${config.name} has an invalid filterBy`);
   }
+test('scopes the address filter to the partners in context', () => {
+  const filter = assistantAddressFilter([
+    { BusinessPartner: '1' },
+    { BusinessPartner: '2' }
+  ]);
+
+  assert.deepEqual(filter, [
+    { xpr: [{ ref: ['BusinessPartner'] }, '=', { val: '1' }] },
+    'or',
+    { xpr: [{ ref: ['BusinessPartner'] }, '=', { val: '2' }] }
+  ]);
+  assert.deepEqual(assistantAddressFilter([]), []);
+});
+
+test('pages through every row instead of truncating at the first page', async () => {
+  const pageSize = 2;
+  const rows = [{ n: 1 }, { n: 2 }, { n: 3 }, { n: 4 }, { n: 5 }];
+  const requested = [];
+  const s4 = {
+    run: async ({ top, skip }) => {
+      requested.push({ top, skip });
+      return rows.slice(skip, skip + top);
+    }
+  };
+
+  const read = await readAllPages(s4, (top, skip) => ({ top, skip }), pageSize);
+
+  assert.deepEqual(read, rows);
+  assert.deepEqual(requested, [
+    { top: 2, skip: 0 },
+    { top: 2, skip: 2 },
+    { top: 2, skip: 4 }
+  ]);
+});
+
+test('performs one confirming read when the final page is exactly full', async () => {
+  const rows = [{ n: 1 }, { n: 2 }];
+  let calls = 0;
+  const s4 = {
+    run: async ({ top, skip }) => {
+      calls += 1;
+      return rows.slice(skip, skip + top);
+    }
+  };
+
+  assert.deepEqual(await readAllPages(s4, (top, skip) => ({ top, skip }), 2), rows);
+  assert.equal(calls, 2);
+});
+
+test('reads addresses in chunks so the generated filter stays short', async () => {
+  const partners = Array.from({ length: 120 }, (_, index) => ({
+    BusinessPartner: String(index + 1)
+  }));
+  const filterSizes = [];
+  const s4 = {
+    entities: {},
+    run: async (query) => {
+      const serialized = JSON.stringify(query.SELECT.where || []);
+      filterSizes.push((serialized.match(/"BusinessPartner"/gu) || []).length);
+      return [];
+    }
+  };
+
+  await readAssistantAddresses(s4, partners);
+
+  assert.equal(filterSizes.length, 3);
+  assert.deepEqual(filterSizes, [50, 50, 20]);
+  assert.deepEqual(await readAssistantAddresses(s4, []), []);
 });

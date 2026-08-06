@@ -9,6 +9,7 @@
     "node": ">=22"
   },
   "dependencies": {
+    "@cap-js/postgres": "^1",
     "@sap-ai-sdk/orchestration": "^2.13.0",
     "@sap-cloud-sdk/connectivity": "^4.8.0",
     "@sap-cloud-sdk/http-client": "^4.8.0",
@@ -35,6 +36,12 @@
   },
   "cds": {
     "requires": {
+      "db": {
+        "kind": "sqlite",
+        "[production]": {
+          "kind": "postgres"
+        }
+      },
       "API_BUSINESS_PARTNER": {
         "kind": "odata-v2",
         "model": "srv/external/API_BUSINESS_PARTNER",

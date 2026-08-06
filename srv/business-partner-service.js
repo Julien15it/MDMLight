@@ -2,8 +2,19 @@
 
 const cds = require('@sap/cds');
 const { askSapAiCore } = require('./ai/business-partner-assistant');
+const { parseIntent, useModelIntent } = require('./ai/intent');
 const { researchCompany } = require('./ai/company-research');
 const { startWorkflow } = require("./wf/processAutomation");
+const { createCache } = require('./ai/cache');
+const { rankDuplicates, partnerFingerprints } = require('./ai/name-match');
+const { createNameIndex } = require('./ai/name-index');
+const { createCapPartnerReader, createMcpPartnerReader, ENTITY_SET } = require('./ai/partner-readers');
+const { createMcpToolCaller } = require('./ai/mcp-client');
+const { executeHttpRequest } = require('@sap-cloud-sdk/http-client');
+
+const assistantCache = createCache();
+const nameIndex = createNameIndex();
+let indexReader = null;
 
 const SEARCHABLE_FIELDS = Object.freeze([
   'BusinessPartner',
@@ -65,32 +76,12 @@ const ASSISTANT_ADDRESS_FIELDS = Object.freeze([
   'POBox'
 ]);
 
-const ASSISTANT_STOP_WORDS = Object.freeze(new Set([
-  // English function words
-  'a', 'an', 'about', 'all', 'and', 'any', 'are', 'as', 'at', 'be', 'business',
-  'by', 'called', 'can', 'data', 'display', 'do', 'does', 'find', 'for', 'from',
-  'get', 'give', 'has', 'have', 'hello', 'hey', 'hi', 'how', 'i', 'in', 'is',
-  'it', 'list', 'many', 'me', 'my', 'name', 'named', 'of', 'on', 'or',
-  'partner', 'partners', 'please', 'record', 'records', 'search', 'show',
-  'tell', 'thank', 'thanks', 'that', 'the', 'their', 'there', 'this', 'to',
-  'what', 'which', 'who', 'whose', 'with', 'you', 'your',
-  // Dutch function words
-  'aan', 'al', 'alle', 'alles', 'als', 'bedankt', 'bij', 'dank', 'de', 'die',
-  'dit', 'door', 'een', 'en', 'er', 'geef', 'gegevens', 'hallo', 'heb',
-  'hebben', 'heeft', 'het', 'hun', 'ik', 'je', 'kan', 'kun', 'kunt', 'laat',
-  'lijst', 'met', 'mij', 'naam', 'niet', 'om', 'ons', 'onze', 'op', 'over',
-  'te', 'toon', 'tonen', 'uit', 'van', 'voor', 'wat', 'welke', 'wie', 'wil',
-  'zie', 'zijn', 'zoek', 'zoeken',
-  // Generic company and address nouns, never part of a partner name
-  'address', 'addresses', 'adres', 'adressen', 'bedrijf', 'city', 'company',
-  'country', 'firma', 'gevestigd', 'info', 'informatie', 'land', 'located',
-  'organisatie', 'organization', 'postal', 'postcode', 'regio', 'region',
-  'stad', 'straat', 'street',
-  // Words that select a report rather than name a partner
-  'aantal', 'blocked', 'blokkade', 'categorie', 'category', 'count',
-  'geblokkeerd', 'groep', 'groepering', 'grouping', 'hoeveel', 'total',
-  'totaal'
-]));
+// The assistant reads every matching row by paging; these only size the pages.
+const ASSISTANT_PAGE_SIZE = 1000;
+const ASSISTANT_ADDRESS_CHUNK = 50;
+const ASSISTANT_MAX_ROWS = 100000;
+
+const { STOP_WORDS: ASSISTANT_STOP_WORDS } = require('./ai/stop-words');
 
 // Entities projected onto ZSRVB_MDMLIGHT_VH in business-partner-service.cds —
 // read from that service instead of being forwarded to S4 (see the READ
@@ -553,6 +544,82 @@ function assistantSearchFilter(terms) {
   );
 }
 
+// Scopes an address read to the partners actually in context.
+function assistantAddressFilter(partners = []) {
+  return joinExpressions(
+    partners.map((partner) => ({
+      xpr: [{ ref: ['BusinessPartner'] }, '=', { val: String(partner.BusinessPartner) }]
+    })),
+    'or'
+  );
+}
+
+// Pages through S/4 until every matching row has been read.
+async function readAllPages(s4, buildQuery, pageSize = ASSISTANT_PAGE_SIZE) {
+  const rows = [];
+  for (let skip = 0; ; skip += pageSize) {
+    const page = await s4.run(buildQuery(pageSize, skip));
+    if (!Array.isArray(page) || page.length === 0) break;
+    rows.push(...page);
+    if (page.length < pageSize) break;
+    if (rows.length >= ASSISTANT_MAX_ROWS) {
+      console.warn(`[assistant] read stopped at the ${ASSISTANT_MAX_ROWS} row safety cap`);
+      break;
+    }
+  }
+  return rows;
+}
+
+// Chunks the partner list so the generated $filter stays a sane length.
+async function readAssistantAddresses(s4, partners = []) {
+  if (!partners.length) return [];
+  const entity = remoteEntity(s4, 'A_BusinessPartnerAddress');
+  const chunks = [];
+  for (let index = 0; index < partners.length; index += ASSISTANT_ADDRESS_CHUNK) {
+    chunks.push(partners.slice(index, index + ASSISTANT_ADDRESS_CHUNK));
+  }
+  const pages = await Promise.all(chunks.map((chunk) => readAllPages(
+    s4,
+    (top, skip) => cds.ql.SELECT
+      .from(entity)
+      .columns(...ASSISTANT_ADDRESS_FIELDS)
+      .where(assistantAddressFilter(chunk))
+      .limit(top, skip)
+  )));
+  return pages.flat();
+}
+
+// Selected by config so the same index can be fed by either transport. Deliberately not under
+// cds.env.requires — CAP resolves that namespace as services and would try to connect this.
+function createIndexReader(s4, env = cds.env.assistant?.indexSource) {
+  const source = String(process.env.ASSISTANT_INDEX_SOURCE || env?.kind || 'cap').toLowerCase();
+  if (source !== 'mcp') {
+    return createCapPartnerReader({ service: s4, entity: remoteEntity(s4, ENTITY_SET) });
+  }
+  const destinationName = process.env.MCP_DESTINATION || env?.destination;
+  // Confirmed against the sandbox; the destination has no default because it is landscape-specific.
+  const serviceId = process.env.MCP_SERVICE_ID || env?.serviceId || 'ZAPI_BUSINESS_PARTNER_0001';
+  if (!destinationName) throw new Error('ASSISTANT_INDEX_SOURCE=mcp needs MCP_DESTINATION');
+  console.log(`[assistant] Name index reading through MCP service ${serviceId}`);
+  return createMcpPartnerReader({
+    callTool: createMcpToolCaller({ destinationName, executeHttpRequest }),
+    serviceId
+  });
+}
+
+// Falls back to the rows already read, so a failed index build never blocks an answer.
+async function findIndexedDuplicates(s4, name, partners = []) {
+  try {
+    if (!indexReader) indexReader = createIndexReader(s4);
+    await nameIndex.refresh(indexReader);
+  } catch (error) {
+    console.warn('[assistant] Name index unavailable, matching on the filtered read:', error.message);
+  }
+  return nameIndex.isBuilt()
+    ? nameIndex.find(name)
+    : findPotentialDuplicates(name, partners);
+}
+
 /**
  * Matches on any term and ranks by how many terms hit. Requiring every term to
  * match makes a natural sentence such as "toon alle data die Alluvion als naam
@@ -676,80 +743,38 @@ function answerBusinessPartnerQuestion(question, partners = [], addresses = []) 
   return assistantList(`Results for “${terms.join(' ')}”`, matching);
 }
 
-function normalizedCompanyName(value) {
-  return String(value || '')
-    .normalize('NFKD')
-    .toLocaleLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .trim();
+// Fingerprints rows on the fly; the name index precomputes the same thing once per partner.
+function findPotentialDuplicates(name, partners = [], options = {}) {
+  return rankDuplicates(
+    name,
+    partners.map((partner) => ({ partner, fingerprints: partnerFingerprints(partner) })),
+    options
+  );
 }
 
-function companyFingerprint(value) {
-  const legalForms = new Set([
-    'ag', 'bv', 'bvba', 'co', 'company', 'corp', 'corporation', 'gmbh', 'inc',
-    'limited', 'llc', 'ltd', 'nv', 'plc', 'sa', 'se', 'srl'
-  ]);
-  return normalizedCompanyName(value)
-    .split(/\s+/u)
-    .filter((token) => token && !legalForms.has(token))
-    .join('');
-}
+// Every capture above ends at punctuation or end of line, so the words after the name come along.
+// Cutting them here fixes all of the patterns at once instead of thirteen times over.
+const TRAILING_CLAUSES = Object.freeze([
+  /\s+(?:en|and)\s+(?:indien|if|zoek|search|lookup|maak|create)\b[\s\S]*$/iu,
+  /\s+(?:in|within|binnen|op)\s+(?:our|the|my|your|their|het|de|ons|onze|dit|deze)\b[\s\S]*$/iu,
+  /\s+(?:in|within|binnen|op)\s+(?:\w+\s+){0,2}?(?:system|systeem|s\/4hana|database)\b[\s\S]*$/iu,
+  /\s+(?:avail\w*|beschikbaar\w*)\b[\s\S]*$/iu,
+  /\s+(?:already|reeds|nog)\b[\s\S]*$/iu,
+  /\s+(?:exists?|bestaat|aanwezig)\b[\s\S]*$/iu
+]);
 
-function diceSimilarity(left, right) {
-  if (left === right) return 1;
-  if (left.length < 2 || right.length < 2) return 0;
-  const pairs = new Map();
-  for (let index = 0; index < left.length - 1; index += 1) {
-    const pair = left.slice(index, index + 2);
-    pairs.set(pair, (pairs.get(pair) || 0) + 1);
-  }
-  let overlap = 0;
-  for (let index = 0; index < right.length - 1; index += 1) {
-    const pair = right.slice(index, index + 2);
-    const available = pairs.get(pair) || 0;
-    if (available > 0) {
-      overlap += 1;
-      pairs.set(pair, available - 1);
-    }
-  }
-  return (2 * overlap) / (left.length + right.length - 2);
-}
-
-function findPotentialDuplicates(name, partners = []) {
-  const requested = companyFingerprint(name);
-  if (!requested) return [];
-
-  return partners
-    .map((partner) => {
-      const candidates = [
-        partner.BusinessPartnerFullName,
-        partner.BusinessPartnerName,
-        partner.OrganizationBPName1
-      ].filter(Boolean);
-      const score = Math.max(0, ...candidates.map((candidate) => {
-        const fingerprint = companyFingerprint(candidate);
-        if (!fingerprint) return 0;
-        if (fingerprint === requested) return 1;
-        const ratio = Math.min(fingerprint.length, requested.length)
-          / Math.max(fingerprint.length, requested.length);
-        if (requested.length >= 6 && ratio >= 0.75
-          && (fingerprint.includes(requested) || requested.includes(fingerprint))) return 0.92;
-        return diceSimilarity(requested, fingerprint);
-      }));
-      return { partner, score };
-    })
-    .filter(({ score }) => score >= 0.82)
-    .sort((left, right) => right.score - left.score)
-    .slice(0, 5);
+function stripTrailingClause(name) {
+  return TRAILING_CLAUSES.reduce((result, pattern) => result.replace(pattern, ''), name);
 }
 
 function requestedCompanyName(question) {
   const source = String(question || '').trim();
   const quoted = source.match(/["“”']([^"“”']{2,80})["“”']/u);
+  // Bounded, and tried last: an unbounded capture here used to swallow "Alluvion exist in our system".
   const company = source.match(
-    /(?:bedrijf|company|firma|organisatie|organization)\s+(?:genaamd\s+|named\s+)?(.{2,80})$/iu
+    /(?:bedrijf|bedrijven|company|companies|firma|organisatie|organisation|organization)\s+(?:genaamd\s+|named\s+|called\s+)?(.{2,80}?)(?:\s+(?:al|already|nog)\b)?(?:\s+(?:exists?|bestaat|aanwezig)\b[\s\S]*)?(?:[?.!,;:]|$)/iu
   );
-  const about = source.match(/(?:over|about)\s+(?:het\s+|the\s+)?(.{2,80})$/iu);
+  const about = source.match(/(?:over|about)\s+(?:het\s+|the\s+)?(.{2,80}?)(?:[?.!,;:]|$)/iu);
   const lookupCommand = source.match(
     /(?:kan|kun|could|can|wil|would)\s+(?:je|jij|u|you)\s+(.{2,80}?)\s+(?:opzoeken|zoeken|nakijken|look\s+up|lookup|research|check)\b/iu
   );
@@ -760,19 +785,22 @@ function requestedCompanyName(question) {
     /^(?:zoek|search|lookup|research|check)\s+(?:info(?:rmation)?\s+(?:over|about)\s+)?(.{2,80}?)(?:[?.!,;:]|$)/iu
   );
   const existenceQuestion = source.match(
-    /(?:is|are)\s+there\s+(?:an?\s+)?(?:business\s+partner|bp|company|organisation|organization)\s+(?:called|named)\s+(.{2,80}?)(?:[?.!,;:]|$)/iu
+    /(?:is|are)\s+there\s+(?:an?\s+)?(?:business\s+partners?|bps?|companies|company|organisations?|organizations?)\s+(?:called|named)\s+(.{2,80}?)(?:[?.!,;:]|$)/iu
+  );
+  const anyNamedQuestion = source.match(
+    /\b(?:any|welke|which)\s+(?:business\s+partners?|bps?|companies|company|organisations?|organizations?|bedrijven|bedrijf)\s+(?:called|named|genaamd|met\s+de\s+naam)\s+(.{2,80}?)(?:[?.!,;:]|$)/iu
   );
   const dutchExistenceQuestion = source.match(
     /(?:bestaat|is)\s+er\s+(?:al\s+)?(?:een\s+)?(?:business\s+partner|bp|bedrijf|firma|organisatie)\s+(?:genaamd|met\s+de\s+naam)\s+(.{2,80}?)(?:[?.!,;:]|$)/iu
   );
   const namedLookup = source.match(
-    /(?:business\s+partner|bp|bedrijf|firma|organisatie)\s+(?:called|named|genaamd|met\s+de\s+naam)\s+(.{2,80}?)(?:\s+(?:vinden|zoeken|opzoeken|find|lookup|look\s+up)\b|[?.!,;:]|$)/iu
+    /(?:business\s+partners?|bps?|companies|company|bedrijven|bedrijf|firma|organisaties?|organisations?|organizations?)\s+(?:called|named|genaamd|met\s+de\s+naam)\s+(.{2,80}?)(?:\s+(?:vinden|zoeken|opzoeken|find|lookup|look\s+up)\b|[?.!,;:]|$)/iu
   );
   const informalExistenceQuestion = source.match(
     /(?:kijken|weten|checken|controleren)\s+(?:of|als)\s+(.{2,80}?)\s+(?:al\s+)?(?:bestaat|aanwezig\s+is)(?:[?.!,;:]|$)/iu
   );
   const directEnglishExistenceQuestion = source.match(
-    /^does\s+(?:(?:the|a)\s+)?(?:(?:business\s+partner|bp|company|organisation|organization)\s+)?(.{2,80}?)\s+exist(?:s)?(?:\s+(?:in|within)\s+(?:the\s+)?(?:system|s\/4hana))?(?:[?.!,;:]|$)/iu
+    /^does\s+(?:(?:the|a)\s+)?(?:(?:business\s+partner|bp|company|organisation|organization)\s+)?(.{2,80}?)\s+(?:already\s+)?exist(?:s)?(?:\s+(?:in|within)\s+(?:the\s+|our\s+|my\s+|their\s+)?(?:system|s\/4hana))?(?:[?.!,;:]|$)/iu
   );
   const directDutchExistenceQuestion = source.match(
     /^bestaat\s+(?:er\s+)?(?:(?:al|een)\s+)*(?:(?:business\s+partner|bp|bedrijf|firma|organisatie)\s+)?(.{2,80}?)(?:\s+al)?(?:\s+(?:in|binnen)\s+(?:het\s+)?(?:systeem|s\/4hana))?(?:[?.!,;:]|$)/iu
@@ -780,26 +808,27 @@ function requestedCompanyName(question) {
   const predicateExistenceQuestion = source.match(
     /^(?:is|are)\s+(.{2,80}?)\s+(?:an?\s+)?(?:business\s+partner|bp)\b/iu
   );
+  // Specific patterns first: the generic "company <rest>" and "about <rest>" catch-alls are backstops.
   let name = (quoted && quoted[1])
-    || (company && company[1])
-    || (about && about[1])
-    || (lookupCommand && lookupCommand[1])
-    || (lookupAfterVerb && lookupAfterVerb[1])
-    || (imperative && imperative[1])
     || (existenceQuestion && existenceQuestion[1])
+    || (anyNamedQuestion && anyNamedQuestion[1])
     || (dutchExistenceQuestion && dutchExistenceQuestion[1])
     || (namedLookup && namedLookup[1])
     || (informalExistenceQuestion && informalExistenceQuestion[1])
     || (directEnglishExistenceQuestion && directEnglishExistenceQuestion[1])
     || (directDutchExistenceQuestion && directDutchExistenceQuestion[1])
     || (predicateExistenceQuestion && predicateExistenceQuestion[1])
+    || (lookupCommand && lookupCommand[1])
+    || (lookupAfterVerb && lookupAfterVerb[1])
+    || (imperative && imperative[1])
+    || (company && company[1])
+    || (about && about[1])
     || '';
-  name = name
-    .replace(/\s+(?:en|and)\s+(?:indien|if|zoek|search|lookup|maak|create)\b[\s\S]*$/iu, '')
+  name = stripTrailingClause(name)
     .replace(/^(?:naar|for)\s+/iu, '')
     .replace(/[?.!,;:]+$/u, '')
     .trim();
-  if (!name || /^(?:bedrijf|company|firma|organisatie|organization)$/iu.test(name)) return '';
+  if (!name || /^(?:bedrijf|bedrijven|company|companies|firma|organisaties?|organisation|organization)$/iu.test(name)) return '';
   return name;
 }
 
@@ -847,6 +876,37 @@ function contextualCompanyName(question, conversationHistory = []) {
     if (name) return name;
   }
   return '';
+}
+
+const AGGREGATE_PATTERN = /\b(how many|count|aantal|hoeveel|total|totaal|categor|categorie|grouping|groep|groepering|blocked|geblokkeerd|blokkade)\b/u;
+
+// The model resolves the reference itself, so it only needs the earlier name, not the follow-up heuristics.
+function companyNameFromHistory(conversationHistory = []) {
+  for (let index = conversationHistory.length - 1; index >= 0; index -= 1) {
+    if (conversationHistory[index].role !== 'user') continue;
+    const name = requestedCompanyName(conversationHistory[index].content);
+    if (name) return name;
+  }
+  return '';
+}
+
+// One shape whichever parser answered, so the handler never branches on the source.
+function resolveQuestionIntent(question, conversationHistory = [], modelIntent = null) {
+  const patterns = {
+    asksAggregate: AGGREGATE_PATTERN.test(question.toLocaleLowerCase()),
+    searchTerms: assistantSearchTerms(question),
+    companyName: contextualCompanyName(question, conversationHistory)
+  };
+  if (!modelIntent) return { ...patterns, isSmalltalk: false, source: 'patterns' };
+
+  return {
+    asksAggregate: modelIntent.intent === 'aggregate',
+    searchTerms: modelIntent.searchTerms.length ? modelIntent.searchTerms : patterns.searchTerms,
+    companyName: modelIntent.companyName
+      || (modelIntent.referencesPriorTurn ? companyNameFromHistory(conversationHistory) : ''),
+    isSmalltalk: modelIntent.intent === 'smalltalk',
+    source: 'model'
+  };
 }
 
 function businessPartnerCreationSuggestion(
@@ -1139,6 +1199,13 @@ class BusinessPartnerService extends cds.ApplicationService {
     // VALUE_HELP_ENTITIES below. API_BUSINESS_PARTNER exposes none of these.
     const valueHelp = await cds.connect.to('ZSRVB_MDMLIGHT_VH');
 
+    // Any write invalidates this instance's cached assistant reads.
+    this.before('*', (req) => {
+      if (['READ', 'askBusinessPartnerAssistant'].includes(req.event)) return;
+      assistantCache.clear();
+      nameIndex.markStale();
+    });
+
     this.before('READ', 'BusinessPartners', (req) => {
       applyBusinessPartnerSearch(req.query);
     });
@@ -1410,41 +1477,41 @@ class BusinessPartnerService extends cds.ApplicationService {
       const rootEntity = remoteEntity(s4, 'A_BusinessPartner');
       try {
         const normalized = question.toLocaleLowerCase();
+        // A digit after "BP" is not something a model improves on, so this stays a pattern.
         const numberMatch = normalized.match(/\b(?:bp|business partner|partner)\s*#?\s*(\d{1,10})\b/u);
+        const modelIntent = useModelIntent()
+          ? await parseIntent({ question, conversationHistory })
+          : null;
         // Aggregate questions need the broad set; a name search must be pushed
         // down to S/4 so it is not limited to the first rows returned.
-        const asksAggregate = /\b(how many|count|aantal|hoeveel|total|totaal|categor|categorie|grouping|groep|groepering|blocked|geblokkeerd|blokkade)\b/u
-          .test(normalized);
-        const searchTerms = assistantSearchTerms(question);
+        const { asksAggregate, searchTerms, companyName, isSmalltalk } = resolveQuestionIntent(
+          question,
+          conversationHistory,
+          modelIntent
+        );
 
-        let partnerSelect = cds.ql.SELECT.from(rootEntity).columns(...ASSISTANT_FIELDS).limit(1000);
-        if (numberMatch) {
-          partnerSelect = cds.ql.SELECT
-            .from(rootEntity)
-            .columns(...ASSISTANT_FIELDS)
-            .where({ BusinessPartner: numberMatch[1] })
-            .limit(1);
-        } else if (searchTerms.length && !asksAggregate) {
-          partnerSelect = cds.ql.SELECT
-            .from(rootEntity)
-            .columns(...ASSISTANT_FIELDS)
-            .where(assistantSearchFilter(searchTerms))
-            .limit(200);
-        }
+        const partnerFilter = numberMatch
+          ? { BusinessPartner: numberMatch[1] }
+          : searchTerms.length && !asksAggregate
+            ? assistantSearchFilter(searchTerms)
+            : null;
 
-        const [result, addressResult] = await Promise.all([
-          s4.run(partnerSelect),
-          s4.run(
-            cds.ql.SELECT
-              .from(remoteEntity(s4, 'A_BusinessPartnerAddress'))
-              .columns(...ASSISTANT_ADDRESS_FIELDS)
-              .limit(5000)
-          )
-        ]);
-        const partners = Array.isArray(result) ? result : [];
-        const addresses = Array.isArray(addressResult) ? addressResult : [];
-        const companyName = contextualCompanyName(question, conversationHistory);
-        const duplicates = companyName ? findPotentialDuplicates(companyName, partners) : [];
+        // Greetings and unrecognised questions need no business partner data at all.
+        const needsPartnerData = !isSmalltalk
+          && (Boolean(numberMatch) || asksAggregate || searchTerms.length > 0);
+        const cacheKey = JSON.stringify(partnerFilter);
+        const partners = needsPartnerData
+          ? await assistantCache.get(`partners:${cacheKey}`, () => readAllPages(s4, (top, skip) => {
+            const select = cds.ql.SELECT.from(rootEntity).columns(...ASSISTANT_FIELDS);
+            if (partnerFilter) select.where(partnerFilter);
+            return select.limit(top, skip);
+          }))
+          : [];
+        // Only targeted questions use addresses; aggregates never reference them.
+        const addresses = partnerFilter
+          ? await assistantCache.get(`addresses:${cacheKey}`, () => readAssistantAddresses(s4, partners))
+          : [];
+        const duplicates = companyName ? await findIndexedDuplicates(s4, companyName, partners) : [];
         let research = null;
         if (companyName && !duplicates.length) {
           try {
@@ -1471,7 +1538,8 @@ class BusinessPartnerService extends cds.ApplicationService {
             ...partner,
             MatchScore: Math.round(score * 100)
           })),
-          conversationHistory
+          conversationHistory,
+          totalBusinessPartners: needsPartnerData ? partners.length : null
         });
         return { ...assistantResult, ...(suggestion || {}) };
       } catch (error) {
@@ -1507,10 +1575,21 @@ BusinessPartnerService._internals = {
   MAINTENANCE_ENTITIES,
   VALUE_HELP_ENTITIES,
   ROOT_UPDATE_EXCLUDED_FIELDS,
+  ASSISTANT_PAGE_SIZE,
+  ASSISTANT_ADDRESS_CHUNK,
+  ASSISTANT_MAX_ROWS,
   applyBusinessPartnerSearch,
+  assistantAddressFilter,
+  readAllPages,
+  readAssistantAddresses,
+  createIndexReader,
+  findIndexedDuplicates,
+  nameIndex,
   extractSearchTerms,
   pickDefined,
   parseConversationHistory,
+  companyNameFromHistory,
+  resolveQuestionIntent,
   parseJsonObject,
   normalizeRemoteResult,
   remoteErrorMessage,

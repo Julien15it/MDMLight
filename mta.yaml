@@ -34,11 +34,31 @@ modules:
       - name: mdm-businesspartner-aicore
       - name: mdmlight-bpa-key
       - name: mdmlight-bpa-uaa
+      - name: mdm-businesspartner-db
     properties:
       AICORE_MODEL: gpt-5
       AICORE_FALLBACK_MODELS: gpt-5-mini,anthropic--claude-4.5-haiku
       AICORE_RESOURCE_GROUP: default
   
+
+  # --- PostgreSQL schema deployer ----------------------------------------------
+  # Runs cds-deploy as a one-off task; creates and evolves the staging tables.
+  - name: mdm-businesspartner-db-deployer
+    type: nodejs
+    path: gen/pg
+    parameters:
+      buildpack: nodejs_buildpack
+      no-route: true
+      no-start: true
+      disk-quota: 512M
+      memory: 256M
+      tasks:
+        - name: deploy_to_postgresql
+          command: npm start
+          disk-quota: 512M
+          memory: 256M
+    requires:
+      - name: mdm-businesspartner-db
 
   # --- Standalone application router ------------------------------------------
   - name: mdm-businesspartner-approuter
@@ -105,6 +125,14 @@ modules:
       no-source: true
 
 resources:
+  - name: mdm-businesspartner-db
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: postgresql-db
+      service-plan: free
+      config:
+        engine_version: "16"
+
   - name: mdm-businesspartner-auth
     type: org.cloudfoundry.managed-service
     parameters:

@@ -105,8 +105,30 @@ test('AI prompt context is bounded and excludes sensitive fields', () => {
   assert.deepEqual(relevantPartners('Does Intellus exist?', partners), []);
   assert.deepEqual(relevantPartners('Hello', partners), []);
   const context = promptContext('Show BP 1', partners, []);
+  assert.match(context, /"totalBusinessPartners":2/);
+  assert.doesNotMatch(
+    promptContext('Hello', [], [], null, [], [], null),
+    /totalBusinessPartners/
+  );
   assert.match(context, /Brussels Pharmaceuticals/);
   assert.doesNotMatch(context, /TaxNumber1|must-never-enter/);
+});
+
+// The S/4 filter ORs its terms. When this one ANDed them, one extra word emptied the context
+// even though the read had returned the right rows.
+test('an extra word in the question does not empty the prompt context', () => {
+  const asked = 'Are there any companies called Brussels availebe in our system already?';
+  assert.deepEqual(
+    relevantPartners(asked, partners).map((item) => item.BusinessPartner),
+    ['1']
+  );
+  // More matching terms still ranks a partner higher than fewer.
+  assert.deepEqual(
+    relevantPartners('Brussels Pharmaceuticals or SAP', partners).map((item) => item.BusinessPartner),
+    ['1', '2']
+  );
+  // A term nothing matches still returns nothing.
+  assert.deepEqual(relevantPartners('Does Intellus exist in our system?', partners), []);
 });
 
 test('AI prompt context finds partners by address and includes sourced research', () => {
