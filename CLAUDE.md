@@ -114,6 +114,20 @@ compositions (`general`, `customer`, `supplier`) need an `ON` condition too**.
 Without it CAP puts a foreign key on the header instead of using the backlink,
 which both duplicates the link and creates a schema that later fails to migrate.
 
+A partner with an in-flight change request is hidden from the Business Partner
+list, so two people cannot edit it at once (`applyChangeRequestExclusion` in
+`srv/business-partner-service.js`). `ACTIVE_REQUEST_STATUSES` decides what
+counts as in-flight; `failed` is in that list on purpose, because a failed post
+is not atomic and may have left the partner half-written. The exclusion is a
+filter on the remote query, not post-filtering, so `$top`/`$skip`/`$count` stay
+correct — but it is capped at `MAX_EXCLUDED_PARTNERS` to keep the OData URL
+sane, and logs a warning rather than silently under-hiding.
+
+Change requests have their own list (`ext/view/ChangeRequestList.view.xml`),
+reached from the Change Requests button on the list report. A `draft` opens
+editable via the `ChangeRequestEdit` route; anything further along opens
+read-only in the approve view.
+
 Still open — ask before implementing any of them: staging retention after
 posting (deleting the header would destroy the `postedBP` idempotency guard
 against SPA retries), routing edit/change requests through staging (only create
@@ -182,6 +196,30 @@ not start, the symptom is staging rows appearing with status `draft` and no
 approver task — that is the guard working, not a second bug. Confirm with
 Arthur which service actually holds the key before changing it.
 
+#### Multiple approvers: decide and post are separate
+
+SPA owns approval routing entirely — how many approvers a request needs, and
+which criteria pick them. CAP deliberately knows none of that:
+
+- `decideRequest` records an outcome and **never writes to S/4**. `approve`
+  moves the request to `approved`, meaning every approval SPA wanted is in.
+  `reject` is terminal.
+- `completeRequest` is the "post it now" signal and the only thing that writes
+  to S/4. SPA calls it after its chain finishes.
+
+So `approved` means *waiting to be posted*, not finished. Only `posted` and
+`rejected` are terminal. Individual approvals are not stored anywhere in CAP,
+by decision — the UI cannot show "2 of 3 approved" without a new table.
+
+Open TODOs on this, agreed and deliberately deferred:
+
+- **`completeRequest` has no scope restriction.** It writes to S/4, so as it
+  stands any authenticated user can force a post and bypass approval entirely.
+  Restrict it to the SPA technical user before this goes anywhere real.
+- **Arthur's workflow still calls only `decideRequest`** and expects the partner
+  to exist afterwards. Until his process adds a `completeRequest` call, approved
+  requests will sit at `approved` and never post. Coordinate before merging.
+
 #### Contract the SPA side depends on
 
 Changing any of these breaks Arthur's process definition, so agree the change
@@ -192,6 +230,8 @@ first rather than "fixing" it locally:
   `{ changerequestid, requesttype, businesspartner, emailadressinitiator }`
 - Decision callback: `POST /service/changerequest/decideRequest` with
   `{ ChangeRequest, Decision: 'approve'|'reject', Comment }`
+- Post trigger, once every approval is in:
+  `POST /service/changerequest/completeRequest` with `{ ChangeRequest }`
 - Workflow definition ID:
   `eu10.alluvion-dev-cf.mdmlightapproval.mDM_LIGHT_APPROVAL_WF`
 - `businesspartnerinput` is **gone** from the create path — the approve view
