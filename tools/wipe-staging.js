@@ -22,7 +22,16 @@
  *   cf ssh mdm-businesspartner-srv -L 15432:<hostname>:<port> -N &
  *   PGUSER=<user> PGPASSWORD=<pw> PGDATABASE=<db> node tools/wipe-staging.js
  */
-const { Client } = require('pg');
+// Hoisted in the CAP project, nested under the driver in the deployer droplet.
+function loadPg() {
+  try {
+    return require('pg');
+  } catch {
+    return require('@cap-js/postgres/node_modules/pg');
+  }
+}
+
+const { Client } = loadPg();
 
 // In a CF container the bound instance is the only source of truth; locally it
 // is a tunnel, so PG* env vars take over.
