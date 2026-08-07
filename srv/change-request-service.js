@@ -68,10 +68,15 @@ function stageable(entityName, source) {
   return row;
 }
 
-/** 'new' -> create, an entry in `deleted` -> delete, anything else -> update. */
+/**
+ * 'new' -> create, 'modified' -> update, an entry in `deleted` -> delete.
+ * Untouched rows get no action: a change request stages the whole partner so
+ * the approver sees it in full, but only touched rows may be replayed to S/4.
+ */
 function rowAction(record) {
   if (record?.__state === 'new') return 'C';
-  return 'U';
+  if (record?.__state) return 'U';
+  return null;
 }
 
 function requestingUserEmail(req) {
@@ -278,6 +283,8 @@ class ChangeRequestService extends cds.ApplicationService {
         );
         for (const row of rows) {
           const { ID, request_ID: parent, action, ...data } = row;
+          // Staged for context only - the user never touched it.
+          if (!action) continue;
           const relationField = section === 'Customers'
             ? 'Customer'
             : section === 'Suppliers' ? 'Supplier' : 'BusinessPartner';

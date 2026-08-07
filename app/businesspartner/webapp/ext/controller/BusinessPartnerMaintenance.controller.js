@@ -383,11 +383,14 @@ sap.ui.define([
         state.headerTitle = "Business Partner";
         state.businessPartner = businessPartner;
         state.editing = editing;
+        // Editing an existing partner is a change request, not a direct write.
+        state.requestType = editing ? "change" : "";
         state.showEditButton = !editing;
         state.showPreviewButton = false;
         state.showSaveButton = editing;
+        state.showSaveRequestButton = editing;
         state.showFooter = true;
-        state.saveButtonText = "Save Changes";
+        state.saveButtonText = "Submit Request";
         state.cancelButtonText = editing ? "Cancel" : "Back";
         maintenanceModel.setData(state);
 
@@ -1048,7 +1051,9 @@ sap.ui.define([
         state.showEditButton = false;
         state.showPreviewButton = state.mode === "create";
         state.showSaveButton = state.mode !== "create";
-        state.showSaveRequestButton = state.mode === "create";
+        // Both flows are change requests now, so both can be parked as drafts.
+        state.showSaveRequestButton = true;
+        if (state.mode !== "create") state.requestType = "change";
         state.modeText = state.mode === "create" ? "Create" : "Edit";
         state.title = state.mode === "create"
           ? "Create Business Partner"
@@ -1067,9 +1072,12 @@ sap.ui.define([
           MessageBox.error(validationErrors.join("\n"));
           return;
         }
-        // A create never reaches S/4 from here. It goes to the staging tables
-        // and into approval; S/4 is written only once an approver approves.
-        if (isCreate) return this._sendChangeRequest("submitRequest");
+        // Nothing reaches S/4 from here, on create or on change. Everything
+        // goes to the staging tables and into approval; S/4 is written only
+        // once an approver approves.
+        if (isCreate || state.mode === "edit") {
+          return this._sendChangeRequest("submitRequest");
+        }
         state.busy = true;
         maintenanceModel.refresh(true);
 
