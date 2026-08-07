@@ -11,23 +11,46 @@
  * Only safe while staging holds nothing worth keeping. Once real change
  * requests live here, write a migration instead.
  *
- * Usage - the BTP Postgres endpoint is private, so tunnel first:
+ * Lists what it would drop and stops. Pass --yes to actually drop.
+ *
+ * In CF, where the private endpoint routes, credentials come from the bound
+ * instance and no tunnel is needed:
+ *   cf run-task mdm-businesspartner-db-deployer --name wipe --command "..."
+ *
+ * Locally the endpoint is unreachable, so tunnel first and pass PG* vars:
  *   cf env mdm-businesspartner-srv          # read hostname / port / credentials
  *   cf ssh mdm-businesspartner-srv -L 15432:<hostname>:<port> -N &
  *   PGUSER=<user> PGPASSWORD=<pw> PGDATABASE=<db> node tools/wipe-staging.js
- *
- * Lists what it would drop and stops. Pass --yes to actually drop.
  */
 const { Client } = require('pg');
 
-const config = {
-  host: process.env.PGHOST || 'localhost',
-  port: Number(process.env.PGPORT || 15432),
-  user: process.env.PGUSER,
-  password: process.env.PGPASSWORD,
-  database: process.env.PGDATABASE,
-  ssl: process.env.PGSSL === 'off' ? false : { rejectUnauthorized: false },
-};
+// In a CF container the bound instance is the only source of truth; locally it
+// is a tunnel, so PG* env vars take over.
+function bound() {
+  if (!process.env.VCAP_SERVICES) return null;
+  const services = JSON.parse(process.env.VCAP_SERVICES);
+  const instance = (services['postgresql-db'] || [])[0];
+  return instance ? instance.credentials : null;
+}
+
+const vcap = bound();
+const config = vcap
+  ? {
+      host: vcap.hostname,
+      port: Number(vcap.port),
+      user: vcap.username,
+      password: vcap.password,
+      database: vcap.dbname,
+      ssl: { rejectUnauthorized: false },
+    }
+  : {
+      host: process.env.PGHOST || 'localhost',
+      port: Number(process.env.PGPORT || 15432),
+      user: process.env.PGUSER,
+      password: process.env.PGPASSWORD,
+      database: process.env.PGDATABASE,
+      ssl: process.env.PGSSL === 'off' ? false : { rejectUnauthorized: false },
+    };
 
 async function main() {
   const confirmed = process.argv.includes('--yes');
