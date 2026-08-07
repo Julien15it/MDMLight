@@ -154,27 +154,10 @@
           visible="{maintenance>/showPreviewButton}"
           press=".onPreview" />
         <Button
-          text="Save Request"
-          icon="sap-icon://save"
-          visible="{maintenance>/showSaveRequestButton}"
-          press=".onSaveRequest" />
-        <Button
           text="{maintenance>/saveButtonText}"
           type="Emphasized"
           visible="{maintenance>/showSaveButton}"
           press=".onSave" />
-        <Button
-          text="Approve"
-          icon="sap-icon://accept"
-          type="Accept"
-          visible="{maintenance>/showDecisionButtons}"
-          press=".onApprove" />
-        <Button
-          text="Reject"
-          icon="sap-icon://decline"
-          type="Reject"
-          visible="{maintenance>/showDecisionButtons}"
-          press=".onReject" />
         <Button text="{maintenance>/cancelButtonText}" press=".onCancel" />
       </OverflowToolbar>
     </footer>
