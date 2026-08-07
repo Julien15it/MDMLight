@@ -376,6 +376,41 @@ function joinExpressions(expressions, operator) {
  * free-text search extension consistently. Convert the Fiori `$search` request
  * to ordinary `contains` filters, which CAP translates to OData V2.
  */
+/**
+ * A partner is locked while a change request over it is still in flight, so it
+ * must not be edited from the list in the meantime. `posted` and `rejected` are
+ * finished - S/4 holds the latest data again. `failed` counts as active on
+ * purpose: the post is not atomic, so the partner may be half-written and needs
+ * a human before anyone else touches it.
+ */
+const ACTIVE_REQUEST_STATUSES = ['draft', 'inApproval', 'approved', 'failed'];
+
+/** Beyond this the `ne` chain makes the remote OData URL unreasonably long. */
+const MAX_EXCLUDED_PARTNERS = 200;
+
+/**
+ * Excludes partners that are locked in an active change request. Applied as a
+ * filter on the remote query rather than by dropping rows afterwards, so
+ * $top/$skip and $count stay consistent with what is shown.
+ */
+function applyChangeRequestExclusion(query, blockedPartners) {
+  const select = query && query.SELECT;
+  if (!select || !blockedPartners || blockedPartners.length === 0) return query;
+
+  const exclusion = joinExpressions(
+    blockedPartners.map((partner) => ({
+      xpr: [{ ref: ['BusinessPartner'] }, '!=', { val: String(partner).replaceAll("'", "''") }]
+    })),
+    'and'
+  );
+
+  select.where = select.where && select.where.length
+    ? [{ xpr: select.where }, 'and', { xpr: exclusion }]
+    : exclusion;
+
+  return query;
+}
+
 function applyBusinessPartnerSearch(query) {
   const select = query && query.SELECT;
   if (!select || !select.search) return query;
@@ -1198,6 +1233,26 @@ class BusinessPartnerService extends cds.ApplicationService {
     // @Common.ValueList lookup — see srv/external/ZSRVB_MDMLIGHT_VH and
     // VALUE_HELP_ENTITIES below. API_BUSINESS_PARTNER exposes none of these.
     const valueHelp = await cds.connect.to('ZSRVB_MDMLIGHT_VH');
+    const db = await cds.connect.to('db');
+
+    /** Partner numbers currently locked by an in-flight change request. */
+    const lockedPartners = async () => {
+      const rows = await db.run(
+        cds.ql.SELECT.from('mdmlight.staging.ChangeRequests')
+          .columns('businessPartner')
+          .where({ status: { in: ACTIVE_REQUEST_STATUSES }, businessPartner: { '!=': null } })
+      );
+      const partners = [...new Set(rows.map((row) => row.businessPartner).filter(Boolean))];
+      if (partners.length > MAX_EXCLUDED_PARTNERS) {
+        // Truncating silently would quietly show partners that are locked.
+        console.warn(
+          `${partners.length} partners are locked by change requests; only the first `
+          + `${MAX_EXCLUDED_PARTNERS} are hidden from the list.`
+        );
+        return partners.slice(0, MAX_EXCLUDED_PARTNERS);
+      }
+      return partners;
+    };
 
     // Any write invalidates this instance's cached assistant reads.
     this.before('*', (req) => {
@@ -1206,8 +1261,9 @@ class BusinessPartnerService extends cds.ApplicationService {
       nameIndex.markStale();
     });
 
-    this.before('READ', 'BusinessPartners', (req) => {
+    this.before('READ', 'BusinessPartners', async (req) => {
       applyBusinessPartnerSearch(req.query);
+      applyChangeRequestExclusion(req.query, await lockedPartners());
     });
 
     this.before('CREATE', 'BusinessPartners', (req) => {
@@ -1579,6 +1635,8 @@ BusinessPartnerService._internals = {
   ASSISTANT_ADDRESS_CHUNK,
   ASSISTANT_MAX_ROWS,
   applyBusinessPartnerSearch,
+  applyChangeRequestExclusion,
+  ACTIVE_REQUEST_STATUSES,
   assistantAddressFilter,
   readAllPages,
   readAssistantAddresses,

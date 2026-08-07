@@ -102,6 +102,10 @@ sap.ui.define([
       navigate("");
     },
 
+    openChangeRequests: function () {
+      navigate("ChangeRequests");
+    },
+
     openAssistant: function () {
       var values = Array.prototype.slice.call(arguments);
       var model = values.map(modelFrom).find(Boolean) || environment.model;

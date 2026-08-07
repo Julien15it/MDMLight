@@ -297,6 +297,7 @@ sap.ui.define([
         this._router.getRoute("BusinessPartnerDisplay").attachPatternMatched(this._onDisplayRoute, this);
         this._router.getRoute("BusinessPartnerMaintain").attachPatternMatched(this._onEditRoute, this);
         this._router.getRoute("ChangeRequestApprove").attachPatternMatched(this._onApproveRoute, this);
+        this._router.getRoute("ChangeRequestEdit").attachPatternMatched(this._onRequestEditRoute, this);
 
         this.getView().setModel(new JSONModel(this._emptyState()), "maintenance");
       },
@@ -1229,7 +1230,16 @@ sap.ui.define([
           state.requestStatus = (result && result.Status) || "";
 
           if (action === "saveRequest") {
-            MessageToast.show("Request saved as a draft.");
+            // Stay on the request in read mode. Edit resumes this same draft -
+            // state.changeRequest is kept, so no second request is created.
+            state.editing = false;
+            state.showEditButton = true;
+            state.showSaveButton = false;
+            state.showSaveRequestButton = false;
+            state.showPreviewButton = false;
+            state.modeText = "Draft";
+            state.title = "Change request " + state.changeRequest;
+            MessageToast.show("Change request " + state.changeRequest + " saved as a draft.");
             return;
           }
 
@@ -1256,25 +1266,36 @@ sap.ui.define([
         return this._sendChangeRequest("saveRequest");
       },
 
-      // --- Approver view -----------------------------------------------------
+      // --- Approver view and draft resume ------------------------------------
 
-      _onApproveRoute: async function (event) {
-        var changeRequest = decodeURIComponent(
-          event.getParameter("arguments").changeRequest
+      _onApproveRoute: function (event) {
+        return this._loadStagedRequest(
+          decodeURIComponent(event.getParameter("arguments").changeRequest), false
         );
+      },
+
+      /** Reopens a saved draft for further editing, same staged payload. */
+      _onRequestEditRoute: function (event) {
+        return this._loadStagedRequest(
+          decodeURIComponent(event.getParameter("arguments").changeRequest), true
+        );
+      },
+
+      _loadStagedRequest: async function (changeRequest, editing) {
         var maintenanceModel = this.getView().getModel("maintenance");
         var state = this._emptyState();
         state.busy = true;
-        state.mode = "approve";
-        state.modeText = "Approval";
-        state.editing = false;
+        state.mode = editing ? "edit" : "approve";
+        state.modeText = editing ? "Draft" : "Approval";
+        state.editing = editing;
         state.changeRequest = changeRequest;
         state.showEditButton = false;
         state.showPreviewButton = false;
-        state.showSaveButton = false;
-        state.showSaveRequestButton = false;
-        state.showDecisionButtons = true;
+        state.showSaveButton = editing;
+        state.showSaveRequestButton = editing;
+        state.showDecisionButtons = !editing;
         state.showFooter = true;
+        state.saveButtonText = "Submit Request";
         state.cancelButtonText = "Back";
         maintenanceModel.setData(state);
 
@@ -1298,11 +1319,18 @@ sap.ui.define([
           state.requestType = (payload && payload.RequestType) || "";
           state.requestStatus = (payload && payload.Status) || "";
           state.businessPartner = (payload && payload.BusinessPartner) || "";
-          state.title = "Approve request " + changeRequest;
+          state.title = (editing ? "Change request " : "Approve request ") + changeRequest;
           state.headerTitle = previewName(state.root) || "Requested Business Partner";
           // Only a request still awaiting a decision can be decided on. Opening
           // an already-decided task must not offer the buttons again.
-          state.showDecisionButtons = state.requestStatus === "inApproval";
+          state.showDecisionButtons = !editing && state.requestStatus === "inApproval";
+          // A submitted request is owned by the approval process from here on.
+          if (editing && state.requestStatus !== "draft") {
+            state.editing = false;
+            state.showSaveButton = false;
+            state.showSaveRequestButton = false;
+            state.modeText = state.requestStatus;
+          }
         } catch (error) {
           MessageBox.error(errorMessage(error, "The change request could not be loaded."));
         } finally {

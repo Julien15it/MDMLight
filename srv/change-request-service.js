@@ -337,6 +337,29 @@ class ChangeRequestService extends cds.ApplicationService {
         return { ChangeRequest: changeRequest, Status: 'rejected', BusinessPartner: null };
       }
 
+      // Approved, not posted. SPA decides when its chain is finished and calls
+      // completeRequest; this handler must never write to S/4.
+      await db.run(cds.ql.UPDATE(HEADER).set({
+        status: 'approved',
+        reason: req.data.Comment || header.reason
+      }).where({ ID: changeRequest }));
+      return { ChangeRequest: changeRequest, Status: 'approved', BusinessPartner: header.businessPartner };
+    });
+
+    this.on('completeRequest', async (req) => {
+      const changeRequest = req.data.ChangeRequest;
+      const header = await db.run(cds.ql.SELECT.one.from(HEADER).where({ ID: changeRequest }));
+      if (!header) return req.reject(404, `Change request ${changeRequest} was not found.`);
+
+      // Idempotency guard. SPA retries - a timed-out callback must not create a
+      // second business partner.
+      if (header.postedBP) {
+        return { ChangeRequest: changeRequest, Status: header.status, BusinessPartner: header.postedBP };
+      }
+      if (header.status !== 'approved') {
+        return req.reject(409, `Change request ${changeRequest} is ${header.status}, not approved.`);
+      }
+
       try {
         const businessPartner = await postToS4(req, header);
         await db.run(cds.ql.UPDATE(HEADER).set({
@@ -347,13 +370,13 @@ class ChangeRequestService extends cds.ApplicationService {
         }).where({ ID: changeRequest }));
         return { ChangeRequest: changeRequest, Status: 'posted', BusinessPartner: businessPartner };
       } catch (error) {
-        // Kept in `failed` rather than rolled back to `inApproval`: the post is
+        // Kept in `failed` rather than rolled back to `approved`: the post is
         // not atomic, so a partial write may exist in S/4 and needs a human.
         await db.run(cds.ql.UPDATE(HEADER).set({
           status: 'failed',
           postError: String(error.message || error).slice(0, 1000)
         }).where({ ID: changeRequest }));
-        return req.reject(502, `The Business Partner could not be created in S/4HANA: ${error.message}`);
+        return req.reject(502, `The Business Partner could not be written to S/4HANA: ${error.message}`);
       }
     });
 
