@@ -751,6 +751,8 @@ test('every entity the approval workflow needs has a valid filter strategy', () 
     assert.ok(['one', 'many'].includes(config.cardinality), `${config.name} has an invalid cardinality`);
     assert.ok(validFilters.has(config.filterBy), `${config.name} has an invalid filterBy`);
   }
+});
+
 test('scopes the address filter to the partners in context', () => {
   const filter = assistantAddressFilter([
     { BusinessPartner: '1' },
