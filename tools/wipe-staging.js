@@ -73,6 +73,7 @@ async function main() {
        join pg_namespace n on n.oid = c.relnamespace
        left join pg_stat_user_tables s on s.relid = c.oid
       where n.nspname = 'public' and c.relkind = 'r'
+        and pg_get_userbyid(c.relowner) = current_user
       order by c.relname`
   );
 
@@ -102,7 +103,8 @@ async function main() {
     `select c.relname as name
        from pg_class c
        join pg_namespace n on n.oid = c.relnamespace
-      where n.nspname = 'public' and c.relkind in ('v', 'm')`
+      where n.nspname = 'public' and c.relkind in ('v', 'm')
+        and pg_get_userbyid(c.relowner) = current_user`
   );
 
   for (const v of views.rows) {
