@@ -11,6 +11,11 @@ S/4HANA system's OData V2 `API_BUSINESS_PARTNER` service through the BTP
 destination `VF_S4HANA_DEST`. Deletion of Business Partners is deliberately
 disabled throughout the facade.
 
+Reads are still pure facade, but **creates no longer go straight to S/4** — they
+are staged in PostgreSQL and posted only once an approver accepts them. Read
+"Change request staging" below before touching `db/staging.cds`,
+`srv/change-request-service.*`, or the maintenance controller.
+
 ## Commands
 
 Root (CAP service):
@@ -77,6 +82,45 @@ If the target S/4 system exposes different metadata (different release/config),
 re-import `$metadata` for `API_BUSINESS_PARTNER` and rebuild — don't hand-edit
 the generated `.edmx`/`.csn`.
 
+### Change request staging (approve-then-create)
+
+The whole point of the staging layer: **nothing reaches S/4 until it is
+approved.** Before it existed, `saveBusinessPartner` wrote the BP to S/4
+immediately and started the workflow afterwards, so the approver was reviewing
+something already live. Do not reintroduce that order.
+
+The flow, with create as the example:
+
+1. User fills the create form and presses **Preview** → display-mode overview.
+2. In preview, **Submit Request** writes everything to the staging tables (and
+   **Save Request** stores a draft without starting anything).
+3. The SPA workflow starts and the task lands in the approver inbox.
+4. The approver opens the same Maintain BP screen in approve mode, data read
+   back from staging, with Approve / Reject in place of save/submit.
+5. On approve, CAP posts to `API_BUSINESS_PARTNER` — the SPA never writes to
+   S/4 itself.
+
+`db/staging.cds` holds `ChangeRequests` plus one `Staged*` node per section of
+the object page, mirroring the MDG node structure, plus `CheckFindings`.
+`srv/change-request-service.cds` exposes `ChangeRequests`/`CheckFindings` as
+`@readonly` and does every write through actions (`saveRequest`,
+`submitRequest`, `getRequestPayload`, `decideRequest`) so a status can never be
+forged from the client. `srv/change-request-service.js` never talks to S/4
+directly — posting is delegated to `BusinessPartnerService`, which already owns
+the connection, payload sanitizing and maintenance config.
+
+Every child node carries an explicit `request` backlink, so **the to-one
+compositions (`general`, `customer`, `supplier`) need an `ON` condition too**.
+Without it CAP puts a foreign key on the header instead of using the backlink,
+which both duplicates the link and creates a schema that later fails to migrate.
+
+Still open — ask before implementing any of them: staging retention after
+posting (deleting the header would destroy the `postedBP` idempotency guard
+against SPA retries), routing edit/change requests through staging (only create
+is redirected today), populating `sourceETag` (never set, so a request approved
+days later overwrites concurrent S/4 changes), and reading number ranges so
+users can key their own BP number when the grouping is externally numbered.
+
 ### `srv/business-partner-service.js` — everything is one file, by design
 `BusinessPartnerService` (extends `cds.ApplicationService`) wires all handlers
 in `init()`, but the bulk of the file is pure helper functions above the class
@@ -129,6 +173,36 @@ token headers. `mdmlight-bpa-key` / `mdmlight-bpa-uaa` are Cloud Foundry
 user-provided services, bound in `mta.yaml` and expected in `VCAP_SERVICES`
 locally when hybrid-testing this path.
 
+**Known bug, not yet fixed:** `srv/wf/processAutomation.js` reads `apiKey` from
+`mdmlight-bpa-uaa`, but that service holds `clientid`/`clientsecret`/`url`.
+`mdmlight-bpa-key` is bound in `mta.yaml` and never read, so the `irpa-api-key`
+header goes out `undefined` and the workflow start fails. Because
+`submitRequest` deliberately leaves a request in `draft` when the workflow will
+not start, the symptom is staging rows appearing with status `draft` and no
+approver task — that is the guard working, not a second bug. Confirm with
+Arthur which service actually holds the key before changing it.
+
+#### Contract the SPA side depends on
+
+Changing any of these breaks Arthur's process definition, so agree the change
+first rather than "fixing" it locally:
+
+- Approver task URL: `<app-url>#/ChangeRequests/{changeRequestId}/approve`
+- Workflow context sent at submit:
+  `{ changerequestid, requesttype, businesspartner, emailadressinitiator }`
+- Decision callback: `POST /service/changerequest/decideRequest` with
+  `{ ChangeRequest, Decision: 'approve'|'reject', Comment }`
+- Workflow definition ID:
+  `eu10.alluvion-dev-cf.mdmlightapproval.mDM_LIGHT_APPROVAL_WF`
+- `businesspartnerinput` is **gone** from the create path — the approve view
+  fetches from staging instead.
+
+The SPA calls `decideRequest` on the CAP app directly, not through the
+approuter. The browser does go through the approuter, so any new CAP service
+path also needs a route in `app/businesspartner/xs-app.json` — the catch-all
+sends anything unmatched to the HTML5 repo, where it 404s instead of erroring
+usefully.
+
 ### `srv/ai/` — SAP AI Core orchestration
 `business-partner-assistant.js` calls the Generative AI Hub via
 `@sap-ai-sdk/orchestration`, bound through the `extended`-plan AI Core service
@@ -178,6 +252,64 @@ AI Core `extended`, and the existing BPA user-provided services). The CAP
 service module path is `gen/srv` (the `cds build` output), not `srv/` — always
 rebuild before assuming `mta.yaml`/`mbt build` picks up service-code changes.
 
+Bump the `version` in `mta.yaml` for every deploy. Several different artifacts
+have shipped as `1.13.2`, which makes the deploy log useless for working out
+whose build is actually running.
+
+### The PostgreSQL deployer will block on any dropped column
+
+`mdm-businesspartner-db-deployer` runs `cds-deploy` as a one-off task and
+evolves the schema against a copy of the previously deployed model that CAP
+stores **in the database** (table `cds_model`). CAP refuses to drop elements
+during schema evolution, so any model change that removes a column fails the
+task with:
+
+```
+Error: Dropping elements is not supported (in entity:"..."/element:"...")
+```
+
+It fails identically on all retries because it is a compile-time error — the
+deployer never reaches the database. `--auto-undeploy` is HDI-only and does
+nothing here. While staging holds nothing worth keeping, the fix is to wipe and
+redeploy; once it holds real change requests, write a migration instead.
+
+`tools/wipe-staging.js` does the wipe. It lists what it would drop and stops
+unless given `--yes`. Note two BTP-specific constraints it already handles: the
+bound role does **not** own schema `public` (so `DROP SCHEMA` is refused — it
+drops objects individually), and `public` also contains extension objects owned
+by someone else (so it filters on `pg_get_userbyid(c.relowner) = current_user`).
+
+The endpoint is private — nothing connects from a laptop or from BAS, and the
+BAS Database Explorer only ever lists HANA instances. Two ways in:
+
+```bash
+# in CF, where the address routes - no tunnel
+cf set-env mdm-businesspartner-db-deployer WIPE_JS "$(base64 -w0 tools/wipe-staging.js)"
+cf run-task mdm-businesspartner-db-deployer --name peek \
+  --command 'cd /home/vcap/app && printf %s "$WIPE_JS" | base64 -d > w.js && node w.js'
+cf logs mdm-businesspartner-db-deployer --recent
+cf unset-env mdm-businesspartner-db-deployer WIPE_JS
+
+# or tunnel and use any client
+cf ssh mdm-businesspartner-srv -L 15432:<hostname>:<port> -N &
+```
+
+Pass the payload through an env var as above rather than inlining it in
+`--command`; long single-token commands get line-wrapped in transit and the
+container's bash then executes the fragments as separate commands.
+
+For simply reading staged data, prefer the OData service over SQL —
+`ChangeRequests` is exposed read-only and expands to every node:
+
+```
+<srv-url>/service/changerequest/ChangeRequests?$expand=general,addresses,roles,findings
+```
+
+Note that `cds build` also materialises all 65 imported `API_BUSINESS_PARTNER`
+entity sets as physical tables and views, despite nothing ever reading them.
+They are empty noise in the schema, not state — do not "fix" bugs by looking at
+them.
+
 ## Configuration notes
 
 - `.cdsrc.json` — checked in, sets CAP build target (`gen`) and requires
@@ -189,3 +321,30 @@ rebuild before assuming `mta.yaml`/`mbt build` picks up service-code changes.
 - Local secrets (`.env`, `default-env.json`, `credentials.json`) are
   gitignored — never commit S/4 or BPA credentials into `mta.yaml`,
   `.cdsrc-private.json`, or source files.
+
+## Working alongside the other developers
+
+Several people push to `main` in the same CF space, so a failure is often
+someone else's build rather than your code.
+
+**Before assuming a deploy failure is a bug, check what you are deploying.** MTA
+deploys take a per-MTA-ID, per-space lock; a second `cf deploy` while one is in
+flight aborts with a conflicting-process error that reads like a broken
+deployment. If a colleague reverted something, their build and yours are
+different apps even at the same version number.
+
+**Do not revert the staging feature to unblock a deploy.** It has been reverted
+once already (`dec9278`, restored by `0a0daaa`) when the real cause was
+elsewhere, and reverting has a trap: once a commit is reverted on `main`, git
+considers it merged, so re-merging the feature branch brings back *nothing*. The
+feature only returns if the revert is itself reverted. If a deploy is blocked,
+diagnose it — the deployer failures seen so far were a corrupt lockfile and a
+dropped column, neither of which had anything to do with the feature.
+
+**Watch merges of long-lived branches.** The `Adding-WF` merge (`32b92c7`)
+auto-merged by concatenating both sides rather than conflicting: it produced a
+`package-lock.json` containing two complete lockfile documents (~10k lines,
+`"lockfileVersion"` twice) and a test file with two adjacent tests joined
+without the closing `});`. Both looked like unrelated bugs. After merging a
+branch that has drifted, sanity-check `package-lock.json` and run `npm test`
+before concluding anything about a deploy failure.
