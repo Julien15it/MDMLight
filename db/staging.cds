@@ -66,15 +66,18 @@ entity ChangeRequests : cuid, managed {
 
   // One row per node, keyed by the request. General is 1:1, the rest are
   // collections matching the object page sections.
-  general           : Composition of one  StagedGeneral;
+  // Every child carries an explicit `request` backlink, so the to-one
+  // compositions need an ON condition too - without it CAP would put a foreign
+  // key on the header instead of using the backlink.
+  general           : Composition of one  StagedGeneral        on general.request        = $self;
   addresses         : Composition of many StagedAddresses      on addresses.request      = $self;
   roles             : Composition of many StagedRoles          on roles.request          = $self;
   bankDetails       : Composition of many StagedBankDetails    on bankDetails.request    = $self;
   taxNumbers        : Composition of many StagedTaxNumbers     on taxNumbers.request     = $self;
   identifications   : Composition of many StagedIdentifications on identifications.request = $self;
   industries        : Composition of many StagedIndustries     on industries.request     = $self;
-  customer          : Composition of one  StagedCustomer;
-  supplier          : Composition of one  StagedSupplier;
+  customer          : Composition of one  StagedCustomer       on customer.request       = $self;
+  supplier          : Composition of one  StagedSupplier       on supplier.request       = $self;
 
   findings          : Composition of many CheckFindings        on findings.request       = $self;
 }
