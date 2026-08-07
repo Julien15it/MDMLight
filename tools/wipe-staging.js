@@ -96,9 +96,25 @@ async function main() {
     console.log(`\nWARNING: ${populated.length} table(s) report rows. Dropping anyway.`);
   }
 
-  await client.query('drop schema public cascade');
-  await client.query('create schema public');
-  console.log('\ndropped and recreated schema public - redeploy to rebuild the tables');
+  // `drop schema public cascade` needs schema ownership, which the bound BTP
+  // role does not have. It does own the objects it created, so drop those.
+  const views = await client.query(
+    `select c.relname as name
+       from pg_class c
+       join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relkind in ('v', 'm')`
+  );
+
+  for (const v of views.rows) {
+    await client.query(`drop view if exists "${v.name}" cascade`);
+  }
+  for (const r of rows) {
+    await client.query(`drop table if exists "${r.table}" cascade`);
+  }
+
+  console.log(
+    `\ndropped ${views.rows.length} views and ${rows.length} tables - redeploy to rebuild them`
+  );
   await client.end();
 }
 
