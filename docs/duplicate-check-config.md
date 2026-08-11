@@ -22,45 +22,49 @@ row-oriented layout over a nested criteria/ruleset model.
 | 10 | BE | 2 | | | `TaxNumber.BE0` | exact | | definitive |
 | 20 | | | | | `Name` | fuzzy | 0.86 | strong |
 | 30 | | | | | `PostalCode` | exact | | weak |
-| 40 | | 1 | | | `TaxNumber.BE0` | — | | not relevant |
 
 Row 20 has no condition: name always participates as a fuzzy strong indicator.
-Row 40 turns the VAT criterion off for natural persons, who legitimately have
-none.
+Row 10 applies only to Belgian organizations — natural persons are excluded by
+the `Category = 2` condition rather than by an opt-out row.
 
 ### Indicators
 
-`not relevant` · `weak` · `strong` · `definitive`
+`weak` · `strong` · `definitive`
 
-`not relevant` exists to switch off a criterion a broader row switched on, which
-only works if row order is meaningful — see below.
+There is deliberately no "not relevant" indicator. A field that does not matter
+is simply not configured. Switching a criterion off for a subset is expressed by
+narrowing the conditions on the row that switches it *on*.
 
-### Row precedence
+### Two rows on the same field
 
-Rows are evaluated in `Seq` order and **the first matching row wins per field**.
-A specific row must therefore sit above the general row it overrides (row 40
-above row 20 in spirit; renumber accordingly). Same semantics as a BRF+ decision
-table with first-match, applied per field rather than per table.
+Rows are additive: every row whose conditions match is evaluated. Where more
+than one matching row targets the same field, **the strongest indicator wins and
+the field contributes once**.
 
-Consequence for the admin page: `Seq` must be visible and editable, and the
-table must default to sorting by it. A table that silently reorders rows changes
-behaviour.
+Contributing once is the point — a Belgian partner matching both row 10 and a
+general name row must not count as two indicators off one field, which would
+inflate the verdict.
 
-## Aggregation — the open decision
+Because there is no opt-out indicator, no row can ever weaken another, so
+strongest-wins is unambiguous and **`Seq` carries no semantics**. It orders the
+table for reading, nothing more. This is a simplification over an earlier draft
+that needed first-match ordering; dropping "not relevant" removed the need, and
+with it a trap where re-sorting the admin grid would silently change behaviour.
 
-Individual indicators must collapse into one verdict per candidate pair.
-Proposal, deliberately kept in code rather than config so it stays explainable:
+## Aggregation
+
+Individual indicators collapse into one verdict per candidate pair. Fixed in
+code, not configurable — a configurable ladder makes every result impossible to
+explain to an auditor.
 
 | Verdict | When |
 |---|---|
-| **definitive** | any `definitive` criterion matched |
-| **strong** | ≥ 2 `strong`, or 1 `strong` + ≥ 1 `weak` |
-| **weak** | 1 `strong`, or ≥ 2 `weak` |
-| none | otherwise |
+| **Duplicate** | ≥ 1 `definitive` |
+| **Strong chance of duplicate** | ≥ 2 indicators, at least one `strong` |
+| **Small chance of duplicate** | exactly 1 `strong`, or ≥ 2 `weak` |
+| none | otherwise — a single `weak`, or nothing |
 
-Making this itself configurable is possible but turns every duplicate result
-into something nobody can explain to an auditor. Recommend fixing it first and
-revisiting only if a real case needs it.
+A lone weak indicator is not a finding. One shared postal code is not a signal.
 
 ## Blank is never a match
 
@@ -179,20 +183,65 @@ postal code and country mean the index must read
 per partner. Fine at current volume; state a ceiling and move to a
 Postgres-backed index when it is reached.
 
+## One engine, every caller
+
+**Requirement: there is exactly one duplicate check.** It must not behave
+differently depending on whether the assistant, the change-request submit or the
+admin test button invoked it. This is the constraint that shapes the interface.
+
+Today's entry point takes a name — `rankDuplicates(name, entries)`. That cannot
+serve the submit path, which has a whole staged record rather than a string. So
+the engine takes a **candidate record**: a field bag keyed by field-catalog
+names.
+
+```
+evaluate(candidate, index) -> [{ partner, verdict, indicators[] }]
+```
+
+| Caller | Candidate built from |
+|---|---|
+| Assistant | extracted company name, plus country from research when present |
+| Change-request submit | the staged nodes (`StagedGeneral`, addresses, tax numbers) |
+| Admin test button | each indexed partner in turn, compared against the rest |
+
+The assistant's candidate is sparse — often only `Name`. That works without a
+special case precisely because **blank is never a match**: rules referencing
+fields the candidate does not carry simply do not fire. The sparse-candidate
+case and the missing-data case are the same code path, which is why that rule
+is worth being strict about.
+
+Sparseness does change what a caller can conclude, though: a name-only candidate
+can reach `Small chance` but rarely `Duplicate`, since definitive rules key on
+identifiers the assistant does not have. The assistant should therefore present
+its result as provisional and never as an all-clear.
+
+### Persisting submit-time results
+
+`CheckFindings` in `db/staging.cds` already reserves `candidateBP` and `score`
+for duplicate findings, alongside `checkName`, `severity`, and the
+supersede-on-recheck field. Submit-time verdicts belong there.
+
+One gap: `score` is `Decimal(5,4)` and there is no column for the verdict tier.
+Either map verdict onto the existing `severity` enum (`info` / `warning` /
+`error`) or add a field — adding is preferable, since severity and verdict are
+not the same concept. Note the deployer refuses to drop elements, so decide
+before the first deploy that creates the column.
+
 ## Integration points
 
-`findIndexedDuplicates` keeps its signature; `rankDuplicates` is replaced by a
-rule-driven evaluator. Per the convention in `CLAUDE.md`, the evaluator's helper
-functions go on `_internals` with tests in `test/`.
+`findIndexedDuplicates` becomes a thin wrapper that builds a candidate and calls
+the engine; `rankDuplicates` is replaced by the rule-driven evaluator. Per the
+convention in `CLAUDE.md`, the evaluator's helper functions go on `_internals`
+with tests in `test/`.
 
 ## Open decisions
 
-1. **Aggregation ladder** — confirm or amend the table above.
-2. **Does `definitive` hard-block?** Today a duplicate only hides the create
-   suggestion button. A definitive hit could refuse the change-request submit
-   outright.
-3. **Where does this apply?** The assistant is advisory; the real gate is the
-   staging submit path. Recommend the config drives both, since a rule enforced
-   only in the chat window is not a control.
-4. **Persons vs organizations** — likely different default rows rather than a
-   different model, but confirm.
+1. **Does `Duplicate` hard-block the submit?** Today a duplicate only hides the
+   assistant's create-suggestion button. A definitive hit could refuse the
+   change-request submit outright, or raise an `error` finding the approver must
+   clear. Blocking is the stronger control; overriding needs a story either way.
+2. **Verdict storage on `CheckFindings`** — new column vs reusing `severity`
+   (see above).
+3. **Rule changes are not retroactive.** A request submitted under yesterday's
+   ruleset and approved today was checked against the old rules. Re-check on
+   approve, or accept it?
