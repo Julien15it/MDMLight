@@ -249,11 +249,20 @@ usefully.
 `mdm-businesspartner-aicore` (created/bound automatically by the MTA). Model
 and fallback chain are set via `AICORE_MODEL` / `AICORE_FALLBACK_MODELS` /
 `AICORE_RESOURCE_GROUP` on the `mdm-businesspartner-srv` module in `mta.yaml`
-(currently `gpt-5` with fallbacks `gpt-5-mini`, `anthropic--claude-4.5-haiku`).
-`gpt-5`/`o*` models are reasoning models — they take `max_completion_tokens`
-instead of `max_tokens`, and an undersized budget silently returns empty
-content instead of erroring (`isReasoningModel` / `modelParams` handle this
-distinction; keep it if you add another reasoning-family model).
+(currently `anthropic--claude-4.5-haiku` with fallbacks `gemini-3.5-flash`,
+`gpt-5-mini`). The primary is deliberately **not** a reasoning model: the
+assistant summarizes a pre-filtered context and gains nothing from reasoning,
+while `gpt-5` as primary was slower and could spend its whole budget on hidden
+reasoning. `gpt-5`/`o*` models take `max_completion_tokens` instead of
+`max_tokens`, and an undersized budget then returns empty content instead of
+erroring (`isReasoningModel` / `modelParams` handle this distinction; keep it
+if you promote a reasoning model back to primary).
+
+`ASSISTANT_INTENT_SOURCE: model` in `mta.yaml` switches intent parsing from the
+regex heuristics to `srv/ai/intent.js`. This is what makes "maak BP X aan"
+reliably yield a `companyName`, which is what triggers the duplicate check —
+the check itself is unconditional on intent. The regex parser stays as the
+fallback whenever `parseIntent` returns null.
 `company-research.js` provides a separate lookup used to suggest company data
 and flag potential duplicates before creating a new Business Partner
 (`findPotentialDuplicates` uses Dice-coefficient name similarity, not exact

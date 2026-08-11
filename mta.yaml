@@ -1,6 +1,6 @@
 _schema-version: "3.2"
 ID: mdm-md-businesspartner-manage
-version: 1.13.2
+version: 1.14.0
 description: "Manage Business Partner (F3163) - CAP + Fiori Elements"
 parameters:
   enable-parallel-deployments: true
@@ -36,9 +36,11 @@ modules:
       - name: mdmlight-bpa-uaa
       - name: mdm-businesspartner-db
     properties:
-      AICORE_MODEL: gpt-5
-      AICORE_FALLBACK_MODELS: gpt-5-mini,anthropic--claude-4.5-haiku
+      # Non-reasoning primary: no hidden-reasoning budget, so no silent empty answer.
+      AICORE_MODEL: anthropic--claude-4.5-haiku
+      AICORE_FALLBACK_MODELS: gemini-3.5-flash,gpt-5-mini
       AICORE_RESOURCE_GROUP: default
+      ASSISTANT_INTENT_SOURCE: model
   
 
   # --- PostgreSQL schema deployer ----------------------------------------------
