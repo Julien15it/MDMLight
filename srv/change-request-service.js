@@ -2,8 +2,10 @@
 
 const cds = require('@sap/cds');
 const { startWorkflow } = require('./wf/processAutomation');
+const { candidateFromStagedRequest } = require('./ai/duplicate-check');
 
 const STAGING = 'mdmlight.staging.';
+const FINDINGS = `${STAGING}CheckFindings`;
 
 /**
  * Maps a maintenance-screen section id onto its staging entity. The ids are the
@@ -172,9 +174,54 @@ class ChangeRequestService extends cds.ApplicationService {
       return { ChangeRequest: changeRequest, Status: 'draft' };
     });
 
+    /**
+     * Runs the one duplicate check over the staged record and records what it found. A `Duplicate`
+     * verdict raises an `error` finding for the approver to clear; it deliberately does not block
+     * the submit, because the approver is the override and there is no other way past it.
+     *
+     * Best-effort on purpose: a duplicate check that cannot run must not strand a request in
+     * `draft` with an approval workflow already waiting for it.
+     */
+    const recordDuplicateFindings = async (changeRequest, businessPartner) => {
+      try {
+        const general = await db.run(
+          cds.ql.SELECT.one.from(GENERAL).where({ request_ID: changeRequest })
+        );
+        if (!general) return;
+        const nodes = {};
+        for (const [section, config] of Object.entries(NODES)) {
+          if (!config.many) continue;
+          nodes[section] = await db.run(
+            cds.ql.SELECT.from(config.entity).where({ request_ID: changeRequest })
+          );
+        }
+        const bp = await cds.connect.to('BusinessPartnerService');
+        const answer = await bp.send('checkBusinessPartnerDuplicates', {
+          CandidateJson: JSON.stringify(candidateFromStagedRequest(general, nodes)),
+          // A change request must never report the partner it is changing as its own duplicate.
+          ExcludeBP: businessPartner || general.BusinessPartner || null
+        });
+        const findings = JSON.parse(answer || '{}').findings || [];
+        // Supersede rather than delete, so an earlier verdict stays auditable after a resubmit.
+        await db.run(cds.ql.UPDATE(FINDINGS)
+          .set({ isStale: true })
+          .where({ request_ID: changeRequest, checkName: 'duplicate_check' }));
+        if (!findings.length) return;
+        await db.run(cds.ql.INSERT.into(FINDINGS).entries(findings.map((finding) => ({
+          ID: cds.utils.uuid(),
+          request_ID: changeRequest,
+          ...finding
+        }))));
+      } catch (error) {
+        console.warn('[changerequest] Duplicate check did not run:', error.message);
+      }
+    };
+
     this.on('submitRequest', async (req) => {
       const changeRequest = await persist(req);
       if (!changeRequest) return;
+
+      await recordDuplicateFindings(changeRequest, req.data.BusinessPartner);
 
       let processInstanceId = null;
       try {

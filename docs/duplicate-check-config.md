@@ -1,7 +1,21 @@
 # Configurable duplicate check — design
 
-Status: **engine built 2026-08-12, not yet wired in and never executed** — there
-is no Node toolchain on the Windows machine, so the tests must be run in BAS.
+Status: **engine built and wired in 2026-08-12.** The engine's own tests passed
+in BAS (163 tests, 0 failures); the wiring commit on top of them has not been run
+yet — there is no Node toolchain on the Windows machine.
+
+> ## The safety net is not active yet
+>
+> `DEFAULT_RULES` makes an exact name match `definitive`, and the thing that
+> makes that safe is the `Country` **disqualifying** row. Against **indexed**
+> partners that row can never fire: `A_BusinessPartner` carries no `Country` at
+> all — verified against the sandbox — so country lives only on
+> `A_BusinessPartnerAddress`, which `INDEX_FIELDS` deliberately excludes.
+>
+> Until the index carries country and tax numbers, "Delta NV" in Belgium and
+> "Delta Inc" in the US come back as **Duplicate**. Harmless on a Belgium-only
+> sandbox, wrong the moment a second country appears. **Index expansion is now
+> the next slice, not an optional one.**
 `srv/ai/duplicate-fields.js` (catalog, normalisers, candidate bags) and
 `srv/ai/duplicate-engine.js` (`evaluate`) implement everything below except
 persistence and the admin page. No caller uses them yet — the live check is
@@ -311,10 +325,28 @@ before the first deploy that creates the column.
 
 ## Integration points
 
-`findIndexedDuplicates` becomes a thin wrapper that builds a candidate and calls
-the engine; `rankDuplicates` is replaced by the rule-driven evaluator. Per the
-convention in `CLAUDE.md`, the evaluator's helper functions go on `_internals`
-with tests in `test/`.
+`srv/ai/duplicate-check.js` is the one entry point. `activeRules()` there is the
+single seam a `DuplicateRules` table replaces later — nothing else in the app
+decides what the rules are.
+
+| Caller | Path |
+|---|---|
+| Assistant | `findIndexedDuplicates` → `nameIndex.match` → `evaluate` |
+| Assistant, index unbuilt | `checkAgainstPartners` → `evaluate` over the rows already read |
+| Change-request submit | `submitRequest` → `checkBusinessPartnerDuplicates` action → the same `findIndexedDuplicates` |
+| Admin test button | not built yet |
+
+`rankDuplicates` is **deleted**, not deprecated. A second ranking entry point
+next to `evaluate` is precisely how the two would drift, and this repo has
+already paid for that lesson twice. `name-match.js` is now name *scoring* only.
+
+The change-request service reaches the check through a CAP action rather than by
+requiring the module, so it shares this app's S/4 connection and the single
+resident name index instead of building a second one.
+
+Submit-time findings are best-effort: a check that cannot run logs and moves on.
+Stranding a request in `draft` with an approval workflow already waiting for it
+would be a worse failure than a missing finding.
 
 ## Open decisions
 
@@ -322,8 +354,11 @@ with tests in `test/`.
    Submit succeeds and the check writes a `CheckFindings` row with severity
    `error` that the approver must clear. The approver is the override, so no
    separate override path is needed.
-2. **Verdict storage on `CheckFindings`** — new column vs reusing `severity`
-   (see above).
+2. ~~**Verdict storage on `CheckFindings`**~~ **Decided 2026-08-12: its own
+   column.** `CheckFindings.verdict : String(12)` was added alongside `severity`.
+   Severity says whether someone must act, verdict says what was found; folding
+   one into the other loses information the approver needs. Adding a column is
+   safe — the deployer only refuses to *drop* them.
 3. **Rule changes are not retroactive.** A request submitted under yesterday's
    ruleset and approved today was checked against the old rules. Re-check on
    approve, or accept it?

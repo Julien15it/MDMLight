@@ -274,6 +274,12 @@ entity CheckFindings : cuid, managed {
   candidateBP : String(10);
   score       : Decimal(5, 4);
 
+  /** Duplicate verdict tier. Its own column rather than folded into `severity`:
+   *  severity says whether someone must act, verdict says what was found, and
+   *  they are not the same concept. Adding a column is safe - the deployer only
+   *  refuses to drop them. */
+  verdict     : String(12);
+
   /** Set when a re-check supersedes this finding rather than deleting it. */
   isStale     : Boolean default false;
 }

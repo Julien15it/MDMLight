@@ -1,6 +1,7 @@
 'use strict';
 
-const { partnerFingerprints, rankDuplicates } = require('./name-match');
+const { partnerFingerprints } = require('./name-match');
+const { evaluate } = require('./duplicate-engine');
 
 // No address fields: that omission is what keeps a 200k index around 20MB.
 const INDEX_FIELDS = Object.freeze([
@@ -104,15 +105,21 @@ function createNameIndex({
   }
 
   // `where` keeps the person/organisation decision a one-line filter rather than an index rebuild.
-  function find(name, { where, ...options } = {}) {
+  function match(candidate, { where, ...options } = {}) {
     const candidates = where
       ? [...entries.values()].filter((entry) => where(entry.partner))
       : entries.values();
-    return rankDuplicates(name, candidates, options);
+    return evaluate(candidate, candidates, options);
+  }
+
+  // Sugar for the name-only case; it runs the same engine as every other caller.
+  function find(name, options = {}) {
+    return match({ Name: name }, options);
   }
 
   return {
     refresh,
+    match,
     find,
     // A write must be matchable straight away, so it drops the refresh interval, not the index.
     markStale: () => { stale = true; },

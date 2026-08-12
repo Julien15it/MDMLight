@@ -2,8 +2,6 @@
 
 // Raised from 0.82: a full-index scan produces far more candidates than a prefiltered read did.
 const DUPLICATE_THRESHOLD = 0.86;
-// Unbounded: a silently truncated list hides exactly the record the user is looking for.
-const DUPLICATE_LIMIT = Infinity;
 // Dice is noisy on very short strings, so those must match exactly.
 const MIN_FUZZY_LENGTH = 5;
 
@@ -77,22 +75,11 @@ function scorePartner(requested, fingerprints = []) {
   return Math.max(0, ...fingerprints.map((fingerprint) => scoreFingerprint(requested, fingerprint)));
 }
 
-// Entries carry their fingerprints so both the live read and the name index share one ranking path.
-function rankDuplicates(name, entries = [], { threshold = DUPLICATE_THRESHOLD, limit = DUPLICATE_LIMIT } = {}) {
-  const requested = companyFingerprint(name);
-  if (!requested) return [];
-
-  const ranked = [];
-  for (const entry of entries) {
-    const score = scorePartner(requested, entry.fingerprints);
-    if (score >= threshold) ranked.push({ partner: entry.partner, score });
-  }
-  return ranked.sort((left, right) => right.score - left.score).slice(0, limit);
-}
+// Name scoring only. Ranking candidates is `evaluate` in duplicate-engine.js — there is exactly
+// one duplicate check, and a second entry point here is how the two would drift apart.
 
 module.exports = {
   DUPLICATE_THRESHOLD,
-  DUPLICATE_LIMIT,
   MIN_FUZZY_LENGTH,
   NAME_FIELDS,
   normalizedCompanyName,
@@ -100,6 +87,5 @@ module.exports = {
   diceSimilarity,
   partnerFingerprints,
   scoreFingerprint,
-  scorePartner,
-  rankDuplicates
+  scorePartner
 };

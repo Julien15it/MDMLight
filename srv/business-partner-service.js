@@ -6,7 +6,9 @@ const { parseIntent, useModelIntent } = require('./ai/intent');
 const { researchCompany } = require('./ai/company-research');
 const { startWorkflow } = require("./wf/processAutomation");
 const { createCache } = require('./ai/cache');
-const { rankDuplicates, partnerFingerprints } = require('./ai/name-match');
+const {
+  VERDICT_LABELS, activeRules, checkAgainstPartners, duplicateFindings
+} = require('./ai/duplicate-check');
 const { createNameIndex } = require('./ai/name-index');
 const { createCapPartnerReader, createMcpPartnerReader, ENTITY_SET } = require('./ai/partner-readers');
 const { createMcpToolCaller } = require('./ai/mcp-client');
@@ -643,7 +645,8 @@ function createIndexReader(s4, env = cds.env.assistant?.indexSource) {
 }
 
 // Falls back to the rows already read, so a failed index build never blocks an answer.
-async function findIndexedDuplicates(s4, name, partners = []) {
+async function findIndexedDuplicates(s4, candidate, partners = []) {
+  const record = typeof candidate === 'string' ? { Name: candidate } : candidate;
   try {
     if (!indexReader) indexReader = createIndexReader(s4);
     await nameIndex.refresh(indexReader);
@@ -651,8 +654,8 @@ async function findIndexedDuplicates(s4, name, partners = []) {
     console.warn('[assistant] Name index unavailable, matching on the filtered read:', error.message);
   }
   return nameIndex.isBuilt()
-    ? nameIndex.find(name)
-    : findPotentialDuplicates(name, partners);
+    ? nameIndex.match(record, { rules: activeRules() })
+    : checkAgainstPartners(record, partners);
 }
 
 /**
@@ -778,13 +781,9 @@ function answerBusinessPartnerQuestion(question, partners = [], addresses = []) 
   return assistantList(`Results for “${terms.join(' ')}”`, matching);
 }
 
-// Fingerprints rows on the fly; the name index precomputes the same thing once per partner.
+// The same engine as the indexed path, over the rows already read.
 function findPotentialDuplicates(name, partners = [], options = {}) {
-  return rankDuplicates(
-    name,
-    partners.map((partner) => ({ partner, fingerprints: partnerFingerprints(partner) })),
-    options
-  );
+  return checkAgainstPartners({ Name: name }, partners, options);
 }
 
 // Every capture above ends at punctuation or end of line, so the words after the name come along.
@@ -974,8 +973,8 @@ function businessPartnerCreationSuggestion(
 function duplicateAnswer(name, duplicates) {
   return [
     `I found ${duplicates.length === 1 ? 'a possible duplicate' : 'possible duplicates'} for “${name}” in S/4HANA. No creation proposal was prepared:`,
-    ...duplicates.map(({ partner, score }) => (
-      `${assistantPartnerLine(partner)} | Name match ${Math.round(score * 100)}%`
+    ...duplicates.map(({ partner, score, verdict }) => (
+      `${assistantPartnerLine(partner)} | ${VERDICT_LABELS[verdict] || 'Match'} ${Math.round(score * 100)}%`
     )),
     'Review the existing record before creating another Business Partner.'
   ].join('\n');
@@ -1520,6 +1519,19 @@ class BusinessPartnerService extends cds.ApplicationService {
       }
     });
 
+    // The change-request submit reaches the one duplicate check through here, so it shares this
+    // service's S/4 connection and the single resident name index rather than building its own.
+    this.on('checkBusinessPartnerDuplicates', async (req) => {
+      const candidate = parseJsonObject(req.data.CandidateJson, 'CandidateJson');
+      const s4 = await cds.connect.to('API_BUSINESS_PARTNER');
+      const matches = await findIndexedDuplicates(s4, candidate);
+      const excludeBP = String(req.data.ExcludeBP || '').trim();
+      const kept = excludeBP
+        ? matches.filter((match) => String(match.partner?.BusinessPartner) !== excludeBP)
+        : matches;
+      return JSON.stringify({ findings: duplicateFindings(kept) });
+    });
+
     this.on('askBusinessPartnerAssistant', async (req) => {
       const question = String(req.data.Question || '').trim();
       if (!question) req.reject(400, 'Enter a question.', 'Question');
@@ -1590,9 +1602,10 @@ class BusinessPartnerService extends cds.ApplicationService {
           addresses,
           fallbackAnswer,
           externalResearch: research,
-          duplicateCandidates: duplicates.map(({ partner, score }) => ({
+          duplicateCandidates: duplicates.map(({ partner, score, verdict }) => ({
             ...partner,
-            MatchScore: Math.round(score * 100)
+            MatchScore: Math.round(score * 100),
+            MatchVerdict: verdict
           })),
           conversationHistory,
           totalBusinessPartners: needsPartnerData ? partners.length : null

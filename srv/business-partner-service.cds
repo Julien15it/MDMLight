@@ -118,6 +118,14 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
     ConversationJson : LargeString
   ) returns BusinessPartnerAssistantAnswer;
 
+  /** The one duplicate check, for callers that hold a whole record rather than
+   *  a name - the change-request submit above all. Read-only: it returns
+   *  findings and never blocks or writes anything itself. */
+  action checkBusinessPartnerDuplicates(
+    CandidateJson : LargeString not null,
+    ExcludeBP     : String(10)
+  ) returns LargeString;
+
   // Core business-partner details shown as sections on the object page.
   @readonly entity Addresses            as projection on S4.A_BusinessPartnerAddress;
   @readonly entity BusinessPartnerRoles as projection on S4.A_BusinessPartnerRole;
