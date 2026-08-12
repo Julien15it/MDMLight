@@ -3,7 +3,10 @@
 const { DUPLICATE_THRESHOLD, scoreFingerprint, diceSimilarity } = require('./name-match');
 const { CONDITION_FIELDS, buildCandidate, resolveField } = require('./duplicate-fields');
 
-const INDICATORS = Object.freeze(['weak', 'strong', 'definitive']);
+// `disqualifying` is negative evidence and never competes for strongest-per-field, so it has no
+// rank. Without it, escalating a name-only match would rate a sparse candidate above a rich one.
+const DISQUALIFYING = 'disqualifying';
+const INDICATORS = Object.freeze(['weak', 'strong', 'definitive', DISQUALIFYING]);
 const INDICATOR_RANK = Object.freeze({ weak: 1, strong: 2, definitive: 3 });
 
 const VERDICTS = Object.freeze({
@@ -14,10 +17,16 @@ const VERDICTS = Object.freeze({
 });
 const VERDICT_RANK = Object.freeze({ none: 0, small: 1, strong: 2, duplicate: 3 });
 
-// Config lives in rows, so today's hard-coded check is expressible as a single row.
+// Rows 5 and 6 are what make a name-only candidate safe to escalate: a differing identifier or
+// country rules the pair out before any name score gets to vote.
 const DEFAULT_RULES = Object.freeze([
+  Object.freeze({ sequence: 5, field: 'TaxNumber', comparison: 'exact', indicator: DISQUALIFYING }),
+  Object.freeze({ sequence: 6, field: 'Country', comparison: 'exact', indicator: DISQUALIFYING }),
+  Object.freeze({ sequence: 10, field: 'TaxNumber', comparison: 'exact', indicator: 'definitive' }),
+  Object.freeze({ sequence: 20, field: 'Name', comparison: 'exact', indicator: 'definitive' }),
+  Object.freeze({ sequence: 25, field: 'Name', comparison: 'fuzzy', threshold: 0.92, indicator: 'definitive' }),
   Object.freeze({
-    sequence: 10,
+    sequence: 30,
     field: 'Name',
     comparison: 'fuzzy',
     threshold: DUPLICATE_THRESHOLD,
@@ -102,22 +111,28 @@ function ruleThreshold(rule) {
  */
 function indicatorsFor(candidateBag, otherBag, rules) {
   const strongest = new Map();
-  const unevaluated = [];
+  const unrunnable = [];
+  let disqualifiedBy = null;
   for (const rule of applicableRules(rules, candidateBag, otherBag)) {
-    // An unknown field or comparison must not read as "no duplicate" — that is the dangerous answer.
+    // An unrunnable rule must not read as "no duplicate" — that is the dangerous answer.
     const reason = !resolveField(rule.field) ? 'unknown_field'
       : !COMPARISONS[rule.comparison] ? 'unsupported_comparison'
-        : '';
+        : !INDICATORS.includes(rule.indicator) ? 'unknown_indicator'
+          : '';
     if (reason) {
-      unevaluated.push({ field: rule.field, comparison: rule.comparison, reason });
+      unrunnable.push({ field: rule.field, comparison: rule.comparison, reason });
       continue;
     }
-    const score = compareValues(
-      rule.comparison,
-      candidateBag[rule.field],
-      otherBag[rule.field],
-      ruleThreshold(rule)
-    );
+    const left = candidateBag[rule.field] || [];
+    const right = otherBag[rule.field] || [];
+    const score = compareValues(rule.comparison, left, right, ruleThreshold(rule));
+    if (rule.indicator === DISQUALIFYING) {
+      // Present-and-different rules the pair out; blank on either side still says nothing.
+      if (left.length && right.length && !score) {
+        disqualifiedBy = { field: rule.field, comparison: rule.comparison };
+      }
+      continue;
+    }
     if (!score) continue;
     const found = { field: rule.field, comparison: rule.comparison, indicator: rule.indicator, score };
     const previous = strongest.get(rule.field);
@@ -127,7 +142,11 @@ function indicatorsFor(candidateBag, otherBag, rules) {
       strongest.set(rule.field, found);
     }
   }
-  return { indicators: [...strongest.values()], unevaluated };
+  return {
+    indicators: disqualifiedBy ? [] : [...strongest.values()],
+    unrunnable,
+    disqualifiedBy
+  };
 }
 
 // Fixed in code, not configurable: a configurable ladder makes every result impossible to explain.
@@ -152,14 +171,14 @@ function evaluate(candidate, entries = [], { rules = DEFAULT_RULES, limit = Infi
   const candidateBag = bagOf(candidate);
   const active = rules.filter((rule) => rule.isActive !== false);
   const results = [];
-  const unevaluatedRules = new Map();
+  const unrunnableRules = new Map();
 
   for (const entry of entries) {
     const partner = entry?.partner || entry;
     const id = partner?.BusinessPartner;
     if (excludeId !== undefined && id !== undefined && String(id) === String(excludeId)) continue;
-    const { indicators, unevaluated } = indicatorsFor(candidateBag, bagOf(entry), active);
-    for (const rule of unevaluated) unevaluatedRules.set(`${rule.field}:${rule.comparison}`, rule);
+    const { indicators, unrunnable } = indicatorsFor(candidateBag, bagOf(entry), active);
+    for (const rule of unrunnable) unrunnableRules.set(`${rule.field}:${rule.comparison}`, rule);
     const verdict = verdictFor(indicators);
     if (verdict === VERDICTS.NONE) continue;
     results.push({ partner, verdict, indicators, score: bestScore(indicators) });
@@ -168,12 +187,14 @@ function evaluate(candidate, entries = [], { rules = DEFAULT_RULES, limit = Infi
   results.sort((left, right) => VERDICT_RANK[right.verdict] - VERDICT_RANK[left.verdict]
     || right.score - left.score);
   const ranked = results.slice(0, limit);
-  // Non-enumerable so callers can keep treating the result as a plain array of matches.
-  Object.defineProperty(ranked, 'unevaluatedRules', { value: [...unevaluatedRules.values()] });
+  // Non-enumerable so callers can keep treating the result as a plain array of matches. This is a
+  // config-health signal for the admin page and the log, never something to show an end user.
+  Object.defineProperty(ranked, 'unrunnableRules', { value: [...unrunnableRules.values()] });
   return ranked;
 }
 
 module.exports = {
+  DISQUALIFYING,
   INDICATORS,
   INDICATOR_RANK,
   VERDICTS,

@@ -1,11 +1,13 @@
 # Configurable duplicate check — design
 
-Status: **engine built 2026-08-12, not yet wired in and not yet run.**
+Status: **engine built 2026-08-12, not yet wired in and never executed** — there
+is no Node toolchain on the Windows machine, so the tests must be run in BAS.
 `srv/ai/duplicate-fields.js` (catalog, normalisers, candidate bags) and
 `srv/ai/duplicate-engine.js` (`evaluate`) implement everything below except
 persistence and the admin page. No caller uses them yet — the live check is
-still name-only via `rankDuplicates` in `srv/ai/name-match.js`, and
-`DEFAULT_RULES` reproduces exactly that as a single row.
+still name-only via `rankDuplicates` in `srv/ai/name-match.js`. `DEFAULT_RULES`
+is **not** a like-for-like copy of it any more — see "A name-only candidate can
+reach `Duplicate`" below.
 
 Remaining: `DuplicateRules` persistence, the admin page, extending
 `createNameIndex` to carry tax numbers and addresses, and replacing
@@ -42,11 +44,25 @@ cannot reach `Duplicate`.
 
 ### Indicators
 
-`weak` · `strong` · `definitive`
+`weak` · `strong` · `definitive` · `disqualifying`
 
 There is deliberately no "not relevant" indicator. A field that does not matter
 is simply not configured. Switching a criterion off for a subset is expressed by
 narrowing the conditions on the row that switches it *on*.
+
+`disqualifying` is **negative evidence**: if both records carry a value for the
+field and the values differ, the pair is ruled out entirely — verdict `none`,
+whatever the other rows found. Blank on either side still says nothing.
+
+It exists because without it nothing could ever rule a pair *out*: two partners
+with different VAT numbers are definitively not the same company, but a differing
+value merely failed to contribute. That gap is what made escalating a name-only
+match unsafe — a sparse candidate would have produced a *stronger* verdict than a
+rich one whose identifiers disagreed. Fix the negative side and the escalation
+becomes safe.
+
+`disqualifying` never competes for strongest-per-field and carries no rank; it
+short-circuits the pair instead.
 
 ### Two rows on the same field
 
@@ -72,6 +88,7 @@ explain to an auditor.
 
 | Verdict | When |
 |---|---|
+| none | any `disqualifying` row found differing values — checked first, beats everything |
 | **Duplicate** | ≥ 1 `definitive` |
 | **Strong chance of duplicate** | ≥ 2 indicators, at least one `strong` |
 | **Small chance of duplicate** | exactly 1 `strong`, or ≥ 2 `weak` |
@@ -99,10 +116,15 @@ as one duplicate cluster. Given our baseline (67% of BPs have no `SearchTerm1`,
 | `contains` | one normalised value contains the other |
 | `semantic` | embedding cosine ≥ `Threshold` — **not yet available**, see below |
 
-A rule the engine cannot evaluate — `semantic` today, or a field no longer in
-the catalog — is **reported on `evaluate`'s result as `unevaluatedRules`, not
-treated as a non-match.** "No duplicates found" produced by a rule that never
-ran is the one wrong answer this check must never give.
+A rule the engine cannot **run** — `semantic` today, a field no longer in the
+catalog, an unknown indicator — is reported on `evaluate`'s result as
+`unrunnableRules` rather than treated as a non-match. "No duplicates found"
+produced by a rule that never ran is the one wrong answer this check must not
+give.
+
+This is a config-health signal for the admin page and the deploy log, **not an
+end-user message**. A rule correctly skipped because its conditions did not match
+the pair — a BE row against a US partner — is normal and is never reported.
 
 `semantic` is the extension point for the AI Core embedding work. It needs a
 vector store, which we do not have: HANA Cloud was rejected on cost and
@@ -117,7 +139,7 @@ field in the catalog carries its normaliser.
 | Field kind | Normalisation |
 |---|---|
 | Name | existing `companyFingerprint` — casefold, strip punctuation, drop legal forms (`nv`, `bv`, `sa`, `gmbh`…) |
-| Tax number | uppercase, strip non-alphanumeric, then **prefix a bare number with the record's own country** — `0123.456.789` on a Belgian partner becomes `BE0123456789`. Stripping the prefix instead would make `BE0123456789` and `NL0123456789` the same definitive duplicate. A bare number on a record with no country stays bare, so it misses rather than false-positives |
+| Tax number | uppercase, strip non-alphanumeric, zero-pad the national part to the country's width, then **prefix a bare number with the record's own country**. Stripping the prefix instead would make `BE0123456789` and `NL0123456789` the same definitive duplicate. A bare number on a record with no country stays bare, so it misses rather than false-positives. Padding is what makes BP 208's three spellings of one number — `BE0448207405` (BE0), `0448207405` (BE1), `448207405` (BE2) — compare equal; without it the BE2 form matches nothing. Widths live in `NATIONAL_NUMBER_LENGTH`, today `{ BE: 10 }` |
 | Postal code | strip spaces and dots |
 | IBAN | uppercase, strip spaces |
 | Street | casefold, strip punctuation |
@@ -138,6 +160,20 @@ therefore a code change plus an index change, by design.
 
 Initial catalog: `Name`, `SearchTerm1`, `TaxNumber.<type>`, `PostalCode`,
 `CityName`, `Country`, `StreetName`, `IBAN`.
+
+**Prefer bare `TaxNumber` over `TaxNumber.<type>`.** Bare compares across every
+tax type after normalisation, which is what catches one partner's BE0 against
+another's BE1 — a real case in the sandbox. Use `TaxNumber.<type>` only when a
+rule genuinely must be type-specific.
+
+### What the sandbox data already says
+
+`A_BusinessPartnerTaxNumber` holds 110 rows over 273 BPs, several per partner, so
+well under half of partners carry a tax number at all — the ceiling on what any
+identifier rule can achieve. And `BE0666471360` sits on **eight** partners
+(5, 11, 13, 14, 15, 200, 218, 266), `BE0417497106` on three. A definitive
+`TaxNumber` rule fires on those clusters immediately. Establish whether that is
+real duplication or placeholder data before showing it to anyone.
 
 ## Persistence
 
@@ -228,10 +264,38 @@ fields the candidate does not carry simply do not fire. The sparse-candidate
 case and the missing-data case are the same code path, which is why that rule
 is worth being strict about.
 
-Sparseness does change what a caller can conclude, though: a name-only candidate
-can reach `Small chance` but rarely `Duplicate`, since definitive rules key on
-identifiers the assistant does not have. The assistant should therefore present
-its result as provisional and never as an all-clear.
+### A name-only candidate can reach `Duplicate`
+
+Agreed 2026-08-12. With `disqualifying` in place it is safe for a name alone to
+be definitive, because the only pairs that reach the name rows are ones whose
+identifiers and countries do not contradict each other. `DEFAULT_RULES` encodes
+this:
+
+| Seq | Field | Comparison | Threshold | Indicator |
+|-----|-------|------------|-----------|-----------|
+| 5 | `TaxNumber` | exact | | disqualifying |
+| 6 | `Country` | exact | | disqualifying |
+| 10 | `TaxNumber` | exact | | definitive |
+| 20 | `Name` | exact | | definitive |
+| 25 | `Name` | fuzzy | 0.92 | definitive |
+| 30 | `Name` | fuzzy | 0.86 | strong |
+
+So for candidate "Alluvion NV": existing `Alluvion` and `Alluvion BVBA` share the
+fingerprint `alluvion` and hit row 20; `Aluvion` scores 0.923 and hits row 25.
+All three come back as **Duplicate**. A 0.875 match — one letter in a longer name
+— stays at row 30 and reports **Small chance**.
+
+Row 6 is what makes an exact-name-is-definitive rule defensible outside a
+single-country tenant: "Delta NV" in BE and "Delta Inc" in the US share a
+fingerprint but differ on country, so they never reach row 20.
+
+Note that the rows above are *defaults*, not the ladder. A steward who finds
+0.92 too eager moves it, which is the whole point of the table.
+
+Sparseness still changes what a caller can conclude: an assistant candidate
+carries no identifiers, so `disqualifying` rows cannot fire for it either and it
+is trusting the name entirely. Present the result as provisional, never as an
+all-clear.
 
 ### Persisting submit-time results
 

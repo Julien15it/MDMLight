@@ -30,19 +30,61 @@ const partner = (id, overrides = {}) => ({
 
 const entries = (...partners) => partners.map((row) => ({ partner: row }));
 
-test('the default ruleset reproduces the hard-coded name check', () => {
-  const [found] = evaluate(
-    { Name: 'Alluvion' },
-    entries(partner('1', { BusinessPartnerFullName: 'Aluvion BVBA' })),
+test('a name-only candidate reaches Duplicate on an exact or near-exact name', () => {
+  const found = evaluate(
+    { Name: 'Alluvion NV' },
+    entries(
+      partner('1', { BusinessPartnerFullName: 'Alluvion' }),
+      partner('2', { BusinessPartnerFullName: 'Alluvion BVBA' }),
+      partner('3', { BusinessPartnerFullName: 'Aluvion' })
+    ),
     { rules: DEFAULT_RULES }
   );
-  assert.equal(found.partner.BusinessPartner, '1');
-  assert.equal(found.verdict, VERDICTS.SMALL);
-  assert.equal(found.indicators.length, 1);
-  assert.equal(found.indicators[0].field, 'Name');
+  assert.equal(found.length, 3);
+  for (const row of found) {
+    assert.equal(row.verdict, VERDICTS.DUPLICATE, `BP ${row.partner.BusinessPartner}`);
+    assert.equal(row.indicators.length, 1, 'one field contributes once');
+    assert.equal(row.indicators[0].field, 'Name');
+  }
 });
 
-test('a candidate carrying only a name never reaches a definitive verdict', () => {
+test('a weaker name match stays below Duplicate', () => {
+  // 0.875 — over the 0.86 strong threshold, under the 0.92 definitive one.
+  const [found] = evaluate(
+    { Name: 'Alluvion Solutions' },
+    entries(partner('4', { BusinessPartnerFullName: 'Allivion Solutions' })),
+    { rules: DEFAULT_RULES }
+  );
+  assert.equal(found.verdict, VERDICTS.SMALL);
+  assert.equal(found.indicators[0].indicator, 'strong');
+});
+
+test('a differing tax number rules the pair out however well the names match', () => {
+  const left = { Name: 'Alluvion NV', Country: 'BE', taxNumbers: [{ BPTaxNumber: '0666471360' }] };
+  const same = partner('5', { Country: 'BE', taxNumbers: [{ BPTaxNumber: 'BE0666471360' }] });
+  const other = partner('6', { Country: 'BE', taxNumbers: [{ BPTaxNumber: 'BE0417497106' }] });
+  const found = evaluate(left, entries(same, other), { rules: DEFAULT_RULES });
+  assert.deepEqual(found.map((row) => row.partner.BusinessPartner), ['5']);
+  assert.equal(found[0].verdict, VERDICTS.DUPLICATE);
+});
+
+test('a differing country rules the pair out — Delta NV in BE is not Delta Inc in US', () => {
+  const left = { Name: 'Delta', Country: 'BE' };
+  const found = evaluate(left, entries(partner('7', { BusinessPartnerFullName: 'Delta Inc', Country: 'US' })), {
+    rules: DEFAULT_RULES
+  });
+  assert.deepEqual(found, []);
+});
+
+test('a blank on either side never disqualifies', () => {
+  const left = { Name: 'Alluvion NV', Country: 'BE', taxNumbers: [{ BPTaxNumber: '0666471360' }] };
+  const [found] = evaluate(left, entries(partner('8', { BusinessPartnerFullName: 'Alluvion' })), {
+    rules: DEFAULT_RULES
+  });
+  assert.equal(found.verdict, VERDICTS.DUPLICATE);
+});
+
+test('a candidate carrying only a name still cannot fire a conditioned rule', () => {
   const other = partner('2', {
     Country: 'BE',
     taxNumbers: [{ BPTaxType: 'BE0', BPTaxNumber: 'BE0123456789' }],
@@ -82,6 +124,18 @@ test('a bare VAT number takes the record country, so BE and NL do not collide', 
   assert.deepEqual(fieldValues({ Country: 'BE', taxNumbers: [{ BPTaxNumber: '0123456789' }] }, 'TaxNumber'), ['BE0123456789']);
   assert.deepEqual(fieldValues({ Country: 'NL', taxNumbers: [{ BPTaxNumber: '0123456789' }] }, 'TaxNumber'), ['NL0123456789']);
   assert.deepEqual(fieldValues({ taxNumbers: [{ BPTaxNumber: 'BE0123456789' }] }, 'TaxNumber'), ['BE0123456789']);
+});
+
+// BP 208 in the sandbox carries all three of these for the same enterprise number.
+test('BE0, BE1 and BE2 spellings of one enterprise number normalise alike', () => {
+  assert.deepEqual(fieldValues({
+    Country: 'BE',
+    taxNumbers: [
+      { BPTaxType: 'BE0', BPTaxNumber: 'BE0448207405' },
+      { BPTaxType: 'BE1', BPTaxNumber: '0448207405' },
+      { BPTaxType: 'BE2', BPTaxNumber: '448207405' }
+    ]
+  }, 'TaxNumber'), ['BE0448207405']);
 });
 
 test('a rule only fires when its conditions hold on both records', () => {
@@ -156,14 +210,21 @@ test('an unevaluated rule is reported rather than passed off as no match', () =>
   ];
   const found = evaluate({ Name: 'Alluvion' }, entries(partner('8')), { rules });
   assert.deepEqual(found, []);
-  assert.deepEqual(found.unevaluatedRules, [
+  assert.deepEqual(found.unrunnableRules, [
     { field: 'Name', comparison: 'semantic', reason: 'unsupported_comparison' },
     { field: 'NotInTheCatalog', comparison: 'exact', reason: 'unknown_field' }
   ]);
 });
 
+test('a rule whose conditions do not match is not reported as unrunnable', () => {
+  const rules = [{ condCountry: 'BE', field: 'Name', comparison: 'exact', indicator: 'definitive' }];
+  const found = evaluate({ Name: 'Alluvion', Country: 'US' }, entries(partner('9', { Country: 'US' })), { rules });
+  assert.deepEqual(found, []);
+  assert.deepEqual(found.unrunnableRules, []);
+});
+
 test('an inactive row is ignored', () => {
-  const rules = [{ ...DEFAULT_RULES[0], isActive: false }];
+  const rules = [{ field: 'Name', comparison: 'exact', indicator: 'definitive', isActive: false }];
   assert.deepEqual(evaluate({ Name: 'Alluvion' }, entries(partner('9')), { rules }), []);
 });
 

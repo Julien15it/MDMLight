@@ -9,14 +9,27 @@ const alnumUpper = (value) => String(value || '').replace(/[^\p{L}\p{N}]+/gu, ''
 
 const textNorm = (value) => normalizedCompanyName(value).replace(/\s+/gu, ' ');
 
-// A bare VAT number is prefixed with the record's own country rather than the prefix being
-// stripped: stripping would make BE0123456789 and NL0123456789 the same definitive duplicate.
+// The sandbox stores one Belgian enterprise number three ways on the same partner: BE0
+// 'BE0448207405', BE1 '0448207405', BE2 '448207405'. All three must normalise alike.
+const NATIONAL_NUMBER_LENGTH = Object.freeze({ BE: 10 });
+
+function padNationalNumber(country, digits) {
+  const width = NATIONAL_NUMBER_LENGTH[country];
+  return width && /^\d+$/u.test(digits) && digits.length < width
+    ? digits.padStart(width, '0')
+    : digits;
+}
+
+// A bare number takes the record's own country rather than the prefix being stripped: stripping
+// would make BE0123456789 and NL0123456789 the same definitive duplicate.
 function taxNorm(value, record) {
-  const digits = alnumUpper(value);
-  if (!digits) return '';
-  if (/^\p{L}{2}/u.test(digits)) return digits;
-  const country = primaryCountry(record);
-  return country ? `${country}${digits}` : digits;
+  const cleaned = alnumUpper(value);
+  if (!cleaned) return '';
+  const carriesPrefix = /^\p{L}{2}\d/u.test(cleaned);
+  const country = carriesPrefix ? cleaned.slice(0, 2) : primaryCountry(record);
+  const digits = carriesPrefix ? cleaned.slice(2) : cleaned;
+  if (!country) return digits;
+  return `${country}${padNationalNumber(country, digits)}`;
 }
 
 function primaryCountry(record = {}) {
@@ -126,6 +139,7 @@ function buildCandidate(record, fields = Object.keys(CATALOG)) {
 module.exports = {
   CATALOG,
   CONDITION_FIELDS,
+  NATIONAL_NUMBER_LENGTH,
   alnumUpper,
   textNorm,
   taxNorm,
