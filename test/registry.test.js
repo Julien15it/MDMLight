@@ -1,0 +1,231 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+
+const { toEntity, recordsFrom, leisFromCompletions, searchByName } = require('../srv/ai/gleif');
+const {
+  STATUS, viesCountryCode, nationalNumber, statusFrom, parseAddress, checkVatNumber
+} = require('../srv/ai/vies');
+const { acceptedEntities, vatFindings, enrichCandidate } = require('../srv/ai/registry');
+const { evaluate, DEFAULT_RULES, VERDICTS } = require('../srv/ai/duplicate-engine');
+
+const LEI = '549300ABCDEFGHIJKL01';
+
+const gleifRecord = (overrides = {}) => ({
+  type: 'lei-records',
+  id: overrides.lei || LEI,
+  attributes: {
+    lei: overrides.lei || LEI,
+    entity: {
+      legalName: { name: overrides.legalName || 'NV ACKERMANS & VAN HAAREN', language: 'nl' },
+      otherNames: overrides.otherNames || [{ name: 'AvH', type: 'TRADING_OR_OPERATING_NAME' }],
+      legalAddress: {
+        language: 'nl',
+        addressLines: ['Begijnenvest 113'],
+        city: 'Antwerpen',
+        region: 'BE-VAN',
+        country: 'BE',
+        postalCode: '2000'
+      },
+      registeredAt: { id: 'RA000045', other: '' },
+      registeredAs: overrides.registeredAs === undefined ? '0404616494' : overrides.registeredAs,
+      status: 'ACTIVE'
+    }
+  }
+});
+
+// Captured live from VIES on 2026-08-12. The fake must emit what the real transport emits.
+const VIES_VALID = {
+  isValid: true,
+  requestDate: '2026-08-12T08:52:11.145Z',
+  userError: 'VALID',
+  name: 'NV ACKERMANS & VAN HAAREN',
+  address: 'Begijnenvest 113\n2000 Antwerpen',
+  originalVatNumber: '0404616494',
+  vatNumber: '0404616494'
+};
+const VIES_INVALID = {
+  isValid: false, requestDate: '', userError: 'INVALID', name: '---', address: '---', vatNumber: '0123456789'
+};
+const VIES_THROTTLED = {
+  isValid: false,
+  requestDate: '',
+  userError: 'MS_MAX_CONCURRENT_REQ',
+  name: '---',
+  address: '---',
+  vatNumber: '0417497106'
+};
+
+const fetchReturning = (...bodies) => {
+  const calls = [];
+  const impl = async (url) => {
+    calls.push(String(url));
+    const body = bodies[Math.min(calls.length - 1, bodies.length - 1)];
+    return { ok: true, json: async () => body };
+  };
+  impl.calls = calls;
+  return impl;
+};
+
+test('maps the GLEIF record onto the paths the live API actually uses', () => {
+  const entity = toEntity(gleifRecord());
+  assert.equal(entity.lei, LEI);
+  assert.equal(entity.legalName, 'NV ACKERMANS & VAN HAAREN');
+  assert.deepEqual(entity.otherNames, ['AvH']);
+  assert.equal(entity.registeredAs, '0404616494');
+  assert.equal(entity.registeredAt, 'RA000045');
+  assert.equal(entity.status, 'ACTIVE');
+  assert.deepEqual(entity.address, {
+    StreetName: 'Begijnenvest 113', PostalCode: '2000', CityName: 'Antwerpen', Country: 'BE'
+  });
+});
+
+test('drops a record with no legal name rather than yielding a nameless entity', () => {
+  assert.deepEqual(recordsFrom({ data: [{ attributes: { entity: {} } }] }), []);
+  assert.deepEqual(recordsFrom({}), []);
+});
+
+test('reads the LEI out of the fuzzycompletions relationship and dedupes', () => {
+  const body = {
+    data: [
+      { attributes: { value: 'A' }, relationships: { 'lei-records': { data: { id: LEI } } } },
+      { attributes: { value: 'B' }, relationships: { 'lei-records': { data: { id: LEI } } } },
+      { attributes: { value: 'C' }, relationships: {} }
+    ]
+  };
+  assert.deepEqual(leisFromCompletions(body), [LEI]);
+});
+
+test('falls back to the fuzzy pass only when the name filter found nothing', async () => {
+  const hit = fetchReturning({ data: [gleifRecord()] });
+  assert.equal((await searchByName('Ackermans', { fetchImpl: hit })).length, 1);
+  assert.equal(hit.calls.length, 1, 'a direct hit costs one call');
+
+  const miss = fetchReturning(
+    { data: [] },
+    { data: [{ relationships: { 'lei-records': { data: { id: LEI } } } }] },
+    { data: [gleifRecord()] }
+  );
+  const found = await searchByName('Ackermans', { fetchImpl: miss });
+  assert.equal(found.length, 1);
+  assert.equal(miss.calls.length, 3);
+  assert.match(miss.calls[1], /fuzzycompletions/u);
+  assert.match(miss.calls[2], /filter%5Blei%5D=549300ABCDEFGHIJKL01|filter\[lei\]=549300ABCDEFGHIJKL01/u);
+});
+
+test('a throttled member state is unknown, not invalid', () => {
+  assert.equal(statusFrom(VIES_VALID), STATUS.VALID);
+  assert.equal(statusFrom(VIES_INVALID), STATUS.INVALID);
+  assert.equal(statusFrom(VIES_THROTTLED), STATUS.UNKNOWN);
+  assert.equal(statusFrom({ isValid: false, userError: 'MS_UNAVAILABLE' }), STATUS.UNKNOWN);
+  assert.equal(statusFrom({}), STATUS.UNKNOWN);
+});
+
+test('VIES country codes are not ISO codes', () => {
+  assert.equal(viesCountryCode('GR'), 'EL');
+  assert.equal(viesCountryCode('be'), 'BE');
+  assert.equal(nationalNumber('BE 0404.616.494', 'BE'), '0404616494');
+  assert.equal(nationalNumber('0404616494', 'BE'), '0404616494');
+});
+
+test('parses the address a member state returns, and never mistakes --- for data', () => {
+  assert.deepEqual(parseAddress('Begijnenvest 113\n2000 Antwerpen', 'BE'), {
+    StreetName: 'Begijnenvest 113', PostalCode: '2000', CityName: 'Antwerpen', Country: 'BE'
+  });
+  assert.equal(parseAddress('---', 'BE'), null);
+  assert.equal(parseAddress('', 'BE'), null);
+  // Germany returns no address at all; a single unparseable line must not vanish.
+  assert.deepEqual(parseAddress('Musterstrasse 1', 'DE'), {
+    StreetName: 'Musterstrasse 1', PostalCode: '', CityName: '', Country: 'DE'
+  });
+});
+
+test('a non-EU country is not checked at all', async () => {
+  const fetchImpl = fetchReturning(VIES_VALID);
+  const check = await checkVatNumber('US', '12-3456789', { fetchImpl });
+  assert.equal(check.status, STATUS.NOT_APPLICABLE);
+  assert.equal(fetchImpl.calls.length, 0);
+});
+
+test('a valid check returns the registered name and address', async () => {
+  const check = await checkVatNumber('BE', '0404.616.494', { fetchImpl: fetchReturning(VIES_VALID) });
+  assert.equal(check.status, STATUS.VALID);
+  assert.equal(check.name, 'NV ACKERMANS & VAN HAAREN');
+  assert.equal(check.address.CityName, 'Antwerpen');
+  assert.equal(check.vatNumber, '0404616494');
+});
+
+test('findings distinguish not-registered from could-not-check', () => {
+  const invalid = vatFindings({ status: STATUS.INVALID, countryCode: 'BE', vatNumber: '1' }, 'X');
+  assert.equal(invalid[0].severity, 'error');
+  const unknown = vatFindings(
+    { status: STATUS.UNKNOWN, countryCode: 'BE', vatNumber: '1', reason: 'MS_UNAVAILABLE' }, 'X'
+  );
+  assert.equal(unknown[0].severity, 'info');
+  const mismatch = vatFindings(
+    { status: STATUS.VALID, countryCode: 'BE', vatNumber: '1', name: 'Totally Other' }, 'Alluvion'
+  );
+  assert.equal(mismatch[0].severity, 'warning');
+  assert.deepEqual(
+    vatFindings({ status: STATUS.VALID, countryCode: 'BE', vatNumber: '1', name: 'Alluvion NV' }, 'Alluvion'),
+    []
+  );
+});
+
+test('a loose GLEIF hit is rejected before it can contribute anything', () => {
+  const entities = recordsFrom({ data: [gleifRecord({ legalName: 'Ackermans Bakery Ltd' })] });
+  assert.deepEqual(acceptedEntities('Alluvion', entities, 'BE'), []);
+  assert.equal(acceptedEntities('Ackermans Bakery', entities, 'BE').length, 1);
+  assert.deepEqual(acceptedEntities('Ackermans Bakery', entities, 'NL'), [], 'country must agree');
+});
+
+test('an ambiguous GLEIF result contributes names but never an identifier', async () => {
+  const two = [
+    gleifRecord({ lei: 'A'.repeat(20), registeredAs: '0404616494' }),
+    gleifRecord({ lei: 'B'.repeat(20), registeredAs: '0999999999' })
+  ];
+  const enriched = await enrichCandidate(
+    { Name: 'Ackermans & van Haaren', Country: 'BE' },
+    { useVies: false, lookupName: async () => recordsFrom({ data: two }) }
+  );
+  assert.equal(enriched.record.taxNumbers.length, 0);
+  assert.ok(enriched.record.additionalNames.includes('NV ACKERMANS & VAN HAAREN'));
+  assert.ok(enriched.provenance.every((entry) => entry.source === 'GLEIF'));
+});
+
+test('a single confident GLEIF hit contributes its local company number with provenance', async () => {
+  const enriched = await enrichCandidate(
+    { Name: 'Ackermans & van Haaren', Country: 'BE' },
+    { useVies: false, lookupName: async () => recordsFrom({ data: [gleifRecord()] }) }
+  );
+  assert.deepEqual(enriched.record.taxNumbers, [{ BPTaxType: 'RA000045', BPTaxNumber: '0404616494' }]);
+  assert.ok(enriched.provenance.some(
+    (entry) => entry.field === 'TaxNumber' && entry.source === 'GLEIF' && entry.lei === LEI
+  ));
+});
+
+test('a VIES outage enriches nothing and reports nothing as invalid', async () => {
+  const enriched = await enrichCandidate(
+    { Name: 'Ackermans', Country: 'BE', taxNumbers: [{ BPTaxNumber: '0417497106' }] },
+    { useGleif: false, fetchImpl: fetchReturning(VIES_THROTTLED) }
+  );
+  assert.equal(enriched.record.additionalNames.length, 0);
+  assert.equal(enriched.findings[0].severity, 'info');
+  assert.equal(enriched.facts.vies[0].status, STATUS.UNKNOWN);
+});
+
+test('enrichment lets a trading name find the partner stored under its legal name', async () => {
+  const partners = [{ partner: { BusinessPartner: '99', BusinessPartnerFullName: 'Ackermans & van Haaren NV' } }];
+  const typed = { Name: 'AvH', Country: 'BE' };
+
+  assert.deepEqual(evaluate(typed, partners, { rules: DEFAULT_RULES }), [], 'no match on the short name alone');
+
+  const enriched = await enrichCandidate(typed, {
+    useVies: false,
+    lookupName: async () => recordsFrom({ data: [gleifRecord({ otherNames: [{ name: 'AvH' }] })] })
+  });
+  const [found] = evaluate(enriched.record, partners, { rules: DEFAULT_RULES });
+  assert.equal(found.partner.BusinessPartner, '99');
+  assert.equal(found.verdict, VERDICTS.DUPLICATE);
+});

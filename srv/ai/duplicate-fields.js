@@ -41,11 +41,13 @@ function primaryCountry(record = {}) {
 const CATALOG = Object.freeze({
   Name: {
     normalise: (value) => companyFingerprint(value),
+    // additionalNames is where registry enrichment lands, so an official name matches too.
     values: (record) => [
       record.BusinessPartnerFullName,
       record.BusinessPartnerName,
       record.OrganizationBPName1,
-      record.Name
+      record.Name,
+      ...(record.additionalNames || [])
     ]
   },
   SearchTerm1: {
