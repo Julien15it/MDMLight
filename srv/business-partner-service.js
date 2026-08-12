@@ -7,7 +7,8 @@ const { researchCompany } = require('./ai/company-research');
 const { startWorkflow } = require("./wf/processAutomation");
 const { createCache } = require('./ai/cache');
 const {
-  VERDICT_LABELS, activeRules, refreshRules, checkAgainstPartners, duplicateFindings, testRuleset
+  VERDICT_LABELS, activeRules, refreshRules, stagedEntries, checkAgainstPartners,
+  duplicateFindings, testRuleset
 } = require('./ai/duplicate-check');
 const { usableRules } = require('./ai/rule-config');
 const { createNameIndex } = require('./ai/name-index');
@@ -665,12 +666,54 @@ async function ensureIndex(s4) {
   }
 }
 
-async function findIndexedDuplicates(s4, candidate, partners = []) {
+const STAGING_NODES = Object.freeze({
+  Addresses: 'mdmlight.staging.StagedAddresses',
+  TaxNumbers: 'mdmlight.staging.StagedTaxNumbers',
+  BankDetails: 'mdmlight.staging.StagedBankDetails',
+  BusinessPartnerRoles: 'mdmlight.staging.StagedRoles'
+});
+
+/**
+ * Pending creates, read whole so they can be matched against. Best-effort: staging being
+ * unavailable must degrade the check to live partners only, not fail the question or the submit.
+ */
+async function pendingCreateRequests() {
+  try {
+    const db = await cds.connect.to('db');
+    const requests = await db.run(
+      cds.ql.SELECT.from('mdmlight.staging.ChangeRequests')
+        .columns('ID', 'status', 'requestType')
+        .where({ status: { in: ACTIVE_REQUEST_STATUSES }, requestType: 'create' })
+    );
+    if (!requests.length) return [];
+    const ids = requests.map((request) => request.ID);
+    const general = await db.run(
+      cds.ql.SELECT.from('mdmlight.staging.StagedGeneral').where({ request_ID: { in: ids } })
+    );
+    const nodes = {};
+    for (const [section, entity] of Object.entries(STAGING_NODES)) {
+      nodes[section] = await db.run(cds.ql.SELECT.from(entity).where({ request_ID: { in: ids } }));
+    }
+    return requests.map((request) => ({
+      request,
+      general: general.find((row) => row.request_ID === request.ID) || {},
+      nodes: Object.fromEntries(Object.entries(nodes).map(([section, rows]) => [
+        section, rows.filter((row) => row.request_ID === request.ID)
+      ]))
+    }));
+  } catch (error) {
+    console.warn('[duplicates] Pending change requests unavailable, checking live partners only:', error.message);
+    return [];
+  }
+}
+
+async function findIndexedDuplicates(s4, candidate, partners = [], { excludeRequest } = {}) {
   const record = typeof candidate === 'string' ? { Name: candidate } : candidate;
   await ensureIndex(s4);
+  const pending = stagedEntries(await pendingCreateRequests(), { exclude: excludeRequest });
   return nameIndex.isBuilt()
-    ? nameIndex.match(record, { rules: activeRules() })
-    : checkAgainstPartners(record, partners);
+    ? nameIndex.match(record, { rules: activeRules(), extra: pending })
+    : checkAgainstPartners(record, partners, { extra: pending });
 }
 
 /**
@@ -1539,7 +1582,9 @@ class BusinessPartnerService extends cds.ApplicationService {
     this.on('checkBusinessPartnerDuplicates', async (req) => {
       const candidate = parseJsonObject(req.data.CandidateJson, 'CandidateJson');
       const s4 = await cds.connect.to('API_BUSINESS_PARTNER');
-      const matches = await findIndexedDuplicates(s4, candidate);
+      const matches = await findIndexedDuplicates(s4, candidate, [], {
+        excludeRequest: req.data.ExcludeRequest || null
+      });
       const excludeBP = String(req.data.ExcludeBP || '').trim();
       const kept = excludeBP
         ? matches.filter((match) => String(match.partner?.BusinessPartner) !== excludeBP)
@@ -1635,7 +1680,9 @@ class BusinessPartnerService extends cds.ApplicationService {
           duplicateCandidates: duplicates.map(({ partner, score, verdict }) => ({
             ...partner,
             MatchScore: Math.round(score * 100),
-            MatchVerdict: verdict
+            MatchVerdict: verdict,
+            // Without this a pending create reads as a live partner that happens to have no number.
+            PendingChangeRequest: partner.ChangeRequest || null
           })),
           conversationHistory,
           totalBusinessPartners: needsPartnerData ? partners.length : null

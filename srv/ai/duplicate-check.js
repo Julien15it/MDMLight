@@ -54,8 +54,29 @@ function toEntries(partners = []) {
   return partners.map((partner) => ({ partner, fingerprints: partnerFingerprints(partner) }));
 }
 
-function checkAgainstPartners(candidate, partners = [], options = {}) {
-  return evaluate(candidate, toEntries(partners), { rules: activeRules(), ...options });
+/**
+ * Pending creates as candidates to match against. Without these, two requests to create the same
+ * company — submitted before either is approved — are invisible to one another: neither is in S/4
+ * yet, so both pass, both post, and the control creates the duplicate it exists to prevent.
+ *
+ * Deliberately creates only. A change request against an existing partner is already represented
+ * in the index by that partner; adding its staged copy would report one company twice.
+ */
+function stagedEntries(requests = [], { exclude } = {}) {
+  return requests
+    .filter((entry) => entry?.request?.requestType === 'create')
+    // A request must never be reported as its own duplicate.
+    .filter((entry) => !exclude || String(entry.request.ID) !== String(exclude))
+    .map((entry) => {
+      const partner = candidateFromStagedRequest(entry.general, entry.nodes);
+      partner.ChangeRequest = entry.request.ID;
+      partner.ChangeRequestStatus = entry.request.status;
+      return { partner, fingerprints: partnerFingerprints(partner) };
+    });
+}
+
+function checkAgainstPartners(candidate, partners = [], { extra = [], ...options } = {}) {
+  return evaluate(candidate, [...toEntries(partners), ...extra], { rules: activeRules(), ...options });
 }
 
 function describe(result) {
@@ -63,7 +84,11 @@ function describe(result) {
   const reasons = result.indicators
     .map((found) => `${found.field} (${found.comparison})`)
     .join(', ');
-  return `${label}: Business Partner ${result.partner?.BusinessPartner} matches on ${reasons}.`;
+  // A pending create has no partner number yet, so it is named by its request.
+  const subject = result.partner?.ChangeRequest
+    ? `pending change request ${result.partner.ChangeRequest}`
+    : `Business Partner ${result.partner?.BusinessPartner}`;
+  return `${label}: ${subject} matches on ${reasons}.`;
 }
 
 /**
@@ -76,7 +101,9 @@ function duplicateFindings(results = [], { checkName = DUPLICATE_CHECK_NAME } = 
     severity: VERDICT_SEVERITY[result.verdict] || 'info',
     verdict: result.verdict,
     message: describe(result).slice(0, 500),
-    candidateBP: String(result.partner?.BusinessPartner || '').slice(0, 10),
+    // One or the other: a match is either a live partner or a request that has not posted yet.
+    candidateBP: String(result.partner?.BusinessPartner || '').slice(0, 10) || null,
+    candidateRequest: result.partner?.ChangeRequest || null,
     score: Number(result.score.toFixed(4))
   }));
 }
@@ -135,6 +162,7 @@ module.exports = {
   ruleStore,
   activeRules,
   refreshRules,
+  stagedEntries,
   candidateFromStagedRequest,
   toEntries,
   checkAgainstPartners,

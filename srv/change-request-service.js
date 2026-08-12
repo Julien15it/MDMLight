@@ -198,8 +198,10 @@ class ChangeRequestService extends cds.ApplicationService {
         const bp = await cds.connect.to('BusinessPartnerService');
         const answer = await bp.send('checkBusinessPartnerDuplicates', {
           CandidateJson: JSON.stringify(candidateFromStagedRequest(general, nodes)),
-          // A change request must never report the partner it is changing as its own duplicate.
-          ExcludeBP: businessPartner || general.BusinessPartner || null
+          // A change request must never report the partner it is changing as its own duplicate,
+          // nor itself: it is already staged and in an active status by the time this runs.
+          ExcludeBP: businessPartner || general.BusinessPartner || null,
+          ExcludeRequest: changeRequest
         });
         const findings = JSON.parse(answer || '{}').findings || [];
         // Supersede rather than delete, so an earlier verdict stays auditable after a resubmit.

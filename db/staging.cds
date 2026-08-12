@@ -274,6 +274,11 @@ entity CheckFindings : cuid, managed {
   candidateBP : String(10);
   score       : Decimal(5, 4);
 
+  /** Set instead of `candidateBP` when the match is another change request that
+   *  has not posted yet. A pending create has no partner number, and two
+   *  requests for the same company are exactly what the check has to catch. */
+  candidateRequest : UUID;
+
   /** Duplicate verdict tier. Its own column rather than folded into `severity`:
    *  severity says whether someone must act, verdict says what was found, and
    *  they are not the same concept. Adding a column is safe - the deployer only

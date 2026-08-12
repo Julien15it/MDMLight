@@ -79,6 +79,10 @@ function normaliseReaders(readers) {
   return typeof readers === 'function' ? { partners: readers } : (readers || {});
 }
 
+function* chain(...iterables) {
+  for (const iterable of iterables) if (iterable) yield* iterable;
+}
+
 function projectChild(row, columns) {
   const projected = {};
   for (const column of columns) {
@@ -175,11 +179,13 @@ function createNameIndex({
   }
 
   // `where` keeps the person/organisation decision a one-line filter rather than an index rebuild.
-  function match(candidate, { where, ...options } = {}) {
-    const candidates = where
+  // `extra` appends candidates the index does not hold — pending creates, which are not in S/4 yet.
+  // Chained rather than concatenated so a 200k index is never copied to run one check.
+  function match(candidate, { where, extra = [], ...options } = {}) {
+    const indexed = where
       ? [...entries.values()].filter((entry) => where(entry.partner))
       : entries.values();
-    return evaluate(candidate, candidates, options);
+    return evaluate(candidate, chain(indexed, extra), options);
   }
 
   // Sugar for the name-only case; it runs the same engine as every other caller.

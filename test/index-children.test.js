@@ -179,6 +179,18 @@ test('the partner filter is the flat xpr shape .where() accepts here', () => {
   assert.deepEqual(partnersFilter([]), []);
 });
 
+test('extra candidates are matched alongside the index without copying it', async () => {
+  const index = createNameIndex();
+  const { readers } = readersFor(PARTNERS);
+  await index.refresh(readers);
+
+  const extra = [{ partner: { ChangeRequest: 'req-1', OrganizationBPName1: 'Delta NV', Country: 'BE' } }];
+  const found = index.match({ Name: 'Delta', Country: 'BE' }, { rules: activeRules(), extra });
+  assert.equal(found.length, 2, 'the indexed partner and the pending create');
+  assert.ok(found.some((row) => row.partner.ChangeRequest === 'req-1'));
+  assert.ok(found.some((row) => row.partner.BusinessPartner === '1'));
+});
+
 test('the catalog says which fields the index can actually serve', () => {
   const fields = Object.fromEntries(catalogFields().map(({ field, indexed }) => [field, indexed]));
   assert.equal(fields.Country, true);

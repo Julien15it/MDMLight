@@ -123,7 +123,10 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
    *  findings and never blocks or writes anything itself. */
   action checkBusinessPartnerDuplicates(
     CandidateJson : LargeString not null,
-    ExcludeBP     : String(10)
+    ExcludeBP     : String(10),
+    /** The caller's own change request, so a submit is never reported as its
+     *  own duplicate - it is already staged by the time this runs. */
+    ExcludeRequest : UUID
   ) returns LargeString;
 
   /** Runs a ruleset over the whole partner index without saving it, for the

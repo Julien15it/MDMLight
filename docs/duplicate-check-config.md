@@ -430,19 +430,38 @@ Submit-time findings are best-effort: a check that cannot run logs and moves on.
 Stranding a request in `draft` with an approval workflow already waiting for it
 would be a worse failure than a missing finding.
 
-## Known gap: two in-flight requests cannot see each other
+## Pending creates are part of the candidate set
 
-The check compares a candidate against **partners in S/4**. Staged change
-requests are not in S/4 until they post, so two requests to create the same
-company, submitted before either is approved, are invisible to one another.
-Both pass, both get approved, both post, and the duplicate is created by the
-control that exists to prevent it.
+Built 2026-08-12. The check compares against **live partners *and* change
+requests that have not posted yet**.
 
-This is not the same thing as open decision 3 and is not settled by it: that
-decision says a *rule* change does not trigger a re-check, and re-checking on
-approve would not close this either — the second request could be approved
-first. The fix is to include active `ChangeRequests` in the candidate set, so
-the check sees pending creates as well as live partners. Not built.
+Without this, two requests to create the same company — submitted before either
+is approved — were invisible to one another: neither is in S/4, so both pass,
+both post, and the control creates the duplicate it exists to prevent. Note that
+re-checking on approve would not have closed it either, since the second request
+can be approved first; the candidate set was the wrong shape, not the timing.
+
+- `stagedEntries()` in `srv/ai/duplicate-check.js` turns pending requests into
+  candidates. `nameIndex.match(candidate, { extra })` chains them onto the index
+  iterator rather than concatenating, so a 200k index is never copied to run one
+  check.
+- **Creates only.** A change request against an existing partner is already
+  represented in the index by that partner; adding its staged copy would report
+  one company twice.
+- **A request never matches itself.** It is already staged and in an active
+  status by the time the check runs, so `submitRequest` passes its own
+  `ExcludeRequest`.
+- Reading staging is **best-effort**: unavailable staging degrades the check to
+  live partners only rather than failing the question or the submit.
+
+`CheckFindings.candidateRequest : UUID` holds the match when it is a pending
+request — `candidateBP` is `String(10)` and a pending create has no number. The
+two are alternatives, never both.
+
+The assistant carries `PendingChangeRequest` through to the prompt and is told
+to say the record does not exist in S/4 yet. `safePartner` is an allowlist, so
+without that the match would have presented as an ordinary partner that happened
+to have no number.
 
 ## Open decisions
 
