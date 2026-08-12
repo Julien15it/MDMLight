@@ -1,8 +1,15 @@
 # Configurable duplicate check — design
 
-Status: **design, not implemented.** Agreed 2026-08-11. Nothing in `srv/ai/`
-implements this yet; today's check is name-only and hard-coded in
-`srv/ai/name-match.js` (Dice ≥ 0.86 over three name fields).
+Status: **engine built 2026-08-12, not yet wired in and not yet run.**
+`srv/ai/duplicate-fields.js` (catalog, normalisers, candidate bags) and
+`srv/ai/duplicate-engine.js` (`evaluate`) implement everything below except
+persistence and the admin page. No caller uses them yet — the live check is
+still name-only via `rankDuplicates` in `srv/ai/name-match.js`, and
+`DEFAULT_RULES` reproduces exactly that as a single row.
+
+Remaining: `DuplicateRules` persistence, the admin page, extending
+`createNameIndex` to carry tax numbers and addresses, and replacing
+`findIndexedDuplicates` / the submit path with calls to `evaluate`.
 
 ## Goal
 
@@ -26,6 +33,12 @@ row-oriented layout over a nested criteria/ruleset model.
 Row 20 has no condition: name always participates as a fuzzy strong indicator.
 Row 10 applies only to Belgian organizations — natural persons are excluded by
 the `Category = 2` condition rather than by an opt-out row.
+
+**Conditions must hold on both records of the pair.** A rule written for Belgian
+partners says nothing about a Belgian record compared with a German one. The
+consequence is that a sparse candidate — the assistant's, which often carries
+only a name — cannot fire a conditioned rule at all, which is the same reason it
+cannot reach `Duplicate`.
 
 ### Indicators
 
@@ -86,6 +99,11 @@ as one duplicate cluster. Given our baseline (67% of BPs have no `SearchTerm1`,
 | `contains` | one normalised value contains the other |
 | `semantic` | embedding cosine ≥ `Threshold` — **not yet available**, see below |
 
+A rule the engine cannot evaluate — `semantic` today, or a field no longer in
+the catalog — is **reported on `evaluate`'s result as `unevaluatedRules`, not
+treated as a non-match.** "No duplicates found" produced by a rule that never
+ran is the one wrong answer this check must never give.
+
 `semantic` is the extension point for the AI Core embedding work. It needs a
 vector store, which we do not have: HANA Cloud was rejected on cost and
 `pgvector` on the free `mdm-businesspartner-db` plan is unverified. Model the
@@ -99,7 +117,7 @@ field in the catalog carries its normaliser.
 | Field kind | Normalisation |
 |---|---|
 | Name | existing `companyFingerprint` — casefold, strip punctuation, drop legal forms (`nv`, `bv`, `sa`, `gmbh`…) |
-| Tax number | uppercase, strip non-alphanumeric, optionally strip the country prefix (`BE0123456789` ≡ `BE 0123.456.789` ≡ `0123456789`) |
+| Tax number | uppercase, strip non-alphanumeric, then **prefix a bare number with the record's own country** — `0123.456.789` on a Belgian partner becomes `BE0123456789`. Stripping the prefix instead would make `BE0123456789` and `NL0123456789` the same definitive duplicate. A bare number on a record with no country stays bare, so it misses rather than false-positives |
 | Postal code | strip spaces and dots |
 | IBAN | uppercase, strip spaces |
 | Street | casefold, strip punctuation |
@@ -236,10 +254,10 @@ with tests in `test/`.
 
 ## Open decisions
 
-1. **Does `Duplicate` hard-block the submit?** Today a duplicate only hides the
-   assistant's create-suggestion button. A definitive hit could refuse the
-   change-request submit outright, or raise an `error` finding the approver must
-   clear. Blocking is the stronger control; overriding needs a story either way.
+1. ~~**Does `Duplicate` hard-block the submit?**~~ **Decided 2026-08-12: no.**
+   Submit succeeds and the check writes a `CheckFindings` row with severity
+   `error` that the approver must clear. The approver is the override, so no
+   separate override path is needed.
 2. **Verdict storage on `CheckFindings`** — new column vs reusing `severity`
    (see above).
 3. **Rule changes are not retroactive.** A request submitted under yesterday's
