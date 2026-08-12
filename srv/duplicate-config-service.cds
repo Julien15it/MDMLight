@@ -23,6 +23,11 @@ service DuplicateConfigService {
     comparisons : array of String;
     indicators  : array of String;
     conditions  : array of String;
+    /** 'configured' or 'defaults'. An empty or unusable table falls back to the
+     *  built-in rules, and the page has to say so - an empty grid otherwise
+     *  reads as "the check is off", which it never is. */
+    source      : String(12);
+    ruleCount   : Integer;
   }
 
   /** Everything the admin grid needs to offer valid choices, straight from the

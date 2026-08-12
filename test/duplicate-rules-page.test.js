@@ -84,6 +84,23 @@ test('the page warns about a field the index cannot serve, and about running on 
   assert.match(view, /never switched off by an empty table/u);
 });
 
+// A warning nothing can ever set is worse than no warning: it reads as an all-clear.
+test('every state the view binds is actually populated by the controller', () => {
+  const bound = [...view.matchAll(/view>\/(\w+)/gu)].map((match) => match[1]);
+  assert.ok(bound.includes('source'), 'the defaults banner binds it');
+  for (const property of new Set(bound)) {
+    assert.match(
+      controllerSource,
+      new RegExp(`(setProperty\\("/${property}"|${property}:)`, 'u'),
+      `view>/${property} is bound but never set`
+    );
+  }
+  const service = fs.readFileSync(
+    path.join(__dirname, '..', 'srv', 'duplicate-config-service.js'), 'utf8'
+  );
+  assert.match(service, /source: ruleStore\.source\(\)/u, 'ruleOptions has to report it');
+});
+
 test('edits are batched behind an explicit save rather than written per keystroke', () => {
   assert.match(view, /\$\$updateGroupId: 'ruleChanges'/u);
   assert.match(controllerSource, /submitBatch\(UPDATE_GROUP\)/u);

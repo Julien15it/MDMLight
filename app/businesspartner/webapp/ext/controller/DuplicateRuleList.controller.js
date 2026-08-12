@@ -58,6 +58,7 @@ sap.ui.define([
       try {
         var options = await this._callAction("ruleOptions", {});
         this.getView().setModel(new JSONModel(options || {}), "opt");
+        view.setProperty("/source", (options && options.source) || "");
         var unindexed = {};
         (options && options.fields ? options.fields : []).forEach(function (entry) {
           if (!entry.indexed) unindexed[entry.field] = true;
@@ -149,6 +150,9 @@ sap.ui.define([
           return;
         }
         view.setProperty("/dirty", false);
+        // Re-read: saving the first usable row is what moves the check off the defaults, and the
+        // banner has to stop claiming otherwise.
+        await this._loadOptions();
         MessageToast.show("Rules saved.");
       } catch (error) {
         MessageBox.error("The rules could not be saved: " + this._errorText(error));

@@ -2,7 +2,7 @@
 
 const cds = require('@sap/cds');
 const { catalogFields, validateRule } = require('./ai/rule-config');
-const { ruleStore } = require('./ai/duplicate-check');
+const { ruleStore, refreshRules } = require('./ai/duplicate-check');
 const { COMPARISONS, INDICATORS } = require('./ai/duplicate-engine');
 const { CONDITION_FIELDS } = require('./ai/duplicate-fields');
 
@@ -31,13 +31,20 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
     // Any write drops the resident ruleset, the same way a partner write drops the name index.
     this.after(['CREATE', 'UPDATE', 'DELETE'], 'DuplicateRules', () => ruleStore.markStale());
 
-    // Straight from the code-defined catalog, never a copy the UI keeps in step by hand.
-    this.on('ruleOptions', () => ({
-      fields: catalogFields(),
-      comparisons: Object.keys(COMPARISONS),
-      indicators: [...INDICATORS],
-      conditions: [...CONDITION_FIELDS]
-    }));
+    // Straight from the code-defined catalog, never a copy the UI keeps in step by hand. It also
+    // re-reads the ruleset, so the page can report honestly whether the configured rules are the
+    // ones actually running or whether it has fallen back to the defaults.
+    this.on('ruleOptions', async () => {
+      await refreshRules(async () => cds.run(cds.ql.SELECT.from(RULES)), { force: true });
+      return {
+        fields: catalogFields(),
+        comparisons: Object.keys(COMPARISONS),
+        indicators: [...INDICATORS],
+        conditions: [...CONDITION_FIELDS],
+        source: ruleStore.source(),
+        ruleCount: ruleStore.rules().length
+      };
+    });
 
     /**
      * Delegated to BusinessPartnerService, which owns the S/4 connection and the one resident
