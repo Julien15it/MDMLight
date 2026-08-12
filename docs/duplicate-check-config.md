@@ -215,12 +215,50 @@ Two notes:
 
 ## Admin page
 
-Fiori Elements list report over `DuplicateRules`, `+` appends a row, inline edit,
-sorted by `Seq`.
+Service built 2026-08-12; the Fiori UI is not.
 
-**Authorization is deferred** — agreed as a later TODO. Target is a
-`MDMLight Steward` scope in `xs-security.json` on top of BTP/CF space access.
-Until then the entity must not be exposed writable in a real tenant.
+`DuplicateConfigService` (`/service/duplicateconfig`) is separate from
+`BusinessPartnerService` on purpose: it is a control, maintained by different
+people under a different scope, over a local table rather than the S/4 facade.
+
+- `DuplicateRules` — the table, validated on write.
+- `ruleOptions()` — fields, comparisons, indicators and condition columns
+  straight from the code-defined catalog. The UI must never keep its own copy of
+  these; that copy is what goes stale.
+- `testRuleset(RulesJson, SampleSize)` — delegated to
+  `BusinessPartnerService.testDuplicateRuleset`, because that is where the one
+  resident index lives. Standing up a second index behind the admin page would
+  be a second duplicate check by the back door.
+
+**Authorization is no longer deferred.** `@requires: 'Steward'` on the service,
+`$XSAPPNAME.Steward` in `xs-security.json`, and a `DataSteward` role template
+that deliberately does **not** include `Maintain` — changing what counts as a
+duplicate is not the same privilege as maintaining a partner. The approuter
+route is in `xs-app.json`; without it the catch-all sends the calls to the HTML5
+repo and they 404 instead of erroring usefully.
+
+### Validation happens on save
+
+`validateRule` rejects a field outside the catalog, an unavailable comparison or
+indicator, and a fuzzy rule with no usable threshold. The engine already reports
+a rule it cannot run, but by then the check has answered "no duplicates" — the
+one wrong answer it must not give. Catching it at the keyboard is the guard;
+`unrunnableRules` is the backstop.
+
+A rule over a field the index cannot serve is a **warning, not an error**: it
+still works on the submit path, where the candidate carries its own tax numbers
+and addresses. It just cannot match an existing partner.
+
+### Rules are cached, and empty never means "no rules"
+
+`activeRules()` stays synchronous, served from `createRuleStore` in
+`srv/ai/rule-config.js` — 60s TTL, dropped immediately by a write, refreshed
+where a read is already happening so a question costs no extra round trip.
+
+**An empty or unusable ruleset falls back to `DEFAULT_RULES`.** A fresh tenant, a
+failed read, or a steward deactivating the last row would otherwise mean every
+check silently answers "no duplicates found". The control must fail closed, not
+open.
 
 ### "Test against current BPs"
 

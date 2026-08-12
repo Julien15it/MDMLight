@@ -30,7 +30,9 @@ function fakeReader(pages) {
   return reader;
 }
 
-test('carries no address fields, which is what keeps the index small', () => {
+// Address fields live on the child collections, not on the header projection - A_BusinessPartner
+// has no country at all. Keeping the header narrow is still what bounds the index.
+test('the header projection stays narrow, addresses come from their own read', () => {
   assert.ok(!INDEX_FIELDS.some((field) => /Street|City|PostalCode|Country/u.test(field)));
   assert.ok(INDEX_FIELDS.includes('BusinessPartnerCategory'));
   assert.ok(INDEX_FIELDS.includes('LastChangeDate'));

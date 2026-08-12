@@ -10,6 +10,10 @@
     {
       "name": "$XSAPPNAME.Maintain",
       "description": "Create and change business partners"
+    },
+    {
+      "name": "$XSAPPNAME.Steward",
+      "description": "Configure the duplicate check rules"
     }
   ],
   "attributes": [],
@@ -27,6 +31,14 @@
       "scope-references": [
         "$XSAPPNAME.Display",
         "$XSAPPNAME.Maintain"
+      ]
+    },
+    {
+      "name": "DataSteward",
+      "description": "Configure the duplicate check. Deliberately separate from BusinessPartnerManager: changing what counts as a duplicate is a control, not master data maintenance",
+      "scope-references": [
+        "$XSAPPNAME.Display",
+        "$XSAPPNAME.Steward"
       ]
     }
   ]

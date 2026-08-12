@@ -126,6 +126,14 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
     ExcludeBP     : String(10)
   ) returns LargeString;
 
+  /** Runs a ruleset over the whole partner index without saving it, for the
+   *  steward's "test against current BPs" button. Lives here because this is
+   *  where the one resident index lives. */
+  action testDuplicateRuleset(
+    RulesJson  : LargeString,
+    SampleSize : Integer
+  ) returns LargeString;
+
   // Core business-partner details shown as sections on the object page.
   @readonly entity Addresses            as projection on S4.A_BusinessPartnerAddress;
   @readonly entity BusinessPartnerRoles as projection on S4.A_BusinessPartnerRole;

@@ -7,8 +7,9 @@ const { researchCompany } = require('./ai/company-research');
 const { startWorkflow } = require("./wf/processAutomation");
 const { createCache } = require('./ai/cache');
 const {
-  VERDICT_LABELS, activeRules, checkAgainstPartners, duplicateFindings
+  VERDICT_LABELS, activeRules, refreshRules, checkAgainstPartners, duplicateFindings, testRuleset
 } = require('./ai/duplicate-check');
+const { usableRules } = require('./ai/rule-config');
 const { createNameIndex } = require('./ai/name-index');
 const { createCapReaders, createMcpPartnerReader } = require('./ai/partner-readers');
 const { createMcpToolCaller } = require('./ai/mcp-client');
@@ -645,15 +646,28 @@ function createIndexReader(s4, env = cds.env.assistant?.indexSource) {
   });
 }
 
+// Reads the configured ruleset where a read is already happening, so it costs no extra round trip
+// on a question. TTL-gated inside the store, and a failure keeps the rules already loaded.
+function readDuplicateRules() {
+  return refreshRules(async () => {
+    const db = await cds.connect.to('db');
+    return db.run(cds.ql.SELECT.from('mdmlight.config.DuplicateRules'));
+  });
+}
+
 // Falls back to the rows already read, so a failed index build never blocks an answer.
-async function findIndexedDuplicates(s4, candidate, partners = []) {
-  const record = typeof candidate === 'string' ? { Name: candidate } : candidate;
+async function ensureIndex(s4) {
   try {
     if (!indexReader) indexReader = createIndexReader(s4);
-    await nameIndex.refresh(indexReader);
+    await Promise.all([nameIndex.refresh(indexReader), readDuplicateRules()]);
   } catch (error) {
     console.warn('[assistant] Name index unavailable, matching on the filtered read:', error.message);
   }
+}
+
+async function findIndexedDuplicates(s4, candidate, partners = []) {
+  const record = typeof candidate === 'string' ? { Name: candidate } : candidate;
+  await ensureIndex(s4);
   return nameIndex.isBuilt()
     ? nameIndex.match(record, { rules: activeRules() })
     : checkAgainstPartners(record, partners);
@@ -1531,6 +1545,21 @@ class BusinessPartnerService extends cds.ApplicationService {
         ? matches.filter((match) => String(match.partner?.BusinessPartner) !== excludeBP)
         : matches;
       return JSON.stringify({ findings: duplicateFindings(kept) });
+    });
+
+    // Unsaved rules on purpose: a test that can only run the saved ruleset cannot show anyone the
+    // effect of a change before they commit to it, which is the point of the button.
+    this.on('testDuplicateRuleset', async (req) => {
+      const s4 = await cds.connect.to('API_BUSINESS_PARTNER');
+      await ensureIndex(s4);
+      if (!nameIndex.isBuilt()) return req.reject(503, 'The duplicate index is not available yet.');
+      const draft = req.data.RulesJson ? JSON.parse(req.data.RulesJson) : null;
+      const rules = Array.isArray(draft) && draft.length ? usableRules(draft) : activeRules();
+      const sampleSize = Number(req.data.SampleSize) > 0 ? Number(req.data.SampleSize) : undefined;
+      return JSON.stringify(testRuleset(nameIndex.entries(), {
+        rules,
+        ...(sampleSize ? { samplesPerVerdict: sampleSize } : {})
+      }));
     });
 
     this.on('askBusinessPartnerAssistant', async (req) => {

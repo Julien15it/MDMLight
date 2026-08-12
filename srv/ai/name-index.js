@@ -191,6 +191,8 @@ function createNameIndex({
     refresh,
     match,
     find,
+    // Every indexed partner, for the admin page's "test against current BPs" run.
+    entries: () => [...entries.values()],
     // A write must be matchable straight away, so it drops the refresh interval, not the index.
     markStale: () => { stale = true; },
     size: () => entries.size,
