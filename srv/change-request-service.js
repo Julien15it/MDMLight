@@ -183,11 +183,12 @@ class ChangeRequestService extends cds.ApplicationService {
      * `draft` with an approval workflow already waiting for it.
      */
     const recordDuplicateFindings = async (changeRequest, businessPartner) => {
+      let findings = [];
       try {
         const general = await db.run(
           cds.ql.SELECT.one.from(GENERAL).where({ request_ID: changeRequest })
         );
-        if (!general) return;
+        if (!general) return findings;
         const nodes = {};
         for (const [section, config] of Object.entries(NODES)) {
           if (!config.many) continue;
@@ -203,27 +204,46 @@ class ChangeRequestService extends cds.ApplicationService {
           ExcludeBP: businessPartner || general.BusinessPartner || null,
           ExcludeRequest: changeRequest
         });
-        const findings = JSON.parse(answer || '{}').findings || [];
+        findings = JSON.parse(answer || '{}').findings || [];
         // Supersede rather than delete, so an earlier verdict stays auditable after a resubmit.
         await db.run(cds.ql.UPDATE(FINDINGS)
           .set({ isStale: true })
           .where({ request_ID: changeRequest, checkName: 'duplicate_check' }));
-        if (!findings.length) return;
+        if (!findings.length) return findings;
         await db.run(cds.ql.INSERT.into(FINDINGS).entries(findings.map((finding) => ({
           ID: cds.utils.uuid(),
           request_ID: changeRequest,
           ...finding
         }))));
       } catch (error) {
+        // A check that could not run must not silently read as "no duplicates": the caller is
+        // told, and the submit goes through rather than stranding the request.
         console.warn('[changerequest] Duplicate check did not run:', error.message);
+        return [{
+          checkName: 'duplicate_check',
+          severity: 'info',
+          message: `The duplicate check could not run (${error.message}). Submitted without it.`
+        }];
       }
+      return findings;
     };
 
     this.on('submitRequest', async (req) => {
       const changeRequest = await persist(req);
       if (!changeRequest) return;
 
-      await recordDuplicateFindings(changeRequest, req.data.BusinessPartner);
+      const findings = await recordDuplicateFindings(changeRequest, req.data.BusinessPartner);
+      // Only a verdict-bearing finding asks for a second press. A check that could not run reports
+      // itself but must not hold the request hostage to an outage.
+      const duplicates = findings.filter((finding) => finding.verdict);
+      if (duplicates.length && !req.data.Confirm) {
+        return {
+          ChangeRequest: changeRequest,
+          Status: 'draft',
+          NeedsConfirmation: true,
+          MessagesJson: JSON.stringify(findings)
+        };
+      }
 
       let processInstanceId = null;
       try {
@@ -250,7 +270,13 @@ class ChangeRequestService extends cds.ApplicationService {
         submittedBy: requestingUserEmail(req)
       }).where({ ID: changeRequest }));
 
-      return { ChangeRequest: changeRequest, Status: 'inApproval', ProcessInstanceId: processInstanceId };
+      return {
+        ChangeRequest: changeRequest,
+        Status: 'inApproval',
+        ProcessInstanceId: processInstanceId,
+        NeedsConfirmation: false,
+        MessagesJson: JSON.stringify(findings)
+      };
     });
 
     /**

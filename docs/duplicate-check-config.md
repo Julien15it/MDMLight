@@ -480,10 +480,29 @@ to have no number.
 
 ## Open decisions
 
-1. ~~**Does `Duplicate` hard-block the submit?**~~ **Decided 2026-08-12: no.**
-   Submit succeeds and the check writes a `CheckFindings` row with severity
-   `error` that the approver must clear. The approver is the override, so no
-   separate override path is needed.
+1. ~~**Does `Duplicate` hard-block the submit?**~~ **Decided 2026-08-12: no, but
+   it takes two presses.** The findings are written either way and the approver
+   is still the override. What changed after the first runtime test: a submit
+   that reported nothing at all left the user with no idea whether the check had
+   run.
+
+   The flow, MDG-style, in `submitRequest`:
+
+   - Press one runs the check. **Any** verdict — duplicate, strong or small —
+     leaves the request in `draft`, starts no workflow, and returns
+     `NeedsConfirmation` with the findings.
+   - The screen stays put, keeps the change-request header, and reports in a
+     message area: *"This Business Partner might already exist. Check possible
+     duplicates: 4711 (duplicate). Submit again to confirm creation."*
+   - Press two carries `Confirm` and submits.
+   - A clean check says so explicitly — *"Duplicate check ran: no duplicate
+     detected"* — because silence reads as "the check did not run".
+
+   Two details worth keeping: **confirmation is tied to the payload that was
+   warned about**, not to a flag, so editing the record after a warning means
+   the check has to be seen again; and a check that could not run reports itself
+   as an `info` message and does **not** hold the submit, because an outage must
+   not strand a request. Only verdict-bearing findings ask for a second press.
 2. ~~**Verdict storage on `CheckFindings`**~~ **Decided 2026-08-12: its own
    column.** `CheckFindings.verdict : String(12)` was added alongside `severity`.
    Severity says whether someone must act, verdict says what was found; folding

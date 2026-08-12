@@ -42,11 +42,20 @@ service ChangeRequestService @(path: '/service/changerequest') {
     RequestType   : String(10) not null,
     BusinessPartner : String(10),
     Reason        : String(250),
-    DataJson      : LargeString not null
+    DataJson      : LargeString not null,
+    /** Set by the second press. Without it a request whose duplicate check
+     *  found anything stays a draft and reports what it found, so nobody
+     *  starts an approval for a partner that may already exist. */
+    Confirm       : Boolean
   ) returns {
     ChangeRequest     : UUID;
     Status            : String(12);
     ProcessInstanceId : String(60);
+    /** True when the check found something and the submit is waiting for a
+     *  confirming second press. */
+    NeedsConfirmation : Boolean;
+    /** Findings for the message area, newest check only. */
+    MessagesJson      : LargeString;
   };
 
   /**

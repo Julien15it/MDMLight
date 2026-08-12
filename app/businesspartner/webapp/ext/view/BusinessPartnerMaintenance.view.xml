@@ -9,6 +9,21 @@
     showHeader="false"
     busy="{maintenance>/busy}">
     <content>
+      <!-- Message area, MDG-style: the result of a submit is reported here and the request header
+           stays on screen, rather than the user being returned to the list with a toast. Duplicate
+           findings land here, and so will any future validation. -->
+      <VBox
+        id="maintenanceMessages"
+        class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
+        visible="{= ${maintenance>/messages}.length > 0 }"
+        items="{ path: 'maintenance>/messages', templateShareable: false }">
+        <MessageStrip
+          text="{maintenance>text}"
+          type="{maintenance>type}"
+          showIcon="true"
+          showCloseButton="false"
+          class="sapUiTinyMarginBottom" />
+      </VBox>
       <uxap:ObjectPageLayout
         id="maintenanceObjectPage"
         showAnchorBar="true"

@@ -319,6 +319,10 @@ sap.ui.define([
           showFooter: true,
           saveButtonText: "Submit Request",
           cancelButtonText: "Cancel",
+          messages: [],
+          // Set when a duplicate check found something; the next press confirms.
+          awaitingConfirmation: false,
+          awaitingConfirmationFor: "",
           changeRequest: "",
           requestType: "",
           requestStatus: "",
@@ -1210,6 +1214,55 @@ sap.ui.define([
         return JSON.stringify({ root: state.root, sections: sections, deleted: deleted });
       },
 
+      _findingsFrom: function (result) {
+        try {
+          var parsed = JSON.parse((result && result.MessagesJson) || "[]");
+          return Array.isArray(parsed) ? parsed : [];
+        } catch (error) {
+          return [];
+        }
+      },
+
+      /**
+       * The message area's content. A duplicate names the record it matched so the user can go and
+       * look, rather than being told only that something was found.
+       */
+      _submitMessages: function (result, submitted) {
+        var findings = this._findingsFrom(result);
+        var duplicates = findings.filter(function (finding) { return !!finding.verdict; });
+        var messages = [];
+
+        if (submitted) {
+          messages.push({
+            type: "Success",
+            text: "Change request " + ((result && result.ChangeRequest) || "") + " submitted for approval."
+          });
+        }
+        if (!duplicates.length) {
+          messages.push({
+            type: "Information",
+            text: "Duplicate check ran: no duplicate detected."
+          });
+        } else {
+          messages.push({
+            type: "Warning",
+            text: "This Business Partner might already exist. Check possible duplicates: "
+              + duplicates.map(function (finding) {
+                return (finding.candidateBP || ("pending request " + finding.candidateRequest))
+                  + (finding.verdict ? " (" + finding.verdict + ")" : "");
+              }).join(", ")
+              + (submitted ? "." : ". Submit again to confirm creation.")
+          });
+        }
+        // Anything the check itself reported - an outage, a rule that could not run - is shown
+        // rather than swallowed, so "no duplicate detected" never covers for a check that failed.
+        findings.filter(function (finding) { return !finding.verdict; })
+          .forEach(function (finding) {
+            messages.push({ type: "Information", text: finding.message });
+          });
+        return messages;
+      },
+
       /** action is "saveRequest" (stays a draft) or "submitRequest". */
       _sendChangeRequest: async function (action) {
         var maintenanceModel = this.getView().getModel("maintenance");
@@ -1218,13 +1271,21 @@ sap.ui.define([
         maintenanceModel.refresh(true);
 
         try {
-          var result = await this._executeAction(action, {
+          var parameters = {
             ChangeRequest: state.changeRequest || null,
             RequestType: state.requestType || "create",
             BusinessPartner: state.businessPartner || null,
             Reason: null,
             DataJson: this._requestDataJson(state)
-          }, "cr");
+          };
+          // Confirmation is tied to the exact payload that was warned about, not to a flag: edit
+          // the record after a warning and the check has to be seen again before it counts.
+          if (action === "submitRequest") {
+            parameters.Confirm = Boolean(state.awaitingConfirmationFor)
+              && state.awaitingConfirmationFor === parameters.DataJson;
+          }
+
+          var result = await this._executeAction(action, parameters, "cr");
 
           state.changeRequest = (result && result.ChangeRequest) || state.changeRequest;
           state.requestStatus = (result && result.Status) || "";
@@ -1243,6 +1304,18 @@ sap.ui.define([
             return;
           }
 
+          // Nothing was submitted: the check found something and the request is still a draft.
+          // Stay on the screen with the header and the findings, and let the next press confirm.
+          if (result && result.NeedsConfirmation) {
+            state.awaitingConfirmation = true;
+            state.awaitingConfirmationFor = parameters.DataJson;
+            state.saveButtonText = "Submit Again to Confirm";
+            state.messages = this._submitMessages(result, false);
+            return;
+          }
+
+          state.awaitingConfirmation = false;
+          state.awaitingConfirmationFor = "";
           state.mode = "display";
           state.modeText = "Submitted";
           state.editing = false;
@@ -1251,8 +1324,9 @@ sap.ui.define([
           state.showPreviewButton = false;
           state.showEditButton = false;
           state.title = "Request submitted for approval";
-          MessageToast.show("Request submitted for approval.");
-          this._router.navTo("BusinessPartnersList", {}, true);
+          state.messages = this._submitMessages(result, true);
+          // Deliberately no navigation: the request header and its messages stay on screen, the
+          // way Save already behaves and the way MDG reports a submit.
         } catch (error) {
           MessageBox.error(errorMessage(error, "The request could not be saved."));
         } finally {
