@@ -76,9 +76,14 @@ test('the field, comparison and indicator lists come from the service', () => {
   assert.match(view, /items="\{ path: 'opt>\/comparisons'/u);
   assert.match(view, /items="\{ path: 'opt>\/indicators'/u);
   assert.match(controllerSource, /_callAction\("ruleOptions"/u);
-  // Bare-string arrays do not bind inside a table cell; every list is key/text for that reason.
+  // Bare-string arrays do not bind inside a table cell; every list is code/text for that reason.
   assert.equal(/<core:Item key="\{opt>\}"/u.test(view), false);
-  assert.equal((view.match(/<core:Item key="\{opt>key\}" text="\{opt>text\}"/gu) || []).length, 4);
+  assert.equal((view.match(/<core:Item key="\{opt>code\}" text="\{opt>text\}"/gu) || []).length, 4);
+  // `key` is a CDS keyword and prefixes a key element, so the property cannot be called that.
+  const serviceCds = fs.readFileSync(
+    path.join(__dirname, '..', 'srv', 'duplicate-config-service.cds'), 'utf8'
+  );
+  assert.equal(/^\s*key\s*:/mu.test(serviceCds), false, 'key : Type does not compile');
 });
 
 test('the grid asks only for what a steward has to decide', () => {

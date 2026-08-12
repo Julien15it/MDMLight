@@ -57,7 +57,7 @@ sap.ui.define([
         view.setProperty("/source", (options && options.source) || "");
         var unindexed = {};
         (options && options.fields ? options.fields : []).forEach(function (entry) {
-          if (!entry.indexed) unindexed[entry.key] = true;
+          if (!entry.indexed) unindexed[entry.code] = true;
         });
         view.setProperty("/unindexed", unindexed);
         // Empty dropdowns are the failure that shipped last time, so say it out loud.

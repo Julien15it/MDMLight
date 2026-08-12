@@ -125,12 +125,16 @@ test('a delta replaces a partner children rather than appending to them', async 
 
 test('only catalog columns are kept, so the index is not a second copy of S/4', async () => {
   const index = createNameIndex();
+  // AddressID, POBox and AddressTimeZone are not in the catalog, so they must not be stored.
   const { readers } = readersFor([PARTNERS[0]], {
-    addresses: [{ BusinessPartner: '1', Country: 'BE', AddressID: '531', POBox: 'noise', Region: 'VAN' }]
+    addresses: [{
+      BusinessPartner: '1', Country: 'BE', Region: 'VAN',
+      AddressID: '531', POBox: 'noise', AddressTimeZone: 'CET'
+    }]
   });
   await index.refresh(readers);
   const [found] = index.match({ Name: 'Delta', Country: 'BE' }, { rules: activeRules() });
-  assert.deepEqual(found.partner.addresses, [{ BusinessPartner: '1', Country: 'BE' }]);
+  assert.deepEqual(found.partner.addresses, [{ BusinessPartner: '1', Region: 'VAN', Country: 'BE' }]);
 });
 
 test('a reader bundle without children still builds, as a bare function always did', async () => {

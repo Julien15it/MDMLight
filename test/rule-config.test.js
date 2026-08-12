@@ -73,7 +73,8 @@ test('a stored row becomes an engine rule, with blank conditions dropped', () =>
   assert.equal('condCategory' in rule, false, 'a blank condition means any, not an empty match');
   assert.equal('condRole' in rule, false);
   assert.equal(rule.threshold, 0.9);
-  assert.equal(toEngineRule(validRow({ threshold: null })).threshold, undefined);
+  // An exact comparison has no threshold to default to; only a fuzzy one does.
+  assert.equal(toEngineRule(validRow({ comparison: 'exact', threshold: null })).threshold, undefined);
 });
 
 test('unusable rows are dropped instead of poisoning the ruleset', () => {

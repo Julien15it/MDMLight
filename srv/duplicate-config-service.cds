@@ -14,8 +14,10 @@ service DuplicateConfigService {
   /** Every list is key/text so the grid binds them all the same way. Arrays of
    *  bare strings do not bind reliably in a table cell, which is what left the
    *  first version of this page with three empty dropdowns. */
+  // `code`/`text`, not `key`/`text`: `key` is a CDS keyword and prefixes a key
+  // element, so `key : String(40)` does not compile.
   type CatalogField {
-    key         : String(40);
+    code        : String(40);
     text        : String(60);
     /** False means the duplicate index does not carry it, so a rule over this
      *  field cannot match an existing partner. The UI has to say so. */
@@ -23,7 +25,7 @@ service DuplicateConfigService {
   }
 
   type Option {
-    key         : String(20);
+    code        : String(20);
     text        : String(60);
   }
 

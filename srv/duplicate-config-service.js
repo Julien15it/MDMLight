@@ -54,12 +54,12 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
       await refreshRules(async () => cds.run(cds.ql.SELECT.from(RULES)), { force: true });
       return {
         fields: catalogFields().map(({ field, indexed }) => ({
-          key: field,
+          code: field,
           text: indexed ? field : `${field} (not indexed)`,
           indexed
         })),
-        comparisons: OFFERED_COMPARISONS.map((key) => ({ key, text: COMPARISON_TEXT[key] || key })),
-        indicators: INDICATORS.map((key) => ({ key, text: INDICATOR_TEXT[key] || key })),
+        comparisons: OFFERED_COMPARISONS.map((code) => ({ code, text: COMPARISON_TEXT[code] || code })),
+        indicators: INDICATORS.map((code) => ({ code, text: INDICATOR_TEXT[code] || code })),
         source: ruleStore.source(),
         ruleCount: ruleStore.rules().length
       };
