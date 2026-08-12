@@ -109,9 +109,11 @@ test('edits are batched behind an explicit save rather than written per keystrok
 
 test('the client refuses a fuzzy rule with no usable threshold before the round trip', () => {
   const { _localProblems } = loadController();
-  assert.deepEqual(_localProblems([
+  // Lengths, not deepEqual: the controller runs in its own vm realm, so its arrays fail a
+  // prototype-strict comparison against arrays built out here.
+  assert.equal(_localProblems([
     { field: 'Name', comparison: 'exact', indicator: 'definitive' }
-  ]), []);
+  ]).length, 0);
   assert.equal(_localProblems([
     { field: 'Name', comparison: 'fuzzy', indicator: 'strong' }
   ]).length, 1);
