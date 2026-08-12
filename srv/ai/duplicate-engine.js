@@ -52,11 +52,21 @@ const COMPARISONS = Object.freeze({
 // `semantic` is deliberately absent: it needs a vector store we do not have, so a rule using it
 // falls out as unevaluated rather than as a silent non-match.
 
-function bagOf(record) {
+/**
+ * The bag has to be built over the fields the rules name, not over the catalog keys: a dynamic
+ * `TaxNumber.<type>` field has no catalog key, so a bag built from the catalog would leave the rule
+ * comparing against nothing and scoring zero in silence.
+ */
+function requiredFields(rules = []) {
+  const fields = new Set(CONDITION_FIELDS);
+  for (const rule of rules) if (rule?.field) fields.add(rule.field);
+  return [...fields];
+}
+
+function bagOf(record, fields) {
   if (!record) return {};
+  const built = buildCandidate(record.partner || record, fields);
   // An index entry already carries name fingerprints; reuse them rather than re-normalising.
-  if (record.bag) return record.bag;
-  const built = buildCandidate(record.partner || record);
   if (!built.Name && Array.isArray(record.fingerprints) && record.fingerprints.length) {
     built.Name = [...record.fingerprints];
   }
@@ -168,8 +178,9 @@ function bestScore(indicators = []) {
  * assistant, the change-request submit and the admin test button cannot drift apart.
  */
 function evaluate(candidate, entries = [], { rules = DEFAULT_RULES, limit = Infinity, excludeId } = {}) {
-  const candidateBag = bagOf(candidate);
   const active = rules.filter((rule) => rule.isActive !== false);
+  const fields = requiredFields(active);
+  const candidateBag = bagOf(candidate, fields);
   const results = [];
   const unrunnableRules = new Map();
 
@@ -177,7 +188,7 @@ function evaluate(candidate, entries = [], { rules = DEFAULT_RULES, limit = Infi
     const partner = entry?.partner || entry;
     const id = partner?.BusinessPartner;
     if (excludeId !== undefined && id !== undefined && String(id) === String(excludeId)) continue;
-    const { indicators, unrunnable } = indicatorsFor(candidateBag, bagOf(entry), active);
+    const { indicators, unrunnable } = indicatorsFor(candidateBag, bagOf(entry, fields), active);
     for (const rule of unrunnable) unrunnableRules.set(`${rule.field}:${rule.comparison}`, rule);
     const verdict = verdictFor(indicators);
     if (verdict === VERDICTS.NONE) continue;
@@ -201,6 +212,7 @@ module.exports = {
   VERDICT_RANK,
   DEFAULT_RULES,
   COMPARISONS,
+  requiredFields,
   bagOf,
   conditionsMatch,
   applicableRules,

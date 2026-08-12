@@ -9,6 +9,7 @@ const {
   VERDICTS,
   compareValues,
   conditionsMatch,
+  requiredFields,
   indicatorsFor,
   verdictFor,
   evaluate
@@ -101,6 +102,13 @@ test('blank is never a match — two partners lacking a VAT number share nothing
   assert.deepEqual(evaluate(left, entries(right), { rules: RULES }), []);
   assert.equal(compareValues('exact', [], [], 1), 0);
   assert.equal(compareValues('exact', ['BE0123'], [], 1), 0);
+});
+
+// A bag built from the catalog keys has no TaxNumber.BE0 entry, so the rule scored zero in silence.
+test('the bag covers the fields the rules name, not just the catalog keys', () => {
+  assert.ok(requiredFields(RULES).includes('TaxNumber.BE0'));
+  assert.ok(requiredFields([{ field: 'Name' }]).includes('Country'), 'conditions are always needed');
+  assert.ok(!requiredFields([{ field: 'Name' }]).includes('IBAN'), 'unused fields are not computed');
 });
 
 test('an identical Belgian VAT number is a definitive duplicate', () => {
