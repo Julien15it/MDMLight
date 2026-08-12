@@ -1,0 +1,98 @@
+<mvc:View
+  controllerName="mdm.md.businesspartner.manage.ext.controller.DuplicateRuleList"
+  xmlns:mvc="sap.ui.core.mvc"
+  xmlns:core="sap.ui.core"
+  xmlns="sap.m"
+  height="100%">
+  <Page
+    title="Duplicate Check Rules"
+    showNavButton="true"
+    navButtonPress=".onBackToList">
+    <content>
+      <MessageStrip
+        class="sapUiSmallMargin"
+        text="Every row whose conditions match is evaluated, and an empty condition means any. Rows are additive: where two rows target the same field the strongest indicator wins and the field still counts once."
+        type="Information"
+        showIcon="true" />
+      <!-- Shown only when the configuration is empty or unusable, because that is the case a
+           steward would otherwise read as “the check is off”. -->
+      <MessageStrip
+        class="sapUiSmallMarginBeginEnd"
+        visible="{= ${view>/source} === 'defaults' }"
+        text="No usable rules are configured, so the built-in defaults are running. The duplicate check is never switched off by an empty table."
+        type="Warning"
+        showIcon="true" />
+      <Table
+        id="ruleTable"
+        items="{ path: 'dc>/DuplicateRules', parameters: { $orderby: 'sequence', $$updateGroupId: 'ruleChanges' } }"
+        mode="SingleSelectMaster"
+        busy="{view>/busy}"
+        growing="true"
+        growingThreshold="100">
+        <headerToolbar>
+          <OverflowToolbar>
+            <Title text="Rules" level="H2" />
+            <ToolbarSpacer />
+            <Button text="Add Rule" icon="sap-icon://add" type="Transparent" press=".onAddRule" />
+            <Button text="Delete" icon="sap-icon://delete" type="Transparent" press=".onDeleteRule" />
+            <Button text="Test Against Current BPs" icon="sap-icon://lab" type="Transparent" press=".onTestRuleset" />
+            <Button text="Save" icon="sap-icon://save" type="Emphasized" press=".onSave" enabled="{view>/dirty}" />
+            <Button text="Discard" icon="sap-icon://undo" type="Transparent" press=".onDiscard" enabled="{view>/dirty}" />
+          </OverflowToolbar>
+        </headerToolbar>
+        <columns>
+          <Column width="5rem"><Text text="Seq" /></Column>
+          <Column width="6rem"><Text text="Country" /></Column>
+          <Column width="6rem"><Text text="Category" /></Column>
+          <Column width="6rem"><Text text="Grouping" /></Column>
+          <Column width="6rem"><Text text="Role" /></Column>
+          <Column><Text text="Field" /></Column>
+          <Column><Text text="Comparison" /></Column>
+          <Column width="7rem"><Text text="Threshold" /></Column>
+          <Column><Text text="Indicator" /></Column>
+          <Column width="5rem"><Text text="Active" /></Column>
+        </columns>
+        <items>
+          <ColumnListItem>
+            <cells>
+              <Input value="{dc>sequence}" type="Number" change=".onCellChange" />
+              <Input value="{dc>condCountry}" maxLength="3" placeholder="any" change=".onCellChange" />
+              <Input value="{dc>condCategory}" maxLength="1" placeholder="any" change=".onCellChange" />
+              <Input value="{dc>condGrouping}" maxLength="4" placeholder="any" change=".onCellChange" />
+              <Input value="{dc>condRole}" maxLength="6" placeholder="any" change=".onCellChange" />
+              <VBox>
+                <!-- Options come from ruleOptions(); the UI never keeps its own copy of the
+                     catalog, because that copy is what goes stale. -->
+                <ComboBox
+                  selectedKey="{dc>field}"
+                  items="{ path: 'opt>/fields', templateShareable: false }"
+                  change=".onFieldChange">
+                  <core:Item key="{opt>field}" text="{opt>field}" />
+                </ComboBox>
+                <Text
+                  class="sapUiTinyMarginTop"
+                  visible="{= ${view>/unindexed}[${dc>field}] === true }"
+                  text="Not held in the duplicate index — this cannot match an existing partner."
+                  wrapping="true" />
+              </VBox>
+              <ComboBox
+                selectedKey="{dc>comparison}"
+                items="{ path: 'opt>/comparisons', templateShareable: false }"
+                change=".onCellChange">
+                <core:Item key="{opt>}" text="{opt>}" />
+              </ComboBox>
+              <Input value="{dc>threshold}" placeholder="fuzzy only" change=".onCellChange" />
+              <ComboBox
+                selectedKey="{dc>indicator}"
+                items="{ path: 'opt>/indicators', templateShareable: false }"
+                change=".onCellChange">
+                <core:Item key="{opt>}" text="{opt>}" />
+              </ComboBox>
+              <CheckBox selected="{dc>isActive}" select=".onCellChange" />
+            </cells>
+          </ColumnListItem>
+        </items>
+      </Table>
+    </content>
+  </Page>
+</mvc:View>

@@ -31,6 +31,14 @@
           "annotations": [],
           "odataVersion": "4.0"
         }
+      },
+      "duplicateConfigService": {
+        "uri": "service/duplicateconfig/",
+        "type": "OData",
+        "settings": {
+          "annotations": [],
+          "odataVersion": "4.0"
+        }
       }
     },
     "crossNavigation": {
@@ -120,6 +128,16 @@
           "autoExpandSelect": true,
           "earlyRequests": false
         }
+      },
+      "dc": {
+        "dataSource": "duplicateConfigService",
+        "preload": false,
+        "settings": {
+          "synchronizationMode": "None",
+          "operationMode": "Server",
+          "autoExpandSelect": true,
+          "earlyRequests": false
+        }
       }
     },
     "resources": {
@@ -178,6 +196,11 @@
           "pattern": "BusinessPartners({key}):?query:",
           "name": "BusinessPartnersObjectPage",
           "target": "BusinessPartnersObjectPage"
+        },
+        {
+          "pattern": "DuplicateRules",
+          "name": "DuplicateRuleList",
+          "target": "DuplicateRuleList"
         }
       ],
       "targets": {
@@ -230,6 +253,13 @@
                       "enabled": true,
                       "requiresSelection": false,
                       "text": "Change Requests"
+                    },
+                    "DuplicateRules": {
+                      "press": "mdm.md.businesspartner.manage.ext.CustomActions.openDuplicateRules",
+                      "visible": true,
+                      "enabled": true,
+                      "requiresSelection": false,
+                      "text": "Duplicate Rules"
                     }
                   }
                 }
@@ -283,6 +313,12 @@
               }
             }
           }
+        },
+        "DuplicateRuleList": {
+          "type": "View",
+          "id": "DuplicateRuleList",
+          "name": "mdm.md.businesspartner.manage.ext.view.DuplicateRuleList",
+          "viewType": "XML"
         }
       }
     },

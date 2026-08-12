@@ -215,7 +215,25 @@ Two notes:
 
 ## Admin page
 
-Service built 2026-08-12; the Fiori UI is not.
+Built 2026-08-12. A page inside the existing app, not a second MTA module —
+reached from the **Duplicate Rules** button on the list-report toolbar, the same
+way Change Requests already is.
+
+`ext/view/DuplicateRuleList.view.xml` · `ext/controller/DuplicateRuleList.controller.js`
+
+Edits are batched behind an explicit **Save** (`$$updateGroupId: 'ruleChanges'`)
+rather than written per keystroke, so a half-typed rule never becomes the live
+ruleset. Discard resets the batch. A rejected row keeps its pending change
+instead of vanishing, which is what makes the server's validation messages
+actionable.
+
+The page shows two warnings a steward would otherwise have to infer:
+
+- **on a field the index cannot serve** — the rule saves, but it can only match
+  on the submit path, never against an existing partner;
+- **when the ruleset is running on defaults** — because an empty grid otherwise
+  reads as "the check is off", and it never is.
+
 
 `DuplicateConfigService` (`/service/duplicateconfig`) is separate from
 `BusinessPartnerService` on purpose: it is a control, maintained by different

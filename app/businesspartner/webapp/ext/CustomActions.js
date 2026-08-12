@@ -106,6 +106,10 @@ sap.ui.define([
       navigate("ChangeRequests");
     },
 
+    openDuplicateRules: function () {
+      navigate("DuplicateRules");
+    },
+
     openAssistant: function () {
       var values = Array.prototype.slice.call(arguments);
       var model = values.map(modelFrom).find(Boolean) || environment.model;
