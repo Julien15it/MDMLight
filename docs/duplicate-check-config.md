@@ -430,6 +430,20 @@ Submit-time findings are best-effort: a check that cannot run logs and moves on.
 Stranding a request in `draft` with an approval workflow already waiting for it
 would be a worse failure than a missing finding.
 
+## Known gap: two in-flight requests cannot see each other
+
+The check compares a candidate against **partners in S/4**. Staged change
+requests are not in S/4 until they post, so two requests to create the same
+company, submitted before either is approved, are invisible to one another.
+Both pass, both get approved, both post, and the duplicate is created by the
+control that exists to prevent it.
+
+This is not the same thing as open decision 3 and is not settled by it: that
+decision says a *rule* change does not trigger a re-check, and re-checking on
+approve would not close this either — the second request could be approved
+first. The fix is to include active `ChangeRequests` in the candidate set, so
+the check sees pending creates as well as live partners. Not built.
+
 ## Open decisions
 
 1. ~~**Does `Duplicate` hard-block the submit?**~~ **Decided 2026-08-12: no.**
@@ -441,6 +455,14 @@ would be a worse failure than a missing finding.
    Severity says whether someone must act, verdict says what was found; folding
    one into the other loses information the approver needs. Adding a column is
    safe — the deployer only refuses to *drop* them.
-3. **Rule changes are not retroactive.** A request submitted under yesterday's
-   ruleset and approved today was checked against the old rules. Re-check on
-   approve, or accept it?
+3. ~~**Rule changes are not retroactive.**~~ **Decided 2026-08-12: accepted.**
+   The check runs at submit and the verdict stands. There is no re-check on
+   approve, deliberately — a request approved under yesterday's ruleset keeps
+   yesterday's findings.
+
+   The reasoning is that the approver decided on what they were shown; silently
+   re-running the rules underneath them would change the record they acted on.
+   `CheckFindings` is `managed`, so when a finding was written is on the row.
+
+   Note this is a decision about **rules**, not about **data** — see the
+   in-flight gap below, which the same decision does not cover.

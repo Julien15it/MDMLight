@@ -100,14 +100,20 @@ better.
 | `vat_registered` | `info` | VIES could not be reached or was throttled |
 | `vat_name_matches` | `warning` | registered name disagrees with the typed name |
 
-## Not built
+## The registry set is closed: VIES + GLEIF
 
-Country registries with free bulk data — **BE KBO/CBE**, **FR INSEE SIRENE**,
-**UK Companies House**, **NO Brønnøysund**, plus free APIs for DK, PL and the
-Baltics. NL is paid per call, DE has no bulk API, ES and IT are commercial.
-There is no KBO equivalent everywhere, which is why GLEIF is the global baseline
-and country dumps are added where a customer needs them.
+Decided 2026-08-12. **No OpenCorporates and no KBO/CBE.** Neither is coming, so
+do not reopen either as a backlog item.
 
-OpenCorporates is **not** free for this: the free tier is by application for
-non-commercial use, and shipping inside a customer product is a commercial
-licence. Settle that before writing any code against it.
+- **OpenCorporates** — the free tier is by application for non-commercial use,
+  and shipping inside a customer product needs a commercial licence. Not worth
+  the procurement for what it adds over GLEIF.
+- **KBO/CBE**, and the other country bulk sources (FR SIRENE, UK Companies
+  House, NO Brønnøysund, DK, PL, the Baltics) — a per-country ingestion pipeline
+  each, and there is no equivalent for DE, ES, IT or NL anyway. The coverage
+  would be lopsided and the maintenance would be permanent.
+
+What this costs, stated plainly so nobody is surprised later: GLEIF's coverage
+skews to larger and financial-market entities, so an SME with no LEI enriches to
+nothing from a name alone. VIES then only helps once someone has typed a VAT
+number. That is the accepted ceiling on enrichment recall.
