@@ -111,6 +111,14 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
     BusinessPartner: String(10) not null
   ) returns Boolean;
 
+  /** What the signed-in user is allowed to do, so the UI can hide what they
+   *  cannot use. Readable by any authenticated user - it reports permissions,
+   *  it does not grant them, and every protected service still checks its own
+   *  scope. Hiding a button is courtesy, never the control. */
+  function currentUserPermissions() returns {
+    isDataSteward : Boolean;
+  };
+
   /** Read-only assistant grounded in the Business Partners currently present
    *  in S/4HANA. It never creates or changes master data. */
   action askBusinessPartnerAssistant(

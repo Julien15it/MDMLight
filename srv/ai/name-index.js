@@ -9,6 +9,10 @@ const INDEX_FIELDS = Object.freeze([
   'BusinessPartnerName',
   'OrganizationBPName1',
   'SearchTerm1',
+  'SearchTerm2',
+  'FirstName',
+  'LastName',
+  'LegalForm',
   'BusinessPartnerCategory',
   'BusinessPartnerGrouping',
   'BusinessPartnerIsBlocked',
@@ -27,7 +31,9 @@ const INDEX_FIELDS = Object.freeze([
 const CHILD_SOURCES = Object.freeze({
   addresses: Object.freeze({
     entitySet: 'A_BusinessPartnerAddress',
-    columns: Object.freeze(['BusinessPartner', 'StreetName', 'PostalCode', 'CityName', 'Country'])
+    columns: Object.freeze([
+      'BusinessPartner', 'StreetName', 'HouseNumber', 'PostalCode', 'CityName', 'Region', 'Country'
+    ])
   }),
   taxNumbers: Object.freeze({
     entitySet: 'A_BusinessPartnerTaxNumber',

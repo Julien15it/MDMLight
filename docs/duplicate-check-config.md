@@ -31,15 +31,30 @@ One row is one rule. Condition columns may be left empty, meaning "any". This is
 the mental model our SAP consultants already have, and it is the reason for the
 row-oriented layout over a nested criteria/ruleset model.
 
-| Seq | Country | Category | Grouping | Role | Field | Comparison | Threshold | Indicator |
-|-----|---------|----------|----------|------|-------|------------|-----------|-----------|
-| 10 | BE | 2 | | | `TaxNumber.BE0` | exact | | definitive |
-| 20 | | | | | `Name` | fuzzy | 0.86 | strong |
-| 30 | | | | | `PostalCode` | exact | | weak |
+| Condition Field | Condition Value | Field | Comparison | Indicator |
+|---|---|---|---|---|
+| Country | BE | `TaxNumber` | exact | definitive |
+| | | `Name` | fuzzy | strong |
+| | | `PostalCode` | exact | weak |
 
-Row 20 has no condition: name always participates as a fuzzy strong indicator.
-Row 10 applies only to Belgian organizations — natural persons are excluded by
-the `Category = 2` condition rather than by an opt-out row.
+Row 2 has no condition: name always participates as a fuzzy strong indicator.
+Row 1 applies only to Belgian partners.
+
+**A condition is one field/value pair, over the same catalog the rule targets.**
+It replaced four fixed `cond*` columns on 2026-08-12: the fixed set looked
+complicated, only ever allowed the four things someone had guessed in advance,
+and the generic pair is both simpler on screen and strictly more capable. The old
+columns remain in the entity and are still honoured, because `cds-deploy` refuses
+to drop elements — but nothing writes them.
+
+Half a condition is rejected on save. A field with no value would otherwise
+match everything, which is the opposite of what a condition is for.
+
+**Seq and Threshold are not on the grid.** Sequence carries no semantics —
+strongest-indicator-wins makes order irrelevant — and a threshold is one more
+number to get wrong, so a fuzzy rule takes the tuned default. `sequence` stays in
+the entity for the same drop-refusal reason; `threshold` stays supported and
+still validates when a stored row carries one.
 
 **Conditions must hold on both records of the pair.** A rule written for Belgian
 partners says nothing about a Belgian record compared with a German one. The

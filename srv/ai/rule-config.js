@@ -2,6 +2,7 @@
 
 const { resolveField, isIndexedField, catalogFields } = require('./duplicate-fields');
 const { COMPARISONS, INDICATORS, DEFAULT_RULES } = require('./duplicate-engine');
+const { DUPLICATE_THRESHOLD } = require('./name-match');
 
 const FUZZY_COMPARISONS = Object.freeze(['fuzzy', 'raw_dice']);
 const RULE_CACHE_TTL_MS = 60000;
@@ -43,14 +44,28 @@ function validateRule(row = {}) {
     });
   }
 
+  // Conditions are one field/value pair from the same catalog, e.g. Country = BE.
+  const conditionField = String(row.conditionField || '').trim();
+  const conditionValue = String(row.conditionValue === null || row.conditionValue === undefined
+    ? '' : row.conditionValue).trim();
+  if (conditionField && !resolveField(conditionField)) {
+    errors.push({ field: 'conditionField', message: `“${conditionField}” is not a field in the catalog.` });
+  }
+  // Half a condition is the dangerous half: a field with no value would match everything.
+  if (conditionField && !conditionValue) {
+    errors.push({ field: 'conditionValue', message: 'A condition field needs a value. Leave both empty for “any”.' });
+  }
+  if (conditionValue && !conditionField) {
+    errors.push({ field: 'conditionField', message: 'A condition value needs a field.' });
+  }
+
+  // Absent is fine — a fuzzy rule takes the default threshold. Present but unusable is not.
   const threshold = row.threshold === null || row.threshold === undefined || row.threshold === ''
     ? null
     : Number(row.threshold);
-  if (FUZZY_COMPARISONS.includes(comparison)) {
-    if (threshold === null || !Number.isFinite(threshold) || threshold <= 0 || threshold > 1) {
-      errors.push({ field: 'threshold', message: 'A fuzzy comparison needs a threshold above 0 and at most 1.' });
-    }
-  } else if (threshold !== null) {
+  if (threshold !== null && (!Number.isFinite(threshold) || threshold <= 0 || threshold > 1)) {
+    errors.push({ field: 'threshold', message: 'A threshold must be above 0 and at most 1.' });
+  } else if (threshold !== null && !FUZZY_COMPARISONS.includes(comparison)) {
     warnings.push({ field: 'threshold', message: `A ${comparison || 'non-fuzzy'} comparison ignores its threshold.` });
   }
 
@@ -68,6 +83,16 @@ function toEngineRule(row = {}) {
   };
   if (row.threshold !== null && row.threshold !== undefined && row.threshold !== '') {
     rule.threshold = Number(row.threshold);
+  } else if (FUZZY_COMPARISONS.includes(rule.comparison)) {
+    // The grid no longer asks for a threshold, so a fuzzy rule takes the tuned default.
+    rule.threshold = DUPLICATE_THRESHOLD;
+  }
+  const conditionField = String(row.conditionField || '').trim();
+  const conditionValue = String(row.conditionValue === null || row.conditionValue === undefined
+    ? '' : row.conditionValue).trim();
+  if (conditionField && conditionValue) {
+    rule.conditionField = conditionField;
+    rule.conditionValue = conditionValue;
   }
   for (const column of CONDITION_COLUMNS) {
     const value = row[column];

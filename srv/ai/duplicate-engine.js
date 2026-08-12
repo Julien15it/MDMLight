@@ -59,7 +59,11 @@ const COMPARISONS = Object.freeze({
  */
 function requiredFields(rules = []) {
   const fields = new Set(CONDITION_FIELDS);
-  for (const rule of rules) if (rule?.field) fields.add(rule.field);
+  for (const rule of rules) {
+    if (rule?.field) fields.add(rule.field);
+    // The condition field is now free-form, so the bag has to carry it too.
+    if (rule?.conditionField) fields.add(rule.conditionField);
+  }
   return [...fields];
 }
 
@@ -73,13 +77,25 @@ function bagOf(record, fields) {
   return built;
 }
 
+function holds(field, wanted, bag) {
+  if (wanted === undefined || wanted === null || String(wanted).trim() === '') return true;
+  const resolved = resolveField(field);
+  // An unresolvable condition field cannot be satisfied, so the rule stays out rather than
+  // matching everything. Saving one is rejected up front; this is the backstop.
+  if (!resolved) return false;
+  const normalised = resolved.entry.normalise(wanted, {});
+  if (!normalised) return true;
+  return (bag[field] || []).includes(normalised);
+}
+
+/**
+ * A rule carries one condition as a field/value pair — conditionField = Country, conditionValue =
+ * BE. The four fixed cond* columns are still honoured for rows written before that change.
+ */
 function conditionsMatch(rule, bag) {
+  if (!holds(rule.conditionField, rule.conditionValue, bag)) return false;
   for (const field of CONDITION_FIELDS) {
-    const wanted = rule[CONDITION_COLUMNS[field]];
-    if (wanted === undefined || wanted === null || String(wanted).trim() === '') continue;
-    const normalised = resolveField(field).entry.normalise(wanted, {});
-    if (!normalised) continue;
-    if (!(bag[field] || []).includes(normalised)) return false;
+    if (!holds(field, rule[CONDITION_COLUMNS[field]], bag)) return false;
   }
   return true;
 }

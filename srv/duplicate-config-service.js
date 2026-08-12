@@ -3,10 +3,26 @@
 const cds = require('@sap/cds');
 const { catalogFields, validateRule } = require('./ai/rule-config');
 const { ruleStore, refreshRules } = require('./ai/duplicate-check');
-const { COMPARISONS, INDICATORS } = require('./ai/duplicate-engine');
-const { CONDITION_FIELDS } = require('./ai/duplicate-fields');
+const { INDICATORS } = require('./ai/duplicate-engine');
 
 const RULES = 'mdmlight.config.DuplicateRules';
+
+// `raw_dice` is the unsmoothed scorer kept for comparison work; offering it to a steward would be
+// a fourth choice nobody can tell apart from `fuzzy`. It still evaluates if a stored row uses it.
+const OFFERED_COMPARISONS = Object.freeze(['exact', 'fuzzy', 'contains']);
+
+const COMPARISON_TEXT = Object.freeze({
+  exact: 'Exact — equal after normalisation',
+  fuzzy: 'Fuzzy — similar name or value',
+  contains: 'Contains — one value contains the other'
+});
+
+const INDICATOR_TEXT = Object.freeze({
+  weak: 'Weak — only counts alongside another match',
+  strong: 'Strong',
+  definitive: 'Definitive — a match on its own',
+  disqualifying: 'Rules out a match — different values mean different companies'
+});
 
 module.exports = class DuplicateConfigService extends cds.ApplicationService {
   async init() {
@@ -37,10 +53,13 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
     this.on('ruleOptions', async () => {
       await refreshRules(async () => cds.run(cds.ql.SELECT.from(RULES)), { force: true });
       return {
-        fields: catalogFields(),
-        comparisons: Object.keys(COMPARISONS),
-        indicators: [...INDICATORS],
-        conditions: [...CONDITION_FIELDS],
+        fields: catalogFields().map(({ field, indexed }) => ({
+          key: field,
+          text: indexed ? field : `${field} (not indexed)`,
+          indexed
+        })),
+        comparisons: OFFERED_COMPARISONS.map((key) => ({ key, text: COMPARISON_TEXT[key] || key })),
+        indicators: INDICATORS.map((key) => ({ key, text: INDICATOR_TEXT[key] || key })),
         source: ruleStore.source(),
         ruleCount: ruleStore.rules().length
       };

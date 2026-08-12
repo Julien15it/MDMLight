@@ -30,13 +30,33 @@ test('an unavailable comparison or indicator is rejected', () => {
   assert.equal(validateRule(validRow({ indicator: 'critical' })).errors[0].field, 'indicator');
 });
 
-test('a fuzzy rule needs a usable threshold, an exact one does not', () => {
-  assert.equal(validateRule(validRow({ threshold: null })).errors[0].field, 'threshold');
+// The grid no longer asks for a threshold, so absent has to mean "use the default", not "invalid".
+test('an absent threshold is fine, an unusable one is not', () => {
+  assert.deepEqual(validateRule(validRow({ threshold: null })).errors, []);
+  assert.equal(toEngineRule(validRow({ threshold: null })).threshold, 0.86);
   assert.equal(validateRule(validRow({ threshold: 1.4 })).errors[0].field, 'threshold');
   assert.equal(validateRule(validRow({ threshold: 0 })).errors[0].field, 'threshold');
+  assert.deepEqual(validateRule(validRow({ comparison: 'exact', threshold: null })).errors, []);
+  assert.equal(toEngineRule(validRow({ comparison: 'exact', threshold: null })).threshold, undefined);
+});
+
+test('a condition is one field and one value, and half of one is rejected', () => {
   assert.deepEqual(
-    validateRule(validRow({ comparison: 'exact', threshold: null })).errors, []
+    validateRule(validRow({ conditionField: 'Country', conditionValue: 'BE' })).errors, []
   );
+  assert.equal(
+    validateRule(validRow({ conditionField: 'Country' })).errors[0].field, 'conditionValue'
+  );
+  assert.equal(
+    validateRule(validRow({ conditionValue: 'BE' })).errors[0].field, 'conditionField'
+  );
+  assert.equal(
+    validateRule(validRow({ conditionField: 'Nonsense', conditionValue: 'BE' })).errors[0].field,
+    'conditionField'
+  );
+  const rule = toEngineRule(validRow({ conditionField: 'Country', conditionValue: 'BE' }));
+  assert.equal(rule.conditionField, 'Country');
+  assert.equal(rule.conditionValue, 'BE');
 });
 
 // The failure this whole flag exists to prevent: a rule that looks fine and does nothing.

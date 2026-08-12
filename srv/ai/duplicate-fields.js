@@ -59,6 +59,36 @@ const CATALOG = Object.freeze({
     normalise: alnumUpper,
     values: (record) => [record.SearchTerm1]
   },
+  SearchTerm2: {
+    indexed: true,
+    normalise: alnumUpper,
+    values: (record) => [record.SearchTerm2]
+  },
+  FirstName: {
+    indexed: true,
+    normalise: textNorm,
+    values: (record) => [record.FirstName]
+  },
+  LastName: {
+    indexed: true,
+    normalise: textNorm,
+    values: (record) => [record.LastName]
+  },
+  LegalForm: {
+    indexed: true,
+    normalise: alnumUpper,
+    values: (record) => [record.LegalForm]
+  },
+  HouseNumber: {
+    indexed: true,
+    normalise: alnumUpper,
+    values: (record) => (record.addresses || []).map((address) => address?.HouseNumber)
+  },
+  Region: {
+    indexed: true,
+    normalise: alnumUpper,
+    values: (record) => (record.addresses || []).map((address) => address?.Region)
+  },
   PostalCode: {
     indexed: true,
     normalise: alnumUpper,

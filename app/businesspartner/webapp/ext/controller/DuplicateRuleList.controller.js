@@ -9,10 +9,6 @@ sap.ui.define([
 
   var UPDATE_GROUP = "ruleChanges";
 
-  // Mirrors srv/ai/rule-config.js. Kept deliberately thin: the server validates on save and is the
-  // authority, this only saves the steward a round trip on the obvious mistakes.
-  var FUZZY_COMPARISONS = ["fuzzy", "raw_dice"];
-
   return Controller.extend("mdm.md.businesspartner.manage.ext.controller.DuplicateRuleList", {
 
     onInit: function () {
@@ -61,9 +57,13 @@ sap.ui.define([
         view.setProperty("/source", (options && options.source) || "");
         var unindexed = {};
         (options && options.fields ? options.fields : []).forEach(function (entry) {
-          if (!entry.indexed) unindexed[entry.field] = true;
+          if (!entry.indexed) unindexed[entry.key] = true;
         });
         view.setProperty("/unindexed", unindexed);
+        // Empty dropdowns are the failure that shipped last time, so say it out loud.
+        if (!options || !options.fields || !options.fields.length) {
+          MessageBox.error("The rule options came back empty, so the dropdowns cannot be filled.");
+        }
       } catch (error) {
         MessageBox.error("The rule options could not be loaded: " + this._errorText(error));
       }
@@ -72,16 +72,11 @@ sap.ui.define([
     onAddRule: function () {
       var binding = this._table().getBinding("items");
       if (!binding) return;
-      var rows = binding.getCurrentContexts();
-      var lastSequence = rows.reduce(function (highest, context) {
-        return Math.max(highest, Number(context.getProperty("sequence")) || 0);
-      }, 0);
-      // Sequence only orders the grid for reading, so a new row simply goes last.
+      // No sequence and no threshold: sequence carries no semantics, and a fuzzy rule takes the
+      // tuned default. Neither is worth a column the steward has to think about.
       binding.create({
-        sequence: lastSequence + 10,
         field: "Name",
         comparison: "fuzzy",
-        threshold: 0.86,
         indicator: "strong",
         isActive: true
       });
@@ -124,10 +119,17 @@ sap.ui.define([
         if (!rule.field) problems.push(label + "choose a field.");
         if (!rule.comparison) problems.push(label + "choose a comparison.");
         if (!rule.indicator) problems.push(label + "choose an indicator.");
-        if (FUZZY_COMPARISONS.indexOf(rule.comparison) >= 0) {
+        // Half a condition is the dangerous half: a field with no value would match everything.
+        if (rule.conditionField && !rule.conditionValue) {
+          problems.push(label + "the condition needs a value, or clear the condition field.");
+        }
+        if (rule.conditionValue && !rule.conditionField) {
+          problems.push(label + "the condition value needs a field.");
+        }
+        if (rule.threshold !== null && rule.threshold !== undefined && rule.threshold !== "") {
           var threshold = Number(rule.threshold);
-          if (!rule.threshold || !isFinite(threshold) || threshold <= 0 || threshold > 1) {
-            problems.push(label + "a fuzzy comparison needs a threshold above 0 and at most 1.");
+          if (!isFinite(threshold) || threshold <= 0 || threshold > 1) {
+            problems.push(label + "a threshold must be above 0 and at most 1.");
           }
         }
       });

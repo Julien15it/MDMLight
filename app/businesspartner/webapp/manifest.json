@@ -256,7 +256,7 @@
                     },
                     "DuplicateRules": {
                       "press": "mdm.md.businesspartner.manage.ext.CustomActions.openDuplicateRules",
-                      "visible": true,
+                      "visible": "{perm>/isDataSteward}",
                       "enabled": true,
                       "requiresSelection": false,
                       "text": "Duplicate Rules"

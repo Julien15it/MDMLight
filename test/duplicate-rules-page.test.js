@@ -76,6 +76,28 @@ test('the field, comparison and indicator lists come from the service', () => {
   assert.match(view, /items="\{ path: 'opt>\/comparisons'/u);
   assert.match(view, /items="\{ path: 'opt>\/indicators'/u);
   assert.match(controllerSource, /_callAction\("ruleOptions"/u);
+  // Bare-string arrays do not bind inside a table cell; every list is key/text for that reason.
+  assert.equal(/<core:Item key="\{opt>\}"/u.test(view), false);
+  assert.equal((view.match(/<core:Item key="\{opt>key\}" text="\{opt>text\}"/gu) || []).length, 4);
+});
+
+test('the grid asks only for what a steward has to decide', () => {
+  for (const gone of ['dc>sequence', 'dc>threshold', 'dc>condCountry', 'dc>condCategory',
+    'dc>condGrouping', 'dc>condRole']) {
+    assert.equal(view.includes(gone), false, `${gone} is still on the grid`);
+  }
+  assert.match(view, /\{dc>conditionField\}/u);
+  assert.match(view, /\{dc>conditionValue\}/u);
+});
+
+// Hiding the button is courtesy; the service checks the scope regardless.
+test('the rules button is hidden from anyone without the steward scope', () => {
+  const actions = routing.targets.BusinessPartnersList.options.settings
+    .controlConfiguration['@com.sap.vocabularies.UI.v1.LineItem'].actions;
+  assert.equal(actions.DuplicateRules.visible, '{perm>/isDataSteward}');
+  const component = fs.readFileSync(path.join(APP, 'Component.js'), 'utf8');
+  assert.match(component, /isDataSteward: false/u, 'it starts hidden, never briefly visible');
+  assert.match(component, /currentUserPermissions/u);
 });
 
 test('the page warns about a field the index cannot serve, and about running on defaults', () => {
@@ -116,10 +138,13 @@ test('the client refuses a fuzzy rule with no usable threshold before the round 
   ]).length, 0);
   assert.equal(_localProblems([
     { field: 'Name', comparison: 'fuzzy', indicator: 'strong' }
-  ]).length, 1);
+  ]).length, 0, 'no threshold means the default, not an error');
   assert.equal(_localProblems([
     { field: 'Name', comparison: 'fuzzy', threshold: 1.5, indicator: 'strong' }
   ]).length, 1);
+  assert.equal(_localProblems([
+    { field: 'Name', comparison: 'exact', indicator: 'strong', conditionField: 'Country' }
+  ]).length, 1, 'a condition field with no value would match everything');
   assert.equal(_localProblems([
     { field: '', comparison: '', indicator: '' }
   ]).length, 3);

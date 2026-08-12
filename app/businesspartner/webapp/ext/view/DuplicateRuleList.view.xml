@@ -24,7 +24,7 @@
         showIcon="true" />
       <Table
         id="ruleTable"
-        items="{ path: 'dc>/DuplicateRules', parameters: { $orderby: 'sequence', $$updateGroupId: 'ruleChanges' } }"
+        items="{ path: 'dc>/DuplicateRules', parameters: { $orderby: 'createdAt', $$updateGroupId: 'ruleChanges' } }"
         mode="SingleSelectMaster"
         busy="{view>/busy}"
         growing="true"
@@ -41,25 +41,30 @@
           </OverflowToolbar>
         </headerToolbar>
         <columns>
-          <Column width="5rem"><Text text="Seq" /></Column>
-          <Column width="6rem"><Text text="Country" /></Column>
-          <Column width="6rem"><Text text="Category" /></Column>
-          <Column width="6rem"><Text text="Grouping" /></Column>
-          <Column width="6rem"><Text text="Role" /></Column>
+          <Column><Text text="Condition Field" /></Column>
+          <Column><Text text="Condition Value" /></Column>
           <Column><Text text="Field" /></Column>
           <Column><Text text="Comparison" /></Column>
-          <Column width="7rem"><Text text="Threshold" /></Column>
           <Column><Text text="Indicator" /></Column>
           <Column width="5rem"><Text text="Active" /></Column>
         </columns>
         <items>
           <ColumnListItem>
             <cells>
-              <Input value="{dc>sequence}" type="Number" change=".onCellChange" />
-              <Input value="{dc>condCountry}" maxLength="3" placeholder="any" change=".onCellChange" />
-              <Input value="{dc>condCategory}" maxLength="1" placeholder="any" change=".onCellChange" />
-              <Input value="{dc>condGrouping}" maxLength="4" placeholder="any" change=".onCellChange" />
-              <Input value="{dc>condRole}" maxLength="6" placeholder="any" change=".onCellChange" />
+              <!-- One condition, any catalog field: Country = BE, then compare Tax Number.
+                   Leave both empty and the rule applies to every partner. -->
+              <ComboBox
+                selectedKey="{dc>conditionField}"
+                placeholder="any"
+                items="{ path: 'opt>/fields', templateShareable: false }"
+                change=".onCellChange">
+                <core:Item key="{opt>key}" text="{opt>text}" />
+              </ComboBox>
+              <Input
+                value="{dc>conditionValue}"
+                placeholder="any"
+                enabled="{= !!${dc>conditionField} }"
+                change=".onCellChange" />
               <VBox>
                 <!-- Options come from ruleOptions(); the UI never keeps its own copy of the
                      catalog, because that copy is what goes stale. -->
@@ -67,7 +72,7 @@
                   selectedKey="{dc>field}"
                   items="{ path: 'opt>/fields', templateShareable: false }"
                   change=".onFieldChange">
-                  <core:Item key="{opt>field}" text="{opt>field}" />
+                  <core:Item key="{opt>key}" text="{opt>text}" />
                 </ComboBox>
                 <Text
                   class="sapUiTinyMarginTop"
@@ -79,14 +84,13 @@
                 selectedKey="{dc>comparison}"
                 items="{ path: 'opt>/comparisons', templateShareable: false }"
                 change=".onCellChange">
-                <core:Item key="{opt>}" text="{opt>}" />
+                <core:Item key="{opt>key}" text="{opt>text}" />
               </ComboBox>
-              <Input value="{dc>threshold}" placeholder="fuzzy only" change=".onCellChange" />
               <ComboBox
                 selectedKey="{dc>indicator}"
                 items="{ path: 'opt>/indicators', templateShareable: false }"
                 change=".onCellChange">
-                <core:Item key="{opt>}" text="{opt>}" />
+                <core:Item key="{opt>key}" text="{opt>text}" />
               </ComboBox>
               <CheckBox selected="{dc>isActive}" select=".onCellChange" />
             </cells>

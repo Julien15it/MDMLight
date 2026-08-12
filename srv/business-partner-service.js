@@ -1592,6 +1592,10 @@ class BusinessPartnerService extends cds.ApplicationService {
       return JSON.stringify({ findings: duplicateFindings(kept) });
     });
 
+    this.on('currentUserPermissions', (req) => ({
+      isDataSteward: Boolean(req.user?.is?.('Steward'))
+    }));
+
     // Unsaved rules on purpose: a test that can only run the saved ruleset cannot show anyone the
     // effect of a change before they commit to it, which is the point of the button.
     this.on('testDuplicateRuleset', async (req) => {

@@ -166,6 +166,35 @@ test('a rule only fires when its conditions hold on both records', () => {
   assert.deepEqual(evaluate(left, entries(german), { rules: RULES }), []);
 });
 
+// The steward-facing shape: one field/value pair, any catalog field, not four fixed columns.
+test('a generic condition pair gates the rule the same way', () => {
+  const rules = [{
+    conditionField: 'Country',
+    conditionValue: 'BE',
+    field: 'Name',
+    comparison: 'exact',
+    indicator: 'definitive'
+  }];
+  const belgian = partner('20', { Country: 'BE' });
+  const german = partner('21', { Country: 'DE' });
+  const found = evaluate({ Name: 'Alluvion NV', Country: 'BE' }, entries(belgian, german), { rules });
+  assert.deepEqual(found.map((row) => row.partner.BusinessPartner), ['20']);
+
+  // The bag has to carry the condition field even though no rule compares on it.
+  assert.ok(requiredFields(rules).includes('Country'));
+});
+
+test('an unresolvable condition field keeps the rule out rather than matching everything', () => {
+  const rules = [{
+    conditionField: 'NotInTheCatalog',
+    conditionValue: 'x',
+    field: 'Name',
+    comparison: 'exact',
+    indicator: 'definitive'
+  }];
+  assert.deepEqual(evaluate({ Name: 'Alluvion NV' }, entries(partner('22')), { rules }), []);
+});
+
 test('conditions read a role from the roles collection', () => {
   const bag = buildCandidate({ roles: [{ BusinessPartnerRole: 'FLCU01' }] });
   assert.equal(conditionsMatch({ condRole: 'FLCU01' }, bag), true);
