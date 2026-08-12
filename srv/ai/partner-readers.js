@@ -1,9 +1,11 @@
 'use strict';
 
-const { INDEX_FIELDS } = require('./name-index');
+const { INDEX_FIELDS, CHILD_SOURCES } = require('./name-index');
 
 const ENTITY_SET = 'A_BusinessPartner';
 const PAGE_SIZE = 1000;
+// Keeps the generated $filter a sane length, the same reason readAssistantAddresses chunks.
+const CHILD_CHUNK = 50;
 // Above the 200k top of the agreed customer range, so the cap is a safety net and not a limit.
 const MAX_ROWS = 250000;
 
@@ -51,6 +53,63 @@ function createCapPartnerReader({ service, entity, pageSize = PAGE_SIZE, maxRows
     }
     return rows;
   };
+}
+
+// The flat `{xpr}`-joined shape this codebase's other filters hand to .where().
+function partnersFilter(ids = []) {
+  return ids.flatMap((id, position) => [
+    ...(position ? ['or'] : []),
+    { xpr: [{ ref: ['BusinessPartner'] }, '=', { val: String(id) }] }
+  ]);
+}
+
+/**
+ * Reads one child collection for the index. `partners: null` means every row — a full rebuild;
+ * an array of ids means only those partners changed, which is what keeps a delta cheap.
+ */
+function createCapChildReader({ service, entity, columns, pageSize = PAGE_SIZE, maxRows = MAX_ROWS }) {
+  const cds = require('@sap/cds');
+
+  const readPage = async (filter) => {
+    const rows = [];
+    for (let skip = 0; ; skip += pageSize) {
+      const select = cds.ql.SELECT.from(entity).columns(...columns);
+      if (filter) select.where(filter);
+      const page = await service.run(select.limit(pageSize, skip));
+      if (!Array.isArray(page) || page.length === 0) break;
+      rows.push(...page);
+      if (page.length < pageSize || reachedCap(rows, maxRows, 'CAP child')) break;
+    }
+    return rows;
+  };
+
+  return async function readChildren({ partners = null } = {}) {
+    if (partners === null) return readPage(null);
+    if (!partners.length) return [];
+    const chunks = [];
+    for (let index = 0; index < partners.length; index += CHILD_CHUNK) {
+      chunks.push(partners.slice(index, index + CHILD_CHUNK));
+    }
+    const pages = await Promise.all(chunks.map((chunk) => readPage(partnersFilter(chunk))));
+    return pages.flat();
+  };
+}
+
+/**
+ * The whole reader bundle the name index needs. The MCP path stays partners-only: it is shelved,
+ * and a half-populated index would be worse than an obviously name-only one.
+ */
+function createCapReaders({ service, remoteEntity, ...options }) {
+  const readers = { partners: createCapPartnerReader({ service, entity: remoteEntity(ENTITY_SET), ...options }) };
+  for (const [name, source] of Object.entries(CHILD_SOURCES)) {
+    readers[name] = createCapChildReader({
+      service,
+      entity: remoteEntity(source.entitySet),
+      columns: source.columns,
+      ...options
+    });
+  }
+  return readers;
 }
 
 // The MCP returns tool content, not rows; every known envelope unwraps to the same array.
@@ -117,8 +176,12 @@ function createMcpPartnerReader({
 module.exports = {
   ENTITY_SET,
   PAGE_SIZE,
+  CHILD_CHUNK,
   MAX_ROWS,
   WATERMARK_FIELDS,
+  partnersFilter,
+  createCapChildReader,
+  createCapReaders,
   changedSinceFilter,
   changedSinceQuery,
   indexQueryPath,

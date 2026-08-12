@@ -4,18 +4,9 @@ Status: **engine built and wired in 2026-08-12.** The engine's own tests passed
 in BAS (163 tests, 0 failures); the wiring commit on top of them has not been run
 yet — there is no Node toolchain on the Windows machine.
 
-> ## The safety net is not active yet
->
-> `DEFAULT_RULES` makes an exact name match `definitive`, and the thing that
-> makes that safe is the `Country` **disqualifying** row. Against **indexed**
-> partners that row can never fire: `A_BusinessPartner` carries no `Country` at
-> all — verified against the sandbox — so country lives only on
-> `A_BusinessPartnerAddress`, which `INDEX_FIELDS` deliberately excludes.
->
-> Until the index carries country and tax numbers, "Delta NV" in Belgium and
-> "Delta Inc" in the US come back as **Duplicate**. Harmless on a Belgium-only
-> sandbox, wrong the moment a second country appears. **Index expansion is now
-> the next slice, not an optional one.**
+The `Country` disqualifying row — the thing that makes an exact-name rule safe —
+now works against existing partners, because the index carries addresses. See
+"Index impact" below.
 `srv/ai/duplicate-fields.js` (catalog, normalisers, candidate bags) and
 `srv/ai/duplicate-engine.js` (`evaluate`) implement everything below except
 persistence and the admin page. No caller uses them yet — the live check is
@@ -245,11 +236,46 @@ design it out of reach.
 
 ## Index impact
 
-`createNameIndex` currently holds name fingerprints only. Rules over tax number,
-postal code and country mean the index must read
-`A_BusinessPartnerTaxNumber` and `A_BusinessPartnerAddress` too and join them
-per partner. Fine at current volume; state a ceiling and move to a
-Postgres-backed index when it is reached.
+Done 2026-08-12. The index carries three child collections per partner —
+`CHILD_SOURCES` in `srv/ai/name-index.js`:
+
+| Collection | Entity | Columns kept |
+|---|---|---|
+| `addresses` | `A_BusinessPartnerAddress` | BusinessPartner, StreetName, PostalCode, CityName, Country |
+| `taxNumbers` | `A_BusinessPartnerTaxNumber` | BusinessPartner, BPTaxType, BPTaxNumber |
+| `roles` | `A_BusinessPartnerRole` | BusinessPartner, BusinessPartnerRole |
+
+Only catalog columns are kept — the point is the matching fields, not a second
+copy of S/4. Roughly 150 bytes a partner on top of the header, so a 200k index
+moves from ~20MB to ~50MB. **That is the new ceiling to watch**; past it, move to
+a Postgres-backed index rather than growing the resident one.
+
+`Country` had to come from addresses because `A_BusinessPartner` has no country
+field at all — verified against the sandbox, and worth knowing before anyone
+proposes reading it from the header.
+
+**Bank details are deliberately absent.** `IBAN` stays in the catalog marked
+`indexed: false`: bank data resident in memory on every CF instance is a
+different risk class from a postal code, and nobody has asked for an IBAN rule.
+Adding it is one read plus one flag, but it is a decision, not an oversight.
+
+### Delta cost, and the gap it leaves
+
+A full rebuild reads every child row. A delta re-reads children **only for the
+partners whose header just changed**, chunked 50 ids at a time so the generated
+`$filter` stays sane. Cost therefore tracks change volume, not population.
+
+The gap: a child edited without touching its header — a new address on an
+otherwise untouched partner — is invisible until the daily full rebuild. That is
+the same class of staleness as a deletion, and the same rebuild covers it.
+
+### The admin page needs this
+
+Each catalog entry now carries an `indexed` flag, exposed as `catalogFields()`
+and `isIndexedField()`. A rule over a field the index does not carry contributes
+nothing against an existing partner, **silently** — so the admin page must be
+able to see the flag rather than let a steward configure a rule that does
+nothing. This is the mechanism that keeps the field catalog honest as it grows.
 
 ## One engine, every caller
 

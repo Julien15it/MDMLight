@@ -3,18 +3,43 @@
 const { partnerFingerprints } = require('./name-match');
 const { evaluate } = require('./duplicate-engine');
 
-// No address fields: that omission is what keeps a 200k index around 20MB.
 const INDEX_FIELDS = Object.freeze([
   'BusinessPartner',
   'BusinessPartnerFullName',
   'BusinessPartnerName',
   'OrganizationBPName1',
+  'SearchTerm1',
   'BusinessPartnerCategory',
   'BusinessPartnerGrouping',
   'BusinessPartnerIsBlocked',
   'CreationDate',
   'LastChangeDate'
 ]);
+
+/**
+ * Child rows the index carries so a rule over country, postal code or tax number has something to
+ * compare against. Only the catalog's own columns are kept — the point is the matching fields, not
+ * a second copy of S/4. Roughly 150 bytes a partner on top of the header, so a 200k index moves
+ * from ~20MB to ~50MB; state a new ceiling here if that stops being acceptable.
+ *
+ * Bank details are deliberately absent — see the IBAN entry in the field catalog.
+ */
+const CHILD_SOURCES = Object.freeze({
+  addresses: Object.freeze({
+    entitySet: 'A_BusinessPartnerAddress',
+    columns: Object.freeze(['BusinessPartner', 'StreetName', 'PostalCode', 'CityName', 'Country'])
+  }),
+  taxNumbers: Object.freeze({
+    entitySet: 'A_BusinessPartnerTaxNumber',
+    columns: Object.freeze(['BusinessPartner', 'BPTaxType', 'BPTaxNumber'])
+  }),
+  roles: Object.freeze({
+    entitySet: 'A_BusinessPartnerRole',
+    columns: Object.freeze(['BusinessPartner', 'BusinessPartnerRole'])
+  })
+});
+
+const CHILD_NAMES = Object.freeze(Object.keys(CHILD_SOURCES));
 
 // A delta refresh never learns about deletions, so the index is rebuilt outright once a day.
 const REBUILD_AFTER_MS = 86400000;
@@ -49,6 +74,19 @@ function toDateKey(value) {
 
 // Readers receive a plain watermark, never a CQN filter, so a non-CAP transport can serve them too.
 
+// One reader stays a bare function, which is what every caller passed before children existed.
+function normaliseReaders(readers) {
+  return typeof readers === 'function' ? { partners: readers } : (readers || {});
+}
+
+function projectChild(row, columns) {
+  const projected = {};
+  for (const column of columns) {
+    if (row[column] !== undefined) projected[column] = row[column];
+  }
+  return projected;
+}
+
 
 /**
  * Full-recall duplicate index. The old matcher only ever saw rows the OData
@@ -79,7 +117,34 @@ function createNameIndex({
     }
   }
 
-  async function load(readPartners) {
+  /**
+   * A delta re-reads children only for the partners it just saw change, so the cost tracks the
+   * change volume rather than the population. The gap that leaves: a child edited without touching
+   * its header is invisible until the daily full rebuild — the same class of staleness as a
+   * deletion, and the same rebuild covers it.
+   */
+  async function ingestChildren(readers, changedIds) {
+    const targets = changedIds || [...entries.keys()];
+    for (const name of CHILD_NAMES) {
+      const read = readers[name];
+      if (!read) continue;
+      const rows = await read({ partners: changedIds });
+      for (const id of targets) {
+        const entry = entries.get(id);
+        // Cleared first so a delta replaces a partner's children instead of appending to them.
+        if (entry) entry.partner[name] = [];
+      }
+      for (const row of Array.isArray(rows) ? rows : []) {
+        const entry = entries.get(String(row?.BusinessPartner));
+        if (!entry) continue;
+        entry.partner[name] = entry.partner[name] || [];
+        entry.partner[name].push(projectChild(row, CHILD_SOURCES[name].columns));
+      }
+    }
+  }
+
+  async function load(readers) {
+    const { partners: readPartners, ...children } = normaliseReaders(readers);
     const full = !builtAt || (now() - builtAt) >= rebuildAfterMs || !watermark;
     // Read before discarding anything, so a failed rebuild cannot empty a working index.
     const rows = await readPartners({ since: full ? '' : watermark });
@@ -87,20 +152,25 @@ function createNameIndex({
       entries = new Map();
       watermark = '';
     }
-    ingest(Array.isArray(rows) ? rows : []);
+    const read = Array.isArray(rows) ? rows : [];
+    ingest(read);
+    await ingestChildren(
+      children,
+      full ? null : read.map((row) => String(row?.BusinessPartner)).filter(Boolean)
+    );
     refreshedAt = now();
     stale = false;
     if (full) builtAt = refreshedAt;
-    return { full, read: Array.isArray(rows) ? rows.length : 0, size: entries.size };
+    return { full, read: read.length, size: entries.size };
   }
 
   // Concurrent questions share one refresh; a failed refresh leaves the previous index in place.
-  function refresh(readPartners, { force = false } = {}) {
+  function refresh(readers, { force = false } = {}) {
     if (inFlight) return inFlight;
     if (!force && !stale && builtAt && (now() - refreshedAt) < refreshIntervalMs) {
       return Promise.resolve({ full: false, read: 0, size: entries.size, skipped: true });
     }
-    inFlight = load(readPartners).finally(() => { inFlight = null; });
+    inFlight = load(readers).finally(() => { inFlight = null; });
     return inFlight;
   }
 
@@ -132,8 +202,11 @@ function createNameIndex({
 
 module.exports = {
   INDEX_FIELDS,
+  CHILD_SOURCES,
+  CHILD_NAMES,
   REBUILD_AFTER_MS,
   REFRESH_INTERVAL_MS,
   toDateKey,
+  normaliseReaders,
   createNameIndex
 };

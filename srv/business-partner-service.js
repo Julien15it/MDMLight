@@ -10,7 +10,7 @@ const {
   VERDICT_LABELS, activeRules, checkAgainstPartners, duplicateFindings
 } = require('./ai/duplicate-check');
 const { createNameIndex } = require('./ai/name-index');
-const { createCapPartnerReader, createMcpPartnerReader, ENTITY_SET } = require('./ai/partner-readers');
+const { createCapReaders, createMcpPartnerReader } = require('./ai/partner-readers');
 const { createMcpToolCaller } = require('./ai/mcp-client');
 const { executeHttpRequest } = require('@sap-cloud-sdk/http-client');
 
@@ -631,8 +631,9 @@ async function readAssistantAddresses(s4, partners = []) {
 function createIndexReader(s4, env = cds.env.assistant?.indexSource) {
   const source = String(process.env.ASSISTANT_INDEX_SOURCE || env?.kind || 'cap').toLowerCase();
   if (source !== 'mcp') {
-    return createCapPartnerReader({ service: s4, entity: remoteEntity(s4, ENTITY_SET) });
+    return createCapReaders({ service: s4, remoteEntity: (name) => remoteEntity(s4, name) });
   }
+  console.warn('[assistant] MCP index source carries names only — country and tax rules cannot fire');
   const destinationName = process.env.MCP_DESTINATION || env?.destination;
   // Confirmed against the sandbox; the destination has no default because it is landscape-specific.
   const serviceId = process.env.MCP_SERVICE_ID || env?.serviceId || 'ZAPI_BUSINESS_PARTNER_0001';

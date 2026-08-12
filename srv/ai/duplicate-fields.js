@@ -38,8 +38,12 @@ function primaryCountry(record = {}) {
 }
 
 // Every entry pulls a list: a partner has many addresses, many tax numbers, many bank accounts.
+// `indexed` says whether the resident name index carries the field. A rule over a field the index
+// does not carry contributes nothing against an existing partner — silently — so the admin page
+// has to be able to see this rather than let a steward configure a rule that does nothing.
 const CATALOG = Object.freeze({
   Name: {
+    indexed: true,
     normalise: (value) => companyFingerprint(value),
     // additionalNames is where registry enrichment lands, so an official name matches too.
     values: (record) => [
@@ -51,43 +55,55 @@ const CATALOG = Object.freeze({
     ]
   },
   SearchTerm1: {
+    indexed: true,
     normalise: alnumUpper,
     values: (record) => [record.SearchTerm1]
   },
   PostalCode: {
+    indexed: true,
     normalise: alnumUpper,
     values: (record) => (record.addresses || []).map((address) => address?.PostalCode)
   },
   CityName: {
+    indexed: true,
     normalise: textNorm,
     values: (record) => (record.addresses || []).map((address) => address?.CityName)
   },
   StreetName: {
+    indexed: true,
     normalise: textNorm,
     values: (record) => (record.addresses || []).map((address) => address?.StreetName)
   },
   Country: {
+    indexed: true,
     normalise: alnumUpper,
     values: (record) => [record.Country, ...(record.addresses || []).map((address) => address?.Country)]
   },
+  // Not indexed on purpose: bank data resident in memory is a different risk class from a
+  // postal code, and nobody has asked for an IBAN rule. Adding it is a read plus this flag.
   IBAN: {
+    indexed: false,
     normalise: alnumUpper,
     values: (record) => (record.bankDetails || []).map((bank) => bank?.IBAN)
   },
   TaxNumber: {
+    indexed: true,
     normalise: taxNorm,
     values: (record) => (record.taxNumbers || []).map((tax) => tax?.BPTaxNumber)
   },
   // Conditions only, never a comparison target.
   Category: {
+    indexed: true,
     normalise: alnumUpper,
     values: (record) => [record.BusinessPartnerCategory, record.Category]
   },
   Grouping: {
+    indexed: true,
     normalise: alnumUpper,
     values: (record) => [record.BusinessPartnerGrouping, record.Grouping]
   },
   Role: {
+    indexed: true,
     normalise: alnumUpper,
     values: (record) => (record.roles || []).map((role) => role?.BusinessPartnerRole)
   }
@@ -104,6 +120,7 @@ function resolveField(name) {
     return {
       field,
       entry: {
+        indexed: CATALOG.TaxNumber.indexed,
         normalise: taxNorm,
         values: (record) => (record.taxNumbers || [])
           .filter((tax) => alnumUpper(tax?.BPTaxType) === alnumUpper(taxType))
@@ -138,10 +155,21 @@ function buildCandidate(record, fields = Object.keys(CATALOG)) {
   return bag;
 }
 
+// What the admin page offers, and what it has to warn about.
+function catalogFields() {
+  return Object.entries(CATALOG).map(([field, entry]) => ({ field, indexed: Boolean(entry.indexed) }));
+}
+
+function isIndexedField(name) {
+  return Boolean(resolveField(name)?.entry.indexed);
+}
+
 module.exports = {
   CATALOG,
   CONDITION_FIELDS,
   NATIONAL_NUMBER_LENGTH,
+  catalogFields,
+  isIndexedField,
   alnumUpper,
   textNorm,
   taxNorm,
