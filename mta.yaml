@@ -62,21 +62,11 @@ modules:
     requires:
       - name: mdm-businesspartner-db
 
-  # --- Standalone application router ------------------------------------------
-  # Lives at the repo root rather than under app/, because the BAS generators look
-  # for the approuter where their own generator puts it. Moved 2026-08-13.
-  - name: mdm-businesspartner-approuter
-    type: approuter.nodejs
-    path: approuter
-    parameters:
-      disk-quota: 256M
-      memory: 256M
-    build-parameters:
-      builder: npm
-    requires:
-      - name: mdm-businesspartner-auth
-      - name: mdm-businesspartner-repo-runtime
-      - name: mdm-businesspartner-destination-service
+  # The standalone approuter was removed 2026-08-13: the app is served by the
+  # managed approuter through SAP Build Work Zone, standard edition. The routing
+  # config is app/businesspartner/xs-app.json, which build:cf copies into dist/
+  # and ships to the HTML5 repo alongside the app - that file, not a module here,
+  # is what routes /service/* to mdm-businesspartner-srv-api.
 
   # --- UI: HTML5 application deployer ------------------------------------------
   - name: mdm-businesspartner-app-content
@@ -154,6 +144,8 @@ resources:
     parameters:
       service: html5-apps-repo
       service-plan: app-host
+  # Kept although no module requires it any more: the managed approuter uses the
+  # app-runtime plan to serve the app out of the HTML5 repo.
   - name: mdm-businesspartner-repo-runtime
     type: org.cloudfoundry.managed-service
     parameters:

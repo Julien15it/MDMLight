@@ -376,19 +376,37 @@ hand-rolled UI5 app:
   UI5 tooling configs — pick the matching npm script (`start` vs
   `start-mock`) rather than editing one to behave like the other.
 
-### `approuter` — standalone approuter
-Minimal `@sap/approuter` module (`xs-app.json` routing) deployed as its own
-MTA module; not a place for application logic.
+### No approuter module — managed approuter via Work Zone
 
-**It sits at the repo root, not under `app/`** — moved there 2026-08-13 because
-the BAS Workflow UI generator refused to run with *"ensure that the approuter
-configuration module is added to the MTA"*, despite `type: approuter.nodejs`
-already being present. The generators look for it where their own approuter
-generator puts it. Nothing about the module itself changed; its behaviour is
-entirely `xs-app.json` plus its `requires`.
+**The standalone approuter was removed 2026-08-13.** The app is served by the
+**managed** approuter through SAP Build Work Zone, standard edition.
+
+`app/businesspartner/xs-app.json` is the routing config, and it is the only one:
+`build:cf` copies it into `dist/` so it ships to the HTML5 repo alongside the
+app, and the managed approuter applies it. That is why every `/service/*` route
+lives there and why a new CAP service path still needs an entry in that file —
+the mechanism did not change, only who reads it.
+
+Why it changed: the BAS Workflow UI generator (`@bas-dev/routing-config`)
+crashes on a project that declares both a standalone `approuter.nodejs` module
+and the managed-approuter markers, and SAP's own guide requires
+**Managed Approuter** for the workflow UI template. The MTA was scaffolded for
+managed all along — `deploy_mode: html5-repo`, the app-host/app-runtime
+resources, destination content carrying `sap.cloud.service`, `manifest.json`
+declaring the same service with `public: true`, and `HTML5Runtime_enabled: true`
+on the destination service. The standalone module was the outlier.
+
+Consequences to know:
+
+- **The dev-space mapped route is gone.** Access is the Work Zone site URL.
+- `mdm-businesspartner-repo-runtime` is no longer required by any module. It is
+  kept deliberately — the managed runtime serves the app out of the repo.
+- If login loops or fails after adding the app to a site, check the XSUAA
+  `redirect-uris` in `mta.yaml`: `https://*.${default-domain}/**` may not cover
+  the Work Zone launchpad host, which sits on a different subdomain.
 
 ### MTA / deployment (`mta.yaml`)
-Five modules: CAP service (`mdm-businesspartner-srv`), standalone approuter,
+Four modules: CAP service (`mdm-businesspartner-srv`),
 HTML5 app-content deployer, destination-content, plus the resources they bind
 to (XSUAA, HTML5 apps repo host/runtime, destination service, connectivity,
 AI Core `extended`, and the existing BPA user-provided services). The CAP
