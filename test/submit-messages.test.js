@@ -147,7 +147,7 @@ test('the check reports validations, derivations and duplicates in that order', 
     [],
     { Valid: true, RanDuplicateCheck: true }
   );
-  assert.deepEqual(messages.map((message) => message.type), ['Warning', 'Information', 'Success']);
+  assert.deepEqual(Array.from(messages, (message) => message.type), ['Warning', 'Information', 'Success']);
 });
 
 test('a blocked validation stops the check reporting anything about duplicates', () => {
@@ -159,7 +159,7 @@ test('a blocked validation stops the check reporting anything about duplicates',
     [],
     { Valid: false, RanDuplicateCheck: false }
   );
-  assert.deepEqual(messages.map((message) => message.type), ['Error']);
+  assert.deepEqual(Array.from(messages, (message) => message.type), ['Error']);
   assert.equal(messages.some((message) => /duplicate/iu.test(message.text)), false);
 });
 
@@ -174,10 +174,15 @@ test('a duplicate check that did not run is never reported as no duplicates', ()
   assert.match(controllerSource, /RanDuplicateCheck === false[\s\S]{0,200}Nothing was ruled out/u);
 });
 
+// Lengths and fields, not deepEqual: the controller runs in its own vm realm, so both its arrays
+// and the objects inside them fail a prototype-strict comparison against ones built out here.
 test('malformed json from the check degrades to an empty list', () => {
   const controller = loadController();
-  assert.deepEqual(controller._parseJsonArray.call(controller, 'not json'), []);
-  assert.deepEqual(controller._parseJsonArray.call(controller, '{"a":1}'), []);
-  assert.deepEqual(controller._parseJsonArray.call(controller, undefined), []);
-  assert.deepEqual(controller._parseJsonArray.call(controller, '[{"a":1}]'), [{ a: 1 }]);
+  const parse = (text) => controller._parseJsonArray.call(controller, text);
+  assert.equal(parse('not json').length, 0);
+  assert.equal(parse('{"a":1}').length, 0, 'an object is not a list of findings');
+  assert.equal(parse(undefined).length, 0);
+  const parsed = parse('[{"a":1}]');
+  assert.equal(parsed.length, 1);
+  assert.equal(parsed[0].a, 1);
 });
