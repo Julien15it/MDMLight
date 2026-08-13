@@ -50,29 +50,40 @@ needing a second destination.
 
 ## How the metadata reaches the app
 
-**The app never calls `$metadata`.** It was imported once and checked in, and
-everything runs off that copy:
+**The app never calls `$metadata` to serve a request.** It was imported once and
+checked in, and every read runs off that copy:
 
 ```bash
-cds import "https://saps4amdg.alluvion.eu:44301/sap/opu/odata/sap/ZSRVB_MDMLIGHT_VH/$metadata" \
-  --as cds --into srv/external
+npm run import:valuehelp     # and npm run import:bp for API_BUSINESS_PARTNER
 ```
 
-That writes `srv/external/ZSRVB_MDMLIGHT_VH.edmx` (the raw document) and
+That fetches `$metadata` **through `VF_S4HANA_DEST`**, so it needs no credentials
+of its own — but it therefore only runs where the destination resolves: in CF, or
+locally under the hybrid profile (`cds bind`, see `.cdsrc-private.json`). It
+writes `srv/external/ZSRVB_MDMLIGHT_VH.edmx` (the raw document) and regenerates
 `ZSRVB_MDMLIGHT_VH.cds` (the CAP model, with a `checksum` header — do not
-hand-edit it, the next import overwrites it). `business-partner-service.cds`
-projects onto that model, so it has to exist at **compile** time: `cds build`
-cannot fetch it.
+hand-edit that file, the next import overwrites it). Commit both.
+
+`business-partner-service.cds` projects onto that model, so it has to exist at
+**compile** time: `cds build` cannot fetch it, which is why the copy exists at all.
 
 Consequences worth knowing before changing anything here:
 
 - **Adding an `expose` line changes nothing in the app** until someone re-runs
-  the import above and commits both files.
-- Nothing checks the copy against the live service. See "Known drift" below.
-- Three lists have to be kept in step by hand when a lookup is added or removed:
-  the `as projection on VH.` lines in `srv/business-partner-service.cds`,
-  `VALUE_HELP_ENTITIES` in `srv/business-partner-service.js`, and
-  `VALUE_HELP_FIELDS` in the UI's `BusinessPartnerMaintenance.controller.js`.
+  the import and commits both files.
+- `srv/metadata-drift.js` compares the copy against the live service once at
+  startup and logs the difference — a **warning** when the live service no longer
+  has something the copy claims (reads may already be failing), an **info** when
+  the copy is merely behind. It never edits anything; it names the command above.
+  Where no destination resolves it logs at debug and stops.
+- Four things have to be kept in step when a lookup is added or removed: the
+  `as projection on VH.` lines in `srv/business-partner-service.cds`,
+  `VALUE_HELP_ENTITIES` in `srv/business-partner-service.js`, `VALUE_HELP_FIELDS`
+  in the UI's `BusinessPartnerMaintenance.controller.js`, and the
+  `@Common.ValueList` annotations in `srv/annotations.cds`.
+  **`test/value-help-wiring.test.js` fails if they disagree** — it also checks
+  every projected entity still exists in the imported model, so a stale copy
+  fails the suite rather than the app.
 
 ## Known drift, 2026-08-13
 

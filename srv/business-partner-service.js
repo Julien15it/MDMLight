@@ -14,6 +14,7 @@ const { usableRules } = require('./ai/rule-config');
 const { createNameIndex } = require('./ai/name-index');
 const { createCapReaders, createMcpPartnerReader } = require('./ai/partner-readers');
 const { createMcpToolCaller } = require('./ai/mcp-client');
+const { checkMetadataDrift } = require('./metadata-drift');
 const { executeHttpRequest } = require('@sap-cloud-sdk/http-client');
 
 const assistantCache = createCache();
@@ -1291,6 +1292,18 @@ class BusinessPartnerService extends cds.ApplicationService {
     // VALUE_HELP_ENTITIES below. API_BUSINESS_PARTNER exposes none of these.
     const valueHelp = await cds.connect.to('ZSRVB_MDMLIGHT_VH');
     const db = await cds.connect.to('db');
+
+    // Both remote models are copies checked into srv/external, so they go stale silently. Report
+    // it once per start. Deliberately not awaited: this must never delay or fail boot, and where
+    // no destination resolves — plain local dev — it logs at debug and stops.
+    checkMetadataDrift({
+      requires: cds.env.requires,
+      maintenanceEntities: MAINTENANCE_ENTITIES,
+      valueHelpEntities: VALUE_HELP_ENTITIES,
+      executeHttpRequest,
+      readFile: require('fs').promises.readFile,
+      log: cds.log('metadata')
+    }).catch((error) => cds.log('metadata').debug('The drift check did not run:', error.message));
 
     /** Partner numbers currently locked by an in-flight change request. */
     const lockedPartners = async () => {

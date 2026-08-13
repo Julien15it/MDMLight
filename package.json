@@ -32,7 +32,9 @@
     "build": "cds build --production",
     "deploy": "cds deploy",
     "test": "node --test test/*.test.js",
-    "local": "cds watch --profile hybrid"
+    "local": "cds watch --profile hybrid",
+    "import:bp": "node tools/import-metadata.js API_BUSINESS_PARTNER",
+    "import:valuehelp": "node tools/import-metadata.js ZSRVB_MDMLIGHT_VH"
   },
   "cds": {
     "requires": {

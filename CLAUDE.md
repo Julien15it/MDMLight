@@ -82,6 +82,30 @@ If the target S/4 system exposes different metadata (different release/config),
 re-import `$metadata` for `API_BUSINESS_PARTNER` and rebuild — don't hand-edit
 the generated `.edmx`/`.csn`.
 
+### The imported models are copies, and they go stale silently
+
+Both remote services (`API_BUSINESS_PARTNER` and the value-help service
+`ZSRVB_MDMLIGHT_VH`) are compiled from files in `srv/external`. Nothing reads
+`$metadata` to serve a request, and nothing can: `as projection on` is resolved
+by the CDS compiler and `mbt build` runs offline. The exclusion lists above exist
+because of exactly this — the copy carries fields this release does not expose.
+
+```bash
+npm run import:bp          # re-import API_BUSINESS_PARTNER
+npm run import:valuehelp   # re-import ZSRVB_MDMLIGHT_VH
+```
+
+Both go through `VF_S4HANA_DEST`, so they need no credentials but only work where
+the destination resolves — CF, or `cds watch --profile hybrid` after `cds bind`.
+
+`srv/metadata-drift.js` runs once at startup and reports the difference against
+the live services, scoped to the entity sets the app actually reads (nine of the
+65 in `API_BUSINESS_PARTNER`). A property the live service **dropped** is a
+warning, because that read is already failing; one it **gained** is an info,
+because the copy is only behind. It is best-effort by construction — an
+unreachable S/4 logs at debug and never delays or fails startup — so treat a
+silent log as "no destination here", not as "in step".
+
 ### Change request staging (approve-then-create)
 
 The whole point of the staging layer: **nothing reaches S/4 until it is
