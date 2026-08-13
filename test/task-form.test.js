@@ -21,6 +21,22 @@ const serviceJs = fs.readFileSync(
 
 // The route SAP's task-form guide requires. Without it the inbox loads the form and every
 // workflow call 404s, which is the failure that looks like "the form is broken".
+// xs-app.json ships into the HTML5 apps repository and is schema-validated there. An unknown
+// key in a route makes the entire app version unservable — every resource, manifest.json
+// included, comes back 500 and the app never loads. JSON has no comments; explanations go in
+// CLAUDE.md.
+test('no route carries a key the repository will reject', () => {
+  const allowed = new Set([
+    'source', 'target', 'destination', 'service', 'endpoint', 'authenticationType',
+    'csrfProtection', 'cacheControl', 'scope', 'localDir', 'replace', 'preferLocal', 'httpMethods'
+  ]);
+  xsApp.routes.forEach((route, index) => {
+    for (const key of Object.keys(route)) {
+      assert.ok(allowed.has(key), `route ${index} carries unsupported key "${key}"`);
+    }
+  });
+});
+
 test('the workflow runtime route is present and first', () => {
   const [first] = xsApp.routes;
   assert.equal(first.source, '^/api/(.*)$');

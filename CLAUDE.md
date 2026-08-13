@@ -353,6 +353,13 @@ The same app serves the Work Zone tile and the My Inbox task form. `sap.bpa.task
 in `manifest.json` declares it; `Component.js` implements the contract from SAP
 Help, *Technical Information for Adapting the SAPUI5 Application*.
 
+- **Never put a comment key in `app/businesspartner/xs-app.json`.** It ships into
+  the HTML5 apps repository with the app and is schema-validated there; an
+  unknown property in a route makes the whole app version unservable and every
+  resource - `manifest.json`, `Component.js`, the preload - returns **500**. The
+  app then fails to load with `adding element with duplicate id
+  '<app id>-content'`, which names nothing relevant. Cost an afternoon on
+  2026-08-13.
 - **`app/businesspartner/xs-app.json` needs `^/api/(.*)$` as its FIRST route**,
   to `com.sap.spa.processautomation` / endpoint `api`. Without it the form loads
   and every workflow call 404s — which reads as "the form is broken" and was the
