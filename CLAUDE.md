@@ -183,9 +183,39 @@ throws only reports (an improvement, not a gate); and a duplicate check that
 could not run is reported rather than folded into an empty result, because "no
 duplicates found" from a check that never ran is the one wrong answer here.
 
+### Normalisation — `srv/checks/normalise.js`
+
+AI Core proposes reformatting of **stored** data: casing, legal forms (`bvba` →
+`BVBA`), whitespace, street conventions. **Proposals only — nothing is ever
+applied without the requester ticking it.**
+
+Two distinctions worth keeping straight:
+
+- Normalising **for comparison** is already solved deterministically in
+  `srv/ai/duplicate-fields.js` and is the engine's business. This is different:
+  it rewrites what someone typed, which is an edit to master data.
+- A **derivation** fills a gap and never overwrites. A **normalisation** only
+  ever touches a field that already has a value. That is why it is its own stage
+  and why it can never auto-apply.
+
+`sanitizeProposals` checks the model's output against the fields actually sent —
+a proposal for a field that was not offered, or one that changes nothing, is
+dropped. Identifiers (tax numbers, IBAN, BP number) are deliberately outside
+`NORMALISABLE`: formatting them is not a formatting matter.
+
+It runs on **Check only**, and returns `[]` on any failure — an AI Core outage
+must not stop a check or a submit.
+
 The **Check** button (`checkRequest`) runs the pipeline over the payload on
-screen and **stages nothing** — pressing it can never leave a row behind. Submit
-runs the duplicate check regardless, so Check is a convenience, never a gate.
+screen and **stages nothing** — pressing it can never leave a row behind.
+
+**Submit runs the validations and the duplicate check, but never the
+derivations** (decided 2026-08-13). A derivation changes the data and the
+requester has to have seen what they are asking for, so Check is the derivation
+trigger; more triggers get decided on their own merits when there is a
+derivation framework. A blocking validation on submit leaves the request a
+`draft` and reports at the top of the screen — a list of things to fix in the
+form, not a decision to take, which is why it is strips and not a dialog.
 
 `db/staging.cds` holds `ChangeRequests` plus one `Staged*` node per section of
 the object page, mirroring the MDG node structure, plus `CheckFindings`.

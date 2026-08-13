@@ -103,6 +103,9 @@ service ChangeRequestService @(path: '/service/changerequest') {
     ValidationsJson   : LargeString;
     /** Fields the derivations filled in, for the screen to apply and show. */
     DerivationsJson   : LargeString;
+    /** AI-proposed reformatting of fields that already have a value. Proposals
+     *  only - nothing is applied until the requester accepts it. */
+    NormalisationsJson : LargeString;
     DuplicatesJson    : LargeString;
   };
 

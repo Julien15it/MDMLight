@@ -116,13 +116,14 @@ async function runDerivations(payload, derivations = DERIVATIONS) {
  * connection and the resident index, and so the caller decides what the candidate is compared
  * against — the submit path excludes the request's own staged copy, a bare check does not.
  */
-async function runChecks(payload, { checkDuplicates, validations, derivations } = {}) {
+async function runChecks(payload, { checkDuplicates, validations, derivations, propose } = {}) {
   const validationMessages = await runValidations(payload, validations);
   if (validationMessages.some((message) => message.severity === BLOCKING)) {
     return {
       valid: false,
       validations: validationMessages,
       derivations: [],
+      normalisations: [],
       derived: payload,
       duplicates: [],
       ranDuplicateCheck: false
@@ -130,6 +131,16 @@ async function runChecks(payload, { checkDuplicates, validations, derivations } 
   }
 
   const { derived, applied } = await runDerivations(payload, derivations);
+
+  // Proposals, not changes. Made against the derived payload so a field just filled in can be
+  // normalised in the same pass, and never applied here — the requester accepts or declines.
+  let normalisations = [];
+  try {
+    normalisations = propose ? await propose(derived) || [] : [];
+  } catch (error) {
+    // A convenience, never a gate: an unavailable model must not stop a check or a submit.
+    console.warn('[checks] Normalisation proposals unavailable:', error.message);
+  }
 
   let duplicates = [];
   let ranDuplicateCheck = false;
@@ -150,6 +161,7 @@ async function runChecks(payload, { checkDuplicates, validations, derivations } 
     valid: true,
     validations: validationMessages,
     derivations: applied,
+    normalisations,
     derived,
     duplicates,
     ranDuplicateCheck

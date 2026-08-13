@@ -158,3 +158,53 @@ test('every validation runs, so one failure does not hide the next', async () =>
   assert.deepEqual(Array.from(messages, (message) => message.message), ['first', 'second']);
   assert.deepEqual(Array.from(messages, (message) => message.check), ['blocker', 'nagger']);
 });
+
+// --- Normalisation proposals ------------------------------------------------------------
+
+// Proposals only. A derivation fills a gap and never overwrites; a normalisation only ever
+// touches a field that already has a value, so it can never be applied without a human.
+test('proposals ride along with the result and change nothing', async () => {
+  const original = payload({ OrganizationBPName1: 'alluvion bvba' });
+  const result = await runChecks(original, {
+    propose: async () => [{
+      target: 'root', index: 0, field: 'OrganizationBPName1',
+      current: 'alluvion bvba', proposed: 'Alluvion BVBA', reason: 'legal form'
+    }],
+    checkDuplicates: async () => []
+  });
+  assert.equal(result.normalisations.length, 1);
+  assert.equal(result.derived.root.OrganizationBPName1, 'alluvion bvba', 'nothing was applied');
+  assert.equal(original.root.OrganizationBPName1, 'alluvion bvba');
+});
+
+// Made against the derived payload, so a field just filled in is normalised in the same pass.
+test('proposals are made against the derived payload', async () => {
+  let seen = null;
+  await runChecks(payload(), {
+    derivations: [fillCountry],
+    propose: async (derived) => { seen = derived; return []; },
+    checkDuplicates: async () => []
+  });
+  assert.equal(seen.root.Country, 'BE');
+});
+
+test('a proposal step that throws leaves the check working', async () => {
+  const result = await runChecks(payload({ OrganizationBPName1: 'x' }), {
+    propose: async () => { throw new Error('AI Core is away'); },
+    checkDuplicates: async () => []
+  });
+  assert.equal(result.valid, true);
+  assert.equal(result.ranDuplicateCheck, true);
+  assert.deepEqual(result.normalisations, []);
+});
+
+test('a blocked validation proposes nothing either', async () => {
+  let proposed = false;
+  const result = await runChecks(payload(), {
+    validations: [blocker('Enter a grouping.')],
+    propose: async () => { proposed = true; return []; }
+  });
+  assert.equal(result.valid, false);
+  assert.equal(proposed, false, 'invalid data is not worth reformatting');
+  assert.deepEqual(result.normalisations, []);
+});

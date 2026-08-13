@@ -1432,6 +1432,7 @@ sap.ui.define([
           var validations = this._parseJsonArray(result && result.ValidationsJson);
           var derivations = this._parseJsonArray(result && result.DerivationsJson);
           var duplicates = this._parseJsonArray(result && result.DuplicatesJson);
+          var normalisations = this._parseJsonArray(result && result.NormalisationsJson);
 
           // Derived values are written into the form so the user sees what was filled in, rather
           // than discovering it after approval. A derivation can target an address row, not only
@@ -1466,6 +1467,10 @@ sap.ui.define([
             // After the derived values were applied, so Continue arms the payload Submit will
             // actually send and no second dialog appears.
             this._confirmDuplicates(duplicates, this._requestDataJson(state));
+            return;
+          }
+          if (normalisations.length) {
+            this._offerNormalisations(normalisations);
             return;
           }
           MessageToast.show("Checked: no duplicate detected.");
@@ -1512,6 +1517,93 @@ sap.ui.define([
             messages.push({ type: "Information", text: finding.message });
           });
         return messages;
+      },
+
+      /**
+       * Proposals, never changes. Each row is a field that already has a value and that the
+       * model thinks is formatted inconsistently; nothing moves until the requester ticks it
+       * and presses Apply. Declining is simply not ticking it - there is no "no" to record,
+       * because the next Check will propose it again and that is the intended behaviour.
+       */
+      _offerNormalisations: function (proposals) {
+        var model = new JSONModel({ proposals: proposals.map(function (proposal) {
+          return Object.assign({ accepted: true }, proposal);
+        }) });
+
+        var table = new Table({
+          mode: "MultiSelect",
+          columns: [
+            new Column({ header: new Text({ text: "Field" }) }),
+            new Column({ header: new Text({ text: "Current" }) }),
+            new Column({ header: new Text({ text: "Proposed" }) }),
+            new Column({ header: new Text({ text: "Why" }) })
+          ]
+        });
+        table.bindItems({
+          path: "/proposals",
+          template: new ColumnListItem({
+            selected: "{accepted}",
+            cells: [
+              new Text({ text: "{field}" }),
+              new Text({ text: "{current}" }),
+              new Text({ text: "{proposed}" }),
+              new Text({ text: "{reason}" })
+            ]
+          })
+        });
+        table.setModel(model);
+
+        var dialog = new Dialog({
+          title: "Suggested formatting",
+          contentWidth: "48rem",
+          resizable: true,
+          content: [
+            new Text({
+              text: "These fields look inconsistently formatted. Nothing changes unless you apply it.",
+              wrapping: true
+            }).addStyleClass("sapUiSmallMargin"),
+            table
+          ],
+          beginButton: new Button({
+            text: "Apply Selected",
+            type: "Emphasized",
+            press: function () {
+              this._applyNormalisations(
+                model.getProperty("/proposals").filter(function (proposal, index) {
+                  return table.getSelectedContexts().some(function (context) {
+                    return context.getPath() === "/proposals/" + index;
+                  });
+                })
+              );
+              dialog.close();
+            }.bind(this)
+          }),
+          endButton: new Button({ text: "Not Now", press: function () { dialog.close(); } }),
+          afterClose: function () { dialog.destroy(); }
+        });
+        this.getView().addDependent(dialog);
+        dialog.open();
+      },
+
+      _applyNormalisations: function (accepted) {
+        if (!accepted.length) return;
+        var state = this.getView().getModel("maintenance").getData();
+        accepted.forEach(function (proposal) {
+          var record = (!proposal.target || proposal.target === "root")
+            ? state.root
+            : (state.sections[proposal.target] || [])[proposal.index || 0];
+          if (!record) return;
+          record[proposal.field] = proposal.proposed;
+          // Or the accepted value never reaches staging.
+          if (record !== state.root && !record.__state) record.__state = "changed";
+        });
+        // The payload changed, so a duplicate confirmation taken against the old one no longer
+        // applies - the next submit has to check again.
+        state.awaitingConfirmation = false;
+        state.awaitingConfirmationFor = "";
+        this._updatePreview(state);
+        this._renderAll();
+        MessageToast.show(accepted.length + " field(s) reformatted.");
       },
 
       onSaveRequest: function () {

@@ -6,6 +6,7 @@ const { buildWorkflowInputFromRows } = require('./business-partner-service')._in
 const { candidateFromStagedRequest } = require('./ai/duplicate-check');
 const { runChecks, runValidations, BLOCKING } = require('./checks/pipeline');
 const { createRegistryStages } = require('./checks/registry-checks');
+const { proposeNormalisations } = require('./checks/normalise');
 
 const STAGING = 'mdmlight.staging.';
 const FINDINGS = `${STAGING}CheckFindings`;
@@ -302,6 +303,9 @@ class ChangeRequestService extends cds.ApplicationService {
         {
           validations: registry.validations,
           derivations: registry.derivations,
+          // Check is where a human is looking, which is the only place a proposal to rewrite
+          // what someone typed makes sense.
+          propose: (derived) => proposeNormalisations({ payload: derived }),
           checkDuplicates: async (payload) => {
             const bp = await cds.connect.to('BusinessPartnerService');
             const answer = await bp.send('checkBusinessPartnerDuplicates', {
@@ -325,6 +329,7 @@ class ChangeRequestService extends cds.ApplicationService {
         RanDuplicateCheck: result.ranDuplicateCheck,
         ValidationsJson: JSON.stringify(result.validations),
         DerivationsJson: JSON.stringify(result.derivations),
+        NormalisationsJson: JSON.stringify(result.normalisations),
         DuplicatesJson: JSON.stringify(result.duplicates)
       };
     });
