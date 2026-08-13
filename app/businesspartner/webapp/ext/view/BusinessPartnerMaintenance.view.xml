@@ -207,7 +207,10 @@
           type="Reject"
           visible="{maintenance>/showDecisionButtons}"
           press=".onReject" />
-        <Button text="{maintenance>/cancelButtonText}" press=".onCancel" />
+        <Button
+          text="{maintenance>/cancelButtonText}"
+          visible="{maintenance>/showCancelButton}"
+          press=".onCancel" />
       </OverflowToolbar>
     </footer>
   </Page>

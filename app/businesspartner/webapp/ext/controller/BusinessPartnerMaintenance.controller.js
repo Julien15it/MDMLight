@@ -320,6 +320,7 @@ sap.ui.define([
           showSaveButton: true,
           showSaveRequestButton: true,
           showDecisionButtons: false,
+          showCancelButton: true,
           showFooter: true,
           saveButtonText: "Submit Request",
           cancelButtonText: "Cancel",
@@ -396,6 +397,7 @@ sap.ui.define([
         state.requestType = editing ? "change" : "";
         state.showEditButton = !editing;
         state.showCheckButton = editing;
+        state.showCancelButton = true;
         state.showSaveButton = editing;
         state.showSaveRequestButton = editing;
         state.showFooter = true;
@@ -1339,6 +1341,10 @@ sap.ui.define([
           state.showSaveRequestButton = false;
           state.showCheckButton = false;
           state.showEditButton = false;
+          // "Cancel" cancels nothing once the request is in approval, and with every other button
+          // gone the toolbar would be an empty bar. Leaving the page is the shell's back arrow.
+          state.showCancelButton = false;
+          state.showFooter = false;
           state.title = "Request submitted for approval";
           state.messages = this._submitMessages(result);
           // Deliberately no navigation: the request header and its messages stay on screen, the

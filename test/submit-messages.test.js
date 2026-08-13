@@ -215,3 +215,16 @@ test('the check reports enrichment and validation at the top, duplicates only in
   assert.equal(messages.some((message) => /4711/u.test(message.text)), false);
   assert.equal(messages.some((message) => /might already exist/u.test(message.text)), false);
 });
+
+// "Cancel" cancels nothing once the request is in approval, and every other footer button is
+// already gone by then, so the whole toolbar goes rather than leaving an empty bar.
+test('a submitted request has no cancel button, and no empty footer', () => {
+  assert.match(view, /visible="\{maintenance>\/showCancelButton\}"/u);
+  assert.match(controllerSource, /showCancelButton: true,/u, 'it starts visible');
+  assert.match(
+    controllerSource,
+    /state\.showCancelButton = false;\s*state\.showFooter = false;/u
+  );
+  // Nobody is stranded: the object page header carries a permanent way back to the list.
+  assert.match(view, /text="Business Partners"[\s\S]{0,120}press="\.onBackToList"/u);
+});
