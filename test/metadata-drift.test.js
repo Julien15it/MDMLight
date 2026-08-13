@@ -6,6 +6,22 @@ const assert = require('node:assert/strict');
 const {
   watchedSets, parseMetadata, compareMetadata, describeDrift, serviceTargets, checkMetadataDrift
 } = require('../srv/metadata-drift');
+const { parseArguments } = require('../tools/import-metadata');
+
+// The destination route does not work from BAS, so the other two are the ones that get used.
+test('the importer takes a service plus an explicit source', () => {
+  assert.deepEqual(parseArguments(['API_BUSINESS_PARTNER']), {
+    service: 'API_BUSINESS_PARTNER', url: null, file: null, insecure: false
+  });
+  assert.deepEqual(parseArguments(['X', '--file', 'saved.xml']), {
+    service: 'X', url: null, file: 'saved.xml', insecure: false
+  });
+  assert.deepEqual(parseArguments(['X', '--url', 'https://h/sap', '--insecure']), {
+    service: 'X', url: 'https://h/sap', file: null, insecure: true
+  });
+  // Requiring the module must not run the import.
+  assert.equal(parseArguments([]).service, null);
+});
 
 const edmx = (sets) => `<?xml version="1.0" encoding="utf-8"?>
 <edmx:Edmx xmlns:edmx="http://schemas.microsoft.com/ado/2007/06/edmx" Version="1.0">

@@ -95,12 +95,20 @@ npm run import:bp          # re-import API_BUSINESS_PARTNER
 npm run import:valuehelp   # re-import ZSRVB_MDMLIGHT_VH
 ```
 
-Both go through `VF_S4HANA_DEST`, so they need no credentials but only work where
-the destination resolves. The scripts wrap `tools/import-metadata.js` in
-`cds bind --exec`, which injects the bound credentials as `VCAP_SERVICES` — the
-Cloud SDK reads that, not `.cdsrc-private.json`, so calling the tool directly
-fails with `Failed to load destination`. Same trap for any other Cloud SDK script
-added here.
+The bare form goes through `VF_S4HANA_DEST` and **only works in Cloud Foundry**.
+The SAP Cloud SDK resolves destinations from `VCAP_SERVICES`; `cds bind` writes
+`.cdsrc-private.json`, which CAP reads and the Cloud SDK does not, and
+`cds bind --exec` still needs `mdm-businesspartner-destination-service` bound plus
+the connectivity proxy, which exists only in the CF runtime. Expect
+`Could not find service binding of type 'destination'` in BAS — that is the
+environment, not a bug. Same trap for any other Cloud SDK script added here.
+
+From BAS, pass the source explicitly:
+
+```bash
+npm run import:bp -- --url https://<host>:44301/sap/opu/odata/sap   # S4_USER / S4_PASSWORD, --insecure if self-signed
+npm run import:bp -- --file /path/to/saved-metadata.xml             # downloaded from the browser
+```
 
 `srv/metadata-drift.js` runs once at startup and reports the difference against
 the live services, scoped to the entity sets the app actually reads (nine of the

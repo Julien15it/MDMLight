@@ -57,15 +57,25 @@ checked in, and every read runs off that copy:
 npm run import:valuehelp     # and npm run import:bp for API_BUSINESS_PARTNER
 ```
 
-That fetches `$metadata` **through `VF_S4HANA_DEST`**, so it needs no credentials
-of its own — but it therefore only runs where the destination resolves.
+There are three routes in, because the destination one **does not work from BAS**:
 
-Use the npm scripts rather than calling `tools/import-metadata.js` directly: they
-wrap it in `cds bind --exec`, which is what puts the bound credentials into
-`VCAP_SERVICES` where the Cloud SDK looks for them. `cds bind` on its own only
-writes `.cdsrc-private.json`, which CAP reads and the Cloud SDK does not — run
-the script bare and it fails with `Failed to load destination`. In Cloud Foundry
-`VCAP_SERVICES` is already set and no wrapper is needed.
+```bash
+npm run import:bp                                    # via VF_S4HANA_DEST — CF only
+npm run import:bp -- --url https://<host>:44301/sap/opu/odata/sap   # S4_USER / S4_PASSWORD
+npm run import:bp -- --file /path/to/saved-metadata.xml
+```
+
+The SAP Cloud SDK resolves destinations from `VCAP_SERVICES`. `cds bind` writes
+`.cdsrc-private.json`, which CAP reads and the Cloud SDK does not, and even
+`cds bind --exec` only helps once `mdm-businesspartner-destination-service` is
+itself bound — plus, for an on-premise destination, the connectivity proxy, which
+exists only in the CF runtime. So in BAS use `--url` (add `--insecure` if the
+gateway certificate is self-signed) or `--file` with a document downloaded from
+the browser, where you are already authenticated.
+
+Whichever route, the checked-in copy is overwritten only once a document
+containing entity sets is in hand — a login page or a gateway error never lands in
+`srv/external`.
 
 It writes `srv/external/ZSRVB_MDMLIGHT_VH.edmx` (the raw document) and regenerates
 `ZSRVB_MDMLIGHT_VH.cds` (the CAP model, with a `checksum` header — do not
