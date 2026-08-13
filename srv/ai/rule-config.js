@@ -1,13 +1,23 @@
 'use strict';
 
 const { resolveField, isIndexedField, catalogFields } = require('./duplicate-fields');
-const { COMPARISONS, INDICATORS, DEFAULT_RULES } = require('./duplicate-engine');
+const { COMPARISONS, INDICATORS, DEFAULT_RULES, CONDITION_PAIRS } = require('./duplicate-engine');
 const { DUPLICATE_THRESHOLD } = require('./name-match');
 
 const FUZZY_COMPARISONS = Object.freeze(['fuzzy', 'raw_dice']);
 const RULE_CACHE_TTL_MS = 60000;
 
 const CONDITION_COLUMNS = Object.freeze(['condCountry', 'condCategory', 'condGrouping', 'condRole']);
+
+function trimmed(value) {
+  return String(value === null || value === undefined ? '' : value).trim();
+}
+
+// One condition pair off a stored row, with the column names kept so a message can point at the
+// cell the steward has to fix.
+function readCondition(row, pair) {
+  return { field: trimmed(row[pair.field]), value: trimmed(row[pair.value]), names: pair };
+}
 
 /**
  * Validated on save rather than at match time. The engine already reports a rule it cannot run,
@@ -44,20 +54,23 @@ function validateRule(row = {}) {
     });
   }
 
-  // Conditions are one field/value pair from the same catalog, e.g. Country = BE.
-  const conditionField = String(row.conditionField || '').trim();
-  const conditionValue = String(row.conditionValue === null || row.conditionValue === undefined
-    ? '' : row.conditionValue).trim();
-  if (conditionField && !resolveField(conditionField)) {
-    errors.push({ field: 'conditionField', message: `“${conditionField}” is not a field in the catalog.` });
+  // Conditions are field/value pairs from the same catalog, e.g. Role = Vendor and Country = BE.
+  // Each pair stands on its own: neither, either or both may be filled.
+  const conditions = CONDITION_PAIRS.map((pair) => readCondition(row, pair));
+  for (const { field: conditionField, value: conditionValue, names } of conditions) {
+    if (conditionField && !resolveField(conditionField)) {
+      errors.push({ field: names.field, message: `“${conditionField}” is not a field in the catalog.` });
+    }
+    // Half a condition is the dangerous half: a field with no value would match everything.
+    if (conditionField && !conditionValue) {
+      errors.push({ field: names.value, message: 'A condition field needs a value. Leave both empty for “any”.' });
+    }
+    if (conditionValue && !conditionField) {
+      errors.push({ field: names.field, message: 'A condition value needs a field.' });
+    }
   }
-  // Half a condition is the dangerous half: a field with no value would match everything.
-  if (conditionField && !conditionValue) {
-    errors.push({ field: 'conditionValue', message: 'A condition field needs a value. Leave both empty for “any”.' });
-  }
-  if (conditionValue && !conditionField) {
-    errors.push({ field: 'conditionField', message: 'A condition value needs a field.' });
-  }
+  // The same field twice is deliberately allowed: a bag holds every value a partner has, so
+  // Role = Vendor and Role = Customer selects partners that are both, which is a real rule.
 
   // Absent is fine — a fuzzy rule takes the default threshold. Present but unusable is not.
   const threshold = row.threshold === null || row.threshold === undefined || row.threshold === ''
@@ -87,12 +100,14 @@ function toEngineRule(row = {}) {
     // The grid no longer asks for a threshold, so a fuzzy rule takes the tuned default.
     rule.threshold = DUPLICATE_THRESHOLD;
   }
-  const conditionField = String(row.conditionField || '').trim();
-  const conditionValue = String(row.conditionValue === null || row.conditionValue === undefined
-    ? '' : row.conditionValue).trim();
-  if (conditionField && conditionValue) {
-    rule.conditionField = conditionField;
-    rule.conditionValue = conditionValue;
+  // Only a complete pair travels: half a condition would match everything, which is the opposite
+  // of what a condition is for.
+  for (const pair of CONDITION_PAIRS) {
+    const { field, value } = readCondition(row, pair);
+    if (field && value) {
+      rule[pair.field] = field;
+      rule[pair.value] = value;
+    }
   }
   for (const column of CONDITION_COLUMNS) {
     const value = row[column];
@@ -169,6 +184,7 @@ module.exports = {
   FUZZY_COMPARISONS,
   RULE_CACHE_TTL_MS,
   CONDITION_COLUMNS,
+  CONDITION_PAIRS,
   catalogFields,
   validateRule,
   toEngineRule,

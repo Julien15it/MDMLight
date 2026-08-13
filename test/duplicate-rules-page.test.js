@@ -78,12 +78,21 @@ test('the field, comparison and indicator lists come from the service', () => {
   assert.match(controllerSource, /_callAction\("ruleOptions"/u);
   // Bare-string arrays do not bind inside a table cell; every list is code/text for that reason.
   assert.equal(/<core:Item key="\{opt>\}"/u.test(view), false);
-  assert.equal((view.match(/<core:Item key="\{opt>code\}" text="\{opt>text\}"/gu) || []).length, 4);
+  assert.equal((view.match(/<core:Item key="\{opt>code\}" text="\{opt>text\}"/gu) || []).length, 5);
   // `key` is a CDS keyword and prefixes a key element, so the property cannot be called that.
   const serviceCds = fs.readFileSync(
     path.join(__dirname, '..', 'srv', 'duplicate-config-service.cds'), 'utf8'
   );
   assert.equal(/^\s*key\s*:/mu.test(serviceCds), false, 'key : Type does not compile');
+});
+
+// The dropdowns were empty because ruleOptions() ran in onInit, before component models reach a
+// routed view. The table filled anyway — a declarative binding resolves late, a one-shot call does
+// not — which is exactly why the page looked half-working rather than broken.
+test('the options call falls back to the component model', () => {
+  assert.match(controllerSource, /getOwnerComponent\(\)/u);
+  assert.match(controllerSource, /getModel\("dc"\) \|\|/u);
+  assert.match(controllerSource, /if \(!model\) throw new Error/u, 'no model must not read as undefined');
 });
 
 test('the grid asks only for what a steward has to decide', () => {
@@ -93,6 +102,20 @@ test('the grid asks only for what a steward has to decide', () => {
   }
   assert.match(view, /\{dc>conditionField\}/u);
   assert.match(view, /\{dc>conditionValue\}/u);
+  // Two independent conditions, so a steward can write "Role = Vendor and Country = BE".
+  assert.match(view, /\{dc>conditionField2\}/u);
+  assert.match(view, /\{dc>conditionValue2\}/u);
+});
+
+// Columns sized to the row, not to their content, and no standing explanation above the table.
+test('the grid fills the page and carries no permanent info strip', () => {
+  assert.equal(view.includes('type="Information"'), false, 'the info strip is gone');
+  assert.equal(view.includes('Rows are additive'), false);
+  for (const width of ['12%', '10%', '18%', '17%']) {
+    assert.ok(view.includes(`width="${width}"`), `no column at ${width}`);
+  }
+  // A ComboBox left at its default width is what put the gaps between the cells.
+  assert.equal((view.match(/<ComboBox\s+width="100%"/gu) || []).length, 5);
 });
 
 // Hiding the button is courtesy; the service checks the scope regardless.
@@ -150,6 +173,16 @@ test('the client refuses a fuzzy rule with no usable threshold before the round 
   assert.equal(_localProblems([
     { field: 'Name', comparison: 'exact', indicator: 'strong', conditionField: 'Country' }
   ]).length, 1, 'a condition field with no value would match everything');
+  assert.equal(_localProblems([
+    { field: 'Name', comparison: 'exact', indicator: 'strong', conditionField2: 'Country' }
+  ]).length, 1, 'the second condition is checked the same way as the first');
+  assert.equal(_localProblems([
+    {
+      field: 'Name', comparison: 'exact', indicator: 'strong',
+      conditionField: 'Role', conditionValue: 'FLVN01',
+      conditionField2: 'Country', conditionValue2: 'BE'
+    }
+  ]).length, 0, 'both conditions filled is the case this exists for');
   assert.equal(_localProblems([
     { field: '', comparison: '', indicator: '' }
   ]).length, 3);

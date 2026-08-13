@@ -9,6 +9,13 @@ sap.ui.define([
 
   var UPDATE_GROUP = "ruleChanges";
 
+  // Mirrors CONDITION_PAIRS in srv/ai/duplicate-engine.js. The column names are part of the OData
+  // contract, so this is the one thing the page may hold a copy of.
+  var CONDITION_PAIRS = [
+    { field: "conditionField", value: "conditionValue" },
+    { field: "conditionField2", value: "conditionValue2" }
+  ];
+
   return Controller.extend("mdm.md.businesspartner.manage.ext.controller.DuplicateRuleList", {
 
     onInit: function () {
@@ -37,8 +44,15 @@ sap.ui.define([
       this._router.navTo("BusinessPartnersList", {}, true);
     },
 
+    /**
+     * The component's model, not only the view's. Component models reach a view when it is placed
+     * in the control tree, which for a routed view has not happened yet in onInit — so the table's
+     * declarative binding resolved later and filled, while the one-shot ruleOptions() call in
+     * onInit found no model at all. That is what left every dropdown empty.
+     */
     _model: function () {
-      return this.getView().getModel("dc");
+      var component = this.getOwnerComponent();
+      return this.getView().getModel("dc") || (component && component.getModel("dc"));
     },
 
     _table: function () {
@@ -120,12 +134,16 @@ sap.ui.define([
         if (!rule.comparison) problems.push(label + "choose a comparison.");
         if (!rule.indicator) problems.push(label + "choose an indicator.");
         // Half a condition is the dangerous half: a field with no value would match everything.
-        if (rule.conditionField && !rule.conditionValue) {
-          problems.push(label + "the condition needs a value, or clear the condition field.");
-        }
-        if (rule.conditionValue && !rule.conditionField) {
-          problems.push(label + "the condition value needs a field.");
-        }
+        // The two pairs are independent — any of them may be left empty, which means "any".
+        CONDITION_PAIRS.forEach(function (pair, position) {
+          var name = "condition " + (position + 1);
+          if (rule[pair.field] && !rule[pair.value]) {
+            problems.push(label + name + " needs a value, or clear its field.");
+          }
+          if (rule[pair.value] && !rule[pair.field]) {
+            problems.push(label + name + " needs a field.");
+          }
+        });
         if (rule.threshold !== null && rule.threshold !== undefined && rule.threshold !== "") {
           var threshold = Number(rule.threshold);
           if (!isFinite(threshold) || threshold <= 0 || threshold > 1) {
@@ -231,7 +249,11 @@ sap.ui.define([
     },
 
     _callAction: async function (name, parameters) {
-      var binding = this._model().bindContext("/" + name + "(...)");
+      var model = this._model();
+      // Without this the failure surfaced as "cannot read properties of undefined", which says
+      // nothing about the model never having propagated.
+      if (!model) throw new Error("The duplicate configuration service is not bound to this page.");
+      var binding = model.bindContext("/" + name + "(...)");
       Object.keys(parameters).forEach(function (parameter) {
         binding.setParameter(parameter, parameters[parameter]);
       });

@@ -41,6 +41,13 @@ const CONDITION_COLUMNS = Object.freeze({
   Role: 'condRole'
 });
 
+// Two independent condition pairs, ANDed when both are filled: "Role = Vendor and Country = BE".
+// Either may be left empty, which means "any" — an empty pair never narrows the rule.
+const CONDITION_PAIRS = Object.freeze([
+  Object.freeze({ field: 'conditionField', value: 'conditionValue' }),
+  Object.freeze({ field: 'conditionField2', value: 'conditionValue2' })
+]);
+
 const COMPARISONS = Object.freeze({
   exact: (left, right) => (left === right ? 1 : 0),
   contains: (left, right) => (left.includes(right) || right.includes(left) ? 1 : 0),
@@ -61,8 +68,10 @@ function requiredFields(rules = []) {
   const fields = new Set(CONDITION_FIELDS);
   for (const rule of rules) {
     if (rule?.field) fields.add(rule.field);
-    // The condition field is now free-form, so the bag has to carry it too.
-    if (rule?.conditionField) fields.add(rule.conditionField);
+    // The condition fields are free-form, so the bag has to carry them too.
+    for (const pair of CONDITION_PAIRS) {
+      if (rule?.[pair.field]) fields.add(rule[pair.field]);
+    }
   }
   return [...fields];
 }
@@ -89,11 +98,15 @@ function holds(field, wanted, bag) {
 }
 
 /**
- * A rule carries one condition as a field/value pair — conditionField = Country, conditionValue =
- * BE. The four fixed cond* columns are still honoured for rows written before that change.
+ * A rule carries up to two conditions as field/value pairs — conditionField = Role, conditionValue
+ * = Vendor, conditionField2 = Country, conditionValue2 = BE. Filled pairs are ANDed and an empty
+ * pair means "any". The four fixed cond* columns are still honoured for rows written before that
+ * change.
  */
 function conditionsMatch(rule, bag) {
-  if (!holds(rule.conditionField, rule.conditionValue, bag)) return false;
+  for (const pair of CONDITION_PAIRS) {
+    if (!holds(rule[pair.field], rule[pair.value], bag)) return false;
+  }
   for (const field of CONDITION_FIELDS) {
     if (!holds(field, rule[CONDITION_COLUMNS[field]], bag)) return false;
   }
@@ -228,6 +241,7 @@ module.exports = {
   VERDICT_RANK,
   DEFAULT_RULES,
   COMPARISONS,
+  CONDITION_PAIRS,
   requiredFields,
   bagOf,
   conditionsMatch,

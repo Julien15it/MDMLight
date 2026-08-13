@@ -40,15 +40,30 @@ row-oriented layout over a nested criteria/ruleset model.
 Row 2 has no condition: name always participates as a fuzzy strong indicator.
 Row 1 applies only to Belgian partners.
 
-**A condition is one field/value pair, over the same catalog the rule targets.**
-It replaced four fixed `cond*` columns on 2026-08-12: the fixed set looked
-complicated, only ever allowed the four things someone had guessed in advance,
-and the generic pair is both simpler on screen and strictly more capable. The old
-columns remain in the entity and are still honoured, because `cds-deploy` refuses
-to drop elements — but nothing writes them.
+**A condition is a field/value pair, over the same catalog the rule targets, and
+a row carries two of them.** They replaced four fixed `cond*` columns on
+2026-08-12: the fixed set looked complicated, only ever allowed the four things
+someone had guessed in advance, and the generic pairs are both simpler on screen
+and strictly more capable. The old columns remain in the entity and are still
+honoured, because `cds-deploy` refuses to drop elements — but nothing writes
+them.
 
-Half a condition is rejected on save. A field with no value would otherwise
-match everything, which is the opposite of what a condition is for.
+The two pairs are **independent and ANDed** — *"if the role is Vendor and the
+country is BE"*. Any combination is valid: neither filled (the rule applies to
+every partner), either one filled, or both. An empty pair never narrows the rule.
+
+A second pair was added 2026-08-13 because one condition could not express the
+commonest real rule a steward wanted to write. Two is a judgement call, not a
+limit the design needs: three would be another column pair and one more entry in
+`CONDITION_PAIRS`, which is the only place the count lives.
+
+**The same field in both pairs is allowed on purpose.** A bag holds every value a
+partner has, so `Role = FLVN01 and Role = FLCU01` selects partners that are both
+a vendor and a customer — a real rule, not a contradiction. This is worth knowing
+before anyone "fixes" it with a distinctness check.
+
+Half a condition is rejected on save, per pair. A field with no value would
+otherwise match everything, which is the opposite of what a condition is for.
 
 **Seq and Threshold are not on the grid.** Sequence carries no semantics —
 strongest-indicator-wins makes order irrelevant — and a threshold is one more
@@ -242,6 +257,12 @@ ruleset. Discard resets the batch. A rejected row keeps its pending change
 instead of vanishing, which is what makes the server's validation messages
 actionable.
 
+The standing info strip above the grid was **removed 2026-08-13**: it explained
+the additive/strongest-wins semantics on every visit, to someone who reads it
+once. The rules that matter are enforced on save instead. Columns carry
+percentage widths and the controls are `width="100%"` — left to size themselves
+they shrank to their content and the row read as scattered controls.
+
 The page shows two warnings a steward would otherwise have to infer:
 
 - **on a field the index cannot serve** — the rule saves, but it can only match
@@ -258,6 +279,16 @@ people under a different scope, over a local table rather than the S/4 facade.
 - `ruleOptions()` — fields, comparisons, indicators and condition columns
   straight from the code-defined catalog. The UI must never keep its own copy of
   these; that copy is what goes stale.
+
+  **Why the dropdowns were empty (fixed 2026-08-13).** The controller called
+  `ruleOptions()` from `onInit` through `this.getView().getModel('dc')`.
+  Component models reach a routed view when it enters the control tree, which has
+  not happened in `onInit` — so the model was `undefined` and the call threw
+  before it was sent. The table filled regardless, because a declarative binding
+  resolves itself once the model arrives while a one-shot imperative call does
+  not, and that is why the page looked half-working rather than broken. It now
+  falls back to `getOwnerComponent().getModel('dc')` and raises a named error
+  when there is no model at all.
 - `testRuleset(RulesJson, SampleSize)` — delegated to
   `BusinessPartnerService.testDuplicateRuleset`, because that is where the one
   resident index lives. Standing up a second index behind the admin page would

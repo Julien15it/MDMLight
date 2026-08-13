@@ -59,6 +59,47 @@ test('a condition is one field and one value, and half of one is rejected', () =
   assert.equal(rule.conditionValue, 'BE');
 });
 
+test('the second condition is optional, validated the same way, and ANDed onto the first', () => {
+  // Neither, either or both — every combination a steward can leave the row in.
+  assert.deepEqual(validateRule(validRow()).errors, []);
+  assert.deepEqual(
+    validateRule(validRow({ conditionField2: 'Country', conditionValue2: 'BE' })).errors, []
+  );
+  assert.deepEqual(validateRule(validRow({
+    conditionField: 'Role', conditionValue: 'FLVN01',
+    conditionField2: 'Country', conditionValue2: 'BE'
+  })).errors, []);
+
+  assert.equal(
+    validateRule(validRow({ conditionField2: 'Country' })).errors[0].field, 'conditionValue2'
+  );
+  assert.equal(
+    validateRule(validRow({ conditionValue2: 'BE' })).errors[0].field, 'conditionField2'
+  );
+  assert.equal(
+    validateRule(validRow({ conditionField2: 'Nonsense', conditionValue2: 'BE' })).errors[0].field,
+    'conditionField2'
+  );
+
+  const rule = toEngineRule(validRow({
+    conditionField: 'Role', conditionValue: 'FLVN01',
+    conditionField2: 'Country', conditionValue2: 'BE'
+  }));
+  assert.equal(rule.conditionField2, 'Country');
+  assert.equal(rule.conditionValue2, 'BE');
+  // Half a second condition is dropped rather than carried as a field that matches everything.
+  assert.equal('conditionField2' in toEngineRule(validRow({ conditionField2: 'Country' })), false);
+});
+
+// A bag carries every value a partner has, so the same field twice is a real rule, not a
+// contradiction: it selects partners that are both a vendor and a customer.
+test('the same field in both conditions is allowed', () => {
+  assert.deepEqual(validateRule(validRow({
+    conditionField: 'Role', conditionValue: 'FLVN01',
+    conditionField2: 'Role', conditionValue2: 'FLCU01'
+  })).errors, []);
+});
+
 // The failure this whole flag exists to prevent: a rule that looks fine and does nothing.
 test('a rule over a field the index cannot serve warns rather than passing silently', () => {
   const { errors, warnings } = validateRule(validRow({ field: 'IBAN', comparison: 'exact', threshold: null }));

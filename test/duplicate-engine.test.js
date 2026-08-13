@@ -184,6 +184,54 @@ test('a generic condition pair gates the rule the same way', () => {
   assert.ok(requiredFields(rules).includes('Country'));
 });
 
+// The case this exists for: "if the role is Vendor and the country is BE".
+test('two condition pairs are ANDed, and an empty pair narrows nothing', () => {
+  const rules = [{
+    conditionField: 'Role',
+    conditionValue: 'FLVN01',
+    conditionField2: 'Country',
+    conditionValue2: 'BE',
+    field: 'Name',
+    comparison: 'exact',
+    indicator: 'definitive'
+  }];
+  const both = partner('30', { Country: 'BE', roles: [{ BusinessPartnerRole: 'FLVN01' }] });
+  const wrongRole = partner('31', { Country: 'BE', roles: [{ BusinessPartnerRole: 'FLCU01' }] });
+  const wrongCountry = partner('32', { Country: 'DE', roles: [{ BusinessPartnerRole: 'FLVN01' }] });
+  const candidate = {
+    Name: 'Alluvion NV', Country: 'BE', roles: [{ BusinessPartnerRole: 'FLVN01' }]
+  };
+  const found = evaluate(candidate, entries(both, wrongRole, wrongCountry), { rules });
+  assert.deepEqual(found.map((row) => row.partner.BusinessPartner), ['30']);
+
+  // Both condition fields have to reach the bag, or the rule silently gates on nothing.
+  assert.ok(requiredFields(rules).includes('Role'));
+  assert.ok(requiredFields(rules).includes('Country'));
+
+  // Leaving the second pair empty must not narrow the rule — it means "any". Dropping the country
+  // condition lets the German vendor through, which the two-condition run excluded.
+  const roleOnly = [{ ...rules[0], conditionField2: null, conditionValue2: '' }];
+  assert.deepEqual(
+    evaluate(candidate, entries(both, wrongRole, wrongCountry), { rules: roleOnly })
+      .map((row) => row.partner.BusinessPartner),
+    ['30', '32']
+  );
+});
+
+test('an unresolvable second condition field keeps the rule out too', () => {
+  const rules = [{
+    conditionField: 'Country',
+    conditionValue: 'BE',
+    conditionField2: 'NotInTheCatalog',
+    conditionValue2: 'x',
+    field: 'Name',
+    comparison: 'exact',
+    indicator: 'definitive'
+  }];
+  const belgian = partner('33', { Country: 'BE' });
+  assert.deepEqual(evaluate({ Name: 'Alluvion NV', Country: 'BE' }, entries(belgian), { rules }), []);
+});
+
 test('an unresolvable condition field keeps the rule out rather than matching everything', () => {
   const rules = [{
     conditionField: 'NotInTheCatalog',

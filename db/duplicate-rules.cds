@@ -19,12 +19,16 @@ entity DuplicateRules : managed {
        *  change a verdict. */
       sequence    : Integer default 10;
 
-      /** One condition, expressed as a field from the same catalog the rule
-       *  targets: conditionField = Country, conditionValue = BE. Null means
-       *  "any". It must hold on both records of the pair before the rule
+      /** Two conditions, each a field from the same catalog the rule targets:
+       *  conditionField = Country, conditionValue = BE. Null means "any", and
+       *  the pairs are independent - neither, either or both may be filled.
+       *  Both filled means AND: "Role = Vendor and Country = BE". Every filled
+       *  condition must hold on both records of the pair before the rule
        *  participates. */
       conditionField : String(40);
       conditionValue : String(60);
+      conditionField2 : String(40);
+      conditionValue2 : String(60);
 
       // Superseded 2026-08-12 by the generic pair above, and unused. They stay
       // because cds-deploy refuses to drop elements: removing them would fail
