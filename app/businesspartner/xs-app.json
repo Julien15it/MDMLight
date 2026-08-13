@@ -3,6 +3,15 @@
   "authenticationMethod": "route",
   "routes": [
     {
+      "_comment": "MUST be the first route. SAP Build Process Automation task forms call the workflow runtime under /api/, and Component.js builds that path from sap.cloud.service + sap.app.id. Without this route the inbox loads the form but every task call 404s. See SAP Help, 'Technical Information for Adapting the SAPUI5 Application'.",
+      "source": "^/api/(.*)$",
+      "target": "$1",
+      "service": "com.sap.spa.processautomation",
+      "endpoint": "api",
+      "csrfProtection": true,
+      "authenticationType": "xsuaa"
+    },
+    {
       "source": "^/service/businesspartner/(.*)$",
       "target": "/service/businesspartner/$1",
       "destination": "mdm-businesspartner-srv-api",

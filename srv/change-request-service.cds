@@ -111,7 +111,11 @@ service ChangeRequestService @(path: '/service/changerequest') {
   action decideRequest(
     ChangeRequest : UUID not null,
     Decision      : String(10) not null,
-    Comment       : String(250)
+    Comment       : String(250),
+    /** Default true. The UI5 task form sets it false: completing the task in
+     *  My Inbox is itself what resumes the workflow, so firing our own BPA
+     *  trigger as well would signal the same decision twice. */
+    SignalWorkflow : Boolean
   ) returns {
     ChangeRequest   : UUID;
     Status          : String(12);

@@ -66,6 +66,7 @@
                 text="Business Partners"
                 icon="sap-icon://nav-back"
                 type="Transparent"
+                visible="{= !${env>/embedded} }"
                 press=".onBackToList" />
               <Button
                 text="Ask Assistant"
@@ -199,13 +200,13 @@
           text="Approve"
           icon="sap-icon://accept"
           type="Accept"
-          visible="{maintenance>/showDecisionButtons}"
+          visible="{= ${maintenance>/showDecisionButtons} &amp;&amp; !${env>/embedded} }"
           press=".onApprove" />
         <Button
           text="Reject"
           icon="sap-icon://decline"
           type="Reject"
-          visible="{maintenance>/showDecisionButtons}"
+          visible="{= ${maintenance>/showDecisionButtons} &amp;&amp; !${env>/embedded} }"
           press=".onReject" />
         <Button
           text="{maintenance>/cancelButtonText}"

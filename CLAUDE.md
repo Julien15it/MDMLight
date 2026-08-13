@@ -307,6 +307,33 @@ Open TODOs on this, agreed and deliberately deferred:
   to exist afterwards. Until his process adds a `completeRequest` call, approved
   requests will sit at `approved` and never post. Coordinate before merging.
 
+#### The approve screen as a BPA UI5 Task Form
+
+The same app serves the Work Zone tile and the My Inbox task form. `sap.bpa.task`
+in `manifest.json` declares it; `Component.js` implements the contract from SAP
+Help, *Technical Information for Adapting the SAPUI5 Application*.
+
+- **`app/businesspartner/xs-app.json` needs `^/api/(.*)$` as its FIRST route**,
+  to `com.sap.spa.processautomation` / endpoint `api`. Without it the form loads
+  and every workflow call 404s — which reads as "the form is broken" and was the
+  thing the BAS generator would have added.
+- The runtime base URL is **derived**: `/{sap.cloud.service}.{sap.app.id}/api/
+  public/workflow/rest/v1`, dots stripped. Renaming either breaks it, which
+  `test/task-form.test.js` pins.
+- My Inbox renders the buttons. `Component.js` registers them with
+  `inboxAPI.addAction`, ids matching `sap.bpa.task.outcomes`, and the app's own
+  footer Approve/Reject hide on `env>/embedded` so there is one place to press.
+- Completion is `PATCH task-instances/{id}` with `status: COMPLETED`, the context
+  and `decision`, after fetching an `X-CSRF-Token`.
+- **Order matters**: `decideRequest` runs *before* the PATCH, because completing
+  the task resumes the workflow, which calls `completeRequest` and posts to S/4 —
+  the request has to be `approved` by then.
+- `decideRequest` takes `SignalWorkflow`. The task form passes `false`:
+  completing the task is already the signal, and `triggerApprovalDecision` as
+  well would deliver the same decision twice.
+- Embedded, `window.location` is the **host's**. The change request id comes from
+  the loaded task **context**, never from the hash.
+
 #### Contract the SPA side depends on
 
 Changing any of these breaks Arthur's process definition, so agree the change

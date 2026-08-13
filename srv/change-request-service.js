@@ -528,6 +528,9 @@ class ChangeRequestService extends cds.ApplicationService {
       // from recording the decision locally (same reasoning as every other
       // workflow side effect in this app).
       const notifyWorkflow = async (workflowResult) => {
+        // The task form completes the task in My Inbox, which resumes the workflow on its
+        // own; signalling from here too would deliver the decision twice.
+        if (req.data.SignalWorkflow === false) return;
         if (!header.processInstanceId) return;
         try {
           await triggerApprovalDecision(header.processInstanceId, workflowResult);
