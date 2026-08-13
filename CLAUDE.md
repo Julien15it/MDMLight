@@ -110,12 +110,15 @@ self-signed:
 npm run import:bp -- --url https://<host>:44301/sap/opu/odata/sap   # S4_USER / S4_PASSWORD
 ```
 
-If the `$metadata` document is already on disk, don't use the script at all —
-`cds import <file> --as csn --into srv/external` (`--as cds` for the value-help
-service) is the whole job. That is how both checked-in copies got here: each was
-fetched by hand, by Julien and Arthur respectively. There has never been an
-automated path, so treat a re-import as a manual step someone performs, not as
-something the app can do for itself.
+`--url` is the only route that works from BAS, and there is no `--file` route on
+purpose: a browser download lands on the developer's laptop while `cds import`
+runs in BAS, so it costs a file transfer before it costs anything else. (For a
+document already in the workspace, `cds import <file> --as csn --into srv/external`
+— `--as cds` for the value-help service — is the whole job.)
+
+Both checked-in copies got here by hand, from Julien and Arthur respectively.
+There has never been an automated path, so treat a re-import as a manual step
+someone performs, not as something the app can do for itself.
 
 `srv/metadata-drift.js` runs once at startup and reports the difference against
 the live services, scoped to the entity sets the app actually reads (nine of the

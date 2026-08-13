@@ -11,10 +11,10 @@
  * exists: `cds bind` writes .cdsrc-private.json, which CAP reads and the SAP Cloud SDK does not,
  * and an on-premise destination also wants the connectivity proxy, which only the CF runtime has.
  *
- * There is deliberately no --file route. If the document is already on disk, this script has
- * nothing to add over the command it would run for you:
- *
- *   cds import <file> --as cds --into srv/external      # --as csn for API_BUSINESS_PARTNER
+ * There is deliberately no --file route. A browser download lands on the developer's laptop while
+ * `cds import` runs in BAS, so it costs a file transfer before it costs anything else — and once a
+ * document is in the workspace, `cds import <file> --as cds --into srv/external` (--as csn for
+ * API_BUSINESS_PARTNER) is the whole job and this script adds nothing.
  *
  * What the fetch routes add is the credentials, and the check that what came back is a model at
  * all — a login page or a gateway error never lands in srv/external.
@@ -52,9 +52,7 @@ function usage() {
     '                  reads S4_USER and S4_PASSWORD from the environment',
     '  --insecure      skip TLS verification (self-signed sandbox certificates only)',
     '',
-    'With no --url the BTP destination is used, which resolves only in Cloud Foundry.',
-    'Already have the document on disk? Skip this script:',
-    '  cds import <file> --as cds --into srv/external      (--as csn for API_BUSINESS_PARTNER)'
+    'With no --url the BTP destination is used, which resolves only in Cloud Foundry.'
   ].join('\n');
 }
 
@@ -75,8 +73,6 @@ async function fromDestination(destination, url) {
       + 'connectivity proxy, which only exists in the Cloud Foundry runtime.\n\n'
       + 'Fetch it directly instead:\n'
       + '  --url https://<host>:44301/sap/opu/odata/sap   with S4_USER and S4_PASSWORD set\n\n'
-      + 'Or, if the document is already on disk, skip this script entirely:\n'
-      + '  cds import <file> --as cds --into srv/external   (--as csn for API_BUSINESS_PARTNER)\n\n'
       + 'To check what is bound, read .cdsrc-private.json — `cds bind` with no arguments only\n'
       + 'prints its own usage.'
     );

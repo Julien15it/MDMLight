@@ -73,16 +73,16 @@ gateway certificate is self-signed. The fetch is overwritten into `srv/external`
 only once a document containing entity sets is in hand, so a login page or a
 gateway error never lands there.
 
-**Already downloaded the document?** Skip the script — it has nothing to add over
-the command it would run:
+**Downloading it in a browser does not help**, which is why there is no `--file`
+route: the document lands on your laptop and `cds import` runs in BAS, so that
+path costs a file transfer before it costs anything else. `--url` fetches straight
+into the workspace and skips the problem. (If a `$metadata` document *is* already
+in the workspace, `cds import <file> --as cds --into srv/external` — `--as csn`
+for `API_BUSINESS_PARTNER` — is the whole job and this script adds nothing.)
 
-```bash
-cds import <file> --as cds --into srv/external      # --as csn for API_BUSINESS_PARTNER
-```
-
-That is how both checked-in copies actually got here: `API_BUSINESS_PARTNER.edmx`
-by Julien (`e34b94e`, 2026-07-30) and this service's by Arthur (`169418c`,
-2026-08-06), each fetched by hand. There has never been an automated path.
+Both checked-in copies got here by hand: `API_BUSINESS_PARTNER.edmx` from Julien
+(`e34b94e`, 2026-07-30) and this service's from Arthur (`169418c`, 2026-08-06).
+There has never been an automated path.
 
 It writes `srv/external/ZSRVB_MDMLIGHT_VH.edmx` (the raw document) and regenerates
 `ZSRVB_MDMLIGHT_VH.cds` (the CAP model, with a `checksum` header — do not
