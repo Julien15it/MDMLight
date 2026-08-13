@@ -376,9 +376,16 @@ hand-rolled UI5 app:
   UI5 tooling configs — pick the matching npm script (`start` vs
   `start-mock`) rather than editing one to behave like the other.
 
-### `app/router` — standalone approuter
+### `approuter` — standalone approuter
 Minimal `@sap/approuter` module (`xs-app.json` routing) deployed as its own
 MTA module; not a place for application logic.
+
+**It sits at the repo root, not under `app/`** — moved there 2026-08-13 because
+the BAS Workflow UI generator refused to run with *"ensure that the approuter
+configuration module is added to the MTA"*, despite `type: approuter.nodejs`
+already being present. The generators look for it where their own approuter
+generator puts it. Nothing about the module itself changed; its behaviour is
+entirely `xs-app.json` plus its `requires`.
 
 ### MTA / deployment (`mta.yaml`)
 Five modules: CAP service (`mdm-businesspartner-srv`), standalone approuter,

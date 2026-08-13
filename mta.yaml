@@ -63,9 +63,11 @@ modules:
       - name: mdm-businesspartner-db
 
   # --- Standalone application router ------------------------------------------
+  # Lives at the repo root rather than under app/, because the BAS generators look
+  # for the approuter where their own generator puts it. Moved 2026-08-13.
   - name: mdm-businesspartner-approuter
     type: approuter.nodejs
-    path: app/router
+    path: approuter
     parameters:
       disk-quota: 256M
       memory: 256M
