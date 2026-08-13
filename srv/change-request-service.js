@@ -4,6 +4,7 @@ const cds = require('@sap/cds');
 const { startWorkflow } = require('./wf/processAutomation');
 const { candidateFromStagedRequest } = require('./ai/duplicate-check');
 const { runChecks } = require('./checks/pipeline');
+const { createRegistryStages } = require('./checks/registry-checks');
 
 const STAGING = 'mdmlight.staging.';
 const FINDINGS = `${STAGING}CheckFindings`;
@@ -235,13 +236,22 @@ class ChangeRequestService extends cds.ApplicationService {
      */
     this.on('checkRequest', async (req) => {
       const data = parseJsonObject(req.data.DataJson, 'DataJson');
+      // Created per request: the pair shares one VIES/GLEIF lookup between the validation and the
+      // derivation, and must not carry it over to the next press of the button.
+      const registry = createRegistryStages();
       const result = await runChecks(
-        candidateFromStagedRequest(data.root || {}, data.sections || {}),
+        { root: data.root || {}, sections: data.sections || {} },
         {
-          checkDuplicates: async (candidate) => {
+          validations: registry.validations,
+          derivations: registry.derivations,
+          checkDuplicates: async (payload) => {
             const bp = await cds.connect.to('BusinessPartnerService');
             const answer = await bp.send('checkBusinessPartnerDuplicates', {
-              CandidateJson: JSON.stringify(candidate),
+              // The derived payload, not the typed one: a country filled in from VIES is exactly
+              // the field a conditioned duplicate rule needs.
+              CandidateJson: JSON.stringify(
+                candidateFromStagedRequest(payload.root || {}, payload.sections || {})
+              ),
               // Same exclusions as the submit: a change request is not its own duplicate, and
               // neither is the partner it is changing.
               ExcludeBP: req.data.BusinessPartner || data.root?.BusinessPartner || null,

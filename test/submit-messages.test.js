@@ -52,24 +52,20 @@ test('a clean submit says so rather than saying nothing', () => {
   assert.match(messages[1].text, /no duplicate detected/u);
 });
 
-// The unconfirmed case is a dialog now. _submitMessages only ever reports a request that really
-// was submitted, so it must never again produce a "submit again" instruction.
-test('a submitted request that had a duplicate says it went through anyway', () => {
+// The duplicate belongs to the dialog the user already confirmed through. Repeating it above the
+// submitted request is the noise this replaced.
+test('a submitted request never repeats the duplicate at the top of the screen', () => {
   const controller = loadController();
   const messages = controller._submitMessages.call(controller, answer([duplicate()]));
   assert.equal(messages[0].type, 'Success');
-  assert.match(messages[1].text, /might already exist/u);
-  assert.match(messages[1].text, /4711 \(duplicate\)/u);
-  assert.equal(/Submit again to confirm/u.test(messages[1].text), false);
+  assert.equal(messages.some((message) => /might already exist/u.test(message.text)), false);
+  assert.equal(messages.some((message) => /4711/u.test(message.text)), false);
+  // The finding is still written to CheckFindings for the approver, so nothing is lost.
 });
 
-test('a pending request is named as one, not as a partner number', () => {
-  const controller = loadController();
-  const messages = controller._submitMessages.call(
-    controller,
-    answer([duplicate({ candidateBP: null, candidateRequest: 'req-7', verdict: 'strong' })])
-  );
-  assert.ok(messages.some((message) => /pending request req-7 \(strong\)/u.test(message.text)));
+test('a pending request is named as one in the dialog, not as a partner number', () => {
+  assert.match(controllerSource, /pending request " \+ finding\.candidateRequest/u);
+  assert.match(controllerSource, /finding\.candidateBP \|\| \("pending request/u);
 });
 
 // "No duplicate detected" must never cover for a check that could not run.
@@ -185,4 +181,37 @@ test('malformed json from the check degrades to an empty list', () => {
   const parsed = parse('[{"a":1}]');
   assert.equal(parsed.length, 1);
   assert.equal(parsed[0].a, 1);
+});
+
+
+// Continue means "I have seen these duplicates for this payload". Check and Submit run the same
+// check, so confirming once has to be enough — asking again on Submit is the friction complained
+// about, and the payload tie is what still catches an edit made afterwards.
+test('confirming from Check carries over to Submit', () => {
+  assert.match(controllerSource, /_confirmDuplicates: function \(findings, dataJson\)/u);
+  assert.match(controllerSource, /state\.awaitingConfirmationFor = dataJson \|\| "";/u);
+  // Armed on Continue, not before the dialog opens: a cancelled dialog must leave nothing behind.
+  assert.equal(/awaitingConfirmationFor = parameters\.DataJson;/u.test(controllerSource), false);
+  // Check arms against the payload as it stands after enrichment, which is what Submit will send.
+  assert.match(controllerSource, /_confirmDuplicates\(duplicates, this\._requestDataJson\(state\)\)/u);
+});
+
+test('a derived value can land on an address row, not only on the root', () => {
+  assert.match(controllerSource, /entry\.target === "root"[\s\S]{0,120}state\.sections\[entry\.target\]/u);
+  // Without marking the row changed, an enriched field never reaches staging.
+  assert.match(controllerSource, /record\.__state = "changed"/u);
+});
+
+test('the check reports enrichment and validation at the top, duplicates only in the dialog', () => {
+  const controller = loadController();
+  const messages = controller._checkMessages.call(
+    controller,
+    [],
+    [{ target: 'Addresses', index: 0, field: 'StreetName', message: 'StreetName was filled in as "Kerkstraat" from GLEIF.' }],
+    [{ verdict: 'duplicate', candidateBP: '4711' }],
+    { Valid: true, RanDuplicateCheck: true }
+  );
+  assert.equal(messages.some((message) => /from GLEIF/u.test(message.text)), true);
+  assert.equal(messages.some((message) => /4711/u.test(message.text)), false);
+  assert.equal(messages.some((message) => /might already exist/u.test(message.text)), false);
 });

@@ -156,9 +156,26 @@ fails validation cannot be a duplicate of anything, so a blocking validation
 stops the rest. Data that is merely incomplete may be missing the very fields a
 duplicate rule needs, so derivation runs *before* the duplicate check.
 
-`VALIDATIONS` and `DERIVATIONS` are **registries, deliberately empty today** —
-they exist so the order is settled while there is one caller and no rules, rather
-than argued over later. Adding one is pushing an entry into the array.
+Stages run over the **request payload** (`{ root, sections }`), not a flattened
+candidate, because a derivation has to be able to say "the street of the first
+address" and the screen has to write it back to that field.
+
+`VALIDATIONS` and `DERIVATIONS` are the default registries and are empty; the
+stages actually in use are built per request by
+`srv/checks/registry-checks.js` — **VIES and GLEIF**, as one validation and one
+derivation sharing a single lookup (VIES throttles per member state).
+
+- **Validation**: a VAT number VIES does not know blocks; a name that disagrees
+  with the register blocks (`NAME_MISMATCH_SEVERITY`, one line to soften to a
+  warning — `registry.js` treats a legal/trading-name difference as legitimate,
+  so this may prove too strict on real data).
+- **Never block on an outage.** `registry.js` uses check name `vat_registered`
+  for *both* "not registered" (error) and "could not confirm" (info, because VIES
+  answers `isValid: false` when merely throttled). Re-grade by severity, not by
+  check name — `severityOf` exists for exactly this.
+- **Derivation**: fills empty address fields on the *first* address row from VIES
+  first, then GLEIF. A row that does not exist is never invented, but the value is
+  still reported with no `field`, so the screen says so and writes nothing.
 
 Three behaviours worth not "simplifying" away: a validation that throws blocks
 (a rule that silently skipped would defeat the ordering); a derivation that

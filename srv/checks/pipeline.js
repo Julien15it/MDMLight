@@ -11,37 +11,49 @@
  * duplicate check rather than after it: checking first and deriving second would ask the rules a
  * question about a record that does not exist yet.
  *
- * Validations and derivations are **registries, deliberately empty today**. They exist so the
- * order is fixed now, while there is one caller and no rules, rather than negotiated later when
- * there are several of each. Adding one is pushing an entry into VALIDATIONS or DERIVATIONS.
+ * Stages run over the **request payload** — `{ root, sections }`, the maintenance screen's own
+ * shape — not over a flattened candidate, because a derivation has to be able to say "the street
+ * of the first address" and the screen has to be able to write it back to that field.
  */
 
 /**
- * Each entry: { name, run(candidate) -> [{ field, message, severity }] }
+ * Each entry: { name, async run(payload) -> [{ check, severity, message, target?, field? }] }
  * `severity: 'error'` stops the pipeline; 'warning' and 'info' do not.
  */
 const VALIDATIONS = [];
 
 /**
- * Each entry: { name, run(candidate) -> { field: value } }
- * Returned values are applied to a copy of the candidate and reported to the caller, so the user
- * sees what was filled in for them rather than finding it after approval.
+ * Each entry: { name, async run(payload) -> [{ target, index, field, value, message }] }
+ * `target` is 'root' or a section id ('Addresses'); `index` is the row. Values are applied to a
+ * copy and reported back, so the user sees what was filled in for them rather than finding it
+ * after approval.
  */
 const DERIVATIONS = [];
 
 const BLOCKING = 'error';
+const ROOT = 'root';
 
-function runValidations(candidate, validations = VALIDATIONS) {
+const clone = (value) => JSON.parse(JSON.stringify(value || {}));
+
+const isEmpty = (value) => value === undefined || value === null || String(value).trim() === '';
+
+function targetRecord(payload, entry) {
+  if (!entry.target || entry.target === ROOT) return payload.root;
+  const rows = payload.sections?.[entry.target];
+  if (!Array.isArray(rows)) return null;
+  return rows[entry.index || 0] || null;
+}
+
+async function runValidations(payload, validations = VALIDATIONS) {
   const messages = [];
   for (const validation of validations) {
     let found = [];
     try {
-      found = validation.run(candidate) || [];
+      found = await validation.run(payload) || [];
     } catch (error) {
       // A broken rule must not pass as "valid": it reports itself and blocks, because silently
       // skipping a validation is the failure this whole ordering exists to avoid.
       found = [{
-        field: null,
         severity: BLOCKING,
         message: `The validation ${validation.name} could not run: ${error.message}`
       }];
@@ -51,13 +63,13 @@ function runValidations(candidate, validations = VALIDATIONS) {
   return messages;
 }
 
-function runDerivations(candidate, derivations = DERIVATIONS) {
-  const derived = { ...candidate };
+async function runDerivations(payload, derivations = DERIVATIONS) {
+  const derived = clone(payload);
   const applied = [];
   for (const derivation of derivations) {
-    let changes = {};
+    let entries = [];
     try {
-      changes = derivation.run(derived) || {};
+      entries = await derivation.run(derived) || [];
     } catch (error) {
       // A derivation is an improvement, not a gate. It reports and the pipeline carries on with
       // what it already had — the duplicate check on slightly thinner data still beats no check.
@@ -68,16 +80,31 @@ function runDerivations(candidate, derivations = DERIVATIONS) {
       });
       continue;
     }
-    for (const [field, value] of Object.entries(changes)) {
+    for (const entry of entries) {
+      const record = targetRecord(derived, entry);
+      // A row that is not there is not invented — filling a street into an address the user never
+      // added would create data nobody asked for. But it is still said out loud, without a
+      // `field`, so the screen reports it and writes nothing: a registry value nobody is told
+      // about is the same as not having looked it up.
+      if (!record) {
+        applied.push({
+          check: derivation.name,
+          severity: 'info',
+          message: entry.message || `${entry.field} is available but there is no ${entry.target} row to hold it.`
+        });
+        continue;
+      }
       // Never overwrite what the user typed. A derivation fills gaps; it does not correct people.
-      if (derived[field] !== undefined && derived[field] !== null && derived[field] !== '') continue;
-      derived[field] = value;
+      if (!isEmpty(record[entry.field])) continue;
+      record[entry.field] = entry.value;
       applied.push({
         check: derivation.name,
-        field,
-        value,
+        target: entry.target || ROOT,
+        index: entry.index || 0,
+        field: entry.field,
+        value: entry.value,
         severity: 'info',
-        message: `${field} was derived as ${value}.`
+        message: entry.message || `${entry.field} was derived as ${entry.value}.`
       });
     }
   }
@@ -85,24 +112,24 @@ function runDerivations(candidate, derivations = DERIVATIONS) {
 }
 
 /**
- * `checkDuplicates(candidate)` is injected rather than imported so this module stays free of the
- * S/4 connection and the resident index, and so the caller decides what a candidate is compared
+ * `checkDuplicates(payload)` is injected rather than imported so this module stays free of the S/4
+ * connection and the resident index, and so the caller decides what the candidate is compared
  * against — the submit path excludes the request's own staged copy, a bare check does not.
  */
-async function runChecks(candidate, { checkDuplicates, validations, derivations } = {}) {
-  const validationMessages = runValidations(candidate, validations);
+async function runChecks(payload, { checkDuplicates, validations, derivations } = {}) {
+  const validationMessages = await runValidations(payload, validations);
   if (validationMessages.some((message) => message.severity === BLOCKING)) {
     return {
       valid: false,
       validations: validationMessages,
       derivations: [],
-      derived: candidate,
+      derived: payload,
       duplicates: [],
       ranDuplicateCheck: false
     };
   }
 
-  const { derived, applied } = runDerivations(candidate, derivations);
+  const { derived, applied } = await runDerivations(payload, derivations);
 
   let duplicates = [];
   let ranDuplicateCheck = false;
@@ -133,6 +160,7 @@ module.exports = {
   VALIDATIONS,
   DERIVATIONS,
   BLOCKING,
+  ROOT,
   runValidations,
   runDerivations,
   runChecks

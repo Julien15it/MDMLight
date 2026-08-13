@@ -1212,7 +1212,7 @@ sap.ui.define([
        * as it was, still a draft, still editable. Neither writes anything — the request is already
        * staged by the time this runs, and it stays in `draft` either way.
        */
-      _confirmDuplicates: function (findings) {
+      _confirmDuplicates: function (findings, dataJson) {
         var duplicates = findings.filter(function (finding) { return !!finding.verdict; });
         var listed = duplicates.map(function (finding) {
           return "  \u2022 " + (finding.candidateBP || ("pending request " + finding.candidateRequest))
@@ -1234,14 +1234,17 @@ sap.ui.define([
             emphasizedAction: MessageBox.Action.CANCEL,
             contentWidth: "32rem",
             onClose: function (action) {
+              var state = this.getView().getModel("maintenance").getData();
               if (action === "Continue") {
-                // Armed, not submitted: the user presses Submit again, so the confirmation is
-                // always a deliberate second act rather than something a dialog did for them.
-                MessageToast.show("Press Submit Request again to confirm.");
+                // Armed against this exact payload, whether the warning came from Check or from
+                // Submit — it is the same duplicate check either way, so confirming it once is
+                // enough. Editing anything afterwards changes the payload and asks again.
+                state.awaitingConfirmation = true;
+                state.awaitingConfirmationFor = dataJson || "";
+                MessageToast.show("Press Submit Request to confirm.");
                 return;
               }
               // Cancelled: drop the confirmation so an unchanged payload is checked afresh.
-              var state = this.getView().getModel("maintenance").getData();
               state.awaitingConfirmation = false;
               state.awaitingConfirmationFor = "";
             }.bind(this)
@@ -1259,20 +1262,13 @@ sap.ui.define([
           text: "Change request " + ((result && result.ChangeRequest) || "") + " submitted for approval."
         }];
 
+        // Only the clean outcome is reported here. A duplicate was already put to the user in the
+        // dialog they confirmed through, so repeating it above the submitted request adds nothing
+        // but noise — the finding is on CheckFindings for the approver either way.
         if (!duplicates.length) {
           messages.push({
             type: "Information",
             text: "Duplicate check ran: no duplicate detected."
-          });
-        } else {
-          messages.push({
-            type: "Warning",
-            text: "This Business Partner might already exist. Check possible duplicates: "
-              + duplicates.map(function (finding) {
-                return (finding.candidateBP || ("pending request " + finding.candidateRequest))
-                  + (finding.verdict ? " (" + finding.verdict + ")" : "");
-              }).join(", ")
-              + ". Submitted with confirmation."
           });
         }
         // Anything the check itself reported - an outage, a rule that could not run - is shown
@@ -1329,10 +1325,8 @@ sap.ui.define([
           // A dialog rather than a message strip, because this is a decision the user has to make
           // now — a banner above a long object page is easy to submit straight past.
           if (result && result.NeedsConfirmation) {
-            state.awaitingConfirmation = true;
-            state.awaitingConfirmationFor = parameters.DataJson;
             state.messages = [];
-            this._confirmDuplicates(this._findingsFrom(result));
+            this._confirmDuplicates(this._findingsFrom(result), parameters.DataJson);
             return;
           }
 
@@ -1388,10 +1382,17 @@ sap.ui.define([
           var derivations = this._parseJsonArray(result && result.DerivationsJson);
           var duplicates = this._parseJsonArray(result && result.DuplicatesJson);
 
-          // Derived values are applied to the form so the user sees what was filled in, rather
-          // than discovering it after approval.
+          // Derived values are written into the form so the user sees what was filled in, rather
+          // than discovering it after approval. A derivation can target an address row, not only
+          // the root, which is the whole reason the pipeline works on the payload shape.
           derivations.filter(function (entry) { return entry.field; }).forEach(function (entry) {
-            state.root[entry.field] = entry.value;
+            var record = (!entry.target || entry.target === "root")
+              ? state.root
+              : (state.sections[entry.target] || [])[entry.index || 0];
+            if (!record) return;
+            record[entry.field] = entry.value;
+            // Mark an existing row as changed, or the enriched fields never reach staging.
+            if (record !== state.root && !record.__state) record.__state = "changed";
           });
           if (derivations.length) this._updatePreview(state);
 
@@ -1411,7 +1412,9 @@ sap.ui.define([
             return;
           }
           if (duplicates.some(function (finding) { return !!finding.verdict; })) {
-            this._confirmDuplicates(duplicates);
+            // After the derived values were applied, so Continue arms the payload Submit will
+            // actually send and no second dialog appears.
+            this._confirmDuplicates(duplicates, this._requestDataJson(state));
             return;
           }
           MessageToast.show("Checked: no duplicate detected.");
@@ -1445,20 +1448,13 @@ sap.ui.define([
         });
         if (!result || result.Valid === false) return messages;
 
+        // A found duplicate is reported by the dialog and nowhere else — it is a decision, and
+        // repeating it as a strip is what made the old message area redundant.
         var found = duplicates.filter(function (finding) { return !!finding.verdict; });
         if (result.RanDuplicateCheck === false) {
           messages.push({ type: "Warning", text: "The duplicate check did not run." });
         } else if (!found.length) {
           messages.push({ type: "Success", text: "Duplicate check ran: no duplicate detected." });
-        } else {
-          messages.push({
-            type: "Warning",
-            text: "This Business Partner might already exist. Check possible duplicates: "
-              + found.map(function (finding) {
-                return (finding.candidateBP || ("pending request " + finding.candidateRequest))
-                  + (finding.verdict ? " (" + finding.verdict + ")" : "");
-              }).join(", ")
-          });
         }
         duplicates.filter(function (finding) { return !finding.verdict && finding.message; })
           .forEach(function (finding) {
