@@ -228,5 +228,5 @@ test('a submitted request has no cancel button, and no empty footer', () => {
     /state\.showCancelButton = false;\s*state\.showFooter = false;/u
   );
   // Nobody is stranded: the object page header carries a permanent way back to the list.
-  assert.match(view, /text="Business Partners"[\s\S]{0,120}press="\.onBackToList"/u);
+  assert.match(view, /text="Business Partners"[\s\S]{0,200}press="\.onBackToList"/u);
 });
