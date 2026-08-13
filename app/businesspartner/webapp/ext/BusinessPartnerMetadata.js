@@ -810,7 +810,6 @@ sap.ui.define([], function () {
         "relationField": "BusinessPartner",
         "typeName": "A_BusinessPartnerRoleType",
         "kind": "collection",
-        "deletable": false,
         "summaryFields": [
           "BusinessPartnerRole",
           "ValidFrom",

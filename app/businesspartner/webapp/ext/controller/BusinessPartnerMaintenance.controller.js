@@ -13,6 +13,7 @@ sap.ui.define([
   "sap/m/Select",
   "sap/m/CheckBox",
   "sap/m/DatePicker",
+  "sap/m/DateTimePicker",
   "sap/ui/core/Item",
   "sap/ui/layout/Grid",
   "sap/m/Table",
@@ -43,6 +44,7 @@ sap.ui.define([
   Select,
   CheckBox,
   DatePicker,
+  DateTimePicker,
   Item,
   Grid,
   Table,
@@ -243,11 +245,14 @@ sap.ui.define([
   }
 
   function isDate(field) {
-    // Fields like BusinessPartnerRole's ValidFrom/ValidTo are typed
-    // cds.DateTime in the metadata even though they only ever carry a
-    // calendar date (no meaningful time-of-day) — a plain date picker suits
-    // both cds.Date and cds.DateTime fields in this maintenance UI.
     return ["cds.Date", "cds.DateTime"].includes(field.type);
+  }
+
+  // cds.DateTime fields (e.g. BusinessPartnerRole's ValidFrom/ValidTo, or
+  // Addresses' ValidityStartDate/EndDate) get a full date+time picker;
+  // cds.Date fields get a date-only picker.
+  function isDateTime(field) {
+    return field.type === "cds.DateTime";
   }
 
   // DatePicker's valueFormat/displayFormat expect a bare "yyyy-MM-dd" —
@@ -257,6 +262,28 @@ sap.ui.define([
     if (!value) return "";
     var text = String(value);
     return text.length >= 10 ? text.slice(0, 10) : text;
+  }
+
+  // DateTimePicker's valueFormat is "yyyy-MM-dd'T'HH:mm:ss" — strips any
+  // fractional seconds/timezone suffix the OData model value may carry
+  // (e.g. "2026-08-06T14:30:00.000Z" -> "2026-08-06T14:30:00").
+  function dateTimeOnly(value) {
+    if (!value) return "";
+    var text = String(value);
+    var match = text.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/);
+    return match ? match[1] : text.slice(0, 19);
+  }
+
+  // The reverse of dateOnly()/dateTimeOnly(): these fields are typed
+  // cds.Date/cds.DateTime in the model, so the value written back to the
+  // record must always be a full ISO datetime — otherwise the save sends a
+  // bare date (or a date+time string without an explicit UTC marker) for a
+  // field S/4 expects as a proper datetime.
+  function toDateTimeValue(value) {
+    if (!value) return "";
+    if (value.length === 10) return value + "T00:00:00.000Z"; // date-only picker
+    if (value.length === 19) return value + ".000Z"; // date+time picker, no millis/zone yet
+    return value;
   }
 
   function displayValue(value) {
@@ -630,16 +657,18 @@ sap.ui.define([
             this._openValueHelp(valueHelpConfig, event.getSource(), record, field, section);
           }.bind(this));
         } else if (isDate(field)) {
-          control = new DatePicker({
-            value: dateOnly(record[field.name]),
+          var isDateTimeField = isDateTime(field);
+          var PickerControl = isDateTimeField ? DateTimePicker : DatePicker;
+          control = new PickerControl({
+            value: isDateTimeField ? dateTimeOnly(record[field.name]) : dateOnly(record[field.name]),
             editable: editable,
-            displayFormat: "yyyy-MM-dd",
-            valueFormat: "yyyy-MM-dd",
+            displayFormat: isDateTimeField ? "yyyy-MM-dd HH:mm:ss" : "yyyy-MM-dd",
+            valueFormat: isDateTimeField ? "yyyy-MM-dd'T'HH:mm:ss" : "yyyy-MM-dd",
             width: "100%"
           });
           control.attachChange(function (event) {
             if (event.getParameter("valid") === false) return;
-            record[field.name] = event.getParameter("value");
+            record[field.name] = toDateTimeValue(event.getParameter("value"));
             if (section.kind === "root") this._updatePreview();
           }.bind(this));
         } else {

@@ -1,7 +1,8 @@
 'use strict';
 
 const cds = require('@sap/cds');
-const { startWorkflow } = require('./wf/processAutomation');
+const { startWorkflow, triggerApprovalDecision } = require('./wf/processAutomation');
+const { buildWorkflowInputFromRows } = require('./business-partner-service')._internals;
 
 const STAGING = 'mdmlight.staging.';
 
@@ -78,9 +79,66 @@ function requestingUserEmail(req) {
   return req.user?.attr?.email || req.user?.id || 'unknown';
 }
 
+/**
+ * Deep link to this request's approve view. Sent to BPA as `bpurl` so the
+ * workflow can route the approver to it. APPROUTER_URL is provided by
+ * mta.yaml (the approuter module's own route, via MTA's provides/requires) -
+ * unset in local/hybrid dev, where there is no approuter, so this degrades to
+ * an empty string rather than a broken link.
+ */
+function approveUrl(changeRequest) {
+  const approuterUrl = process.env.APPROUTER_URL;
+  if (!approuterUrl) return '';
+  return `${approuterUrl.replace(/\/$/, '')}/mdmmdbusinesspartnermanage/index.html#ChangeRequests/${changeRequest}/approve`;
+}
+
+/** Staged rows for a many-cardinality node, deletions excluded - a request in
+ * review is judged on the state it is proposing, not on what it is removing. */
+async function activeStagedRows(db, entity, changeRequest) {
+  const rows = await db.run(cds.ql.SELECT.from(entity).where({ request_ID: changeRequest }));
+  return rows.filter((row) => row.action !== 'D');
+}
+
+/**
+ * Builds the same businesspartnerinput the approval workflow expects for a
+ * direct create/edit (see business-partner-service.js), but sourced from
+ * this request's staged rows instead of a live S/4 read - at submitRequest
+ * time a `create` request has no S/4 record yet to read from. `businessPartner`
+ * (known up front for change/block/delete, null for create) is backfilled
+ * onto staged child rows that do not carry their own key so the approver's
+ * preview still shows which BP each row belongs to.
+ */
+async function buildBusinessPartnerInput(db, s4, header) {
+  const changeRequest = header.ID;
+  const businessPartner = header.businessPartner || null;
+  const withBusinessPartner = (row) => (row && businessPartner ? { BusinessPartner: businessPartner, ...row } : row);
+
+  const general = await db.run(cds.ql.SELECT.one.from(GENERAL).where({ request_ID: changeRequest }));
+  const customer = await db.run(cds.ql.SELECT.one.from(NODES.Customers.entity).where({ request_ID: changeRequest }));
+  const supplier = await db.run(cds.ql.SELECT.one.from(NODES.Suppliers.entity).where({ request_ID: changeRequest }));
+  const industries = await activeStagedRows(db, NODES.Industries.entity, changeRequest);
+
+  const rowsByEntity = {
+    A_BusinessPartner: withBusinessPartner(general),
+    A_BusinessPartnerAddress: (await activeStagedRows(db, NODES.Addresses.entity, changeRequest)).map(withBusinessPartner),
+    A_BusinessPartnerRole: (await activeStagedRows(db, NODES.BusinessPartnerRoles.entity, changeRequest)).map(withBusinessPartner),
+    A_BusinessPartnerBank: (await activeStagedRows(db, NODES.BankDetails.entity, changeRequest)).map(withBusinessPartner),
+    A_BusinessPartnerTaxNumber: (await activeStagedRows(db, NODES.TaxNumbers.entity, changeRequest)).map(withBusinessPartner),
+    A_BuPaIdentification: (await activeStagedRows(db, NODES.Identifications.entity, changeRequest)).map(withBusinessPartner),
+    // The workflow schema models A_BuPaIndustry as a single object even
+    // though S/4 (and this app's own staging) allow several - take the first.
+    A_BuPaIndustry: withBusinessPartner(industries[0] || null),
+    A_Customer: customer,
+    A_Supplier: supplier
+  };
+
+  return buildWorkflowInputFromRows(s4, rowsByEntity);
+}
+
 class ChangeRequestService extends cds.ApplicationService {
   async init() {
     const db = await cds.connect.to('db');
+    const s4 = await cds.connect.to('API_BUSINESS_PARTNER');
 
     /**
      * Replaces the staged nodes of a request wholesale. A save always carries
@@ -171,13 +229,28 @@ class ChangeRequestService extends cds.ApplicationService {
       const changeRequest = await persist(req);
       if (!changeRequest) return;
 
+      const header = await db.run(cds.ql.SELECT.one.from(HEADER).where({ ID: changeRequest }));
+
+      // Best-effort, like every other piece of the workflow payload: a
+      // problem shaping the preview data must not block submission, it
+      // should just leave the approver with a thinner (but still working)
+      // businesspartnerinput.
+      let businessPartnerInput = {};
+      try {
+        businessPartnerInput = await buildBusinessPartnerInput(db, s4, header);
+      } catch (error) {
+        console.error(`Could not build businesspartnerinput for change request ${changeRequest}:`, error);
+      }
+
       let processInstanceId = null;
       try {
         const result = await startWorkflow(APPROVAL_WORKFLOW_DEFINITION_ID, {
           changerequestid: changeRequest,
           requesttype: req.data.RequestType,
           businesspartner: req.data.BusinessPartner || '',
-          emailadressinitiator: requestingUserEmail(req)
+          emailadressinitiator: requestingUserEmail(req),
+          bpurl: approveUrl(changeRequest),
+          businesspartnerinput: businessPartnerInput
         });
         processInstanceId = result?.id || result?.data?.id || null;
       } catch (error) {
@@ -322,11 +395,27 @@ class ChangeRequestService extends cds.ApplicationService {
         return req.reject(409, `Change request ${changeRequest} is ${header.status}, not awaiting approval.`);
       }
 
+      // Resumes the paused BPA workflow with the human's decision. Best-effort
+      // and fired regardless of what happens to the S/4 post afterwards - the
+      // workflow is waiting on the approve/reject decision itself, not on
+      // whether posting later succeeds. A signalling failure must not stop us
+      // from recording the decision locally (same reasoning as every other
+      // workflow side effect in this app).
+      const notifyWorkflow = async (workflowResult) => {
+        if (!header.processInstanceId) return;
+        try {
+          await triggerApprovalDecision(header.processInstanceId, workflowResult);
+        } catch (error) {
+          console.error('Could not signal the approval workflow with the decision:', error);
+        }
+      };
+
       if (decision === 'reject') {
         await db.run(cds.ql.UPDATE(HEADER).set({
           status: 'rejected',
           reason: req.data.Comment || header.reason
         }).where({ ID: changeRequest }));
+        await notifyWorkflow('rejected');
         return { ChangeRequest: changeRequest, Status: 'rejected', BusinessPartner: null };
       }
 
@@ -338,6 +427,7 @@ class ChangeRequestService extends cds.ApplicationService {
           postedAt: new Date().toISOString(),
           postError: null
         }).where({ ID: changeRequest }));
+        await notifyWorkflow('approved');
         return { ChangeRequest: changeRequest, Status: 'posted', BusinessPartner: businessPartner };
       } catch (error) {
         // Kept in `failed` rather than rolled back to `inApproval`: the post is
@@ -346,6 +436,9 @@ class ChangeRequestService extends cds.ApplicationService {
           status: 'failed',
           postError: String(error.message || error).slice(0, 1000)
         }).where({ ID: changeRequest }));
+        // The human still approved - S/4 rejected the post, which is a
+        // separate failure the workflow itself did not cause and cannot fix.
+        await notifyWorkflow('approved');
         return req.reject(502, `The Business Partner could not be created in S/4HANA: ${error.message}`);
       }
     });
@@ -353,5 +446,11 @@ class ChangeRequestService extends cds.ApplicationService {
     await super.init();
   }
 }
+
+ChangeRequestService._internals = {
+  approveUrl,
+  buildBusinessPartnerInput,
+  activeStagedRows
+};
 
 module.exports = ChangeRequestService;

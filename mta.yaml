@@ -35,10 +35,14 @@ modules:
       - name: mdmlight-bpa-key
       - name: mdmlight-bpa-uaa
       - name: mdm-businesspartner-db
+      - name: approuter-api
     properties:
       AICORE_MODEL: gpt-5
       AICORE_FALLBACK_MODELS: gpt-5-mini,anthropic--claude-4.5-haiku
       AICORE_RESOURCE_GROUP: default
+      # The approuter's own public route, so change-request-service can build
+      # the bpurl (deep link to the approve view) sent to the BPA workflow.
+      APPROUTER_URL: ~{approuter-api/approuter-url}
   
 
   # --- PostgreSQL schema deployer ----------------------------------------------
@@ -69,6 +73,10 @@ modules:
       memory: 256M
     build-parameters:
       builder: npm
+    provides:
+      - name: approuter-api
+        properties:
+          approuter-url: ${default-url}
     requires:
       - name: mdm-businesspartner-auth
       - name: mdm-businesspartner-repo-runtime

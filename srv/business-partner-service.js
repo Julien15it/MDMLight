@@ -121,7 +121,7 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     remote: 'A_BusinessPartnerRole',
     navigation: 'to_BusinessPartnerRole',
     creatable: true,
-    deletable: false,
+    deletable: true,
     requiredCreateFields: ['BusinessPartner', 'BusinessPartnerRole']
   }),
   TaxNumbers: Object.freeze({
@@ -1165,6 +1165,39 @@ async function fetchBusinessPartnerInputForWorkflow(s4, businessPartner) {
   return result;
 }
 
+// Full, fixed list of every API_BUSINESS_PARTNER entity the approval
+// workflow's businesspartnerinput expects, in the same order
+// fetchBusinessPartnerInputForWorkflow assembles it in.
+const WORKFLOW_INPUT_ENTITIES = Object.freeze([
+  { name: 'A_BusinessPartner', cardinality: 'one' },
+  { name: 'A_BusinessPartnerAddress', cardinality: 'many' },
+  ...WORKFLOW_ENTITIES
+]);
+
+// Same output shape as fetchBusinessPartnerInputForWorkflow, but built from
+// rows the caller already has instead of a live S/4 read. Used by
+// ChangeRequestService.submitRequest: a `create` request has nothing in S/4
+// yet to read at that point, only staged Postgres rows. `rowsByEntity[name]`
+// supplies a row (cardinality 'one') or an array of rows (cardinality
+// 'many') for whichever entities the caller has data for; any entity not
+// present (this app only stages a subset of the 51 API_BUSINESS_PARTNER
+// entities the workflow schema lists) is shaped blank, exactly like a brand
+// new Business Partner would look.
+function buildWorkflowInputFromRows(s4, rowsByEntity) {
+  const result = {};
+  for (const config of WORKFLOW_INPUT_ENTITIES) {
+    const entity = remoteEntity(s4, config.name);
+    const rows = rowsByEntity[config.name];
+    if (config.cardinality === 'many') {
+      result[config.name] = (Array.isArray(rows) ? rows : []).map((row) => toWorkflowShape(entity, row, config.name));
+    } else {
+      const row = Array.isArray(rows) ? rows[0] : rows;
+      result[config.name] = toWorkflowShape(entity, row || null, config.name);
+    }
+  }
+  return result;
+}
+
 const APPROVAL_WORKFLOW_DEFINITION_ID = 'eu10.alluvion-dev-cf.mdmlightapproval.mDM_LIGHT_APPROVAL_WF';
 
 function triggerApprovalWorkflow(req, businessPartnerInput) {
@@ -1610,11 +1643,14 @@ BusinessPartnerService._internals = {
   externalResearchAnswer,
   requestingUserEmail,
   WORKFLOW_ENTITIES,
+  WORKFLOW_INPUT_ENTITIES,
   WORKFLOW_AUDIT_FIELDS,
   WORKFLOW_FIELD_EXCLUSIONS,
   lowerFirst,
   toWorkflowValue,
-  toWorkflowShape
+  toWorkflowShape,
+  buildWorkflowInputFromRows,
+  remoteEntity
 };
 
 module.exports = BusinessPartnerService;

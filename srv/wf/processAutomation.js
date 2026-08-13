@@ -67,6 +67,45 @@ async function startWorkflow(definitionId, context) {
     return result;
 }
 
+// The trigger a running mDM_LIGHT_APPROVAL_WF instance waits on once a human
+// has decided in our own approve view. `executionId` is the processId the
+// workflow instance was started with (same value as ChangeRequests.processInstanceId,
+// and the same value embedded in the bpurl sent to startWorkflow) - it tells
+// BPA which paused instance to resume, not which API call this is.
+const APPROVAL_DECISION_TRIGGER_ID = "eu10.alluvion-dev-cf.mdmlightapproval.zApproved_wf";
+
+async function triggerApprovalDecision(executionId, result) {
+    const sbpa = await cds.connect.to("SBPA_DESTINATION");
+
+    const accessToken = await getAccessToken();
+    const { apiKey } = getServiceCredentials("mdmlight-bpa-uaa");
+
+    const payload = {
+        executionId,
+        inputs: { result }
+    };
+
+    console.log("Sending approval decision to BPA");
+    console.log(payload);
+
+    const response = await sbpa.send({
+        method: "POST",
+        path: `/unified/v1/triggers/api/${APPROVAL_DECISION_TRIGGER_ID}?environmentId=bpapprovalpoc`,
+        headers: {
+            "Authorization": `Bearer ${accessToken}`,
+            "irpa-api-key": apiKey,
+            "Content-Type": "application/json"
+        },
+        data: payload
+    });
+
+    console.log("Approval decision sent:");
+    console.log(response);
+
+    return response;
+}
+
 module.exports = {
-    startWorkflow
+    startWorkflow,
+    triggerApprovalDecision
 };

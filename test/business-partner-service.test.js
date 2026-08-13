@@ -27,9 +27,11 @@ const {
   remoteErrorMessage,
   requestingUserEmail,
   WORKFLOW_ENTITIES,
+  WORKFLOW_INPUT_ENTITIES,
   lowerFirst,
   toWorkflowValue,
   toWorkflowShape,
+  buildWorkflowInputFromRows,
   WORKFLOW_AUDIT_FIELDS,
   WORKFLOW_FIELD_EXCLUSIONS,
   sanitizeEntityKeys,
@@ -355,7 +357,7 @@ test('all creatable maintenance entities use their Business Partner navigation',
   assert.equal(MAINTENANCE_ENTITIES.BankDetails.deletable, true);
   assert.equal(MAINTENANCE_ENTITIES.Identifications.deletable, true);
   assert.equal(MAINTENANCE_ENTITIES.Industries.deletable, true);
-  assert.equal(MAINTENANCE_ENTITIES.BusinessPartnerRoles.deletable, false);
+  assert.equal(MAINTENANCE_ENTITIES.BusinessPartnerRoles.deletable, true);
 });
 
 test('maintenance create validation enforces entity keys and useful values', () => {
@@ -750,6 +752,46 @@ test('every entity the approval workflow needs has a valid filter strategy', () 
   for (const config of WORKFLOW_ENTITIES) {
     assert.ok(['one', 'many'].includes(config.cardinality), `${config.name} has an invalid cardinality`);
     assert.ok(validFilters.has(config.filterBy), `${config.name} has an invalid filterBy`);
+  }
+});
+
+test('buildWorkflowInputFromRows shapes given rows and blanks every other entity', () => {
+  const s4 = {
+    entities: {
+      A_BusinessPartner: {
+        elements: {
+          BusinessPartner: { type: 'cds.String' },
+          OrganizationBPName1: { type: 'cds.String' }
+        }
+      },
+      A_BusinessPartnerAddress: {
+        elements: {
+          BusinessPartner: { type: 'cds.String' },
+          AddressID: { type: 'cds.String' }
+        }
+      }
+    }
+  };
+
+  const result = buildWorkflowInputFromRows(s4, {
+    A_BusinessPartner: { BusinessPartner: '561', OrganizationBPName1: 'Test 0608' },
+    A_BusinessPartnerAddress: [{ BusinessPartner: '561', AddressID: '1' }]
+  });
+
+  // Given data comes through shaped exactly like a live S/4 read would.
+  assert.equal(result.A_BusinessPartner.businessPartner, '561');
+  assert.equal(result.A_BusinessPartner.organizationBPName1, 'Test 0608');
+  assert.equal(result.A_BusinessPartnerAddress.length, 1);
+  assert.equal(result.A_BusinessPartnerAddress[0].addressID, '1');
+
+  // Every entity this app never stages/supplies rows for still comes back
+  // with the right shape for its cardinality, never missing or undefined.
+  assert.deepEqual(result.A_Customer, {});
+  assert.deepEqual(result.A_BusinessPartnerRole, []);
+  assert.equal(Object.keys(result).length, WORKFLOW_INPUT_ENTITIES.length);
+  for (const config of WORKFLOW_INPUT_ENTITIES) {
+    assert.ok(config.name in result, `${config.name} missing from businesspartnerinput`);
+    assert.equal(Array.isArray(result[config.name]), config.cardinality === 'many');
   }
 });
 
