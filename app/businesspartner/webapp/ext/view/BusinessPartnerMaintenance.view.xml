@@ -22,12 +22,28 @@
               <VBox>
                 <Title text="{maintenance>/headerTitle}" level="H1" wrapping="true" />
                 <ObjectNumber number="{maintenance>/businessPartner}" />
+                <HBox alignItems="Center" visible="{= !!${maintenance>/changeRequest} }">
+                  <Label text="Change Request" />
+                  <Text
+                    text="{maintenance>/changeRequest}"
+                    class="sapUiTinyMarginBegin"
+                    wrapping="false" />
+                  <ObjectStatus
+                    text="{maintenance>/requestStatus}"
+                    state="{= ${maintenance>/requestStatus} === 'rejected' || ${maintenance>/requestStatus} === 'failed' ? 'Error' : ${maintenance>/requestStatus} === 'posted' ? 'Success' : 'Warning' }"
+                    class="sapUiSmallMarginBegin" />
+                </HBox>
               </VBox>
             </uxap:expandedHeading>
             <uxap:snappedHeading>
               <HBox alignItems="Center">
                 <Title text="{maintenance>/headerTitle}" level="H2" />
                 <ObjectNumber number="{maintenance>/businessPartner}" class="sapUiSmallMarginBegin" />
+                <Text
+                  text="{maintenance>/changeRequest}"
+                  visible="{= !!${maintenance>/changeRequest} }"
+                  class="sapUiSmallMarginBegin"
+                  wrapping="false" />
               </HBox>
             </uxap:snappedHeading>
             <uxap:actions>

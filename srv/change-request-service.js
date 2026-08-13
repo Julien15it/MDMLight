@@ -69,10 +69,15 @@ function stageable(entityName, source) {
   return row;
 }
 
-/** 'new' -> create, an entry in `deleted` -> delete, anything else -> update. */
+/**
+ * 'new' -> create, 'modified' -> update, an entry in `deleted` -> delete.
+ * Untouched rows get no action: a change request stages the whole partner so
+ * the approver sees it in full, but only touched rows may be replayed to S/4.
+ */
 function rowAction(record) {
   if (record?.__state === 'new') return 'C';
-  return 'U';
+  if (record?.__state) return 'U';
+  return null;
 }
 
 function requestingUserEmail(req) {
@@ -351,6 +356,8 @@ class ChangeRequestService extends cds.ApplicationService {
         );
         for (const row of rows) {
           const { ID, request_ID: parent, action, ...data } = row;
+          // Staged for context only - the user never touched it.
+          if (!action) continue;
           const relationField = section === 'Customers'
             ? 'Customer'
             : section === 'Suppliers' ? 'Supplier' : 'BusinessPartner';
@@ -419,6 +426,29 @@ class ChangeRequestService extends cds.ApplicationService {
         return { ChangeRequest: changeRequest, Status: 'rejected', BusinessPartner: null };
       }
 
+      // Approved, not posted. SPA decides when its chain is finished and calls
+      // completeRequest; this handler must never write to S/4.
+      await db.run(cds.ql.UPDATE(HEADER).set({
+        status: 'approved',
+        reason: req.data.Comment || header.reason
+      }).where({ ID: changeRequest }));
+      return { ChangeRequest: changeRequest, Status: 'approved', BusinessPartner: header.businessPartner };
+    });
+
+    this.on('completeRequest', async (req) => {
+      const changeRequest = req.data.ChangeRequest;
+      const header = await db.run(cds.ql.SELECT.one.from(HEADER).where({ ID: changeRequest }));
+      if (!header) return req.reject(404, `Change request ${changeRequest} was not found.`);
+
+      // Idempotency guard. SPA retries - a timed-out callback must not create a
+      // second business partner.
+      if (header.postedBP) {
+        return { ChangeRequest: changeRequest, Status: header.status, BusinessPartner: header.postedBP };
+      }
+      if (header.status !== 'approved') {
+        return req.reject(409, `Change request ${changeRequest} is ${header.status}, not approved.`);
+      }
+
       try {
         const businessPartner = await postToS4(req, header);
         await db.run(cds.ql.UPDATE(HEADER).set({
@@ -430,7 +460,7 @@ class ChangeRequestService extends cds.ApplicationService {
         await notifyWorkflow('approved');
         return { ChangeRequest: changeRequest, Status: 'posted', BusinessPartner: businessPartner };
       } catch (error) {
-        // Kept in `failed` rather than rolled back to `inApproval`: the post is
+        // Kept in `failed` rather than rolled back to `approved`: the post is
         // not atomic, so a partial write may exist in S/4 and needs a human.
         await db.run(cds.ql.UPDATE(HEADER).set({
           status: 'failed',

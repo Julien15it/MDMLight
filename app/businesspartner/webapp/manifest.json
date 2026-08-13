@@ -165,6 +165,16 @@
           "target": "BusinessPartnerMaintenance"
         },
         {
+          "pattern": "ChangeRequests/{changeRequest}/edit",
+          "name": "ChangeRequestEdit",
+          "target": "BusinessPartnerMaintenance"
+        },
+        {
+          "pattern": "ChangeRequests",
+          "name": "ChangeRequestList",
+          "target": "ChangeRequestList"
+        },
+        {
           "pattern": "BusinessPartners({key}):?query:",
           "name": "BusinessPartnersObjectPage",
           "target": "BusinessPartnersObjectPage"
@@ -213,6 +223,13 @@
                       "enabled": true,
                       "requiresSelection": false,
                       "text": "Business Partner Assistant"
+                    },
+                    "ChangeRequests": {
+                      "press": "mdm.md.businesspartner.manage.ext.CustomActions.openChangeRequests",
+                      "visible": true,
+                      "enabled": true,
+                      "requiresSelection": false,
+                      "text": "Change Requests"
                     }
                   }
                 }
@@ -224,6 +241,12 @@
           "type": "View",
           "id": "BusinessPartnerMaintenance",
           "name": "mdm.md.businesspartner.manage.ext.view.BusinessPartnerMaintenance",
+          "viewType": "XML"
+        },
+        "ChangeRequestList": {
+          "type": "View",
+          "id": "ChangeRequestList",
+          "name": "mdm.md.businesspartner.manage.ext.view.ChangeRequestList",
           "viewType": "XML"
         },
         "BusinessPartnersObjectPage": {

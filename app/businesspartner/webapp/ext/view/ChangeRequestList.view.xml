@@ -1,0 +1,60 @@
+<mvc:View
+  controllerName="mdm.md.businesspartner.manage.ext.controller.ChangeRequestList"
+  xmlns:mvc="sap.ui.core.mvc"
+  xmlns="sap.m"
+  height="100%">
+  <Page
+    title="Change Requests"
+    showNavButton="true"
+    navButtonPress=".onBackToList">
+    <content>
+      <Table
+        id="changeRequestTable"
+        items="{ path: 'cr>/ChangeRequests', parameters: { $orderby: 'createdAt desc' } }"
+        mode="SingleSelectMaster"
+        itemPress=".onOpenRequest"
+        busy="{view>/busy}"
+        growing="true"
+        growingThreshold="50">
+        <headerToolbar>
+          <OverflowToolbar>
+            <Title text="Change Requests" level="H2" />
+            <ToolbarSpacer />
+            <SearchField
+              width="18rem"
+              placeholder="Business partner or request"
+              search=".onSearch" />
+            <Button
+              text="Refresh"
+              icon="sap-icon://refresh"
+              type="Transparent"
+              press=".onRefresh" />
+          </OverflowToolbar>
+        </headerToolbar>
+        <columns>
+          <Column><Text text="Request" /></Column>
+          <Column><Text text="Type" /></Column>
+          <Column><Text text="Business Partner" /></Column>
+          <Column><Text text="Status" /></Column>
+          <Column><Text text="Requested By" /></Column>
+          <Column><Text text="Requested On" /></Column>
+        </columns>
+        <items>
+          <ColumnListItem type="Navigation">
+            <cells>
+              <Text text="{cr>ID}" />
+              <Text text="{cr>requestType}" />
+              <!-- A create has no number until it posts; show the one it got. -->
+              <Text text="{= ${cr>businessPartner} || ${cr>postedBP} || '' }" />
+              <ObjectStatus
+                text="{cr>status}"
+                state="{= ${cr>status} === 'rejected' || ${cr>status} === 'failed' ? 'Error' : ${cr>status} === 'posted' ? 'Success' : 'Warning' }" />
+              <Text text="{cr>createdBy}" />
+              <Text text="{ path: 'cr>createdAt', type: 'sap.ui.model.odata.type.DateTimeOffset', formatOptions: { style: 'short' } }" />
+            </cells>
+          </ColumnListItem>
+        </items>
+      </Table>
+    </content>
+  </Page>
+</mvc:View>

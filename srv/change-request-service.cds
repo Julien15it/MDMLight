@@ -67,14 +67,31 @@ service ChangeRequestService @(path: '/service/changerequest') {
   };
 
   /**
-   * The SPA callback. `approve` posts the staged data to S/4 and records the
-   * resulting number; `reject` only sets the status. Staged rows are kept
-   * either way - retention is an open decision.
+   * The SPA decision callback. Records the outcome only - it never writes to
+   * S/4, however many approvers the process routed the request through.
+   * `approve` moves the request to `approved`, meaning every approval SPA
+   * required is in and the request is waiting to be posted. `reject` is
+   * terminal. Staged rows are kept either way - retention is an open decision.
    */
   action decideRequest(
     ChangeRequest : UUID not null,
     Decision      : String(10) not null,
     Comment       : String(250)
+  ) returns {
+    ChangeRequest   : UUID;
+    Status          : String(12);
+    BusinessPartner : String(10);
+  };
+
+  /**
+   * The "all approvals collected" signal, and the only thing that writes to
+   * S/4. SPA calls it once its approval chain finishes, so the number of
+   * approvers and the criteria that picked them stay entirely on the SPA side.
+   * Idempotent: a request that already carries a number returns it unchanged,
+   * so a retried callback cannot create a second business partner.
+   */
+  action completeRequest(
+    ChangeRequest : UUID not null
   ) returns {
     ChangeRequest   : UUID;
     Status          : String(12);
