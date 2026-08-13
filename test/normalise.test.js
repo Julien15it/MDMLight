@@ -10,10 +10,12 @@ const {
 
 const payload = (root = {}, sections = {}) => ({ root, sections });
 
+// chatCompletionWithRetry already wraps this in { response }, so the client returns the
+// completion itself — same shape as the fake in test/intent.test.js.
 const fakeClient = (content) => class {
   // eslint-disable-next-line class-methods-use-this
   async chatCompletion() {
-    return { response: { getContent: () => content } };
+    return { getContent: () => content };
   }
 };
 
