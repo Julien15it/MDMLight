@@ -54,6 +54,11 @@ service ChangeRequestService @(path: '/service/changerequest') {
     /** True when the check found something and the submit is waiting for a
      *  confirming second press. */
     NeedsConfirmation : Boolean;
+    /** False when a validation blocked. The request stays a draft, no workflow
+     *  starts, and ValidationsJson says why. Derivations deliberately do NOT
+     *  run here - see checkRequest. */
+    Valid             : Boolean;
+    ValidationsJson   : LargeString;
     /** Findings for the message area, newest check only. */
     MessagesJson      : LargeString;
   };

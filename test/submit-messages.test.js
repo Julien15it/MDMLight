@@ -230,3 +230,54 @@ test('a submitted request has no cancel button, and no empty footer', () => {
   // Nobody is stranded: the object page header carries a permanent way back to the list.
   assert.match(view, /text="Business Partners"[\s\S]{0,200}press="\.onBackToList"/u);
 });
+
+// --- Submit runs the validations, but never the derivations ----------------------------
+
+// A derivation changes the data, and the requester has to have seen what they asked for.
+// Check is the derivation trigger; submit only validates.
+test('submit validates but does not derive', () => {
+  const service = fs.readFileSync(
+    path.join(__dirname, '..', 'srv', 'change-request-service.js'), 'utf8'
+  );
+  const submitAt = service.indexOf("this.on('submitRequest'");
+  const submitBody = service.slice(submitAt, service.indexOf("this.on('getRequestPayload'", submitAt));
+  assert.match(submitBody, /runValidations\(/u);
+  assert.equal(/runDerivations|registry\.derivations/u.test(submitBody), false, 'no derivation on submit');
+  // The Check action is where derivations do run.
+  const checkAt = service.indexOf("this.on('checkRequest'");
+  const checkBody = service.slice(checkAt, service.indexOf("this.on('submitRequest'", checkAt));
+  assert.match(checkBody, /derivations: registry\.derivations/u);
+});
+
+test('a blocking validation stops the submit and leaves it a draft', () => {
+  const service = fs.readFileSync(
+    path.join(__dirname, '..', 'srv', 'change-request-service.js'), 'utf8'
+  );
+  assert.match(service, /validations\.some\(\(message\) => message\.severity === BLOCKING\)/u);
+  assert.match(service, /Status: 'draft',\s*NeedsConfirmation: false,\s*Valid: false/u);
+});
+
+// At the top of the screen, not in a dialog: these are things to go and fix in the form,
+// with the fields right there behind them — unlike a duplicate, which is a decision.
+test('validation errors render as message strips, not a popup', () => {
+  assert.match(controllerSource, /if \(result && result\.Valid === false\)/u);
+  assert.match(controllerSource, /_parseJsonArray\(result\.ValidationsJson\)/u);
+  const branch = controllerSource.slice(
+    controllerSource.indexOf('result.Valid === false'),
+    controllerSource.indexOf('result.NeedsConfirmation')
+  );
+  assert.equal(/MessageBox/u.test(branch), false, 'no dialog for a validation');
+  assert.match(branch, /type: entry\.severity === "error" \? "Error" : "Warning"/u);
+});
+
+// Every exit from submitRequest has to carry the new fields, or the client reads undefined
+// and treats a perfectly good submit as invalid.
+test('every submit outcome reports Valid and ValidationsJson', () => {
+  const service = fs.readFileSync(
+    path.join(__dirname, '..', 'srv', 'change-request-service.js'), 'utf8'
+  );
+  const submitAt = service.indexOf("this.on('submitRequest'");
+  const submitBody = service.slice(submitAt, service.indexOf("this.on('getRequestPayload'", submitAt));
+  assert.equal((submitBody.match(/Valid:/gu) || []).length, 3, 'blocked, unconfirmed and submitted');
+  assert.equal((submitBody.match(/ValidationsJson:/gu) || []).length, 3);
+});

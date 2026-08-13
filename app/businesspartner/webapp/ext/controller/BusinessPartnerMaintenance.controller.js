@@ -1352,6 +1352,22 @@ sap.ui.define([
             return;
           }
 
+          // A validation blocked, so nothing was submitted. Reported at the top of the screen
+          // rather than in a dialog: this is a list of things to go and fix in the form, not a
+          // decision to take now, and the fields are right there behind it.
+          if (result && result.Valid === false) {
+            state.awaitingConfirmation = false;
+            state.awaitingConfirmationFor = "";
+            state.messages = this._parseJsonArray(result.ValidationsJson).map(function (entry) {
+              return {
+                type: entry.severity === "error" ? "Error" : "Warning",
+                text: entry.message
+              };
+            });
+            this._renderAll();
+            return;
+          }
+
           // Nothing was submitted: the check found something and the request is still a draft.
           // A dialog rather than a message strip, because this is a decision the user has to make
           // now — a banner above a long object page is easy to submit straight past.

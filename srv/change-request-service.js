@@ -4,7 +4,7 @@ const cds = require('@sap/cds');
 const { startWorkflow, triggerApprovalDecision } = require('./wf/processAutomation');
 const { buildWorkflowInputFromRows } = require('./business-partner-service')._internals;
 const { candidateFromStagedRequest } = require('./ai/duplicate-check');
-const { runChecks } = require('./checks/pipeline');
+const { runChecks, runValidations, BLOCKING } = require('./checks/pipeline');
 const { createRegistryStages } = require('./checks/registry-checks');
 
 const STAGING = 'mdmlight.staging.';
@@ -333,6 +333,27 @@ class ChangeRequestService extends cds.ApplicationService {
       const changeRequest = await persist(req);
       if (!changeRequest) return;
 
+      // The same validations the Check button runs, over the payload being submitted.
+      // Derivations are deliberately NOT run here: a derivation changes the data, and the
+      // requester has to have seen what they are asking for. Check is the derivation
+      // trigger; when there are more triggers they get decided on their own merits.
+      const data = parseJsonObject(req.data.DataJson, 'DataJson');
+      const registry = createRegistryStages();
+      const validations = await runValidations(
+        { root: data.root || {}, sections: data.sections || {} },
+        registry.validations
+      );
+      if (validations.some((message) => message.severity === BLOCKING)) {
+        return {
+          ChangeRequest: changeRequest,
+          Status: 'draft',
+          NeedsConfirmation: false,
+          Valid: false,
+          ValidationsJson: JSON.stringify(validations),
+          MessagesJson: JSON.stringify([])
+        };
+      }
+
       const findings = await recordDuplicateFindings(changeRequest, req.data.BusinessPartner);
       // Only a verdict-bearing finding asks for a second press. A check that could not run reports
       // itself but must not hold the request hostage to an outage.
@@ -342,6 +363,8 @@ class ChangeRequestService extends cds.ApplicationService {
           ChangeRequest: changeRequest,
           Status: 'draft',
           NeedsConfirmation: true,
+          Valid: true,
+          ValidationsJson: JSON.stringify(validations),
           MessagesJson: JSON.stringify(findings)
         };
       }
@@ -392,6 +415,8 @@ class ChangeRequestService extends cds.ApplicationService {
         Status: 'inApproval',
         ProcessInstanceId: processInstanceId,
         NeedsConfirmation: false,
+        Valid: true,
+        ValidationsJson: JSON.stringify(validations),
         MessagesJson: JSON.stringify(findings)
       };
     });
