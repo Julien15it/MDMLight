@@ -107,6 +107,7 @@ const VALUE_HELP_ENTITIES = Object.freeze([
   'IndustrySectors',
   'IndustrySystems',
   'AddressDependentTaxTypes',
+  'TaxTypes',
   'IdentificationTypes',
   'CustomerAccountGroups',
   'CustomerClassifications',
@@ -318,6 +319,39 @@ async function createBusinessPartnerChild(s4, configuration, payload) {
     path: businessPartnerNavigationPath(configuration, payload),
     data: payload
   }));
+}
+
+/**
+ * I_BusPartTaxTypeText is keyed (Language, BPTaxType), so the catalogue arrives once per installed
+ * language and a picker would list every category many times over.
+ *
+ * Which encoding the language key uses — ISO `EN` or the SAP key `E` — cannot be read off the
+ * metadata (`String(2)` either way), and guessing wrong would filter the list to nothing, which is
+ * the bug this replaces. So the preferred row is chosen by prefix match instead of by a literal.
+ */
+function taxTypeLanguageRank(language, wanted) {
+  const value = String(language || '').trim().toUpperCase();
+  if (!value) return 3;
+  if (value.startsWith(wanted) || wanted.startsWith(value)) return 0;
+  if (value === 'EN' || value === 'E') return 1;
+  return 2;
+}
+
+function oneRowPerTaxType(rows, locale) {
+  // A $count comes back as a number, not a list — leave it alone.
+  if (!Array.isArray(rows)) return rows;
+  const wanted = String(locale || 'en').slice(0, 2).toUpperCase();
+  const best = new Map();
+  for (const row of rows) {
+    const code = row?.BPTaxType;
+    if (!code) continue;
+    const current = best.get(code);
+    const better = !current
+      || taxTypeLanguageRank(row.Language, wanted) < taxTypeLanguageRank(current.Language, wanted);
+    if (better) best.set(code, row);
+  }
+  return [...best.values()]
+    .sort((left, right) => String(left.BPTaxType).localeCompare(String(right.BPTaxType)));
 }
 
 function addDefaultAddressUsage(payload, hasExistingAddress) {
@@ -1716,8 +1750,18 @@ class BusinessPartnerService extends cds.ApplicationService {
     // Value-help entities backed by ZSRVB_MDMLIGHT_VH — read from there
     // instead of being forwarded to S4 by the catch-all handler below.
     for (const entity of VALUE_HELP_ENTITIES) {
+      // TaxTypes has its own handler below: it is the one list keyed by language.
+      if (entity === 'TaxTypes') continue;
       this.on('READ', entity, (req) => valueHelp.run(req.query));
     }
+
+    // Paging is dropped deliberately: one row per category can only be chosen once every
+    // language's rows are in hand, and a page that shrinks after deduplication is worse than
+    // reading a catalogue this small whole.
+    this.on('READ', 'TaxTypes', async (req) => {
+      if (req.query?.SELECT?.limit) delete req.query.SELECT.limit;
+      return oneRowPerTaxType(await valueHelp.run(req.query), req.locale);
+    });
 
     this.on(['READ', 'CREATE', 'UPDATE'], '*', (req) => s4.run(req.query));
 
@@ -1761,6 +1805,8 @@ BusinessPartnerService._internals = {
   businessPartnerNavigationPath,
   createBusinessPartnerChild,
   addDefaultAddressUsage,
+  taxTypeLanguageRank,
+  oneRowPerTaxType,
   createBusinessPartnerAddress,
   sanitizeEntityKeys,
   sanitizeEntityPayload,

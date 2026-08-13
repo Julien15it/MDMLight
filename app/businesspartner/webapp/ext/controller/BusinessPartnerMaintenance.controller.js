@@ -172,9 +172,11 @@ sap.ui.define([
       collectionPath: "IndustrySectors", keyField: "IndustrySector",
       descriptionField: "IndustrySector_Text", title: "Select Industry"
     },
+    // Not AddressDependentTaxTypes: that is the address-dependent subset and holds one row (FR1)
+    // on this system, so BE0/BE1/BE2 were unreachable. The service returns one row per category.
     BPTaxType: {
-      collectionPath: "AddressDependentTaxTypes", keyField: "BPTaxType",
-      descriptionField: "BPTaxTypeName", title: "Select Tax Type"
+      collectionPath: "TaxTypes", keyField: "BPTaxType",
+      descriptionField: "TaxTypeName", title: "Select Tax Type"
     },
     // IdentificationTypes has no description column in ZSRVB_MDMLIGHT_VH.
     BPIdentificationType: {

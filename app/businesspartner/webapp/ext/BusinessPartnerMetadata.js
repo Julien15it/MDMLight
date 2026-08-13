@@ -727,7 +727,7 @@ sap.ui.define([], function () {
             "key": true,
             "nullable": false,
             "maxLength": 10,
-            "creatable": true,
+            "creatable": false,
             "updatable": true
           },
           {

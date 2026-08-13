@@ -261,11 +261,14 @@ annotate service.TaxNumbers with @(
 );
 
 annotate service.TaxNumbers with {
+  // TaxTypes, not AddressDependentTaxTypes: the latter is the address-dependent subset and returns
+  // a single row (FR1) on this system, so BE0/BE1/BE2 could never be picked. The service collapses
+  // the language key to one row per category — see oneRowPerTaxType.
   BPTaxType @Common.ValueList: {
-    CollectionPath: 'AddressDependentTaxTypes',
+    CollectionPath: 'TaxTypes',
     Parameters: [
       { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: BPTaxType, ValueListProperty: 'BPTaxType' },
-      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'BPTaxTypeName' }
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'TaxTypeName' }
     ]
   };
 };

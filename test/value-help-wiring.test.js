@@ -39,7 +39,7 @@ test('every registered entity has a READ handler routing it to the value-help se
   const service = read('srv', 'business-partner-service.js');
   assert.match(
     service,
-    /for \(const entity of VALUE_HELP_ENTITIES\)[\s\S]{0,120}valueHelp\.run\(req\.query\)/u,
+    /for \(const entity of VALUE_HELP_ENTITIES\)[\s\S]{0,300}valueHelp\.run\(req\.query\)/u,
     'the routing loop is gone'
   );
 });

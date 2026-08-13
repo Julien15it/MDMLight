@@ -49,7 +49,11 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
   @readonly entity Regions                   as projection on VH.Regions;
   @readonly entity IndustrySectors           as projection on VH.IndustrySectors;
   @readonly entity IndustrySystems           as projection on VH.IndustrySystems;
+  // AddressDependentTaxTypes is the address-dependent *subset* — on this system exactly one row
+  // (FR1), which is not a list anyone can pick BE0 from. TaxTypes is the full catalogue; its key
+  // carries Language, which the READ handler collapses to one row per category.
   @readonly entity AddressDependentTaxTypes  as projection on VH.AddressDependentTaxTypes;
+  @readonly entity TaxTypes                  as projection on VH.TaxTypes;
   @readonly entity IdentificationTypes       as projection on VH.IdentificationTypes;
   @readonly entity CustomerAccountGroups     as projection on VH.CustomerAccountGroups;
   @readonly entity CustomerClassifications   as projection on VH.CustomerClassifications;

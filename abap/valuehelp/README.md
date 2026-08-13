@@ -147,8 +147,20 @@ Two exceptions to know about:
 - `Banks` (`I_BusinessPartnerBank`) lists banks already assigned to a business
   partner, not a bank directory, so a create form cannot offer an unused bank.
 
-Prefer `AddressDependentTaxTypes` over `TaxTypes` for `BPTaxType`: a flat key
-with a name, and no `Language` in the key. `TaxTypes` is exposed but unused.
+**`BPTaxType` uses `TaxTypes`, not `AddressDependentTaxTypes`** — reversed
+2026-08-13. The flat key was the nicer shape, but `I_BusPartAddrDepdntTaxTypeVH`
+is the address-*dependent* subset and returns exactly **one row (`FR1`)** on this
+system, so `BE0`/`BE1`/`BE2` could never be picked even though partners here carry
+all three. Coverage beats key shape.
+
+The cost is the `Language` in the `TaxTypes` key: the catalogue arrives once per
+installed language. `oneRowPerTaxType` in `srv/business-partner-service.js`
+collapses it to one row per category, preferring the caller's locale and falling
+back to English. It matches the language by **prefix**, because the metadata says
+`String(2)` and that covers both the ISO code (`EN`) and the SAP key (`E`) —
+guessing the wrong literal would filter the list to nothing.
+
+`AddressDependentTaxTypes` stays exposed and projected; nothing points at it.
 
 ### Fields with no released value-help view
 

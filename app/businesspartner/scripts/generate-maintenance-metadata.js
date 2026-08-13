@@ -189,6 +189,14 @@ function entityTypeProperties(typeName) {
   );
 }
 
+// Keys S/4 assigns itself on create. The imported metadata marks AddressID creatable, so the create
+// form asked for an address number that the system generates a moment later and that
+// `addDefaultAddressUsage` strips from the payload anyway. `creatable: false` is the flag
+// `_createForm` already keys off to hide a key field on create.
+// Deliberately not the MDG "$" convention: this path posts to API_BUSINESS_PARTNER, not to MDG
+// staging, so the field is omitted rather than filled with a placeholder S/4 would take literally.
+const SERVER_ASSIGNED_KEYS = new Set(['AddressID']);
+
 function humanize(name) {
   return name
     .replace(/([a-z0-9])([A-Z])/gu, '$1 $2')
@@ -220,7 +228,7 @@ for (const section of sections) {
         maxLength: element.length,
         precision: element.precision,
         scale: element.scale,
-        creatable: property['sap:creatable'] !== 'false',
+        creatable: property['sap:creatable'] !== 'false' && !SERVER_ASSIGNED_KEYS.has(name),
         updatable: property['sap:updatable'] !== 'false'
       };
     });
