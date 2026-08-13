@@ -249,7 +249,7 @@
                     },
                     "ChangeRequests": {
                       "press": "mdm.md.businesspartner.manage.ext.CustomActions.openChangeRequests",
-                      "visible": true,
+                      "visible": "{perm>/isDataSteward}",
                       "enabled": true,
                       "requiresSelection": false,
                       "text": "Change Requests"

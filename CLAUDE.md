@@ -211,9 +211,19 @@ correct — but it is capped at `MAX_EXCLUDED_PARTNERS` to keep the OData URL
 sane, and logs a warning rather than silently under-hiding.
 
 Change requests have their own list (`ext/view/ChangeRequestList.view.xml`),
-reached from the Change Requests button on the list report. A `draft` opens
-editable via the `ChangeRequestEdit` route; anything further along opens
-read-only in the approve view.
+reached from the Change Requests button on the list report. **The button is
+steward-only** (`{perm>/isDataSteward}`, same gate as Duplicate Rules).
+
+A `draft` opens editable via `ChangeRequestEdit`. **Anything further along is not
+navigable from here at all** (changed 2026-08-13): the approve screen is reached
+from the approver's inbox and nowhere else, so a decision is always taken against
+a real task rather than by finding the request in a list. The
+`ChangeRequestApprove` route still exists — the inbox and `bpurl` use it — but
+nothing in this list points at it.
+
+Consequence, accepted while only the dev team files requests: with the list
+steward-gated, **a requester cannot reach their own saved draft**. Revisit when
+real requesters start using Save Request.
 
 Still open — ask before implementing any of them: staging retention after
 posting (deleting the header would destroy the `postedBP` idempotency guard

@@ -38,18 +38,19 @@ sap.ui.define([
     },
 
     /**
-     * A draft is still the requester's to change; anything further along is
-     * owned by the approval process, so it opens read-only in the approve view.
+     * A draft is still the requester's to finish, so it opens for editing.
+     * Anything further along is owned by the approval process and this list is
+     * only an overview of it - the approve screen is reachable from the
+     * approver's inbox and nowhere else, so a decision is always taken against
+     * a real task rather than by finding the request in a list.
      */
     onOpenRequest: function (event) {
       var context = event.getParameter("listItem").getBindingContext("cr");
       if (!context) return;
-      var changeRequest = context.getProperty("ID");
-      var status = context.getProperty("status");
-      this._router.navTo(
-        status === "draft" ? "ChangeRequestEdit" : "ChangeRequestApprove",
-        { changeRequest: encodeURIComponent(changeRequest) }
-      );
+      if (context.getProperty("status") !== "draft") return;
+      this._router.navTo("ChangeRequestEdit", {
+        changeRequest: encodeURIComponent(context.getProperty("ID"))
+      });
     }
   });
 });

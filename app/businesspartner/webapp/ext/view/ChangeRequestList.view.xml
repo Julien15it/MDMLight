@@ -40,7 +40,8 @@
           <Column><Text text="Requested On" /></Column>
         </columns>
         <items>
-          <ColumnListItem type="Navigation">
+          <!-- Only a draft leads anywhere; the rest are overview rows. -->
+          <ColumnListItem type="{= ${cr>status} === 'draft' ? 'Navigation' : 'Inactive' }">
             <cells>
               <Text text="{cr>ID}" />
               <Text text="{cr>requestType}" />
