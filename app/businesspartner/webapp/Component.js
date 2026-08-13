@@ -24,7 +24,13 @@ sap.ui.define(
                 this._loadPermissions();
                 // Always set, so the view can bind on it whether or not BPA embedded us.
                 this.setModel(new JSONModel({ embedded: false }), "env");
-                this._initTaskForm();
+                // Never allowed to reject: init() is synchronous to its caller, and an unhandled
+                // rejection here can abort the shell's app creation and have it retried - which
+                // surfaces as "adding element with duplicate id ...-content" rather than as
+                // anything resembling the real fault.
+                this._initTaskForm().catch(function (error) {
+                    console.error("[taskform] Task form initialisation failed:", error);
+                });
             },
 
             /**

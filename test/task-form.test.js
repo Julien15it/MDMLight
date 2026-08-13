@@ -112,3 +112,10 @@ test('the app hides its own decision buttons while embedded', () => {
   // Navigating to the partner list from inside a task form is a dead end.
   assert.match(view, /text="Business Partners"[\s\S]{0,140}visible="\{= !\$\{env>\/embedded\} \}"/u);
 });
+
+// An unhandled rejection in init can abort the shell's app creation and have it retried, which
+// surfaces as "adding element with duplicate id ...-content" and looks nothing like the cause.
+test('task form initialisation can never reject into component init', () => {
+  assert.match(component, /this\._initTaskForm\(\)\.catch\(/u);
+  assert.match(component, /Task form initialisation failed/u);
+});
