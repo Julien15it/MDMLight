@@ -58,9 +58,16 @@ npm run import:valuehelp     # and npm run import:bp for API_BUSINESS_PARTNER
 ```
 
 That fetches `$metadata` **through `VF_S4HANA_DEST`**, so it needs no credentials
-of its own — but it therefore only runs where the destination resolves: in CF, or
-locally under the hybrid profile (`cds bind`, see `.cdsrc-private.json`). It
-writes `srv/external/ZSRVB_MDMLIGHT_VH.edmx` (the raw document) and regenerates
+of its own — but it therefore only runs where the destination resolves.
+
+Use the npm scripts rather than calling `tools/import-metadata.js` directly: they
+wrap it in `cds bind --exec`, which is what puts the bound credentials into
+`VCAP_SERVICES` where the Cloud SDK looks for them. `cds bind` on its own only
+writes `.cdsrc-private.json`, which CAP reads and the Cloud SDK does not — run
+the script bare and it fails with `Failed to load destination`. In Cloud Foundry
+`VCAP_SERVICES` is already set and no wrapper is needed.
+
+It writes `srv/external/ZSRVB_MDMLIGHT_VH.edmx` (the raw document) and regenerates
 `ZSRVB_MDMLIGHT_VH.cds` (the CAP model, with a `checksum` header — do not
 hand-edit that file, the next import overwrites it). Commit both.
 

@@ -8,9 +8,12 @@
  *   npm run import:valuehelp
  *
  * It fetches through the BTP destination rather than the raw URL, so it needs no credentials of
- * its own and works wherever the app itself works: in CF, and locally under the hybrid profile
- * (`cds bind`, see .cdsrc-private.json). Without a binding it stops and says so — it will not
- * silently leave the checked-in copy half-written.
+ * its own. Run it through the npm scripts: they wrap it in `cds bind --exec`, which is what puts
+ * the bound credentials into VCAP_SERVICES where the Cloud SDK looks for them. `cds bind` on its
+ * own only writes .cdsrc-private.json, which CAP reads and the Cloud SDK does not.
+ *
+ * Without a binding it stops and says so — it will not silently leave the checked-in copy
+ * half-written.
  */
 
 const fs = require('fs');
@@ -41,10 +44,28 @@ async function main() {
   const url = `${String(config.credentials.path || `/${service}`).replace(/\/$/u, '')}/$metadata`;
 
   console.log(`Reading ${url} through destination ${config.credentials.destination}…`);
-  const response = await executeHttpRequest(
-    { destinationName: config.credentials.destination },
-    { method: 'GET', url, timeout: 60000 }
-  );
+  let response;
+  try {
+    response = await executeHttpRequest(
+      { destinationName: config.credentials.destination },
+      { method: 'GET', url, timeout: 60000 }
+    );
+  } catch (error) {
+    // The Cloud SDK reads bindings out of VCAP_SERVICES, which `cds bind` alone does not set — it
+    // writes .cdsrc-private.json, and only `cds bind --exec` injects that into the process. Run
+    // bare and the failure is "Failed to load destination", which does not point anywhere useful.
+    if (/destination/iu.test(error.message)) {
+      throw new Error(
+        `${error.message}\n\n`
+        + `No destination binding reached this process. Run it through the npm script, which wraps it:\n`
+        + `  npm run ${service === 'API_BUSINESS_PARTNER' ? 'import:bp' : 'import:valuehelp'}\n\n`
+        + `If that still fails, the binding itself is missing — check it with \`cds bind\` (no arguments\n`
+        + `lists what is bound) and re-bind the destination service, then try again. In Cloud Foundry\n`
+        + `VCAP_SERVICES is already set, so no wrapper is needed there.`
+      );
+    }
+    throw error;
+  }
 
   const xml = typeof response?.data === 'string' ? response.data : String(response?.data || '');
   if (!xml.includes('<EntitySet')) {

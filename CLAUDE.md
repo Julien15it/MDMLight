@@ -96,7 +96,11 @@ npm run import:valuehelp   # re-import ZSRVB_MDMLIGHT_VH
 ```
 
 Both go through `VF_S4HANA_DEST`, so they need no credentials but only work where
-the destination resolves — CF, or `cds watch --profile hybrid` after `cds bind`.
+the destination resolves. The scripts wrap `tools/import-metadata.js` in
+`cds bind --exec`, which injects the bound credentials as `VCAP_SERVICES` — the
+Cloud SDK reads that, not `.cdsrc-private.json`, so calling the tool directly
+fails with `Failed to load destination`. Same trap for any other Cloud SDK script
+added here.
 
 `srv/metadata-drift.js` runs once at startup and reports the difference against
 the live services, scoped to the entity sets the app actually reads (nine of the
