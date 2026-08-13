@@ -173,6 +173,36 @@ test('deletable related entities expose a confirmed delete action', async () => 
   assert.ok(model.definitions['BusinessPartnerService.deleteBusinessPartnerEntity']);
 });
 
+test('date pickers write back a full datetime, not a bare date, and roles stay deletable', () => {
+  const controller = fs.readFileSync(
+    path.join(webapp, 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),
+    'utf8'
+  );
+  const metadata = fs.readFileSync(
+    path.join(webapp, 'ext', 'BusinessPartnerMetadata.js'),
+    'utf8'
+  );
+
+  // ValidFrom/ValidTo (and any other date field) are typed cds.Date/cds.DateTime
+  // in the model — DatePicker only edits the date part, but the value written
+  // back to the record must still be a full ISO datetime.
+  assert.match(controller, /function toDateTimeValue/);
+  assert.match(controller, /record\[field\.name\] = toDateTimeValue\(event\.getParameter\("value"\)\)/);
+
+  // cds.DateTime fields (ValidFrom/ValidTo, ValidityStartDate/EndDate, ...)
+  // need a date+time picker, not just a date picker — cds.Date fields keep
+  // the plain DatePicker.
+  assert.match(controller, /"sap\/m\/DateTimePicker"/);
+  assert.match(controller, /function isDateTime\(field\)/);
+  assert.match(controller, /isDateTimeField \? DateTimePicker : DatePicker/);
+
+  // BusinessPartnerRoles used to be add-only; it must be deletable like every
+  // other creatable section (server-side gate lives in MAINTENANCE_ENTITIES).
+  const rolesSectionMatch = metadata.match(/"id": "BusinessPartnerRoles"[\s\S]*?\n {6}\}/u);
+  assert.ok(rolesSectionMatch, 'BusinessPartnerRoles section not found in generated metadata');
+  assert.doesNotMatch(rolesSectionMatch[0], /"deletable": false/);
+});
+
 test('application component initializes list actions with the main OData model', () => {
   const component = fs.readFileSync(path.join(webapp, 'Component.js'), 'utf8');
   assert.match(component, /CustomActions\.setEnvironment\(this\.getModel\(\), null\)/);

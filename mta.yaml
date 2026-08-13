@@ -41,6 +41,9 @@ modules:
       AICORE_FALLBACK_MODELS: gemini-3.5-flash,gpt-5-mini
       AICORE_RESOURCE_GROUP: default
       ASSISTANT_INTENT_SOURCE: model
+      # APPROUTER_URL is deliberately unset: the standalone approuter is gone, so
+      # there is no module to source it from and approveUrl() degrades to ''.
+      # Set it to the Work Zone site URL as a literal to restore the deep link.
   
 
   # --- PostgreSQL schema deployer ----------------------------------------------

@@ -48,7 +48,6 @@ const sections = [
     relationField: 'BusinessPartner',
     typeName: 'A_BusinessPartnerRoleType',
     kind: 'collection',
-    deletable: false,
     fieldNames: ['BusinessPartner', 'BusinessPartnerRole', 'ValidFrom', 'ValidTo'],
     summaryFields: ['BusinessPartnerRole', 'ValidFrom', 'ValidTo'],
     requiredCreateFields: ['BusinessPartnerRole']
