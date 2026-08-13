@@ -80,11 +80,10 @@ mbt build
 cf deploy mta_archives/mdm-md-businesspartner-manage_1.8.0.mtar
 ```
 
-Open the deployed application through the standalone approuter route:
-
-```text
-https://<approuter-route>/mdmmdbusinesspartnermanage/index.html
-```
+Open the deployed application from its tile in the SAP Build Work Zone site. The
+app is served by the **managed** approuter out of the HTML5 applications
+repository — there is no approuter module in this MTA and no Cloud Foundry route
+of its own. See "No approuter module" in `CLAUDE.md`.
 
 The imported EDMX/CSN under `srv/external` is the Business Partner API model used
 by the official SAP CAP S/4 sample. If your on-premise S/4 release exposes a
