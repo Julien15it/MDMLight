@@ -103,12 +103,19 @@ the connectivity proxy, which exists only in the CF runtime. Expect
 `Could not find service binding of type 'destination'` in BAS — that is the
 environment, not a bug. Same trap for any other Cloud SDK script added here.
 
-From BAS, pass the source explicitly:
+From BAS, fetch it directly instead — `--insecure` if the gateway certificate is
+self-signed:
 
 ```bash
-npm run import:bp -- --url https://<host>:44301/sap/opu/odata/sap   # S4_USER / S4_PASSWORD, --insecure if self-signed
-npm run import:bp -- --file /path/to/saved-metadata.xml             # downloaded from the browser
+npm run import:bp -- --url https://<host>:44301/sap/opu/odata/sap   # S4_USER / S4_PASSWORD
 ```
+
+If the `$metadata` document is already on disk, don't use the script at all —
+`cds import <file> --as csn --into srv/external` (`--as cds` for the value-help
+service) is the whole job. That is how both checked-in copies got here: each was
+fetched by hand, by Julien and Arthur respectively. There has never been an
+automated path, so treat a re-import as a manual step someone performs, not as
+something the app can do for itself.
 
 `srv/metadata-drift.js` runs once at startup and reports the difference against
 the live services, scoped to the entity sets the app actually reads (nine of the

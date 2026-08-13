@@ -57,25 +57,32 @@ checked in, and every read runs off that copy:
 npm run import:valuehelp     # and npm run import:bp for API_BUSINESS_PARTNER
 ```
 
-There are three routes in, because the destination one **does not work from BAS**:
+The destination route **does not work from BAS**:
 
 ```bash
-npm run import:bp                                    # via VF_S4HANA_DEST — CF only
+npm run import:bp                                                  # via VF_S4HANA_DEST — CF only
 npm run import:bp -- --url https://<host>:44301/sap/opu/odata/sap   # S4_USER / S4_PASSWORD
-npm run import:bp -- --file /path/to/saved-metadata.xml
 ```
 
 The SAP Cloud SDK resolves destinations from `VCAP_SERVICES`. `cds bind` writes
 `.cdsrc-private.json`, which CAP reads and the Cloud SDK does not, and even
 `cds bind --exec` only helps once `mdm-businesspartner-destination-service` is
 itself bound — plus, for an on-premise destination, the connectivity proxy, which
-exists only in the CF runtime. So in BAS use `--url` (add `--insecure` if the
-gateway certificate is self-signed) or `--file` with a document downloaded from
-the browser, where you are already authenticated.
+exists only in the CF runtime. So from BAS use `--url`, adding `--insecure` if the
+gateway certificate is self-signed. The fetch is overwritten into `srv/external`
+only once a document containing entity sets is in hand, so a login page or a
+gateway error never lands there.
 
-Whichever route, the checked-in copy is overwritten only once a document
-containing entity sets is in hand — a login page or a gateway error never lands in
-`srv/external`.
+**Already downloaded the document?** Skip the script — it has nothing to add over
+the command it would run:
+
+```bash
+cds import <file> --as cds --into srv/external      # --as csn for API_BUSINESS_PARTNER
+```
+
+That is how both checked-in copies actually got here: `API_BUSINESS_PARTNER.edmx`
+by Julien (`e34b94e`, 2026-07-30) and this service's by Arthur (`169418c`,
+2026-08-06), each fetched by hand. There has never been an automated path.
 
 It writes `srv/external/ZSRVB_MDMLIGHT_VH.edmx` (the raw document) and regenerates
 `ZSRVB_MDMLIGHT_VH.cds` (the CAP model, with a `checksum` header — do not

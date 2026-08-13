@@ -4,17 +4,20 @@
  * Re-imports one remote service's $metadata into srv/external — the "run the sync again" that the
  * drift check in srv/metadata-drift.js tells you to run.
  *
- *   npm run import:bp                          # via the BTP destination (works in CF)
+ *   npm run import:bp                          # via the BTP destination — Cloud Foundry only
  *   npm run import:bp -- --url <base-url>      # direct, with S4_USER / S4_PASSWORD
- *   npm run import:bp -- --file saved.edmx     # from a document you already downloaded
  *
- * Three ways in, because the destination route only works where a destination *service binding*
- * exists. `cds bind` writes .cdsrc-private.json, which CAP reads and the SAP Cloud SDK does not,
- * and even `cds bind --exec` only helps once the destination service instance itself is bound. In
- * BAS the shortest path is usually --url or --file.
+ * Two ways in, because the destination route only works where a destination *service binding*
+ * exists: `cds bind` writes .cdsrc-private.json, which CAP reads and the SAP Cloud SDK does not,
+ * and an on-premise destination also wants the connectivity proxy, which only the CF runtime has.
  *
- * Whichever route, the checked-in copy is only overwritten once a document with entity sets is in
- * hand — a login page or a gateway error never lands in srv/external.
+ * There is deliberately no --file route. If the document is already on disk, this script has
+ * nothing to add over the command it would run for you:
+ *
+ *   cds import <file> --as cds --into srv/external      # --as csn for API_BUSINESS_PARTNER
+ *
+ * What the fetch routes add is the credentials, and the check that what came back is a model at
+ * all — a login page or a gateway error never lands in srv/external.
  */
 
 const fs = require('fs');
@@ -30,11 +33,10 @@ const SCRIPTS = Object.freeze({
 });
 
 function parseArguments(argv) {
-  const options = { service: null, url: null, file: null, insecure: false };
+  const options = { service: null, url: null, insecure: false };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === '--url') options.url = argv[++index];
-    else if (argument === '--file') options.file = argv[++index];
     else if (argument === '--insecure') options.insecure = true;
     else if (!options.service) options.service = argument;
   }
@@ -43,13 +45,16 @@ function parseArguments(argv) {
 
 function usage() {
   return [
-    'Usage: node tools/import-metadata.js <ServiceName> [--url <base-url> | --file <path>] [--insecure]',
+    'Usage: node tools/import-metadata.js <ServiceName> [--url <base-url>] [--insecure]',
     '',
     '  <ServiceName>   API_BUSINESS_PARTNER or ZSRVB_MDMLIGHT_VH',
     '  --url           gateway base URL, e.g. https://host:44301/sap/opu/odata/sap',
     '                  reads S4_USER and S4_PASSWORD from the environment',
-    '  --file          a $metadata document already on disk',
-    '  --insecure      skip TLS verification (self-signed sandbox certificates only)'
+    '  --insecure      skip TLS verification (self-signed sandbox certificates only)',
+    '',
+    'With no --url the BTP destination is used, which resolves only in Cloud Foundry.',
+    'Already have the document on disk? Skip this script:',
+    '  cds import <file> --as cds --into srv/external      (--as csn for API_BUSINESS_PARTNER)'
   ].join('\n');
 }
 
@@ -68,9 +73,10 @@ async function fromDestination(destination, url) {
       + 'VCAP_SERVICES, so this route needs the destination service instance\n'
       + '(mdm-businesspartner-destination-service) bound — and for an on-premise destination, the\n'
       + 'connectivity proxy, which only exists in the Cloud Foundry runtime.\n\n'
-      + 'Two routes that need none of that:\n'
-      + '  --url https://<host>:44301/sap/opu/odata/sap   with S4_USER and S4_PASSWORD set\n'
-      + '  --file <saved-metadata.xml>                    downloaded from the browser\n\n'
+      + 'Fetch it directly instead:\n'
+      + '  --url https://<host>:44301/sap/opu/odata/sap   with S4_USER and S4_PASSWORD set\n\n'
+      + 'Or, if the document is already on disk, skip this script entirely:\n'
+      + '  cds import <file> --as cds --into srv/external   (--as csn for API_BUSINESS_PARTNER)\n\n'
       + 'To check what is bound, read .cdsrc-private.json — `cds bind` with no arguments only\n'
       + 'prints its own usage.'
     );
@@ -118,10 +124,7 @@ async function main() {
   const servicePath = `${String(config.credentials?.path || `/${options.service}`).replace(/\/$/u, '')}/$metadata`;
 
   let xml;
-  if (options.file) {
-    console.log(`Reading ${options.file}…`);
-    xml = fs.readFileSync(options.file, 'utf8');
-  } else if (options.url) {
+  if (options.url) {
     console.log(`Reading ${options.url}${servicePath} as ${process.env.S4_USER}…`);
     xml = await fromUrl(options.url, servicePath, options);
   } else {

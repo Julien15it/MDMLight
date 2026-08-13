@@ -8,19 +8,15 @@ const {
 } = require('../srv/metadata-drift');
 const { parseArguments } = require('../tools/import-metadata');
 
-// The destination route does not work from BAS, so the other two are the ones that get used.
-test('the importer takes a service plus an explicit source', () => {
+// No --file route on purpose: with the document already on disk, `cds import` is the whole job.
+test('the importer takes a service, and a URL when the destination cannot be reached', () => {
   assert.deepEqual(parseArguments(['API_BUSINESS_PARTNER']), {
-    service: 'API_BUSINESS_PARTNER', url: null, file: null, insecure: false
-  });
-  assert.deepEqual(parseArguments(['X', '--file', 'saved.xml']), {
-    service: 'X', url: null, file: 'saved.xml', insecure: false
+    service: 'API_BUSINESS_PARTNER', url: null, insecure: false
   });
   assert.deepEqual(parseArguments(['X', '--url', 'https://h/sap', '--insecure']), {
-    service: 'X', url: 'https://h/sap', file: null, insecure: true
+    service: 'X', url: 'https://h/sap', insecure: true
   });
-  // Requiring the module must not run the import.
-  assert.equal(parseArguments([]).service, null);
+  assert.equal(parseArguments([]).service, null, 'requiring the module must not run the import');
 });
 
 const edmx = (sets) => `<?xml version="1.0" encoding="utf-8"?>
