@@ -95,8 +95,10 @@ test('submitting no longer leaves the screen, and the messages have somewhere to
 });
 
 test('confirmation is tied to the payload that was warned about, not to a flag', () => {
+  // Submit only carries Confirm when the payload still matches the one that was warned about.
+  // Where the arming happens is pinned by 'confirming from Check carries over to Submit' below —
+  // it moved into _confirmDuplicates so Check and Submit can share one confirmation.
   assert.match(controllerSource, /awaitingConfirmationFor === parameters\.DataJson/u);
-  assert.match(controllerSource, /state\.awaitingConfirmationFor = parameters\.DataJson/u);
 });
 
 
@@ -129,7 +131,7 @@ test('an unconfirmed duplicate opens a dialog with Continue and Cancel', () => {
   assert.match(controllerSource, /if \(result && result\.NeedsConfirmation\)[\s\S]{0,320}_confirmDuplicates/u);
   assert.match(controllerSource, /actions: \["Continue", MessageBox\.Action\.CANCEL\]/u);
   // Continue arms the next press rather than submitting for the user.
-  assert.match(controllerSource, /Press Submit Request again to confirm/u);
+  assert.match(controllerSource, /Press Submit Request to confirm/u);
   // Cancel drops the arming, so an unchanged payload is checked again rather than waved through.
   assert.match(controllerSource, /state\.awaitingConfirmationFor = "";/u);
 });
