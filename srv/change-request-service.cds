@@ -76,6 +76,32 @@ service ChangeRequestService @(path: '/service/changerequest') {
   };
 
   /**
+   * Runs the check pipeline over an unsaved payload and reports what it found.
+   * **Stages nothing and starts nothing** - this is the Check button, not a
+   * dry-run submit, so pressing it can never leave a row behind.
+   *
+   * Order is validate -> derive -> duplicate check, and it is fixed in
+   * srv/checks/pipeline.js: invalid data cannot be a duplicate, and incomplete
+   * data can be missing the fields a duplicate rule needs. A blocking
+   * validation therefore stops the rest, and `RanDuplicateCheck` says whether
+   * the duplicate check got as far as running - an empty `DuplicatesJson` on
+   * its own does not mean "no duplicates".
+   */
+  action checkRequest(
+    ChangeRequest   : UUID,
+    BusinessPartner : String(10),
+    DataJson        : LargeString not null
+  ) returns {
+    /** False when a validation blocked; nothing after validation ran. */
+    Valid             : Boolean;
+    RanDuplicateCheck : Boolean;
+    ValidationsJson   : LargeString;
+    /** Fields the derivations filled in, for the screen to apply and show. */
+    DerivationsJson   : LargeString;
+    DuplicatesJson    : LargeString;
+  };
+
+  /**
    * The SPA decision callback. Records the outcome only - it never writes to
    * S/4, however many approvers the process routed the request through.
    * `approve` moves the request to `approved`, meaning every approval SPA

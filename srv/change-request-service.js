@@ -3,6 +3,7 @@
 const cds = require('@sap/cds');
 const { startWorkflow } = require('./wf/processAutomation');
 const { candidateFromStagedRequest } = require('./ai/duplicate-check');
+const { runChecks } = require('./checks/pipeline');
 
 const STAGING = 'mdmlight.staging.';
 const FINDINGS = `${STAGING}CheckFindings`;
@@ -227,6 +228,38 @@ class ChangeRequestService extends cds.ApplicationService {
       }
       return findings;
     };
+
+    /**
+     * The Check button. Same pipeline the submit will grow into, but over the payload on screen:
+     * it stages nothing, starts nothing and can be pressed as often as anyone likes.
+     */
+    this.on('checkRequest', async (req) => {
+      const data = parseJsonObject(req.data.DataJson, 'DataJson');
+      const result = await runChecks(
+        candidateFromStagedRequest(data.root || {}, data.sections || {}),
+        {
+          checkDuplicates: async (candidate) => {
+            const bp = await cds.connect.to('BusinessPartnerService');
+            const answer = await bp.send('checkBusinessPartnerDuplicates', {
+              CandidateJson: JSON.stringify(candidate),
+              // Same exclusions as the submit: a change request is not its own duplicate, and
+              // neither is the partner it is changing.
+              ExcludeBP: req.data.BusinessPartner || data.root?.BusinessPartner || null,
+              ExcludeRequest: req.data.ChangeRequest || null
+            });
+            return JSON.parse(answer || '{}').findings || [];
+          }
+        }
+      );
+
+      return {
+        Valid: result.valid,
+        RanDuplicateCheck: result.ranDuplicateCheck,
+        ValidationsJson: JSON.stringify(result.validations),
+        DerivationsJson: JSON.stringify(result.derivations),
+        DuplicatesJson: JSON.stringify(result.duplicates)
+      };
+    });
 
     this.on('submitRequest', async (req) => {
       const changeRequest = await persist(req);

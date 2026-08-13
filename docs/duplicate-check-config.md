@@ -522,10 +522,13 @@ to have no number.
    - Press one runs the check. **Any** verdict — duplicate, strong or small —
      leaves the request in `draft`, starts no workflow, and returns
      `NeedsConfirmation` with the findings.
-   - The screen stays put, keeps the change-request header, and reports in a
-     message area: *"This Business Partner might already exist. Check possible
-     duplicates: 4711 (duplicate). Submit again to confirm creation."*
-   - Press two carries `Confirm` and submits.
+   - **Changed 2026-08-13: this is a dialog, not a message strip.** A banner at
+     the top of a long object page is easy to submit straight past, and this is a
+     decision rather than a notification. The dialog names the matches and offers
+     **Continue** or **Cancel**. Continue arms the confirmation and closes;
+     Cancel drops it, leaving the request exactly as it was.
+   - Press two carries `Confirm` and submits. Continue deliberately does **not**
+     submit for the user — the confirmation stays a second, separate act.
    - A clean check says so explicitly — *"Duplicate check ran: no duplicate
      detected"* — because silence reads as "the check did not run".
 

@@ -178,12 +178,13 @@
     <footer>
       <OverflowToolbar visible="{maintenance>/showFooter}">
         <ToolbarSpacer />
+        <!-- Validate, derive, then check for duplicates — the order is fixed server-side in
+             srv/checks/pipeline.js. Optional: Submit runs the same duplicate check anyway. -->
         <Button
-          text="Preview"
-          icon="sap-icon://show"
-          type="Emphasized"
-          visible="{maintenance>/showPreviewButton}"
-          press=".onPreview" />
+          text="Check"
+          icon="sap-icon://validate"
+          visible="{maintenance>/showCheckButton}"
+          press=".onCheck" />
         <Button
           text="Save Request"
           icon="sap-icon://save"

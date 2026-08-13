@@ -137,14 +137,38 @@ something already live. Do not reintroduce that order.
 
 The flow, with create as the example:
 
-1. User fills the create form and presses **Preview** → display-mode overview.
-2. In preview, **Submit Request** writes everything to the staging tables (and
-   **Save Request** stores a draft without starting anything).
+1. User fills the create form. **Preview was removed 2026-08-13** — it was a step
+   between wanting a partner and asking for one, and the validation it gated on
+   runs on submit anyway. Check, Save Request and Submit Request are all live on
+   the empty form.
+2. **Submit Request** writes everything to the staging tables (and **Save
+   Request** stores a draft without starting anything).
 3. The SPA workflow starts and the task lands in the approver inbox.
 4. The approver opens the same Maintain BP screen in approve mode, data read
    back from staging, with Approve / Reject in place of save/submit.
 5. On approve, CAP posts to `API_BUSINESS_PARTNER` — the SPA never writes to
    S/4 itself.
+
+### The check pipeline — `srv/checks/pipeline.js`
+
+**validate → derive → duplicate check**, and the order is the design. Data that
+fails validation cannot be a duplicate of anything, so a blocking validation
+stops the rest. Data that is merely incomplete may be missing the very fields a
+duplicate rule needs, so derivation runs *before* the duplicate check.
+
+`VALIDATIONS` and `DERIVATIONS` are **registries, deliberately empty today** —
+they exist so the order is settled while there is one caller and no rules, rather
+than argued over later. Adding one is pushing an entry into the array.
+
+Three behaviours worth not "simplifying" away: a validation that throws blocks
+(a rule that silently skipped would defeat the ordering); a derivation that
+throws only reports (an improvement, not a gate); and a duplicate check that
+could not run is reported rather than folded into an empty result, because "no
+duplicates found" from a check that never ran is the one wrong answer here.
+
+The **Check** button (`checkRequest`) runs the pipeline over the payload on
+screen and **stages nothing** — pressing it can never leave a row behind. Submit
+runs the duplicate check regardless, so Check is a convenience, never a gate.
 
 `db/staging.cds` holds `ChangeRequests` plus one `Staged*` node per section of
 the object page, mirroring the MDG node structure, plus `CheckFindings`.

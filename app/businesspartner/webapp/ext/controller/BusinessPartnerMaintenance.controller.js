@@ -314,9 +314,11 @@ sap.ui.define([
           businessPartner: "",
           editing: true,
           showEditButton: false,
-          showPreviewButton: true,
-          showSaveButton: false,
-          showSaveRequestButton: false,
+          // Check, Save Request and Submit Request are all reachable from the empty create form.
+          // Preview used to be the step that revealed the last two; without it they start visible.
+          showCheckButton: true,
+          showSaveButton: true,
+          showSaveRequestButton: true,
           showDecisionButtons: false,
           showFooter: true,
           saveButtonText: "Submit Request",
@@ -393,7 +395,7 @@ sap.ui.define([
         // Editing an existing partner is a change request, not a direct write.
         state.requestType = editing ? "change" : "";
         state.showEditButton = !editing;
-        state.showPreviewButton = false;
+        state.showCheckButton = editing;
         state.showSaveButton = editing;
         state.showSaveRequestButton = editing;
         state.showFooter = true;
@@ -1027,37 +1029,13 @@ sap.ui.define([
         return errors;
       },
 
-      onPreview: function () {
-        var maintenanceModel = this.getView().getModel("maintenance");
-        var state = maintenanceModel.getData();
-        var errors = this._validationErrors(state.root);
-        if (errors.length) {
-          MessageBox.error(errors.join("\n"));
-          return;
-        }
-
-        state.editing = false;
-        state.modeText = "Preview";
-        state.title = "Preview New Business Partner";
-        state.showEditButton = true;
-        state.showPreviewButton = false;
-        state.showSaveButton = true;
-        // Preview is the point of no return for the requester: from here the
-        // request goes to staging and into approval, not to S/4.
-        state.saveButtonText = "Submit Request";
-        state.showSaveRequestButton = true;
-        state.cancelButtonText = "Cancel";
-        this._updatePreview(state);
-        this._renderAll();
-      },
-
       onEdit: function () {
         var maintenanceModel = this.getView().getModel("maintenance");
         var state = maintenanceModel.getData();
         state.editing = true;
         state.showEditButton = false;
-        state.showPreviewButton = state.mode === "create";
-        state.showSaveButton = state.mode !== "create";
+        state.showCheckButton = true;
+        state.showSaveButton = true;
         // Both flows are change requests now, so both can be parked as drafts.
         state.showSaveRequestButton = true;
         if (state.mode !== "create") state.requestType = "change";
@@ -1229,17 +1207,58 @@ sap.ui.define([
        * The message area's content. A duplicate names the record it matched so the user can go and
        * look, rather than being told only that something was found.
        */
-      _submitMessages: function (result, submitted) {
+      /**
+       * Continue arms the confirmation the next Submit carries; Cancel leaves the request exactly
+       * as it was, still a draft, still editable. Neither writes anything — the request is already
+       * staged by the time this runs, and it stays in `draft` either way.
+       */
+      _confirmDuplicates: function (findings) {
+        var duplicates = findings.filter(function (finding) { return !!finding.verdict; });
+        var listed = duplicates.map(function (finding) {
+          return "  \u2022 " + (finding.candidateBP || ("pending request " + finding.candidateRequest))
+            + (finding.verdict ? " (" + finding.verdict + ")" : "");
+        }).join("\n");
+        // Whatever the check reported about itself belongs here too: an outage must not hide
+        // behind a list of duplicates.
+        var notes = findings.filter(function (finding) { return !finding.verdict; })
+          .map(function (finding) { return finding.message; })
+          .filter(Boolean);
+
+        MessageBox.warning(
+          "This Business Partner might already exist:\n\n" + listed
+            + (notes.length ? "\n\n" + notes.join("\n") : "")
+            + "\n\nContinue to submit it anyway, or Cancel to go back and change it.",
+          {
+            title: "Possible duplicate",
+            actions: ["Continue", MessageBox.Action.CANCEL],
+            emphasizedAction: MessageBox.Action.CANCEL,
+            contentWidth: "32rem",
+            onClose: function (action) {
+              if (action === "Continue") {
+                // Armed, not submitted: the user presses Submit again, so the confirmation is
+                // always a deliberate second act rather than something a dialog did for them.
+                MessageToast.show("Press Submit Request again to confirm.");
+                return;
+              }
+              // Cancelled: drop the confirmation so an unchanged payload is checked afresh.
+              var state = this.getView().getModel("maintenance").getData();
+              state.awaitingConfirmation = false;
+              state.awaitingConfirmationFor = "";
+            }.bind(this)
+          }
+        );
+      },
+
+      // Only ever called for a request that was actually submitted: the unconfirmed case is a
+      // dialog now (_confirmDuplicates), not a strip the user can scroll past.
+      _submitMessages: function (result) {
         var findings = this._findingsFrom(result);
         var duplicates = findings.filter(function (finding) { return !!finding.verdict; });
-        var messages = [];
+        var messages = [{
+          type: "Success",
+          text: "Change request " + ((result && result.ChangeRequest) || "") + " submitted for approval."
+        }];
 
-        if (submitted) {
-          messages.push({
-            type: "Success",
-            text: "Change request " + ((result && result.ChangeRequest) || "") + " submitted for approval."
-          });
-        }
         if (!duplicates.length) {
           messages.push({
             type: "Information",
@@ -1253,7 +1272,7 @@ sap.ui.define([
                 return (finding.candidateBP || ("pending request " + finding.candidateRequest))
                   + (finding.verdict ? " (" + finding.verdict + ")" : "");
               }).join(", ")
-              + (submitted ? "." : ". Submit again to confirm creation.")
+              + ". Submitted with confirmation."
           });
         }
         // Anything the check itself reported - an outage, a rule that could not run - is shown
@@ -1299,7 +1318,7 @@ sap.ui.define([
             state.showEditButton = true;
             state.showSaveButton = false;
             state.showSaveRequestButton = false;
-            state.showPreviewButton = false;
+            state.showCheckButton = false;
             state.modeText = "Draft";
             state.title = "Change request " + state.changeRequest;
             MessageToast.show("Change request " + state.changeRequest + " saved as a draft.");
@@ -1307,12 +1326,13 @@ sap.ui.define([
           }
 
           // Nothing was submitted: the check found something and the request is still a draft.
-          // Stay on the screen with the header and the findings, and let the next press confirm.
+          // A dialog rather than a message strip, because this is a decision the user has to make
+          // now — a banner above a long object page is easy to submit straight past.
           if (result && result.NeedsConfirmation) {
             state.awaitingConfirmation = true;
             state.awaitingConfirmationFor = parameters.DataJson;
-            state.saveButtonText = "Submit Again to Confirm";
-            state.messages = this._submitMessages(result, false);
+            state.messages = [];
+            this._confirmDuplicates(this._findingsFrom(result));
             return;
           }
 
@@ -1323,10 +1343,10 @@ sap.ui.define([
           state.editing = false;
           state.showSaveButton = false;
           state.showSaveRequestButton = false;
-          state.showPreviewButton = false;
+          state.showCheckButton = false;
           state.showEditButton = false;
           state.title = "Request submitted for approval";
-          state.messages = this._submitMessages(result, true);
+          state.messages = this._submitMessages(result);
           // Deliberately no navigation: the request header and its messages stay on screen, the
           // way Save already behaves and the way MDG reports a submit.
         } catch (error) {
@@ -1336,6 +1356,115 @@ sap.ui.define([
           maintenanceModel.refresh(true);
           this._renderAll();
         }
+      },
+
+      /**
+       * Validate, derive, then check for duplicates — the order is fixed server-side in
+       * srv/checks/pipeline.js and the reasons live there. Stages nothing: this is a question the
+       * user can ask as often as they like without leaving a change request behind.
+       *
+       * Submit runs the same duplicate check regardless, so Check is a convenience, never a gate.
+       */
+      onCheck: async function () {
+        var maintenanceModel = this.getView().getModel("maintenance");
+        var state = maintenanceModel.getData();
+        // The client-side required-field check first: it needs no round trip.
+        var errors = state.mode === "create" ? this._validationErrors(state.root) : [];
+        if (errors.length) {
+          MessageBox.error(errors.join("\n"));
+          return;
+        }
+
+        state.busy = true;
+        maintenanceModel.refresh(true);
+        try {
+          var result = await this._executeAction("checkRequest", {
+            ChangeRequest: state.changeRequest || null,
+            BusinessPartner: state.businessPartner || null,
+            DataJson: this._requestDataJson(state)
+          }, "cr");
+
+          var validations = this._parseJsonArray(result && result.ValidationsJson);
+          var derivations = this._parseJsonArray(result && result.DerivationsJson);
+          var duplicates = this._parseJsonArray(result && result.DuplicatesJson);
+
+          // Derived values are applied to the form so the user sees what was filled in, rather
+          // than discovering it after approval.
+          derivations.filter(function (entry) { return entry.field; }).forEach(function (entry) {
+            state.root[entry.field] = entry.value;
+          });
+          if (derivations.length) this._updatePreview(state);
+
+          state.messages = this._checkMessages(validations, derivations, duplicates, result);
+          this._renderAll();
+
+          if (!result || result.Valid === false) {
+            MessageBox.error(
+              "The data is not valid yet:\n\n"
+              + validations.map(function (entry) { return "  \u2022 " + entry.message; }).join("\n")
+            );
+            return;
+          }
+          // A check that could not run must never read as an all-clear.
+          if (result.RanDuplicateCheck === false) {
+            MessageBox.information("The duplicate check could not run. Nothing was ruled out.");
+            return;
+          }
+          if (duplicates.some(function (finding) { return !!finding.verdict; })) {
+            this._confirmDuplicates(duplicates);
+            return;
+          }
+          MessageToast.show("Checked: no duplicate detected.");
+        } catch (error) {
+          MessageBox.error(errorMessage(error, "The check could not be run."));
+        } finally {
+          state.busy = false;
+          maintenanceModel.refresh(true);
+        }
+      },
+
+      _parseJsonArray: function (text) {
+        try {
+          var value = JSON.parse(text || "[]");
+          return Array.isArray(value) ? value : [];
+        } catch (parseError) {
+          return [];
+        }
+      },
+
+      _checkMessages: function (validations, derivations, duplicates, result) {
+        var messages = [];
+        validations.forEach(function (entry) {
+          messages.push({
+            type: entry.severity === "error" ? "Error" : "Warning",
+            text: entry.message
+          });
+        });
+        derivations.forEach(function (entry) {
+          messages.push({ type: "Information", text: entry.message });
+        });
+        if (!result || result.Valid === false) return messages;
+
+        var found = duplicates.filter(function (finding) { return !!finding.verdict; });
+        if (result.RanDuplicateCheck === false) {
+          messages.push({ type: "Warning", text: "The duplicate check did not run." });
+        } else if (!found.length) {
+          messages.push({ type: "Success", text: "Duplicate check ran: no duplicate detected." });
+        } else {
+          messages.push({
+            type: "Warning",
+            text: "This Business Partner might already exist. Check possible duplicates: "
+              + found.map(function (finding) {
+                return (finding.candidateBP || ("pending request " + finding.candidateRequest))
+                  + (finding.verdict ? " (" + finding.verdict + ")" : "");
+              }).join(", ")
+          });
+        }
+        duplicates.filter(function (finding) { return !finding.verdict && finding.message; })
+          .forEach(function (finding) {
+            messages.push({ type: "Information", text: finding.message });
+          });
+        return messages;
       },
 
       onSaveRequest: function () {
@@ -1366,7 +1495,7 @@ sap.ui.define([
         state.editing = editing;
         state.changeRequest = changeRequest;
         state.showEditButton = false;
-        state.showPreviewButton = false;
+        state.showCheckButton = false;
         state.showSaveButton = editing;
         state.showSaveRequestButton = editing;
         state.showDecisionButtons = !editing;
