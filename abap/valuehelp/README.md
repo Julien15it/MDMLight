@@ -5,14 +5,23 @@ fields of the Maintain Business Partner app. No Z copies of the views: all of
 them are `SAP_BASIS` / `SAP_ABA` / `S4CORE`, released, clean-core level A, and
 ship with every S/4 system regardless of MDG licensing.
 
+Two names, and they are not interchangeable — the app refers to the **binding**,
+never the service definition:
+
+| | Name |
+|---|---|
+| Service definition (this folder) | `ZMDML_VH_ENTITY` |
+| Service binding / external name | `ZSRVB_MDMLIGHT_VH` |
+| URL | `/sap/opu/odata/sap/ZSRVB_MDMLIGHT_VH` |
+
 ## Create in ADT
 
-1. Create data definition-free **service definition** `ZAPI_BP_VALUEHELP` from
-   `ZAPI_BP_VALUEHELP.asrvdsrv`, assign to a Z package, activate.
+1. Create data definition-free **service definition** `ZMDML_VH_ENTITY` from
+   `ZMDML_VH_ENTITY.asrvdsrv`, assign to a Z package, activate.
 2. Create a **service binding** on it — binding type **ODATA V2 – Web API**,
-   external service name `ZAPI_BP_VALUEHELP`. Activate, then publish.
+   external service name `ZSRVB_MDMLIGHT_VH`. Activate, then publish.
 3. The service is then reachable at
-   `/sap/opu/odata/sap/ZAPI_BP_VALUEHELP`.
+   `/sap/opu/odata/sap/ZSRVB_MDMLIGHT_VH`.
 
 The V2/V4 choice lives in the *binding*, not in the service definition — the
 source file is identical either way.
@@ -20,22 +29,69 @@ source file is identical either way.
 ## Why V2
 
 `VF_S4HANA_DEST` points at `/sap/opu/odata/sap`, the V2 gateway root, so a V2
-binding is reachable through the destination the app already has. Add to
-`package.json`:
+binding is reachable through the destination the app already has. This is the
+entry in `package.json` (`csrf: false` — the app only ever reads from it, so
+there is no token round trip to pay for):
 
 ```json
-"ZAPI_BP_VALUEHELP": {
+"ZSRVB_MDMLIGHT_VH": {
   "kind": "odata-v2",
-  "model": "srv/external/ZAPI_BP_VALUEHELP",
+  "model": "srv/external/ZSRVB_MDMLIGHT_VH",
+  "csrf": false,
   "credentials": {
     "destination": "VF_S4HANA_DEST",
-    "path": "/ZAPI_BP_VALUEHELP"
+    "path": "/ZSRVB_MDMLIGHT_VH"
   }
 }
 ```
 
 A V4 binding would be served from `/sap/opu/odata4/sap/…`, a different root,
 needing a second destination.
+
+## How the metadata reaches the app
+
+**The app never calls `$metadata`.** It was imported once and checked in, and
+everything runs off that copy:
+
+```bash
+cds import "https://saps4amdg.alluvion.eu:44301/sap/opu/odata/sap/ZSRVB_MDMLIGHT_VH/$metadata" \
+  --as cds --into srv/external
+```
+
+That writes `srv/external/ZSRVB_MDMLIGHT_VH.edmx` (the raw document) and
+`ZSRVB_MDMLIGHT_VH.cds` (the CAP model, with a `checksum` header — do not
+hand-edit it, the next import overwrites it). `business-partner-service.cds`
+projects onto that model, so it has to exist at **compile** time: `cds build`
+cannot fetch it.
+
+Consequences worth knowing before changing anything here:
+
+- **Adding an `expose` line changes nothing in the app** until someone re-runs
+  the import above and commits both files.
+- Nothing checks the copy against the live service. See "Known drift" below.
+- Three lists have to be kept in step by hand when a lookup is added or removed:
+  the `as projection on VH.` lines in `srv/business-partner-service.cds`,
+  `VALUE_HELP_ENTITIES` in `srv/business-partner-service.js`, and
+  `VALUE_HELP_FIELDS` in the UI's `BusinessPartnerMaintenance.controller.js`.
+
+## Known drift, 2026-08-13
+
+This file exposes **41** sets; the imported metadata carries **26**. Missing from
+the metadata are all fourteen `*Texts` sets — `LanguageTexts`,
+`FormOfAddressTexts`, `BusinessPartnerCategoryTexts`,
+`BusinessPartnerGroupingTexts`, `BusinessPartnerTypeTexts`, `LegalFormTexts`,
+`OccupationTexts`, `PrintFormatTexts`, `MaritalStatusTexts`,
+`BirthDateStatusTexts`, `IndustryCodeTexts`, `IndustrySectorTexts`,
+`IndustrySystemTexts`, `CustomerClassificationTexts`.
+
+Either the binding was never republished after they were added here, or they were
+dropped from the activated service and this file was not updated. Nothing depends
+on them — see the note under the table — so it is cosmetic, but it means **this
+file is not evidence of what the service actually exposes.** The `.edmx` is.
+
+Of the 26 that do exist, 18 are projected into `BusinessPartnerService`. The
+eight that are not: `Banks`, `BirthDateStatuses`, `BusinessPartnerTypes`,
+`MaritalStatuses`, `Occupations`, `PrintFormats`, `TaxTypes`, `TradingPartners`.
 
 ## Field → entity set
 
@@ -68,8 +124,20 @@ needing a second destination.
 | `CustomerClassification` | Customer Data | `CustomerClassifications` (+ texts) | `I_CustomerClassification` |
 | `SupplierAccountGroup` | Supplier Data | `SupplierAccountGroups` | `I_SupplierAccountGroupStdVH` |
 
-Text entity sets are exposed alongside their key view because the SAP key views
-carry no description. They are language-dependent — filter on `Language`.
+**Ignore the `(+ texts)` notes above — the texts come free and the separate sets
+are not in the service.** Every key set exposes a language-resolved `<Key>_Text`
+property via `sap:text`, which survives the import as `@sap.text` on the key.
+So `Countries` already carries `Country_Text` and no `Language` filter is needed
+anywhere. This corrects an earlier note here that said the opposite.
+
+Two exceptions to know about:
+
+- `IdentificationTypes` has **no** description property at all — codes only.
+- `Banks` (`I_BusinessPartnerBank`) lists banks already assigned to a business
+  partner, not a bank directory, so a create form cannot offer an unused bank.
+
+Prefer `AddressDependentTaxTypes` over `TaxTypes` for `BPTaxType`: a flat key
+with a name, and no `Language` in the key. `TaxTypes` is exposed but unused.
 
 ### Fields with no released value-help view
 
@@ -89,3 +157,30 @@ Two things can block activation of the binding, both fixable per view:
 The fix in either case is a thin Z projection over that one view (declaring the
 key, or supplying the parameter), exposed in place of the SAP view. Only needed
 for the views that actually complain.
+
+**Or the view simply is not in this release.** The SAP API release repository is
+not an existence oracle for a given system. ADT rejected two, both already
+replaced in the `.asrvdsrv`:
+
+| Wanted | Not in this release | Used instead |
+|---|---|---|
+| Language | `I_LanguageVH` | `I_Language` (+ `I_LanguageText`) |
+| Bank | `I_BankVH` | `I_BusinessPartnerBank` |
+
+The pattern is that the `…VH` convenience views are the ones missing while the
+plain key and text views resolve fine. If another fails, fall back to that pair
+before writing a Z projection.
+
+## Do not copy the SAP views
+
+Every view above is `SAP_BASIS` / `SAP_ABA` / `S4CORE`, application components
+`BC-SRV-ADR`, `BC-DOC-TTL`, `AP-MD-BP(-RAP)`, `LO-MD-BP`, `CA-GTF-CSC`,
+`CA-BK-BNK`, `SD-MD-MM` — all released at clean-core level A. They sit in package
+`MDC_BP_BO`, which reads like MDG but is not a licence boundary; MDG objects
+carry `CA-MDG-*`.
+
+This cost two dead ends before it was established, so it is worth stating: 26 `Z*`
+copies were written that only copied the *names* and so still depended on the SAP
+views existing, and a full transitive copy down to DDIC tables was then attempted
+and is **not possible from here** — no available tool returns the DDL source of a
+released view. To add a value help, add one `expose` line and transport.
