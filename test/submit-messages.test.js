@@ -230,3 +230,8 @@ test('a submitted request has no cancel button, and no empty footer', () => {
   // Nobody is stranded: the object page header carries a permanent way back to the list.
   assert.match(view, /text="Business Partners"[\s\S]{0,200}press="\.onBackToList"/u);
 });
+
+// Numbers alone made several distinct partners look like one repeated entry.
+test('the duplicate dialog names each partner, not only its number', () => {
+  assert.match(controllerSource, /finding\.candidateName \? " " \+ finding\.candidateName : ""/u);
+});

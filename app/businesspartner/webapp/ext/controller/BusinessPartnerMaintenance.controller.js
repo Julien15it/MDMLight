@@ -1245,8 +1245,12 @@ sap.ui.define([
        */
       _confirmDuplicates: function (findings, dataJson) {
         var duplicates = findings.filter(function (finding) { return !!finding.verdict; });
+        // Named, not just numbered: several distinct partners with similar names read as the same
+        // one repeated when the list shows numbers alone.
         var listed = duplicates.map(function (finding) {
-          return "  \u2022 " + (finding.candidateBP || ("pending request " + finding.candidateRequest))
+          var subject = finding.candidateBP || ("pending request " + finding.candidateRequest);
+          return "  \u2022 " + subject
+            + (finding.candidateName ? " " + finding.candidateName : "")
             + (finding.verdict ? " (" + finding.verdict + ")" : "");
         }).join("\n");
         // Whatever the check reported about itself belongs here too: an outage must not hide

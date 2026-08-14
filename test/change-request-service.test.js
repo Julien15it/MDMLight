@@ -2,6 +2,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const ChangeRequestService = require('../srv/change-request-service');
 const {
@@ -147,4 +149,11 @@ test('only real CheckFindings columns are staged', () => {
   assert.equal(staged.candidateBP, '4711');
   assert.equal(staged.verdict, 'duplicate');
   assert.equal(Object.keys(staged).every((key) => FINDING_COLUMNS.includes(key)), true);
+});
+
+// A resubmit supersedes the previous findings rather than deleting them, so serving every set at
+// once made one duplicate pair read as several. isStale was written and never read.
+test('only current findings are exposed, and a row with no value counts as current', () => {
+  const cds = fs.readFileSync(path.join(__dirname, '..', 'srv', 'change-request-service.cds'), 'utf8');
+  assert.match(cds, /where isStale is null or isStale = false/u);
 });
