@@ -5,7 +5,8 @@ const assert = require('node:assert/strict');
 
 const {
   NORMALISABLE, SYSTEM_PROMPT, fieldsText, normalisableFields, normaliseConfig,
-  normaliseModelName, parseJson, proposeNormalisations, sanitizeProposals
+  normaliseModelName, parseJson, proposeNormalisations, sanitizeProposals,
+  deterministicProposals, mergeProposals
 } = require('../srv/checks/normalise');
 
 const payload = (root = {}, sections = {}) => ({ root, sections });
@@ -145,4 +146,46 @@ test('a clean answer becomes a bounded proposal', async () => {
   assert.equal(proposals[0].current, 'alluvion  bvba');
   assert.equal(proposals[0].proposed, 'Alluvion BVBA');
   assert.equal(proposals[0].target, 'root');
+});
+
+// Country is not in NORMALISABLE, so "be" was never even a candidate.
+test('a lower-case country code is proposed without asking a model', () => {
+  const proposals = deterministicProposals(payload({}, {
+    Addresses: [{ Country: 'be', CityName: 'Gent' }]
+  }));
+  assert.equal(proposals.length, 1);
+  assert.deepEqual(proposals[0], {
+    target: 'Addresses', index: 0, field: 'Country',
+    current: 'be', proposed: 'BE', reason: 'code in capitals'
+  });
+});
+
+test('a code that is already in capitals proposes nothing', () => {
+  assert.deepEqual(deterministicProposals(payload({}, { Addresses: [{ Country: 'BE' }] })), []);
+  assert.deepEqual(deterministicProposals(payload({}, { Addresses: [{ Country: '' }] })), []);
+  assert.deepEqual(deterministicProposals(payload({}, {})), []);
+});
+
+// The point of doing this deterministically: it survives the model being unavailable.
+test('code proposals survive an AI Core outage', async () => {
+  const args = { payload: payload({}, { Addresses: [{ Country: 'be' }] }) };
+  assert.equal((await proposeNormalisations({ ...args, env: {} })).length, 1);
+  assert.equal((await proposeNormalisations({
+    ...args,
+    env,
+    Client: class { async chatCompletion() { throw new Error('AI Core is away'); } }
+  })).length, 1);
+});
+
+test('the deterministic answer wins over the model on the same field', () => {
+  const merged = mergeProposals(
+    [{ target: 'Addresses', index: 0, field: 'Country', current: 'be', proposed: 'BE', reason: 'code in capitals' }],
+    [
+      { target: 'Addresses', index: 0, field: 'Country', current: 'be', proposed: 'Belgium', reason: 'expanded' },
+      { target: 'Addresses', index: 0, field: 'CityName', current: 'gent', proposed: 'Gent', reason: 'casing' }
+    ]
+  );
+  assert.equal(merged.length, 2);
+  assert.equal(merged[0].proposed, 'BE');
+  assert.equal(merged.some((entry) => entry.proposed === 'Belgium'), false);
 });

@@ -47,6 +47,11 @@ const NORMALISABLE = Object.freeze({
   ])
 });
 
+// One right answer, so no model: asked to reformat "be", one could return "Belgium" instead of "BE".
+const UPPERCASE_CODES = Object.freeze({
+  Addresses: Object.freeze(['Country', 'Region'])
+});
+
 const PROPOSAL_SCHEMA = Object.freeze({
   type: 'object',
   additionalProperties: false,
@@ -185,14 +190,39 @@ function sanitizeProposals(raw, fields) {
   return proposals;
 }
 
-/**
- * Returns [] whenever the model cannot be reached or trusted. Normalisation is a convenience,
- * never a gate — an AI Core outage must not stop anyone checking or submitting a request.
- */
+/** Code fields uppercased. Same proposal shape as the model's, so the accept dialog is shared. */
+function deterministicProposals(payload = {}) {
+  const proposals = [];
+  for (const [section, names] of Object.entries(UPPERCASE_CODES)) {
+    const rows = payload.sections?.[section];
+    if (!Array.isArray(rows)) continue;
+    rows.forEach((row, index) => {
+      for (const field of names) {
+        const current = row?.[field];
+        if (typeof current !== 'string' || !current.trim()) continue;
+        const proposed = current.trim().toLocaleUpperCase('en-US');
+        if (proposed === current) continue;
+        proposals.push({ target: section, index, field, current, proposed, reason: 'code in capitals' });
+      }
+    });
+  }
+  return proposals;
+}
+
+/** The deterministic answer wins: nothing a model says about a country code can beat uppercasing. */
+function mergeProposals(deterministic, modelled) {
+  const taken = new Set(deterministic.map((entry) => `${entry.target}|${entry.index}|${entry.field}`));
+  return [
+    ...deterministic,
+    ...modelled.filter((entry) => !taken.has(`${entry.target}|${entry.index}|${entry.field}`))
+  ];
+}
+
+/** Falls back to the deterministic proposals alone whenever the model cannot be reached or trusted. */
 async function proposeNormalisations({ payload, env = process.env, Client } = {}) {
+  const deterministic = deterministicProposals(payload);
   const fields = normalisableFields(payload);
-  if (!fields.length) return [];
-  if (!hasAiCoreBinding(env)) return [];
+  if (!fields.length || !hasAiCoreBinding(env)) return deterministic;
 
   try {
     const OrchestrationClient = Client
@@ -205,21 +235,27 @@ async function proposeNormalisations({ payload, env = process.env, Client } = {}
     const completion = await chatCompletionWithRetry(client, {
       placeholderValues: { fields: fieldsText(fields) }
     }, env);
-    return sanitizeProposals(parseJson(completion.response.getContent?.()), fields);
+    const modelled = sanitizeProposals(parseJson(completion.response.getContent?.()), fields);
+    // "Already clean" and "never asked" are indistinguishable on screen, so say which it was.
+    console.log(`[normalise] ${fields.length} field(s) offered, ${modelled.length} proposal(s) returned.`);
+    return mergeProposals(deterministic, modelled);
   } catch (error) {
     console.warn(
       '[normalise] Normalisation proposals unavailable:',
       aiCoreErrorText(error) || error?.message || 'Unknown AI Core error'
     );
-    return [];
+    return deterministic;
   }
 }
 
 module.exports = {
   DEFAULT_NORMALISE_MODEL,
   NORMALISABLE,
+  UPPERCASE_CODES,
   PROPOSAL_SCHEMA,
   SYSTEM_PROMPT,
+  deterministicProposals,
+  mergeProposals,
   fieldsText,
   normalisableFields,
   normaliseConfig,

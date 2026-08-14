@@ -51,7 +51,8 @@
                 text="{cr>status}"
                 state="{= ${cr>status} === 'rejected' || ${cr>status} === 'failed' ? 'Error' : ${cr>status} === 'posted' ? 'Success' : 'Warning' }" />
               <Text text="{cr>createdBy}" />
-              <Text text="{ path: 'cr>createdAt', type: 'sap.ui.model.odata.type.DateTimeOffset', formatOptions: { style: 'short' } }" />
+              <!-- Without V4 the type expects a Date, and the model hands it the ISO string. -->
+              <Text text="{ path: 'cr>createdAt', type: 'sap.ui.model.odata.type.DateTimeOffset', constraints: { V4: true }, formatOptions: { style: 'short' } }" />
             </cells>
           </ColumnListItem>
         </items>
