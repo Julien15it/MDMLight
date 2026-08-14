@@ -216,15 +216,12 @@ test('the record context reaches the model', () => {
   };
   assert.equal(recordContext(payload), 'Country: BE, Language: NL, Category: Organization');
   const input = promptInput(payload, normalisableFields(payload));
-  assert.match(input, /^Record context: Country: BE, Language: NL, Category: Organization
-Fields:
-/u);
+  assert.match(input, /^Record context: Country: BE, Language: NL, Category: Organization\nFields:\n/u);
   assert.match(input, /Addresses\[0\]\.StreetName = "koedreef st"/u);
 });
 
 test('a record with no context still sends its fields', () => {
   const payload = { root: { OrganizationBPName1: 'alluvion' }, sections: {} };
   assert.equal(recordContext(payload), '');
-  assert.match(promptInput(payload, normalisableFields(payload)), /^Fields:
-/u);
+  assert.match(promptInput(payload, normalisableFields(payload)), /^Fields:\n/u);
 });

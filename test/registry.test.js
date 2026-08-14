@@ -352,7 +352,7 @@ test('GLEIF still runs when no VAT number was given at all', async () => {
 // Maarten 2026-08-14: VIES fills gaps and validates, the model normalises. So a register address
 // that disagrees with a filled-in one is reported rather than proposed as a change.
 test('a VIES address that disagrees with the typed one is a warning naming both', () => {
-  const [name, address] = vatFindings(
+  const findings = vatFindings(
     {
       status: STATUS.VALID, countryCode: 'BE', vatNumber: '0404616494', name: 'ALLUVION BV',
       address: { StreetName: 'Koedreef', HouseNumber: '12', PostalCode: '2000', CityName: 'Antwerpen' }
@@ -360,8 +360,9 @@ test('a VIES address that disagrees with the typed one is a warning naming both'
     'ALLUVION BV',
     { StreetName: 'Kerkstraat', HouseNumber: '12', PostalCode: '9000', CityName: 'Gent' }
   );
-  assert.equal(name, undefined, 'the name agrees, so only the address is reported');
-  assert.equal(address.check, 'vat_address_matches');
+  // The name agrees, so the address is the only finding - by check name, not by position.
+  assert.deepEqual(findings.map((finding) => finding.check), ['vat_address_matches']);
+  const [address] = findings;
   assert.equal(address.severity, 'warning');
   assert.match(address.message, /Koedreef 12 2000 Antwerpen/u);
   assert.match(address.message, /Kerkstraat 12 9000 Gent/u);
