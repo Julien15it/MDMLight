@@ -52,30 +52,6 @@ const UPPERCASE_CODES = Object.freeze({
   Addresses: Object.freeze(['Country', 'Region'])
 });
 
-/**
- * Legal forms and their one correct spelling. Deterministic rather than prompted: "bv" -> "BV" has a
- * single right answer and a model that has to be talked into it will keep missing it.
- * Only forms that are not also ordinary words - "as", "ab", "oy" and "sl" are deliberately absent,
- * because uppercasing a real word inside a company name is worse than leaving a lowercase form.
- */
-const LEGAL_FORMS = Object.freeze({
-  bv: 'BV', bvba: 'BVBA', nv: 'NV', vzw: 'VZW', asbl: 'ASBL', cvba: 'CVBA', vof: 'VOF',
-  sprl: 'SPRL', sarl: 'SARL', srl: 'SRL', spa: 'SpA', sa: 'SA',
-  gmbh: 'GmbH', ag: 'AG', kg: 'KG', ug: 'UG',
-  ltd: 'Ltd', plc: 'PLC', llc: 'LLC', inc: 'Inc'
-});
-
-// Fields where casing is the record's own presentation. Search terms are out: SAP search keys are
-// conventionally shouted, so title-casing one would be a change, not a correction.
-const CASED_FIELDS = Object.freeze({
-  root: Object.freeze([
-    'OrganizationBPName1', 'OrganizationBPName2',
-    'GroupBusinessPartnerName1', 'GroupBusinessPartnerName2',
-    'FirstName', 'MiddleName', 'LastName'
-  ]),
-  Addresses: Object.freeze(['StreetName', 'CityName', 'StreetSuffixName'])
-});
-
 const PROPOSAL_SCHEMA = Object.freeze({
   type: 'object',
   additionalProperties: false,
@@ -217,26 +193,8 @@ function sanitizeProposals(raw, fields) {
   return proposals;
 }
 
-// Only a form standing on its own, first or last: "Bavaria" must not become "BAVARIA" because it
-// starts with "bv", and a form in the middle of a name is usually part of it.
-function withLegalForms(value) {
-  const words = value.split(/\s+/u);
-  if (words.length < 2) return value;
-  return words.map((word, index) => {
-    if (index !== 0 && index !== words.length - 1) return word;
-    const canonical = LEGAL_FORMS[word.replace(/\.$/u, '').toLocaleLowerCase('en-US')];
-    if (!canonical) return word;
-    return word.endsWith('.') ? `${canonical}.` : canonical;
-  }).join(' ');
-}
-
-// Only when nothing is capitalised. Someone who typed "van der Berg" chose that; "koedreef" did not.
-function titleCased(value) {
-  if (/\p{Lu}/u.test(value)) return value;
-  return value.replace(/\p{L}[\p{L}'’-]*/gu, (word) => word[0].toLocaleUpperCase('en-US') + word.slice(1));
-}
-
-function codeProposals(payload) {
+/** Code fields uppercased. Same proposal shape as the model's, so the accept dialog is shared. */
+function deterministicProposals(payload = {}) {
   const proposals = [];
   for (const [section, names] of Object.entries(UPPERCASE_CODES)) {
     const rows = payload.sections?.[section];
@@ -252,34 +210,6 @@ function codeProposals(payload) {
     });
   }
   return proposals;
-}
-
-// Casing the model kept missing. It stays in the prompt too, for the cases no list can cover.
-function casingProposals(payload) {
-  const proposals = [];
-  const rowsOf = (section) => (section === 'root'
-    ? [payload.root || {}]
-    : (Array.isArray(payload.sections?.[section]) ? payload.sections[section] : []));
-
-  for (const [section, names] of Object.entries(CASED_FIELDS)) {
-    rowsOf(section).forEach((row, index) => {
-      for (const field of names) {
-        const current = row?.[field];
-        if (typeof current !== 'string' || !current.trim()) continue;
-        const proposed = withLegalForms(titleCased(current.trim()));
-        if (proposed === current) continue;
-        proposals.push({
-          target: section, index, field, current, proposed, reason: 'capitalisation'
-        });
-      }
-    });
-  }
-  return proposals;
-}
-
-/** What needs no model, and must not depend on one. Same shape, so the accept dialog is shared. */
-function deterministicProposals(payload = {}) {
-  return mergeProposals(codeProposals(payload), casingProposals(payload));
 }
 
 /** The deterministic answer wins: nothing a model says about a country code can beat uppercasing. */

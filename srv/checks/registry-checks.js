@@ -116,10 +116,7 @@ function createRegistryStages({ enrich = enrichCandidate, ...options } = {}) {
           index: 0,
           field: 'BPTaxNumber',
           value: only.registeredAs,
-          // Says outright that nothing was stored: the bare fact read as a change that had silently
-          // failed, because every other finding on the screen does write something.
-          message: `GLEIF registers this company under company number ${only.registeredAs}. `
-            + 'Nothing was filled in — add a tax number row if you want it stored.'
+          message: `GLEIF registers this company under company number ${only.registeredAs}.`
         });
       }
       return entries;

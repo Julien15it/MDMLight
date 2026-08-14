@@ -190,41 +190,6 @@ test('the deterministic answer wins over the model on the same field', () => {
   assert.equal(merged.some((entry) => entry.proposed === 'Belgium'), false);
 });
 
-// The two the model kept missing on real data (2026-08-14): a lower-case legal form and an
-// all-lower-case street. Deterministic, so they no longer depend on talking a model into it.
-test('a legal form and an all-lower-case name are proposed without a model', () => {
-  const proposals = deterministicProposals(payload(
-    { OrganizationBPName1: 'Alluvion bv' },
-    { Addresses: [{ StreetName: 'koedreef', CityName: 'gent' }] }
-  ));
-  const by = Object.fromEntries(proposals.map((entry) => [entry.field, entry.proposed]));
-  assert.equal(by.OrganizationBPName1, 'Alluvion BV');
-  assert.equal(by.StreetName, 'Koedreef');
-  assert.equal(by.CityName, 'Gent');
-});
-
-test('an all-lower-case name gets both capitals and its legal form', () => {
-  const [proposal] = deterministicProposals(payload({ OrganizationBPName1: 'alluvion bvba' }));
-  assert.equal(proposal.proposed, 'Alluvion BVBA');
-  assert.equal(proposal.reason, 'capitalisation');
-});
-
-// Deliberate capitals are spellings, not faults, and a form has to stand on its own to be one.
-test('capitals someone chose are left alone', () => {
-  const untouched = (root) => assert.deepEqual(deterministicProposals(payload(root)), []);
-  untouched({ LastName: 'van der Berg' });
-  untouched({ OrganizationBPName1: 'eBay' });
-  untouched({ OrganizationBPName1: 'Bavaria' });
-  untouched({ OrganizationBPName1: 'Alluvion BV' });
-  // "bv" inside a name is part of it, not a legal form.
-  untouched({ OrganizationBPName1: 'Acme bv Holdings' });
-});
-
-// SAP search keys are conventionally shouted; title-casing one would be a change, not a fix.
-test('search terms are never re-cased', () => {
-  assert.deepEqual(deterministicProposals(payload({ SearchTerm1: 'alluvion' })), []);
-});
-
 test('the prompt tells the model to fix casing rather than to hold back', () => {
   assert.match(SYSTEM_PROMPT, /koedreef" -> "Koedreef/u);
   assert.match(SYSTEM_PROMPT, /Do not hold back on casing/u);
