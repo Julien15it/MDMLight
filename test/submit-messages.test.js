@@ -281,3 +281,8 @@ test('every submit outcome reports Valid and ValidationsJson', () => {
   assert.equal((submitBody.match(/Valid:/gu) || []).length, 3, 'blocked, unconfirmed and submitted');
   assert.equal((submitBody.match(/ValidationsJson:/gu) || []).length, 3);
 });
+
+// Numbers alone made several distinct partners look like one repeated entry.
+test('the duplicate dialog names each partner, not only its number', () => {
+  assert.match(controllerSource, /finding\.candidateName \? " " \+ finding\.candidateName : ""/u);
+});
