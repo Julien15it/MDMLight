@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
-  createRegistryStages, addressDerivations, severityOf, describeEntity, correctionsFrom, sameValue
+  createRegistryStages, addressDerivations, severityOf, describeEntity, fieldFor
 } = require('../srv/checks/registry-checks');
 const { runChecks } = require('../srv/checks/pipeline');
 
@@ -206,40 +206,19 @@ test('the GLEIF company number is reported as a plain fact', async () => {
   assert.equal(/tax number row|Nothing was filled in/u.test(entry.message), false);
 });
 
-// A register value that DIFFERS from what was typed is neither a derivation (those only fill gaps)
-// nor a formatting fix. Maarten's case: VIES knows the street, the requester had already typed one.
-test('a register value that differs from the typed one is proposed, not derived', async () => {
-  const registry = stages({
-    ...empty,
-    facts: {
-      vies: [{ address: { StreetName: 'Koedreef', HouseNumber: '12', PostalCode: '2000', CityName: 'Antwerpen', Country: 'BE' } }],
-      gleif: []
-    }
-  });
-  const proposals = await registry.propose(payload({}, {
-    Addresses: [{ StreetName: 'Kerkstraat', HouseNumber: '12', CityName: '', Country: 'BE' }]
-  }));
-
-  assert.deepEqual(proposals.map((entry) => entry.field), ['StreetName']);
-  assert.equal(proposals[0].current, 'Kerkstraat');
-  assert.equal(proposals[0].proposed, 'Koedreef');
-  assert.equal(proposals[0].source, 'VIES');
-  assert.match(proposals[0].reason, /VIES registers this as “Koedreef”/u);
-  // HouseNumber already agrees, CityName is empty and belongs to the derivation, Country agrees.
+// VIES validates and derives; it never proposes. A disagreement is said out loud instead.
+test('a register address that disagrees is a warning about the address, not the tax number', () => {
+  assert.equal(fieldFor({ check: 'vat_address_matches' }), 'StreetName');
+  assert.equal(fieldFor({ check: 'vat_registered' }), 'BPTaxNumber');
+  assert.equal(fieldFor({ check: 'vat_name_matches' }), 'BPTaxNumber');
+  assert.equal(fieldFor({ check: 'something_else' }), null);
+  // Only the name mismatch is re-graded; an address disagreement must never block.
+  assert.equal(severityOf({ check: 'vat_address_matches', severity: 'warning' }), 'warning');
 });
 
-// Otherwise the register and the model would both propose the same field, differing only in case.
-test('a value that differs only in formatting is left to the model', () => {
-  assert.equal(sameValue('koedreef', 'Koedreef'), true);
-  assert.equal(sameValue('Koedreef 12', 'koedreef  12'), true);
-  assert.equal(sameValue('Kerkstraat', 'Koedreef'), false);
-  assert.deepEqual(
-    correctionsFrom({ StreetName: 'Koedreef' }, [{ StreetName: 'koedreef' }], 'VIES'),
-    []
-  );
-});
-
-test('nothing is proposed for an address row that does not exist', () => {
-  assert.deepEqual(correctionsFrom({ StreetName: 'Koedreef' }, [], 'VIES'), []);
-  assert.deepEqual(correctionsFrom(null, [{ StreetName: 'Kerkstraat' }], 'VIES'), []);
+test('the registry stages no longer propose anything', () => {
+  const registry = createRegistryStages({ enrich: async () => empty });
+  assert.equal(registry.propose, undefined);
+  assert.equal(registry.validations.length, 1);
+  assert.equal(registry.derivations.length, 1);
 });

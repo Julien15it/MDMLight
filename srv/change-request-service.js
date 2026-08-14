@@ -6,7 +6,7 @@ const { buildWorkflowInputFromRows } = require('./business-partner-service')._in
 const { candidateFromStagedRequest, duplicateSummary } = require('./ai/duplicate-check');
 const { runChecks, runValidations, BLOCKING } = require('./checks/pipeline');
 const { createRegistryStages } = require('./checks/registry-checks');
-const { proposeNormalisations, mergeProposals } = require('./checks/normalise');
+const { proposeNormalisations } = require('./checks/normalise');
 
 const STAGING = 'mdmlight.staging.';
 const FINDINGS = `${STAGING}CheckFindings`;
@@ -328,12 +328,8 @@ class ChangeRequestService extends cds.ApplicationService {
           validations: registry.validations,
           derivations: registry.derivations,
           // Check is where a human is looking, which is the only place a proposal to rewrite
-          // what someone typed makes sense. The register goes first and wins the field: it knows
-          // what the value should be, the model only knows how it should look.
-          propose: async (derived) => mergeProposals(
-            await registry.propose(derived),
-            await proposeNormalisations({ payload: derived })
-          ),
+          // what someone typed makes sense. The register never proposes: it validates and derives.
+          propose: (derived) => proposeNormalisations({ payload: derived }),
           checkDuplicates: async (payload) => {
             const bp = await cds.connect.to('BusinessPartnerService');
             const answer = await bp.send('checkBusinessPartnerDuplicates', {

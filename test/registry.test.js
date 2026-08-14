@@ -8,7 +8,9 @@ const {
   STATUS, viesCountryCode, nationalNumber, statusFrom, parseAddress, checkVatNumber,
   clearVatCache, RETRY_DELAY_MS
 } = require('../srv/ai/vies');
-const { acceptedEntities, vatFindings, enrichCandidate } = require('../srv/ai/registry');
+const {
+  acceptedEntities, vatFindings, enrichCandidate, differingAddressFields
+} = require('../srv/ai/registry');
 const { evaluate, DEFAULT_RULES, VERDICTS } = require('../srv/ai/duplicate-engine');
 
 const LEI = '549300ABCDEFGHIJKL01';
@@ -345,4 +347,45 @@ test('GLEIF still runs when no VAT number was given at all', async () => {
     lookupName: async () => { asked += 1; return []; }
   });
   assert.equal(asked, 1, 'nothing confirmed anything, so the fallback applies');
+});
+
+// Maarten 2026-08-14: VIES fills gaps and validates, the model normalises. So a register address
+// that disagrees with a filled-in one is reported rather than proposed as a change.
+test('a VIES address that disagrees with the typed one is a warning naming both', () => {
+  const [name, address] = vatFindings(
+    {
+      status: STATUS.VALID, countryCode: 'BE', vatNumber: '0404616494', name: 'ALLUVION BV',
+      address: { StreetName: 'Koedreef', HouseNumber: '12', PostalCode: '2000', CityName: 'Antwerpen' }
+    },
+    'ALLUVION BV',
+    { StreetName: 'Kerkstraat', HouseNumber: '12', PostalCode: '9000', CityName: 'Gent' }
+  );
+  assert.equal(name, undefined, 'the name agrees, so only the address is reported');
+  assert.equal(address.check, 'vat_address_matches');
+  assert.equal(address.severity, 'warning');
+  assert.match(address.message, /Koedreef 12 2000 Antwerpen/u);
+  assert.match(address.message, /Kerkstraat 12 9000 Gent/u);
+  assert.match(address.message, /StreetName, PostalCode, CityName/u, 'HouseNumber agrees');
+});
+
+// A gap is the derivation's job, and casing is the model's, so neither is a disagreement.
+test('an empty or differently written address field is not a disagreement', () => {
+  const official = { StreetName: 'Koedreef', HouseNumber: '12', CityName: 'Antwerpen' };
+  assert.deepEqual(differingAddressFields(official, { StreetName: 'koedreef', CityName: '' }), []);
+  assert.deepEqual(differingAddressFields(official, { StreetName: '  KOEDREEF ' }), []);
+  assert.deepEqual(differingAddressFields(official, {}), []);
+  assert.deepEqual(differingAddressFields(null, official), []);
+  assert.deepEqual(differingAddressFields(official, { CityName: 'Gent' }), ['CityName']);
+});
+
+test('a name and an address can both disagree at once', () => {
+  const findings = vatFindings(
+    {
+      status: STATUS.VALID, countryCode: 'BE', vatNumber: '1', name: 'ALLUVION BV',
+      address: { CityName: 'Antwerpen' }
+    },
+    'Totally Other',
+    { CityName: 'Gent' }
+  );
+  assert.deepEqual(findings.map((finding) => finding.check), ['vat_name_matches', 'vat_address_matches']);
 });

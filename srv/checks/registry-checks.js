@@ -40,6 +40,13 @@ function severityOf(finding) {
   return finding.severity || 'info';
 }
 
+// An address disagreement is about the address, not about the tax number that found it.
+function fieldFor(finding) {
+  const check = String(finding.check || '');
+  if (check === 'vat_address_matches') return 'StreetName';
+  return check.startsWith('vat') ? 'BPTaxNumber' : null;
+}
+
 function candidateOf(payload) {
   return candidateFromStagedRequest(payload.root || {}, payload.sections || {});
 }
@@ -66,31 +73,6 @@ function addressDerivations(addresses, rows, source) {
     }
   });
   return entries;
-}
-
-// Same value, differently written, is the model's business - proposing "Koedreef" over "koedreef"
-// from the register would collide with the casing proposal for the same field.
-const sameValue = (left, right) => String(left).replace(/[^\p{L}\p{N}]+/gu, '').toLocaleLowerCase()
-  === String(right).replace(/[^\p{L}\p{N}]+/gu, '').toLocaleLowerCase();
-
-// A register value that DIFFERS is neither a derivation (those only fill gaps) nor a formatting fix.
-// First address row only, like the derivation.
-function correctionsFrom(official, rows, source) {
-  const [row] = rows;
-  if (!official || !row) return [];
-  return ADDRESS_FIELDS.filter((field) => {
-    const current = String(row[field] ?? '').trim();
-    // An empty field is the derivation's job, and an identical one is nobody's.
-    return current && official[field] && !sameValue(current, official[field]);
-  }).map((field) => ({
-    target: 'Addresses',
-    index: 0,
-    field,
-    current: String(row[field]).trim(),
-    proposed: official[field],
-    source,
-    reason: `${source} registers this as “${official[field]}”`
-  }));
 }
 
 // Optional chaining, not a default: GLEIF sends `address: null`, and a default only fires on undefined.
@@ -131,7 +113,7 @@ function createRegistryStages({ enrich = enrichCandidate, ...options } = {}) {
       return findings.map((finding) => ({
         severity: severityOf(finding),
         message: finding.message,
-        field: String(finding.check || '').startsWith('vat') ? 'BPTaxNumber' : null
+        field: fieldFor(finding)
       }));
     }
   };
@@ -162,24 +144,14 @@ function createRegistryStages({ enrich = enrichCandidate, ...options } = {}) {
     }
   };
 
-  // Shares the one lookup with the validation and the derivation, so this costs no extra call.
-  const propose = async (payload) => {
-    const { facts } = await enriched(payload);
-    const rows = payload.sections?.Addresses || [];
-    // VIES only: GLEIF is the fallback source and never outranks what a requester typed.
-    const [official] = (facts.vies || []).filter((check) => check.address).map((check) => check.address);
-    return correctionsFrom(official, rows, 'VIES');
-  };
-
-  return { validations: [validation], derivations: [derivation], propose };
+  return { validations: [validation], derivations: [derivation] };
 }
 
 module.exports = {
   ADDRESS_FIELDS,
   addressLine,
-  correctionsFrom,
+  fieldFor,
   describeEntity,
-  sameValue,
   NAME_MISMATCH_SEVERITY,
   severityOf,
   addressDerivations,

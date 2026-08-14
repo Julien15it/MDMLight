@@ -39,7 +39,23 @@ function acceptedEntities(name, entities = [], country = '') {
   });
 }
 
-function vatFindings(check, typedName) {
+const ADDRESS_PARTS = Object.freeze(['StreetName', 'HouseNumber', 'PostalCode', 'CityName']);
+
+// Comparison only, so casing and punctuation differences are the model's business, not a warning.
+const sameText = (left, right) => String(left ?? '').replace(/[^\p{L}\p{N}]+/gu, '').toLocaleLowerCase()
+  === String(right ?? '').replace(/[^\p{L}\p{N}]+/gu, '').toLocaleLowerCase();
+
+const addressText = (address) => ADDRESS_PARTS
+  .map((part) => address?.[part]).filter(Boolean).join(' ');
+
+// Only fields both sides filled in: an empty one is a gap for the derivation, not a disagreement.
+function differingAddressFields(official, typed) {
+  if (!official || !typed) return [];
+  return ADDRESS_PARTS.filter((part) => official[part] && typed[part]
+    && !sameText(official[part], typed[part]));
+}
+
+function vatFindings(check, typedName, typedAddress) {
   if (check.status === STATUS.INVALID) {
     return [{
       check: 'vat_registered',
@@ -56,13 +72,28 @@ function vatFindings(check, typedName) {
       message: `VIES could not confirm ${check.countryCode}${check.vatNumber} (${check.reason || 'no response'}).`
     }];
   }
-  if (check.status !== STATUS.VALID || !check.name || !typedName) return [];
-  if (scoreAgainst(typedName, check.name) >= ACCEPT_SCORE) return [];
-  return [{
-    check: 'vat_name_matches',
-    severity: 'warning',
-    message: `VIES registers ${check.countryCode}${check.vatNumber} as “${check.name}”, not “${typedName}”.`
-  }];
+  if (check.status !== STATUS.VALID) return [];
+
+  const findings = [];
+  if (check.name && typedName && scoreAgainst(typedName, check.name) < ACCEPT_SCORE) {
+    findings.push({
+      check: 'vat_name_matches',
+      severity: 'warning',
+      message: `VIES registers ${check.countryCode}${check.vatNumber} as “${check.name}”, not “${typedName}”.`
+    });
+  }
+  // Said, not proposed: filling a gap is the derivation's job and rewriting a value is the model's,
+  // so a register address that disagrees is reported for the requester to judge.
+  const differing = differingAddressFields(check.address, typedAddress);
+  if (differing.length) {
+    findings.push({
+      check: 'vat_address_matches',
+      severity: 'warning',
+      message: `VIES registers ${check.countryCode}${check.vatNumber} at “${addressText(check.address)}”`
+        + `, not “${addressText(typedAddress)}” (${differing.join(', ')}).`
+    });
+  }
+  return findings;
 }
 
 /**
@@ -93,7 +124,7 @@ async function enrichCandidate(record = {}, {
       // With no country on the record, the number's own prefix is the only country hint there is.
       const check = await checkVat(country || tax.BPTaxNumber, tax.BPTaxNumber, options);
       facts.vies.push(check);
-      findings.push(...vatFindings(check, typedName));
+      findings.push(...vatFindings(check, typedName, (record.addresses || [])[0]));
       if (check.status !== STATUS.VALID) continue;
       if (check.name) {
         additionalNames.push(check.name);
@@ -146,6 +177,8 @@ async function enrichCandidate(record = {}, {
 
 module.exports = {
   ACCEPT_SCORE,
+  addressText,
+  differingAddressFields,
   namesOf,
   acceptedEntities,
   vatFindings,
