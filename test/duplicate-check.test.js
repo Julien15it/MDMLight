@@ -158,7 +158,7 @@ test('bpduplicates gives one line per matched partner, not one per matched field
   assert.equal(name, 'Alluvion NV');
   assert.match(verdict, /^Duplicate: /u);
   assert.match(verdict, /Name \(exact\)/u);
-  assert.match(verdict, /TaxNumber\.BE0 \(exact\)/u);
+  assert.match(verdict, /TaxNumber \(exact\)/u);
 });
 
 // A pending create has no partner number, so it is named by its request instead.
