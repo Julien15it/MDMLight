@@ -20,6 +20,30 @@ const STATUS = Object.freeze({
   NOT_APPLICABLE: 'not_applicable'
 });
 
+// VIES throttles on concurrency and counts requests it is still working on, so answers are cached
+// and a throttled one is retried: MS_MAX_CONCURRENT_REQ means "ask again in a moment", not "no".
+const SETTLED_TTL_MS = 24 * 60 * 60 * 1000;
+// Short, so fixing a number and re-checking re-asks, but three presses are not three requests.
+const UNKNOWN_TTL_MS = 60 * 1000;
+const RETRY_DELAY_MS = 1500;
+const MAX_ATTEMPTS = 2;
+
+// At 6s we aborted calls Belgium was still serving, and an abort does not stop VIES counting them.
+const VIES_TIMEOUT_MS = 15000;
+
+/** Reasons that mean "the answer is not available yet", as opposed to "the number is not valid". */
+const RETRYABLE = Object.freeze(new Set([
+  'MS_MAX_CONCURRENT_REQ',
+  'GLOBAL_MAX_CONCURRENT_REQ',
+  'MS_UNAVAILABLE',
+  'SERVICE_UNAVAILABLE',
+  'TIMEOUT'
+]));
+
+const answers = new Map();
+
+const wait = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+
 function viesCountryCode(country) {
   const code = String(country || '').trim().toLocaleUpperCase().slice(0, 2);
   return VIES_COUNTRY_CODES[code] || code;
@@ -66,19 +90,25 @@ function parseAddress(address, country) {
   };
 }
 
-/**
- * Validates a VAT number and, where the member state permits, returns the registered name. It
- * cannot search by name, so it enriches a candidate that already has a number — it never finds one.
- */
-async function checkVatNumber(country, vatNumber, options = {}) {
-  const countryCode = viesCountryCode(country);
-  const national = nationalNumber(vatNumber, countryCode);
-  const base = { source: 'VIES', countryCode, vatNumber: national };
-  if (!countryCode || !national) return { ...base, status: STATUS.UNKNOWN, reason: 'incomplete_input' };
-  if (!VIES_COUNTRIES.has(countryCode)) return { ...base, status: STATUS.NOT_APPLICABLE };
-
+/** One request. A transport failure is an unknown answer, never a thrown error. */
+async function askVies(base, countryCode, national, options) {
   const url = new URL(`${encodeURIComponent(countryCode)}/vat/${encodeURIComponent(national)}`, VIES_API);
-  const body = await fetchJson(url, options);
+  let body;
+  try {
+    body = await fetchJson(url, { timeoutMs: VIES_TIMEOUT_MS, ...options });
+  } catch (error) {
+    // A throw here reached runValidations, which blocks - so a 429 stopped the whole check.
+    return {
+      ...base,
+      status: STATUS.UNKNOWN,
+      reason: /abort/iu.test(error?.name || error?.message || '') ? 'TIMEOUT' : 'UNREACHABLE',
+      detail: error?.message || 'VIES could not be reached.',
+      name: '',
+      address: null,
+      rawAddress: '',
+      checkedAt: ''
+    };
+  }
   const status = statusFrom(body);
   return {
     ...base,
@@ -91,14 +121,59 @@ async function checkVatNumber(country, vatNumber, options = {}) {
   };
 }
 
+/**
+ * Validates a VAT number and, where the member state permits, returns the registered name. It
+ * cannot search by name, so it enriches a candidate that already has a number — it never finds one.
+ */
+async function checkVatNumber(country, vatNumber, options = {}) {
+  const { now = Date.now, sleep = wait, attempts = MAX_ATTEMPTS, ...fetchOptions } = options;
+  const countryCode = viesCountryCode(country);
+  const national = nationalNumber(vatNumber, countryCode);
+  const base = { source: 'VIES', countryCode, vatNumber: national };
+  if (!countryCode || !national) return { ...base, status: STATUS.UNKNOWN, reason: 'incomplete_input' };
+  if (!VIES_COUNTRIES.has(countryCode)) return { ...base, status: STATUS.NOT_APPLICABLE };
+
+  const key = `${countryCode}|${national}`;
+  const hit = answers.get(key);
+  if (hit && hit.expires > now()) return hit.value;
+
+  let answer;
+  for (let attempt = 1; attempt <= Math.max(1, attempts); attempt += 1) {
+    answer = await askVies(base, countryCode, national, fetchOptions);
+    if (answer.status !== STATUS.UNKNOWN || !RETRYABLE.has(answer.reason)) break;
+    if (attempt === Math.max(1, attempts)) break;
+    console.warn(`[vies] ${key} answered ${answer.reason}; retrying in ${RETRY_DELAY_MS}ms.`);
+    await sleep(RETRY_DELAY_MS);
+  }
+  if (answer.status === STATUS.UNKNOWN) {
+    console.warn(`[vies] ${key} unresolved: ${answer.reason}${answer.detail ? ` (${answer.detail})` : ''}`);
+  }
+  answers.set(key, {
+    value: answer,
+    expires: now() + (answer.status === STATUS.UNKNOWN ? UNKNOWN_TTL_MS : SETTLED_TTL_MS)
+  });
+  return answer;
+}
+
+/** Tests, and anything that needs a genuinely fresh answer, start from an empty cache. */
+function clearVatCache() {
+  answers.clear();
+}
+
 module.exports = {
   VIES_API,
   VIES_COUNTRIES,
   VIES_COUNTRY_CODES,
+  VIES_TIMEOUT_MS,
+  RETRYABLE,
+  RETRY_DELAY_MS,
+  SETTLED_TTL_MS,
+  UNKNOWN_TTL_MS,
   STATUS,
   viesCountryCode,
   nationalNumber,
   statusFrom,
   parseAddress,
-  checkVatNumber
+  checkVatNumber,
+  clearVatCache
 };

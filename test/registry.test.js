@@ -5,7 +5,8 @@ const assert = require('node:assert/strict');
 
 const { toEntity, recordsFrom, leisFromCompletions, searchByName } = require('../srv/ai/gleif');
 const {
-  STATUS, viesCountryCode, nationalNumber, statusFrom, parseAddress, checkVatNumber
+  STATUS, viesCountryCode, nationalNumber, statusFrom, parseAddress, checkVatNumber,
+  clearVatCache, RETRY_DELAY_MS
 } = require('../srv/ai/vies');
 const { acceptedEntities, vatFindings, enrichCandidate } = require('../srv/ai/registry');
 const { evaluate, DEFAULT_RULES, VERDICTS } = require('../srv/ai/duplicate-engine');
@@ -66,6 +67,12 @@ const fetchReturning = (...bodies) => {
   };
   impl.calls = calls;
   return impl;
+};
+
+// The VAT cache is module state, so every VIES test starts empty and never really sleeps.
+const vies = (fetchImpl, options = {}) => {
+  clearVatCache();
+  return { fetchImpl, sleep: async () => {}, ...options };
 };
 
 test('maps the GLEIF record onto the paths the live API actually uses', () => {
@@ -143,17 +150,72 @@ test('parses the address a member state returns, and never mistakes --- for data
 
 test('a non-EU country is not checked at all', async () => {
   const fetchImpl = fetchReturning(VIES_VALID);
-  const check = await checkVatNumber('US', '12-3456789', { fetchImpl });
+  const check = await checkVatNumber('US', '12-3456789', vies(fetchImpl));
   assert.equal(check.status, STATUS.NOT_APPLICABLE);
   assert.equal(fetchImpl.calls.length, 0);
 });
 
 test('a valid check returns the registered name and address', async () => {
-  const check = await checkVatNumber('BE', '0404.616.494', { fetchImpl: fetchReturning(VIES_VALID) });
+  const check = await checkVatNumber('BE', '0404.616.494', vies(fetchReturning(VIES_VALID)));
   assert.equal(check.status, STATUS.VALID);
   assert.equal(check.name, 'NV ACKERMANS & VAN HAAREN');
   assert.equal(check.address.CityName, 'Antwerpen');
   assert.equal(check.vatNumber, '0404616494');
+});
+
+// Pressing Check twice used to be two requests, the second arriving while the first still counted.
+test('a settled answer is given from the cache rather than asked again', async () => {
+  const fetchImpl = fetchReturning(VIES_VALID);
+  const options = vies(fetchImpl);
+  await checkVatNumber('BE', '0404.616.494', options);
+  const again = await checkVatNumber('BE', '0404616494', options);
+  assert.equal(fetchImpl.calls.length, 1, 'the same number is asked once');
+  assert.equal(again.status, STATUS.VALID);
+});
+
+// MS_MAX_CONCURRENT_REQ means "ask again in a moment", not "no".
+test('a throttled answer is retried before it is reported', async () => {
+  const fetchImpl = fetchReturning(VIES_THROTTLED, VIES_VALID);
+  const waits = [];
+  const check = await checkVatNumber('BE', '0404.616.494', vies(fetchImpl, {
+    sleep: async (ms) => { waits.push(ms); }
+  }));
+  assert.equal(fetchImpl.calls.length, 2);
+  assert.deepEqual(waits, [RETRY_DELAY_MS], 'it waits before asking again');
+  assert.equal(check.status, STATUS.VALID);
+});
+
+// Briefly cached too, or three presses are three more requests to a state that just said it was busy.
+test('an unresolved answer is held briefly and then re-asked', async () => {
+  const fetchImpl = fetchReturning(VIES_THROTTLED);
+  const options = vies(fetchImpl, { attempts: 1 });
+  const first = await checkVatNumber('BE', '0404.616.494', options);
+  await checkVatNumber('BE', '0404.616.494', options);
+  assert.equal(first.status, STATUS.UNKNOWN);
+  assert.equal(fetchImpl.calls.length, 1, 'the second press rides on the first unknown');
+
+  // A minute later the same press asks again rather than repeating a stale outage forever.
+  const later = Date.now() + 61 * 1000;
+  await checkVatNumber('BE', '0404.616.494', { ...options, now: () => later });
+  assert.equal(fetchImpl.calls.length, 2);
+});
+
+// The one that stopped the whole check: a throw reached runValidations, which blocks.
+test('an unreachable VIES is an unknown answer, not a thrown error', async () => {
+  const check = await checkVatNumber('BE', '0404.616.494', vies(async () => {
+    throw new Error('Internet lookup returned HTTP 429.');
+  }, { attempts: 1 }));
+  assert.equal(check.status, STATUS.UNKNOWN);
+  assert.equal(check.reason, 'UNREACHABLE');
+  assert.match(check.detail, /429/u);
+});
+
+test('an aborted request is reported as a timeout so the retry knows to wait', async () => {
+  const abort = Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' });
+  const check = await checkVatNumber('BE', '0404.616.494', vies(async () => {
+    throw abort;
+  }, { attempts: 1 }));
+  assert.equal(check.reason, 'TIMEOUT');
 });
 
 test('findings distinguish not-registered from could-not-check', () => {
@@ -208,7 +270,7 @@ test('a single confident GLEIF hit contributes its local company number with pro
 test('a VIES outage enriches nothing and reports nothing as invalid', async () => {
   const enriched = await enrichCandidate(
     { Name: 'Ackermans', Country: 'BE', taxNumbers: [{ BPTaxNumber: '0417497106' }] },
-    { useGleif: false, fetchImpl: fetchReturning(VIES_THROTTLED) }
+    { useGleif: false, ...vies(fetchReturning(VIES_THROTTLED), { attempts: 1 }) }
   );
   assert.equal(enriched.record.additionalNames.length, 0);
   assert.equal(enriched.findings[0].severity, 'info');
