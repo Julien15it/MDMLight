@@ -83,9 +83,8 @@ function parseAddress(address, country) {
   const last = lines.length > 1 ? lines.at(-1) : '';
   const postalCity = last.match(/^(\S{3,10})\s+(.+)$/u);
   const street = (postalCity ? lines.slice(0, -1) : lines).join(' ');
-  // S/4 keeps the number in its own field, and VIES sends "Koedreef 12" as one line - so without
-  // this split HouseNumber can never be filled from the register. Conservative on purpose: only a
-  // plain trailing number, so "Kerkstraat 12 bus 3" and "16 Rue de la Loi" stay whole.
+  // VIES sends "Koedreef 12" as one line while S/4 keeps the number apart. Only a plain trailing
+  // number, so "Kerkstraat 12 bus 3" stays whole.
   const numbered = street.match(/^(\D+?)[\s,]+(\d+[A-Za-z]?)$/u);
   return {
     StreetName: numbered ? numbered[1] : street,

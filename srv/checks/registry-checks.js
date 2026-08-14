@@ -73,12 +73,8 @@ function addressDerivations(addresses, rows, source) {
 const sameValue = (left, right) => String(left).replace(/[^\p{L}\p{N}]+/gu, '').toLocaleLowerCase()
   === String(right).replace(/[^\p{L}\p{N}]+/gu, '').toLocaleLowerCase();
 
-/**
- * A register value that **differs** from what was typed. Not a derivation — those only fill gaps and
- * never overwrite — and not a formatting fix either, so it is neither of the existing stages: it is a
- * correction from an authoritative source, offered through the same accept-or-decline dialog because
- * the decision has the same shape. Only the first address row, like the derivation.
- */
+// A register value that DIFFERS is neither a derivation (those only fill gaps) nor a formatting fix.
+// First address row only, like the derivation.
 function correctionsFrom(official, rows, source) {
   const [row] = rows;
   if (!official || !row) return [];
@@ -97,19 +93,15 @@ function correctionsFrom(official, rows, source) {
   }));
 }
 
-// Optional chaining, not a default: GLEIF sends `address: null` for an entity with no legal
-// address, and a default only fires on undefined.
+// Optional chaining, not a default: GLEIF sends `address: null`, and a default only fires on undefined.
 const addressLine = (address) => [
   [address?.StreetName, address?.HouseNumber].filter(Boolean).join(' '),
   [address?.PostalCode, address?.CityName].filter(Boolean).join(' '),
   address?.Country
 ].filter(Boolean).join(', ');
 
-/**
- * What GLEIF says the company is, in the order a steward cares: the registered name, then where,
- * then the identifiers. The company number led before and told nobody anything - the name is what
- * says whether GLEIF found the right company at all.
- */
+// Name first, then where, then the identifiers: the name is what says whether GLEIF found the
+// right company at all.
 function describeEntity(entity = {}) {
   const where = addressLine(entity.address);
   const ids = [

@@ -14,12 +14,8 @@ service ChangeRequestService @(path: '/service/changerequest') {
   /** Read-only. Writes go through the actions so status can never be forged. */
   @readonly entity ChangeRequests as projection on staging.ChangeRequests;
 
-  /**
-   * Current findings only. A resubmit supersedes the previous set instead of deleting it, so
-   * without this filter every attempt's findings are served at once and one duplicate pair reads
-   * as several. The superseded rows stay in the table for audit, reachable only by SQL.
-   * `is null` is required: rows written before the column existed carry no value.
-   */
+  /** Current findings only: a resubmit supersedes the previous set rather than deleting it, so
+   *  without this one duplicate pair reads as several. `is null` covers rows predating the column. */
   @readonly entity CheckFindings  as
     select from staging.CheckFindings
     where isStale is null or isStale = false;

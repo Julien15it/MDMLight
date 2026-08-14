@@ -81,9 +81,8 @@ async function runDerivations(payload, derivations = DERIVATIONS) {
       continue;
     }
     for (const entry of entries) {
-      // An entry with no field is a statement, not a value: report it and write nothing. Registry
-      // facts that have no field to live in - a legal name the requester already typed - arrive
-      // this way, and used to depend on `targetRecord` happening to miss.
+      // An entry with no field is a statement, not a value: report it and write nothing. It used
+      // to depend on `targetRecord` happening to miss, which wrote root[undefined].
       if (!entry.field) {
         applied.push({ check: derivation.name, severity: 'info', message: entry.message });
         continue;
