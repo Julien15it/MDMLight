@@ -190,12 +190,12 @@ test('malformed json from the check degrades to an empty list', () => {
 // check, so confirming once has to be enough — asking again on Submit is the friction complained
 // about, and the payload tie is what still catches an edit made afterwards.
 test('confirming from Check carries over to Submit', () => {
-  assert.match(controllerSource, /_confirmDuplicates: function \(findings, dataJson\)/u);
+  assert.match(controllerSource, /_confirmDuplicates: function \(findings, dataJson, after\)/u);
   assert.match(controllerSource, /state\.awaitingConfirmationFor = dataJson \|\| "";/u);
   // Armed on Continue, not before the dialog opens: a cancelled dialog must leave nothing behind.
   assert.equal(/awaitingConfirmationFor = parameters\.DataJson;/u.test(controllerSource), false);
   // Check arms against the payload as it stands after enrichment, which is what Submit will send.
-  assert.match(controllerSource, /_confirmDuplicates\(duplicates, this\._requestDataJson\(state\)\)/u);
+  assert.match(controllerSource, /_confirmDuplicates\(duplicates, this\._requestDataJson\(state\), offerNormalisations\)/u);
 });
 
 test('a derived value can land on an address row, not only on the root', () => {

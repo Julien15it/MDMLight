@@ -125,7 +125,9 @@ test('the assistant offers a reload instead of a dead dialog when the session ex
   assert.match(assistant, /transcript \+= "\\n\\nAssistant: " \+ errorMessage\(error\)/);
 });
 
-test('maintenance sends only changed root fields and shows concise entity fields', () => {
+// The changed-field diff went with the direct write: a change request stages the whole partner so
+// the approver sees it in full, and postToS4 replays it. Nothing is diffed on the client any more.
+test('maintenance stages the whole payload and shows concise entity fields', () => {
   const controller = fs.readFileSync(
     path.join(webapp, 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),
     'utf8'
@@ -135,8 +137,8 @@ test('maintenance sends only changed root fields and shows concise entity fields
     'utf8'
   );
 
-  assert.match(controller, /record\[field\.name\] !== originalRecord\[field\.name\]/);
-  assert.match(controller, /Object\.keys\(rootPayload\)\.length > 0/);
+  assert.match(controller, /DataJson: this\._requestDataJson\(state\)/);
+  assert.equal(/originalRecord\[field\.name\]/.test(controller), false, 'no client-side diffing');
   assert.match(metadata, /"summaryFields"/);
   assert.match(metadata, /"StreetName"/);
   assert.doesNotMatch(metadata, /"AdditionalStreetPrefixName"/);
@@ -160,16 +162,27 @@ test('related entity forms validate required and alternative create fields', () 
   assert.match(metadata, /"IBAN"/);
 });
 
+// The delete UI is unchanged; where the delete happens is not. The client stages the row and only
+// postToS4 calls the action, so a deletion now waits for approval like everything else.
 test('deletable related entities expose a confirmed delete action', async () => {
   const controller = fs.readFileSync(
     path.join(webapp, 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),
     'utf8'
   );
+  const changeRequestService = fs.readFileSync(
+    path.join(__dirname, '..', 'srv', 'change-request-service.js'),
+    'utf8'
+  );
   const model = await cds.load(path.join(__dirname, '..', 'srv'));
 
   assert.match(controller, /_confirmDeleteRecord/);
-  assert.match(controller, /deleteBusinessPartnerEntity/);
   assert.match(controller, /sap-icon:\/\/delete/);
+  assert.match(controller, /state\.deletedRecords\[section\.id\]\.push\(record\)/);
+  assert.equal(
+    /deleteBusinessPartnerEntity/.test(controller), false,
+    'the client never deletes in S/4 itself'
+  );
+  assert.match(changeRequestService, /deleteBusinessPartnerEntity/);
   assert.ok(model.definitions['BusinessPartnerService.deleteBusinessPartnerEntity']);
 });
 
