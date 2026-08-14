@@ -68,6 +68,35 @@ function addressDerivations(addresses, rows, source) {
   return entries;
 }
 
+// Same value, differently written, is the model's business - proposing "Koedreef" over "koedreef"
+// from the register would collide with the casing proposal for the same field.
+const sameValue = (left, right) => String(left).replace(/[^\p{L}\p{N}]+/gu, '').toLocaleLowerCase()
+  === String(right).replace(/[^\p{L}\p{N}]+/gu, '').toLocaleLowerCase();
+
+/**
+ * A register value that **differs** from what was typed. Not a derivation — those only fill gaps and
+ * never overwrite — and not a formatting fix either, so it is neither of the existing stages: it is a
+ * correction from an authoritative source, offered through the same accept-or-decline dialog because
+ * the decision has the same shape. Only the first address row, like the derivation.
+ */
+function correctionsFrom(official, rows, source) {
+  const [row] = rows;
+  if (!official || !row) return [];
+  return ADDRESS_FIELDS.filter((field) => {
+    const current = String(row[field] ?? '').trim();
+    // An empty field is the derivation's job, and an identical one is nobody's.
+    return current && official[field] && !sameValue(current, official[field]);
+  }).map((field) => ({
+    target: 'Addresses',
+    index: 0,
+    field,
+    current: String(row[field]).trim(),
+    proposed: official[field],
+    source,
+    reason: `${source} registers this as “${official[field]}”`
+  }));
+}
+
 const addressLine = (address = {}) => [
   [address.StreetName, address.HouseNumber].filter(Boolean).join(' '),
   [address.PostalCode, address.CityName].filter(Boolean).join(' '),
@@ -139,13 +168,24 @@ function createRegistryStages({ enrich = enrichCandidate, ...options } = {}) {
     }
   };
 
-  return { validations: [validation], derivations: [derivation] };
+  // Shares the one lookup with the validation and the derivation, so this costs no extra call.
+  const propose = async (payload) => {
+    const { facts } = await enriched(payload);
+    const rows = payload.sections?.Addresses || [];
+    // VIES only: GLEIF is the fallback source and never outranks what a requester typed.
+    const [official] = (facts.vies || []).filter((check) => check.address).map((check) => check.address);
+    return correctionsFrom(official, rows, 'VIES');
+  };
+
+  return { validations: [validation], derivations: [derivation], propose };
 }
 
 module.exports = {
   ADDRESS_FIELDS,
   addressLine,
+  correctionsFrom,
   describeEntity,
+  sameValue,
   NAME_MISMATCH_SEVERITY,
   severityOf,
   addressDerivations,

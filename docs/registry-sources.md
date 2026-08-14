@@ -61,6 +61,14 @@ validation and for enriching a candidate that already carries a number.
 - Belgium returns name and address: `NV ACKERMANS & VAN HAAREN`,
   `"Begijnenvest 113\n2000 Antwerpen"`. **Germany returns neither.** Availability
   is per member state, so absent details are normal, not an error.
+- A plain trailing house number is split into `HouseNumber`, because S/4 keeps it
+  in its own field while VIES sends `"Koedreef 12"` as one line. Only when the
+  rest of the street carries no digits, so `"Kerkstraat 12 bus 3"` stays whole
+  rather than yielding `3` as the number. GLEIF is untouched — it sends
+  `addressLines`, so its street keeps the number.
+- A VIES value that **differs** from what was typed becomes a **proposal**, not a
+  derivation: a derivation only fills gaps. Formatting-only differences are left
+  to `normalise.js`, so the register and the model never propose the same field.
 - Address formatting is the member state's own. `parseAddress` reads the last
   line as `<postal> <city>` when it can and keeps the whole thing in
   `rawAddress` regardless.

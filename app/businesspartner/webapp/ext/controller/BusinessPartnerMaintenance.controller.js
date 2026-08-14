@@ -1446,12 +1446,12 @@ sap.ui.define([
         table.setModel(model);
 
         var dialog = new Dialog({
-          title: "Suggested formatting",
+          title: "Suggested changes",
           contentWidth: "48rem",
           resizable: true,
           content: [
             new Text({
-              text: "These fields look inconsistently formatted. Nothing changes unless you apply it.",
+              text: "These values differ from the official register, or from how master data is usually written. Nothing changes unless you apply it.",
               wrapping: true
             }).addStyleClass("sapUiSmallMargin"),
             table
@@ -1495,7 +1495,7 @@ sap.ui.define([
         state.awaitingConfirmationFor = "";
         this._updatePreview(state);
         this._renderAll();
-        MessageToast.show(accepted.length + " field(s) reformatted.");
+        MessageToast.show(accepted.length + " field(s) updated.");
       },
 
       onSaveRequest: function () {

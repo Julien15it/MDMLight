@@ -83,6 +83,7 @@ test('maps the GLEIF record onto the paths the live API actually uses', () => {
   assert.equal(entity.registeredAs, '0404616494');
   assert.equal(entity.registeredAt, 'RA000045');
   assert.equal(entity.status, 'ACTIVE');
+  // GLEIF sends addressLines, so no house number is split out here — only VIES needs that.
   assert.deepEqual(entity.address, {
     StreetName: 'Begijnenvest 113', PostalCode: '2000', CityName: 'Antwerpen', Country: 'BE'
   });
@@ -137,15 +138,30 @@ test('VIES country codes are not ISO codes', () => {
 });
 
 test('parses the address a member state returns, and never mistakes --- for data', () => {
+  // S/4 keeps the number in its own field, so the street line is split.
   assert.deepEqual(parseAddress('Begijnenvest 113\n2000 Antwerpen', 'BE'), {
-    StreetName: 'Begijnenvest 113', PostalCode: '2000', CityName: 'Antwerpen', Country: 'BE'
+    StreetName: 'Begijnenvest', HouseNumber: '113', PostalCode: '2000', CityName: 'Antwerpen', Country: 'BE'
   });
   assert.equal(parseAddress('---', 'BE'), null);
   assert.equal(parseAddress('', 'BE'), null);
   // Germany returns no address at all; a single unparseable line must not vanish.
   assert.deepEqual(parseAddress('Musterstrasse 1', 'DE'), {
-    StreetName: 'Musterstrasse 1', PostalCode: '', CityName: '', Country: 'DE'
+    StreetName: 'Musterstrasse', HouseNumber: '1', PostalCode: '', CityName: '', Country: 'DE'
   });
+});
+
+// Conservative on purpose: a number it cannot read cleanly stays part of the street rather than
+// being guessed at, which is what the old behaviour did for every address.
+test('only a plain trailing house number is split off', () => {
+  const street = (line, country = 'BE') => {
+    const parsed = parseAddress(line, country);
+    return [parsed.StreetName, parsed.HouseNumber];
+  };
+  assert.deepEqual(street('Rue de la Loi 16A'), ['Rue de la Loi', '16A']);
+  assert.deepEqual(street('Kerkstraat 12 bus 3'), ['Kerkstraat 12 bus 3', '']);
+  assert.deepEqual(street('Avenue Louise 149 boite 24'), ['Avenue Louise 149 boite 24', '']);
+  assert.deepEqual(street('16 Rue de la Loi'), ['16 Rue de la Loi', '']);
+  assert.deepEqual(street('Koedreef'), ['Koedreef', '']);
 });
 
 test('a non-EU country is not checked at all', async () => {
