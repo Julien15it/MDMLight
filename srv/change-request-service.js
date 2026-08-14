@@ -39,6 +39,10 @@ const RESERVED = new Set([
 const APPROVAL_WORKFLOW_DEFINITION_ID =
   'eu10.alluvion-dev-cf.mdmlightapproval.mDM_LIGHT_APPROVAL_WF';
 
+// staging.cds also declares block and delete: both reserved, and meaningless to postToS4. Checked
+// here because RequestType is a String(10), so a bad value otherwise fails at the database instead.
+const SUPPORTED_REQUEST_TYPES = Object.freeze(['create', 'change']);
+
 function parseJsonObject(text, label) {
   let value;
   try {
@@ -199,6 +203,14 @@ class ChangeRequestService extends cds.ApplicationService {
     /** Upserts the header and rewrites the nodes. Status is left untouched. */
     const persist = async (req) => {
       const payload = parseJsonObject(req.data.DataJson, 'DataJson');
+      const requestType = req.data.RequestType;
+      if (!SUPPORTED_REQUEST_TYPES.includes(requestType)) {
+        return req.reject(400, `Request type “${requestType}” is not supported.`);
+      }
+      // Otherwise postToS4 only discovers it after approval - the worst moment to find out.
+      if (requestType === 'change' && !req.data.BusinessPartner) {
+        return req.reject(400, 'A change request needs the Business Partner it changes.');
+      }
       let changeRequest = req.data.ChangeRequest;
 
       if (changeRequest) {
@@ -210,7 +222,7 @@ class ChangeRequestService extends cds.ApplicationService {
           return req.reject(409, `Change request ${changeRequest} is ${existing.status} and can no longer be changed.`);
         }
         await db.run(cds.ql.UPDATE(HEADER).set({
-          requestType: req.data.RequestType,
+          requestType,
           businessPartner: req.data.BusinessPartner || null,
           reason: req.data.Reason || null
         }).where({ ID: changeRequest }));
@@ -218,7 +230,7 @@ class ChangeRequestService extends cds.ApplicationService {
         changeRequest = cds.utils.uuid();
         await db.run(cds.ql.INSERT.into(HEADER).entries({
           ID: changeRequest,
-          requestType: req.data.RequestType,
+          requestType,
           status: 'draft',
           businessPartner: req.data.BusinessPartner || null,
           reason: req.data.Reason || null
@@ -632,7 +644,8 @@ class ChangeRequestService extends cds.ApplicationService {
 ChangeRequestService._internals = {
   approveUrl,
   buildBusinessPartnerInput,
-  activeStagedRows
+  activeStagedRows,
+  SUPPORTED_REQUEST_TYPES
 };
 
 module.exports = ChangeRequestService;

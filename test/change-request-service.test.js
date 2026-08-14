@@ -3,8 +3,16 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+const fs = require('node:fs');
+const path = require('node:path');
+
 const ChangeRequestService = require('../srv/change-request-service');
-const { approveUrl, buildBusinessPartnerInput, activeStagedRows } = ChangeRequestService._internals;
+const {
+  approveUrl,
+  buildBusinessPartnerInput,
+  activeStagedRows,
+  SUPPORTED_REQUEST_TYPES
+} = ChangeRequestService._internals;
 
 /** Fakes `db.run` against the staging tables, keyed by their bare entity name. */
 function stagingDb(tables) {
@@ -123,5 +131,15 @@ test('approveUrl tolerates a trailing slash on APPROUTER_URL', () => {
   } finally {
     if (original === undefined) delete process.env.APPROUTER_URL;
     else process.env.APPROUTER_URL = original;
+  }
+});
+
+// block and delete are reserved: they would stage cleanly and then mean nothing to postToS4.
+test('only the request types that can reach S/4 are accepted', () => {
+  assert.deepEqual([...SUPPORTED_REQUEST_TYPES], ['create', 'change']);
+  const staging = fs.readFileSync(path.join(__dirname, '..', 'db', 'staging.cds'), 'utf8');
+  assert.match(staging, /enum \{ create; change; block; delete \}/u);
+  for (const reserved of ['block', 'delete']) {
+    assert.equal(SUPPORTED_REQUEST_TYPES.includes(reserved), false);
   }
 });

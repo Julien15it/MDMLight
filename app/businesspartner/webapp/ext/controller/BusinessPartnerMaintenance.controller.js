@@ -1014,19 +1014,6 @@ sap.ui.define([
         dialog.open();
       },
 
-      _writablePayload: function (section, record, isCreate, originalRecord) {
-        return Object.fromEntries(
-          section.fields
-            .filter(function (field) {
-              if (record[field.name] === undefined || record[field.name] === null) return false;
-              if (isCreate) return field.creatable !== false;
-              if (field.updatable === false || field.key) return false;
-              return !originalRecord || record[field.name] !== originalRecord[field.name];
-            })
-            .map(function (field) { return [field.name, record[field.name]]; })
-        );
-      },
-
       // modelName selects the service: undefined is BusinessPartnerService,
       // "cr" is ChangeRequestService (the staging actions).
       _executeAction: async function (name, parameters, modelName) {
@@ -1069,7 +1056,11 @@ sap.ui.define([
         state.showSaveButton = true;
         // Both flows are change requests now, so both can be parked as drafts.
         state.showSaveRequestButton = true;
-        if (state.mode !== "create") state.requestType = "change";
+        // `editing` only drives the buttons; `mode` is what onSave routes on, so both are set here.
+        if (state.mode !== "create") {
+          state.mode = "edit";
+          state.requestType = "change";
+        }
         state.modeText = state.mode === "create" ? "Create" : "Edit";
         state.title = state.mode === "create"
           ? "Create Business Partner"
@@ -1088,124 +1079,11 @@ sap.ui.define([
           MessageBox.error(validationErrors.join("\n"));
           return;
         }
-        // Nothing reaches S/4 from here, on create or on change. Everything
-        // goes to the staging tables and into approval; S/4 is written only
-        // once an approver approves.
+        // No direct-write branch left: an unrecognised mode refuses rather than reaching S/4.
         if (isCreate || state.mode === "edit") {
           return this._sendChangeRequest("submitRequest");
         }
-        state.busy = true;
-        maintenanceModel.refresh(true);
-
-        try {
-          var rootPayload = this._writablePayload(
-            this._rootSection,
-            state.root,
-            isCreate,
-            isCreate ? null : state.originalRoot
-          );
-          var result = state.root;
-          if (isCreate || Object.keys(rootPayload).length > 0) {
-            result = await this._executeAction("saveBusinessPartner", {
-              BusinessPartner: state.businessPartner || state.root.BusinessPartner || null,
-              IsCreate: isCreate,
-              DataJson: JSON.stringify(rootPayload)
-            });
-          }
-          var businessPartner = result && result.BusinessPartner
-            ? result.BusinessPartner
-            : state.businessPartner || state.root.BusinessPartner;
-          if (!businessPartner) throw new Error("S/4HANA did not return a Business Partner number.");
-
-          for (var section of this._metadata.filter(function (item) { return item.kind !== "root"; })) {
-            var records = state.sections[section.id] || [];
-            for (var record of records.filter(function (item) { return Boolean(item.__state); })) {
-              var createRecord = record.__state === "new";
-              record[section.relationField] = businessPartner;
-              var keys = createRecord ? {} : (record.__keys || Object.fromEntries(
-                section.fields.filter(function (field) { return field.key; }).map(function (field) {
-                  return [field.name, record[field.name]];
-                })
-              ));
-              var actionResult = await this._executeAction("saveBusinessPartnerEntity", {
-                Entity: section.id,
-                IsCreate: createRecord,
-                KeyJson: JSON.stringify(keys),
-                DataJson: JSON.stringify(this._writablePayload(section, record, createRecord))
-              });
-              if (createRecord) {
-                // S/4 assigns key fields such as AddressID on create; without
-                // merging the response back in, __keys below would capture
-                // the still-blank client value, and any later edit of this
-                // same record would fail server-side with "Missing key
-                // field(s)" because KeyJson would be incomplete.
-                var createdJson = actionResult && typeof actionResult === "object"
-                  ? actionResult.value
-                  : actionResult;
-                if (typeof createdJson === "string") {
-                  try {
-                    Object.assign(record, JSON.parse(createdJson));
-                  } catch (parseError) {
-                    // saveBusinessPartnerEntity's create branch always returns
-                    // JSON on success; ignore defensively otherwise.
-                  }
-                }
-              }
-              delete record.__state;
-              record.__keys = Object.fromEntries(
-                section.fields.filter(function (field) { return field.key; }).map(function (field) {
-                  return [field.name, record[field.name]];
-                })
-              );
-            }
-            var deletedRecords = state.deletedRecords[section.id] || [];
-            for (var deletedRecord of deletedRecords) {
-              var deleteKeys = deletedRecord.__keys || Object.fromEntries(
-                section.fields.filter(function (field) { return field.key; }).map(function (field) {
-                  return [field.name, deletedRecord[field.name]];
-                })
-              );
-              await this._executeAction("deleteBusinessPartnerEntity", {
-                Entity: section.id,
-                KeyJson: JSON.stringify(deleteKeys)
-              });
-            }
-            state.deletedRecords[section.id] = [];
-          }
-
-          if (isCreate) {
-            // Only now does S/4 have the full record (root + addresses +
-            // ... saved above) — starting the workflow any earlier would
-            // send it an empty address list.
-            try {
-              await this._executeAction("startBusinessPartnerApprovalWorkflow", {
-                BusinessPartner: businessPartner
-              });
-            } catch (workflowError) {
-              MessageToast.show(
-                "Business Partner " + businessPartner + " was saved, but the approval workflow could not be started."
-              );
-            }
-          }
-
-          state.mode = "display";
-          state.modeText = "Display";
-          state.businessPartner = businessPartner;
-          state.root.BusinessPartner = businessPartner;
-          state.title = "Business Partner " + businessPartner;
-          state.headerTitle = (result && result.BusinessPartnerFullName)
-            || state.root.BusinessPartnerFullName
-            || "Business Partner";
-          MessageToast.show("Business Partner " + businessPartner + " was saved in S/4HANA.");
-          this._router.navTo("BusinessPartnerDisplay", { businessPartner: businessPartner }, true);
-        } catch (error) {
-          MessageBox.error(errorMessage(error, "The Business Partner could not be saved in S/4HANA."));
-        } finally {
-          state.busy = false;
-          maintenanceModel.refresh(true);
-        }
- 
-
+        MessageBox.error("This Business Partner is not open for editing.");
       },
 
       /**
@@ -1243,7 +1121,8 @@ sap.ui.define([
        * as it was, still a draft, still editable. Neither writes anything — the request is already
        * staged by the time this runs, and it stays in `draft` either way.
        */
-      _confirmDuplicates: function (findings, dataJson) {
+      /** `after` runs once the decision is taken, whichever way it went — see onCheck. */
+      _confirmDuplicates: function (findings, dataJson, after) {
         var duplicates = findings.filter(function (finding) { return !!finding.verdict; });
         var listed = duplicates.map(function (finding) {
           return "  \u2022 " + (finding.candidateBP || ("pending request " + finding.candidateRequest))
@@ -1273,11 +1152,12 @@ sap.ui.define([
                 state.awaitingConfirmation = true;
                 state.awaitingConfirmationFor = dataJson || "";
                 MessageToast.show("Press Submit Request to confirm.");
-                return;
+              } else {
+                // Cancelled: drop the confirmation so an unchanged payload is checked afresh.
+                state.awaitingConfirmation = false;
+                state.awaitingConfirmationFor = "";
               }
-              // Cancelled: drop the confirmation so an unchanged payload is checked afresh.
-              state.awaitingConfirmation = false;
-              state.awaitingConfirmationFor = "";
+              if (typeof after === "function") after();
             }.bind(this)
           }
         );
@@ -1451,6 +1331,11 @@ sap.ui.define([
           state.messages = this._checkMessages(validations, derivations, duplicates, result);
           this._renderAll();
 
+          // Queued behind whichever dialog comes first: a duplicate warning used to discard these.
+          var offerNormalisations = normalisations.length
+            ? function () { this._offerNormalisations(normalisations); }.bind(this)
+            : function () {};
+
           if (!result || result.Valid === false) {
             MessageBox.error(
               "The data is not valid yet:\n\n"
@@ -1460,17 +1345,20 @@ sap.ui.define([
           }
           // A check that could not run must never read as an all-clear.
           if (result.RanDuplicateCheck === false) {
-            MessageBox.information("The duplicate check could not run. Nothing was ruled out.");
+            MessageBox.information(
+              "The duplicate check could not run. Nothing was ruled out.",
+              { onClose: offerNormalisations }
+            );
             return;
           }
           if (duplicates.some(function (finding) { return !!finding.verdict; })) {
             // After the derived values were applied, so Continue arms the payload Submit will
             // actually send and no second dialog appears.
-            this._confirmDuplicates(duplicates, this._requestDataJson(state));
+            this._confirmDuplicates(duplicates, this._requestDataJson(state), offerNormalisations);
             return;
           }
           if (normalisations.length) {
-            this._offerNormalisations(normalisations);
+            offerNormalisations();
             return;
           }
           MessageToast.show("Checked: no duplicate detected.");
