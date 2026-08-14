@@ -262,9 +262,17 @@ async function proposeNormalisations({ payload, env = process.env, Client } = {}
     const completion = await chatCompletionWithRetry(client, {
       placeholderValues: { fields: promptInput(payload, fields) }
     }, env);
-    const modelled = sanitizeProposals(parseJson(completion.response.getContent?.()), fields);
-    // "Already clean" and "never asked" are indistinguishable on screen, so say which it was.
-    console.log(`[normalise] ${fields.length} field(s) offered, ${modelled.length} proposal(s) returned.`);
+    const raw = parseJson(completion.response.getContent?.());
+    const returned = Array.isArray(raw?.proposals) ? raw.proposals.length : 0;
+    const modelled = sanitizeProposals(raw, fields);
+    // Three separate outcomes that used to read the same: nothing proposed, everything dropped by
+    // sanitizeProposals (a field key the model invented), and proposals actually kept.
+    console.log(
+      `[normalise] ${fields.length} field(s) offered, ${returned} returned, ${modelled.length} kept.`
+    );
+    if (returned && !modelled.length) {
+      console.warn('[normalise] every proposal was dropped:', JSON.stringify(raw.proposals).slice(0, 600));
+    }
     return mergeProposals(deterministic, modelled);
   } catch (error) {
     console.warn(

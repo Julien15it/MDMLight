@@ -225,3 +225,57 @@ test('a record with no context still sends its fields', () => {
   assert.equal(recordContext(payload), '');
   assert.match(promptInput(payload, normalisableFields(payload)), /^Fields:\n/u);
 });
+
+// "Nothing proposed" and "everything we dropped" used to log identically, which sent me tuning a
+// prompt that may not have been the problem. The three outcomes are now distinguishable.
+test('a proposal naming a field the model invented is reported as dropped, not as silence', async () => {
+  const logs = [];
+  const warns = [];
+  const log = console.log;
+  const warn = console.warn;
+  console.log = (...args) => logs.push(args.join(' '));
+  console.warn = (...args) => warns.push(args.join(' '));
+  try {
+    const proposals = await proposeNormalisations({
+      payload: payload({}, { Addresses: [{ StreetName: 'koedreef st' }] }),
+      env,
+      // The shape a model plausibly invents: the field path as one string, no index.
+      Client: fakeClient(JSON.stringify({
+        proposals: [{
+          target: 'Addresses[0]', index: 0, field: 'Addresses[0].StreetName',
+          proposed: 'Koedreef Straat', reason: 'street type spelled out'
+        }]
+      }))
+    });
+    assert.deepEqual(proposals, []);
+    assert.match(logs.join('\n'), /1 field\(s\) offered, 1 returned, 0 kept/u);
+    assert.match(warns.join('\n'), /every proposal was dropped/u);
+    assert.match(warns.join('\n'), /Koedreef Straat/u, 'the raw answer is shown so the shape is visible');
+  } finally {
+    console.log = log;
+    console.warn = warn;
+  }
+});
+
+test('a well-shaped proposal is kept and counted', async () => {
+  const logs = [];
+  const log = console.log;
+  console.log = (...args) => logs.push(args.join(' '));
+  try {
+    const proposals = await proposeNormalisations({
+      payload: payload({}, { Addresses: [{ StreetName: 'koedreef st' }] }),
+      env,
+      Client: fakeClient(JSON.stringify({
+        proposals: [{
+          target: 'Addresses', index: 0, field: 'StreetName',
+          proposed: 'Koedreef Straat', reason: 'street type spelled out'
+        }]
+      }))
+    });
+    assert.equal(proposals.length, 1);
+    assert.equal(proposals[0].proposed, 'Koedreef Straat');
+    assert.match(logs.join('\n'), /1 field\(s\) offered, 1 returned, 1 kept/u);
+  } finally {
+    console.log = log;
+  }
+});
