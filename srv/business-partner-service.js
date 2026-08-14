@@ -691,11 +691,31 @@ function readDuplicateRules() {
   });
 }
 
+const MB = 1024 * 1024;
+
+// The index is resident memory and mta.yaml pins none, so measure it rather than sizing on a guess.
+// `grew` is indicative only - GC may run mid-build; compare the absolutes across partner counts.
+function logIndexFootprint(refreshed, heapBefore) {
+  // A skipped refresh did no work, and logging it would bury the builds.
+  if (!refreshed || refreshed.skipped) return;
+  const { heapUsed, rss } = process.memoryUsage();
+  console.log(
+    `[index] ${refreshed.full ? 'full build' : 'delta'}: ${refreshed.size} partners, `
+    + `${refreshed.read} rows read, heap ${Math.round(heapUsed / MB)}MB `
+    + `(grew ${Math.round((heapUsed - heapBefore) / MB)}MB), rss ${Math.round(rss / MB)}MB`
+  );
+}
+
 // Falls back to the rows already read, so a failed index build never blocks an answer.
 async function ensureIndex(s4) {
   try {
     if (!indexReader) indexReader = createIndexReader(s4);
-    await Promise.all([nameIndex.refresh(indexReader), readDuplicateRules()]);
+    const heapBefore = process.memoryUsage().heapUsed;
+    const [refreshed] = await Promise.all([
+      nameIndex.refresh(indexReader),
+      readDuplicateRules()
+    ]);
+    logIndexFootprint(refreshed, heapBefore);
   } catch (error) {
     console.warn('[assistant] Name index unavailable, matching on the filtered read:', error.message);
   }
