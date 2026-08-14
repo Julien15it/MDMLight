@@ -8,8 +8,10 @@ const BusinessPartnerService = require('../srv/business-partner-service');
 const {
   MAINTENANCE_ENTITIES,
   SEARCHABLE_FIELDS,
+  searchableFieldsFor,
   answerBusinessPartnerQuestion,
   assistantAddressFilter,
+  assistantSearchFilter,
   readAllPages,
   readAssistantAddresses,
   addDefaultAddressUsage,
@@ -61,7 +63,11 @@ test('converts Fiori free-text search to S/4-compatible contains filters', () =>
   const serialized = JSON.stringify(query.SELECT.where[2]);
   assert.match(serialized, /Acme/);
   assert.match(serialized, /Brussels/);
-  for (const field of SEARCHABLE_FIELDS) assert.match(serialized, new RegExp(field));
+  // Anchored on the ref, or /BusinessPartner/ passes by matching BusinessPartnerFullName.
+  for (const field of searchableFieldsFor('Acme')) {
+    assert.match(serialized, new RegExp(`\["${field}"\]`));
+  }
+  assert.equal(/\["BusinessPartner"\]/u.test(serialized), false, 'the key is not searched by name');
 });
 
 test('serializes the rewritten search as an OData V2 substring filter', async () => {
@@ -83,7 +89,7 @@ test('serializes the rewritten search as an OData V2 substring filter', async ()
   assert.equal(request.method, 'GET');
   assert.match(request.path, /^A_BusinessPartner\?/);
   assert.match(request.path, /\$filter=/);
-  assert.match(request.path, /substringof\('O''Hara',BusinessPartner\)/);
+  assert.match(request.path, /substringof\('O''Hara',BusinessPartnerFullName\)/);
 });
 
 test('accepts a valid organization create payload', () => {
@@ -863,4 +869,30 @@ test('reads addresses in chunks so the generated filter stays short', async () =
   assert.equal(filterSizes.length, 3);
   assert.deepEqual(filterSizes, [50, 50, 20]);
   assert.deepEqual(await readAssistantAddresses(s4, []), []);
+});
+
+// S/4 runs the BusinessPartner key through an ALPHA conversion exit and rejects the whole read with
+// /IWBEP/CM_MGW_RT/264 when the term cannot fit CHAR(10). "destelbergen" 502'd the assistant.
+test('a term that cannot be a partner number is not sent against the key', () => {
+  assert.deepEqual(searchableFieldsFor('destelbergen').includes('BusinessPartner'), false);
+  assert.deepEqual(searchableFieldsFor('alluvion').includes('BusinessPartner'), false);
+  assert.deepEqual(searchableFieldsFor("O'Hara").includes('BusinessPartner'), false);
+  assert.deepEqual(searchableFieldsFor('12345678901').includes('BusinessPartner'), false, 'too long');
+  // The name fields still carry the term, so nothing is lost from the answer.
+  assert.ok(searchableFieldsFor('destelbergen').includes('OrganizationBPName1'));
+  assert.ok(searchableFieldsFor('destelbergen').includes('BusinessPartnerFullName'));
+});
+
+test('a partner number is still searched against the key', () => {
+  assert.ok(searchableFieldsFor('4711').includes('BusinessPartner'));
+  assert.ok(searchableFieldsFor('0000001000').includes('BusinessPartner'));
+  assert.deepEqual(searchableFieldsFor('4711'), SEARCHABLE_FIELDS);
+});
+
+test('the assistant filter drops the key for a word and keeps it for a number', () => {
+  const words = JSON.stringify(assistantSearchFilter(['alluvion', 'destelbergen']));
+  assert.equal(/\["BusinessPartner"\]/u.test(words), false);
+  assert.match(words, /alluvion/u);
+  assert.match(words, /destelbergen/u);
+  assert.match(JSON.stringify(assistantSearchFilter(['4711'])), /\["BusinessPartner"\]/u);
 });

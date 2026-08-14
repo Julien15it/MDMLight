@@ -32,6 +32,34 @@ const SEARCHABLE_FIELDS = Object.freeze([
   'OrganizationBPName1'
 ]);
 
+/**
+ * S/4 puts the BusinessPartner key through an ALPHA conversion exit, which rejects the whole read
+ * with /IWBEP/CM_MGW_RT/264 rather than just missing: "destelbergen" 502'd the assistant on
+ * 2026-08-14. Only a digit term that fits CHAR(10) is safe, and a name still matches the name
+ * fields, so dropping the key costs nothing an alphanumeric external number would have found.
+ */
+const BP_NUMBER_TERM = /^\d{1,10}$/u;
+
+function searchableFieldsFor(term) {
+  if (BP_NUMBER_TERM.test(term)) return SEARCHABLE_FIELDS;
+  return SEARCHABLE_FIELDS.filter((field) => field !== 'BusinessPartner');
+}
+
+/** One term against every field it is safe to send. */
+function termExpression(term) {
+  return {
+    xpr: joinExpressions(
+      searchableFieldsFor(term).map((field) => ({
+        func: 'contains',
+        // CAP 8's OData V2 URL serializer does not double embedded quotes.
+        // Escape them here so names such as O'Hara remain valid literals.
+        args: [{ ref: [field] }, { val: term.replaceAll("'", "''") }]
+      })),
+      'or'
+    )
+  };
+}
+
 const CREATE_FIELDS = Object.freeze([
   'BusinessPartnerCategory',
   'BusinessPartnerGrouping',
@@ -458,20 +486,7 @@ function applyBusinessPartnerSearch(query) {
   select.search = undefined;
   if (terms.length === 0) return query;
 
-  const searchExpression = joinExpressions(
-    terms.map((term) => ({
-      xpr: joinExpressions(
-        SEARCHABLE_FIELDS.map((field) => ({
-          func: 'contains',
-          // CAP 8's OData V2 URL serializer does not double embedded quotes.
-          // Escape them here so names such as O'Hara remain valid literals.
-          args: [{ ref: [field] }, { val: term.replaceAll("'", "''") }]
-        })),
-        'or'
-      )
-    })),
-    'and'
-  );
+  const searchExpression = joinExpressions(terms.map(termExpression), 'and');
 
   select.where = select.where && select.where.length
     ? [{ xpr: select.where }, 'and', { xpr: searchExpression }]
@@ -604,18 +619,7 @@ function assistantSearchTerms(question) {
  * only the rows that happen to be loaded first.
  */
 function assistantSearchFilter(terms) {
-  return joinExpressions(
-    terms.map((term) => ({
-      xpr: joinExpressions(
-        SEARCHABLE_FIELDS.map((field) => ({
-          func: 'contains',
-          args: [{ ref: [field] }, { val: term.replaceAll("'", "''") }]
-        })),
-        'or'
-      )
-    })),
-    'or'
-  );
+  return joinExpressions(terms.map(termExpression), 'or');
 }
 
 // Scopes an address read to the partners actually in context.
@@ -1830,6 +1834,8 @@ BusinessPartnerService._internals = {
   ASSISTANT_FIELDS,
   ASSISTANT_ADDRESS_FIELDS,
   SEARCHABLE_FIELDS,
+  searchableFieldsFor,
+  termExpression,
   CREATE_FIELDS,
   UPDATE_FIELDS,
   MAINTENANCE_ENTITIES,
@@ -1842,6 +1848,7 @@ BusinessPartnerService._internals = {
   applyChangeRequestExclusion,
   ACTIVE_REQUEST_STATUSES,
   assistantAddressFilter,
+  assistantSearchFilter,
   readAllPages,
   readAssistantAddresses,
   createIndexReader,
