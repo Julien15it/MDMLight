@@ -208,3 +208,20 @@ test('a blocked validation proposes nothing either', async () => {
   assert.equal(proposed, false, 'invalid data is not worth reformatting');
   assert.deepEqual(result.normalisations, []);
 });
+
+// A registry fact with no field to live in - a legal name the requester already typed - is a
+// statement. It used to rely on targetRecord happening to miss, which wrote root[undefined].
+test('a derivation entry with no field is reported and writes nothing', async () => {
+  const derivations = [{
+    name: 'registry',
+    run: async () => [{ message: 'GLEIF found “ALLUVION BV”.' }]
+  }];
+  const { derived, applied } = await runDerivations(
+    { root: { OrganizationBPName1: 'Alluvion' }, sections: {} }, derivations
+  );
+  assert.equal(applied.length, 1);
+  assert.equal(applied[0].severity, 'info');
+  assert.match(applied[0].message, /ALLUVION BV/u);
+  assert.deepEqual(derived.root, { OrganizationBPName1: 'Alluvion' }, 'nothing was written');
+  assert.equal('undefined' in derived.root, false);
+});

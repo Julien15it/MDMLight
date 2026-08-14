@@ -103,7 +103,12 @@ async function enrichCandidate(record = {}, {
     }
   }
 
-  if (useGleif && typedName) {
+  // GLEIF is the fallback, not a second opinion: a member state's own VAT register outranks a
+  // self-reported LEI record, and GLEIF matching on a name alone has put a Belgian company under a
+  // Dutch entity's number. Once VIES confirms the number, nothing GLEIF adds can improve on it.
+  const confirmedByVies = facts.vies.some((check) => check.status === STATUS.VALID);
+
+  if (useGleif && typedName && !confirmedByVies) {
     const entities = await lookupName(typedName, options);
     const accepted = acceptedEntities(typedName, entities, country);
     facts.gleif = accepted;

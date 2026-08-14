@@ -291,3 +291,42 @@ test('enrichment lets a trading name find the partner stored under its legal nam
   assert.equal(found.partner.BusinessPartner, '99');
   assert.equal(found.verdict, VERDICTS.DUPLICATE);
 });
+
+// GLEIF is the fallback, not a second opinion. Matching on a name alone put a Belgian company under
+// a Dutch entity's number on 2026-08-14; once VIES confirms the VAT number, GLEIF cannot improve it.
+test('GLEIF is not consulted once VIES has confirmed the VAT number', async () => {
+  let asked = 0;
+  const enriched = await enrichCandidate(
+    { Name: 'Ackermans & van Haaren', Country: 'BE', taxNumbers: [{ BPTaxNumber: '0404616494' }] },
+    {
+      ...vies(fetchReturning(VIES_VALID)),
+      lookupName: async () => { asked += 1; return []; }
+    }
+  );
+  assert.equal(asked, 0, 'no GLEIF call at all');
+  assert.deepEqual(enriched.facts.gleif, []);
+  // VIES still enriches: its registered name is the one worth having.
+  assert.ok(enriched.record.additionalNames.includes('NV ACKERMANS & VAN HAAREN'));
+});
+
+test('GLEIF still runs when VIES cannot confirm the number', async () => {
+  let asked = 0;
+  const enriched = await enrichCandidate(
+    { Name: 'Ackermans & van Haaren', Country: 'BE', taxNumbers: [{ BPTaxNumber: '0417497106' }] },
+    {
+      ...vies(fetchReturning(VIES_THROTTLED), { attempts: 1 }),
+      lookupName: async () => { asked += 1; return recordsFrom({ data: [gleifRecord()] }); }
+    }
+  );
+  assert.equal(asked, 1);
+  assert.equal(enriched.facts.gleif.length, 1);
+});
+
+test('GLEIF still runs when no VAT number was given at all', async () => {
+  let asked = 0;
+  await enrichCandidate({ Name: 'Ackermans & van Haaren', Country: 'BE' }, {
+    ...vies(fetchReturning(VIES_VALID)),
+    lookupName: async () => { asked += 1; return []; }
+  });
+  assert.equal(asked, 1, 'nothing confirmed anything, so the fallback applies');
+});

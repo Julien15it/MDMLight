@@ -68,6 +68,31 @@ function addressDerivations(addresses, rows, source) {
   return entries;
 }
 
+const addressLine = (address = {}) => [
+  [address.StreetName, address.HouseNumber].filter(Boolean).join(' '),
+  [address.PostalCode, address.CityName].filter(Boolean).join(' '),
+  address.Country
+].filter(Boolean).join(', ');
+
+/**
+ * What GLEIF says the company is, in the order a steward cares: the registered name, then where,
+ * then the identifiers. The company number led before and told nobody anything - the name is what
+ * says whether GLEIF found the right company at all.
+ */
+function describeEntity(entity = {}) {
+  const where = addressLine(entity.address);
+  const ids = [
+    entity.registeredAs ? `company number ${entity.registeredAs}` : '',
+    entity.lei ? `LEI ${entity.lei}` : ''
+  ].filter(Boolean).join(', ');
+  return [
+    `GLEIF found “${entity.legalName || 'this company'}”`,
+    where ? ` at ${where}` : '',
+    ids ? ` (${ids})` : '',
+    '. Check it is the same company before using it.'
+  ].join('');
+}
+
 function createRegistryStages({ enrich = enrichCandidate, ...options } = {}) {
   let lookup = null;
 
@@ -109,16 +134,7 @@ function createRegistryStages({ enrich = enrichCandidate, ...options } = {}) {
       // Ambiguity is not a reason to guess: registry.js only exposes an identifier when exactly
       // one entity matched closely, so this inherits that discipline rather than restating it.
       const [only] = facts.gleif || [];
-      if ((facts.gleif || []).length === 1 && only.registeredAs && !(payload.sections?.TaxNumbers || []).length) {
-        // No row to fill and none invented — reported so the steward can add it deliberately.
-        entries.push({
-          target: 'TaxNumbers',
-          index: 0,
-          field: 'BPTaxNumber',
-          value: only.registeredAs,
-          message: `GLEIF registers this company under company number ${only.registeredAs}.`
-        });
-      }
+      if ((facts.gleif || []).length === 1) entries.push({ message: describeEntity(only) });
       return entries;
     }
   };
@@ -128,6 +144,8 @@ function createRegistryStages({ enrich = enrichCandidate, ...options } = {}) {
 
 module.exports = {
   ADDRESS_FIELDS,
+  addressLine,
+  describeEntity,
   NAME_MISMATCH_SEVERITY,
   severityOf,
   addressDerivations,

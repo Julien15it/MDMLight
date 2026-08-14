@@ -3,7 +3,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { createRegistryStages, addressDerivations, severityOf } = require('../srv/checks/registry-checks');
+const {
+  createRegistryStages, addressDerivations, severityOf, describeEntity
+} = require('../srv/checks/registry-checks');
 const { runChecks } = require('../srv/checks/pipeline');
 
 const payload = (root = {}, sections = {}) => ({ root, sections });
@@ -138,20 +140,39 @@ test('a fresh pair per check does not reuse the previous answer', async () => {
 
 // Ambiguity is not a reason to guess — registry.js only exposes an identifier when exactly one
 // entity matched closely, and this inherits that rather than restating it.
-test('a single confident GLEIF hit offers its company number, two hits offer nothing', async () => {
+test('a single confident GLEIF hit is described, two hits say nothing', async () => {
   const one = stages({
     ...empty,
-    facts: { vies: [], gleif: [{ registeredAs: '0448207405', address: null }] }
+    facts: {
+      vies: [],
+      gleif: [{
+        legalName: 'ALLUVION BV',
+        lei: '549300ABCDEFGHIJKL01',
+        registeredAs: '0448207405',
+        address: { StreetName: 'Koedreef', HouseNumber: '12', PostalCode: '2000', CityName: 'Antwerpen', Country: 'BE' }
+      }]
+    }
   });
   const entries = await one.derivations[0].run(payload({}, { TaxNumbers: [] }));
   assert.equal(entries.length, 1);
-  assert.equal(entries[0].value, '0448207405');
+  // The name leads and nothing is written: a company number alone told nobody whether GLEIF had
+  // found the right company.
+  assert.equal(entries[0].field, undefined);
+  assert.match(entries[0].message, /GLEIF found “ALLUVION BV”/u);
+  assert.match(entries[0].message, /Koedreef 12, 2000 Antwerpen, BE/u);
+  assert.match(entries[0].message, /company number 0448207405/u);
 
   const two = stages({
     ...empty,
     facts: { vies: [], gleif: [{ registeredAs: '1' }, { registeredAs: '2' }] }
   });
   assert.deepEqual(await two.derivations[0].run(payload({}, { TaxNumbers: [] })), []);
+});
+
+test('a GLEIF hit with no address is still described', () => {
+  const message = describeEntity({ legalName: 'ALLUVION BV', registeredAs: '0448207405' });
+  assert.match(message, /GLEIF found “ALLUVION BV” \(company number 0448207405\)/u);
+  assert.equal(/ at /u.test(message), false);
 });
 
 // A registry that is down must not read as "the data is fine" — the validation blocks instead.

@@ -81,6 +81,13 @@ async function runDerivations(payload, derivations = DERIVATIONS) {
       continue;
     }
     for (const entry of entries) {
+      // An entry with no field is a statement, not a value: report it and write nothing. Registry
+      // facts that have no field to live in - a legal name the requester already typed - arrive
+      // this way, and used to depend on `targetRecord` happening to miss.
+      if (!entry.field) {
+        applied.push({ check: derivation.name, severity: 'info', message: entry.message });
+        continue;
+      }
       const record = targetRecord(derived, entry);
       // A row that is not there is not invented — filling a street into an address the user never
       // added would create data nobody asked for. But it is still said out loud, without a
