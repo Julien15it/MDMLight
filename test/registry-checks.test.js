@@ -174,3 +174,14 @@ test('the severity table re-grades only the name mismatch', () => {
   assert.equal(severityOf({ check: 'vat_name_matches', severity: 'warning' }), 'error');
   assert.equal(severityOf({ check: 'something_new' }), 'info');
 });
+
+// The bare fact read as a change that had silently failed, because every other finding writes.
+test('the GLEIF company number says outright that nothing was filled in', async () => {
+  const registry = stages({
+    ...empty,
+    facts: { vies: [], gleif: [{ registeredAs: '0448207405', address: null }] }
+  });
+  const [entry] = await registry.derivations[0].run(payload({}, { TaxNumbers: [] }));
+  assert.match(entry.message, /company number 0448207405/u);
+  assert.match(entry.message, /Nothing was filled in/u);
+});
