@@ -97,10 +97,12 @@ function correctionsFrom(official, rows, source) {
   }));
 }
 
-const addressLine = (address = {}) => [
-  [address.StreetName, address.HouseNumber].filter(Boolean).join(' '),
-  [address.PostalCode, address.CityName].filter(Boolean).join(' '),
-  address.Country
+// Optional chaining, not a default: GLEIF sends `address: null` for an entity with no legal
+// address, and a default only fires on undefined.
+const addressLine = (address) => [
+  [address?.StreetName, address?.HouseNumber].filter(Boolean).join(' '),
+  [address?.PostalCode, address?.CityName].filter(Boolean).join(' '),
+  address?.Country
 ].filter(Boolean).join(', ');
 
 /**
