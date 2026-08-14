@@ -127,13 +127,19 @@ test('the check button is wired to the pipeline action', () => {
 });
 
 // A banner above a long object page is easy to submit straight past; this is a decision.
-test('an unconfirmed duplicate opens a dialog whose confirming button names what it does', () => {
+test('the duplicate dialog offers Submit Request only where there is something to submit', () => {
   assert.match(controllerSource, /if \(result && result\.NeedsConfirmation\)[\s\S]{0,420}_confirmDuplicates/u);
-  assert.match(controllerSource, /actions: \[confirmText, MessageBox\.Action\.CANCEL\]/u);
-  // From Submit the button IS the submit; from Check it only carries on with the check.
+  // Submit gets both buttons, Check gets Continue Editing alone - there is nothing to cancel.
+  assert.match(controllerSource, /actions: confirmText \? \[confirmText, keepEditing\] : \[keepEditing\]/u);
+  assert.match(controllerSource, /var keepEditing = "Continue Editing";/u);
   assert.match(controllerSource, /confirmText: "Submit Request"/u);
-  assert.match(controllerSource, /confirmText: "Continue Processing"/u);
-  // Cancel drops the arming, so an unchanged payload is checked again rather than waved through.
+  // No Cancel on this dialog. The delete confirmation keeps its own, so the check is scoped.
+  const dialog = controllerSource.slice(
+    controllerSource.indexOf('_confirmDuplicates: function'),
+    controllerSource.indexOf('_submitMessages: function')
+  );
+  assert.equal(/MessageBox\.Action\.CANCEL/u.test(dialog), false);
+  // Carrying on editing confirms nothing, so an unchanged payload is asked about again.
   assert.match(controllerSource, /state\.awaitingConfirmationFor = "";/u);
 });
 
@@ -200,18 +206,19 @@ test('malformed json from the check degrades to an empty list', () => {
 });
 
 
-// Continue means "I have seen these duplicates for this payload". Check and Submit run the same
-// check, so confirming once has to be enough — asking again on Submit is the friction complained
-// about, and the payload tie is what still catches an edit made afterwards.
-test('confirming from Check carries over to Submit', () => {
+// Check reports, Submit decides. Acknowledging a duplicate on Check is not a confirmation, so it
+// arms nothing; only the dialog's own Submit Request does, tied to the exact payload it showed.
+test('only the submit dialog arms the confirmation, and only for its own payload', () => {
   assert.match(controllerSource, /_confirmDuplicates: function \(findings, dataJson, options\)/u);
+  assert.match(controllerSource, /if \(confirmText && action === confirmText\)/u);
   assert.match(controllerSource, /state\.awaitingConfirmationFor = dataJson \|\| "";/u);
-  // Armed on Continue, not before the dialog opens: a cancelled dialog must leave nothing behind.
+  // Armed on the decision, not when the dialog opens: closing it must leave nothing behind.
   assert.equal(/awaitingConfirmationFor = parameters\.DataJson;/u.test(controllerSource), false);
   // Check arms against the payload as it stands after enrichment, which is what Submit will send.
+  // Check passes no confirmText, which is what leaves it with one button and no arming.
   assert.match(
     controllerSource,
-    /_confirmDuplicates\(duplicates, this\._requestDataJson\(state\), \{[\s\S]{0,160}after: offerNormalisations/u
+    /_confirmDuplicates\(duplicates, this\._requestDataJson\(state\), \{\s*after: offerNormalisations\s*\}\)/u
   );
 });
 

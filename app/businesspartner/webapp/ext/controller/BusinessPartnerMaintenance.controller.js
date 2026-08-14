@@ -1112,11 +1112,12 @@ sap.ui.define([
         }
       },
 
-      // `confirmText` names the confirming button and is what makes one dialog serve both callers:
-      // from Check it continues the check, from Submit it IS the submit. Cancel leaves a draft.
+      // One dialog, two callers. Check has nothing to decide, so it gets Continue Editing alone;
+      // Submit adds `confirmText`, whose button IS the submit. Neither writes anything.
       _confirmDuplicates: function (findings, dataJson, options) {
         var settings = options || {};
-        var confirmText = settings.confirmText || "Continue Processing";
+        var confirmText = settings.confirmText || "";
+        var keepEditing = "Continue Editing";
         var duplicates = findings.filter(function (finding) { return !!finding.verdict; });
         // Named, not just numbered: several distinct partners with similar names read as the same
         // one repeated when the list shows numbers alone.
@@ -1135,23 +1136,24 @@ sap.ui.define([
         MessageBox.warning(
           "This Business Partner might already exist:\n\n" + listed
             + (notes.length ? "\n\n" + notes.join("\n") : "")
-            + "\n\nContinue anyway, or Cancel to go back and change it.",
+            + (confirmText
+              ? "\n\nSubmit it anyway, or carry on editing it first."
+              : "\n\nThe request has not been submitted."),
           {
             title: "Possible duplicate",
-            actions: [confirmText, MessageBox.Action.CANCEL],
-            emphasizedAction: MessageBox.Action.CANCEL,
+            actions: confirmText ? [confirmText, keepEditing] : [keepEditing],
+            emphasizedAction: keepEditing,
             contentWidth: "32rem",
             onClose: function (action) {
               var state = this.getView().getModel("maintenance").getData();
-              if (action === confirmText) {
-                // Armed against this exact payload, whether the warning came from Check or from
-                // Submit — it is the same duplicate check either way, so confirming it once is
-                // enough. Editing anything afterwards changes the payload and asks again.
+              if (confirmText && action === confirmText) {
+                // Armed against this exact payload, so the re-submit carries Confirm. Editing
+                // anything afterwards changes the payload and asks again.
                 state.awaitingConfirmation = true;
                 state.awaitingConfirmationFor = dataJson || "";
                 if (typeof settings.onConfirm === "function") settings.onConfirm();
               } else {
-                // Cancelled: drop the confirmation so an unchanged payload is checked afresh.
+                // Still editing, so nothing is confirmed: an unchanged payload is asked about again.
                 state.awaitingConfirmation = false;
                 state.awaitingConfirmationFor = "";
               }
@@ -1356,10 +1358,9 @@ sap.ui.define([
             return;
           }
           if (duplicates.some(function (finding) { return !!finding.verdict; })) {
-            // After the derived values were applied, so confirming arms the payload Submit sends.
-            // From Check the button only continues the check; it must not submit.
+            // No confirmText: Check reports, it does not ask. Deciding belongs to Submit, which
+            // offers the submit itself, so acknowledging here confirms nothing.
             this._confirmDuplicates(duplicates, this._requestDataJson(state), {
-              confirmText: "Continue Processing",
               after: offerNormalisations
             });
             return;
