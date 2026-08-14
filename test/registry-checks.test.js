@@ -4,7 +4,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
-  createRegistryStages, addressDerivations, severityOf, describeEntity, fieldFor
+  createRegistryStages, addressDerivations, severityOf, describeEntity, fieldFor,
+  NAME_MISMATCH_SEVERITY
 } = require('../srv/checks/registry-checks');
 const { runChecks } = require('../srv/checks/pipeline');
 
@@ -35,9 +36,9 @@ test('a VAT number VIES does not know blocks the rest of the pipeline', async ()
   assert.equal(result.validations[0].field, 'BPTaxNumber');
 });
 
-// registry.js grades a name mismatch as a warning for the submit path, where nothing blocks.
-// The Check button re-grades it, so the two callers can disagree without either being changed.
-test('a name that disagrees with VIES is re-graded to a blocking error', async () => {
+// It blocked until 2026-08-14. Blocking stopped the whole pipeline, so a trading name cost the
+// requester the derivations and the proposals too - and VIES returns the legal name.
+test('a name that disagrees with VIES warns without blocking', async () => {
   const registry = stages({
     ...empty,
     findings: [{
@@ -47,8 +48,19 @@ test('a name that disagrees with VIES is re-graded to a blocking error', async (
     }]
   });
   const messages = await registry.validations[0].run(payload());
-  assert.equal(messages[0].severity, 'error');
+  assert.equal(messages[0].severity, 'warning');
   assert.match(messages[0].message, /not “Aluvion”/u);
+
+  // The point of the change: everything after validation still runs.
+  const result = await runChecks(payload(), {
+    validations: registry.validations,
+    derivations: registry.derivations,
+    propose: async () => [{ target: 'root', index: 0, field: 'OrganizationBPName1', current: 'x', proposed: 'X', reason: 'casing' }],
+    checkDuplicates: async () => []
+  });
+  assert.equal(result.valid, true);
+  assert.equal(result.normalisations.length, 1);
+  assert.equal(result.ranDuplicateCheck, true);
 });
 
 // VIES answers isValid:false when a member state is merely throttled. Blocking on that would
@@ -189,11 +201,14 @@ test('an enrichment that throws blocks rather than passing silently', async () =
   assert.match(result.validations[0].message, /registry could not run: GLEIF timed out/u);
 });
 
-test('the severity table re-grades only the name mismatch', () => {
+// Nothing is re-graded upwards now, but the knob stays: re-grading by check NAME rather than by
+// severity is what would block on an outage, since vat_registered carries both meanings.
+test('the severity table never turns a warning or an outage into a block', () => {
   assert.equal(severityOf({ check: 'vat_registered', severity: 'error' }), 'error');
   assert.equal(severityOf({ check: 'vat_registered', severity: 'info' }), 'info');
-  assert.equal(severityOf({ check: 'vat_name_matches', severity: 'warning' }), 'error');
+  assert.equal(severityOf({ check: 'vat_name_matches', severity: 'warning' }), 'warning');
   assert.equal(severityOf({ check: 'something_new' }), 'info');
+  assert.equal(NAME_MISMATCH_SEVERITY, 'warning');
 });
 
 test('the GLEIF company number is reported as a plain fact', async () => {

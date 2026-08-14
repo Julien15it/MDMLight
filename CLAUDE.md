@@ -165,10 +165,15 @@ stages actually in use are built per request by
 `srv/checks/registry-checks.js` — **VIES and GLEIF**, as one validation and one
 derivation sharing a single lookup (VIES throttles per member state).
 
-- **Validation**: a VAT number VIES does not know blocks; a name that disagrees
-  with the register blocks (`NAME_MISMATCH_SEVERITY`, one line to soften to a
-  warning — `registry.js` treats a legal/trading-name difference as legitimate,
-  so this may prove too strict on real data).
+- **Validation**: a VAT number VIES does not know blocks. A name or an address
+  that disagrees with the register only **warns** — VIES returns the legal name
+  and partners are often stored under a trading one, and blocking stopped the
+  derivations and the normalisation proposals as well. `NAME_MISMATCH_SEVERITY`
+  is the one-line knob back to `'error'`.
+- **VIES never proposes.** It validates and it fills gaps; rewriting a value the
+  requester typed is the model's job (`srv/checks/normalise.js`). A register value
+  that differs from a filled-in one is reported as a warning naming both, never
+  offered as a change.
 - **Never block on an outage.** `registry.js` uses check name `vat_registered`
   for *both* "not registered" (error) and "could not confirm" (info, because VIES
   answers `isValid: false` when merely throttled). Re-grade by severity, not by

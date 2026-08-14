@@ -17,16 +17,9 @@ const { candidateFromStagedRequest } = require('../ai/duplicate-check');
 
 const ADDRESS_FIELDS = Object.freeze(['StreetName', 'HouseNumber', 'PostalCode', 'CityName', 'Country']);
 
-/**
- * A name that does not match the registry **blocks**, on Maarten's instruction (2026-08-13): a
- * partner whose VAT number belongs to a differently-named company is wrong data, not a hint.
- *
- * Worth knowing before this bites: `registry.js` already treats a legal-name/trading-name
- * difference as a legitimate case, and VIES returns the legal name. If real data turns out to
- * trip this constantly, lowering it to 'warning' here is the one-line change — a warning still
- * shows at the top of the screen, it just no longer stops the duplicate check from running.
- */
-const NAME_MISMATCH_SEVERITY = 'error';
+// A warning since 2026-08-14: VIES returns the legal name and partners are often stored under a
+// trading one, and blocking here stopped the derivations and the proposals as well. 'error' restores it.
+const NAME_MISMATCH_SEVERITY = 'warning';
 
 /**
  * Only the name mismatch is re-graded. Everything else keeps the severity `registry.js` gave it,
