@@ -219,7 +219,7 @@
                   }
                 }
               },
-              "initialLoad": "Enabled",
+              "initialLoad": "Disabled",
               "controlConfiguration": {
                 "@com.sap.vocabularies.UI.v1.LineItem": {
                   "tableSettings": {

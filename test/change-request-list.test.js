@@ -12,8 +12,14 @@ const controller = read('ext', 'controller', 'ChangeRequestList.controller.js');
 const view = read('ext', 'view', 'ChangeRequestList.view.xml');
 const manifest = JSON.parse(read('manifest.json'));
 
-const listActions = manifest['sap.ui5'].routing.targets.BusinessPartnersList.options.settings
-  .controlConfiguration['@com.sap.vocabularies.UI.v1.LineItem'].actions;
+const listSettings = manifest['sap.ui5'].routing.targets.BusinessPartnersList.options.settings;
+const listActions = listSettings.controlConfiguration['@com.sap.vocabularies.UI.v1.LineItem']
+  .actions;
+
+// On a customer system an automatic full read makes the tile look like it has hung.
+test('the business partner list does not search when the app opens', () => {
+  assert.equal(listSettings.initialLoad, 'Disabled');
+});
 
 // A decision is taken against a real task in the approver's inbox, never by finding the
 // request in a list. The route stays — the inbox link uses it — but nothing here reaches it.
