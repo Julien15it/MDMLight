@@ -1121,8 +1121,14 @@ sap.ui.define([
        * as it was, still a draft, still editable. Neither writes anything — the request is already
        * staged by the time this runs, and it stays in `draft` either way.
        */
-      /** `after` runs once the decision is taken, whichever way it went — see onCheck. */
-      _confirmDuplicates: function (findings, dataJson, after) {
+      /**
+       * `options.confirmText` names the confirming button and is what makes one dialog serve both
+       * callers: from Check it continues the check, from Submit it *is* the submit. `options.onConfirm`
+       * runs after the confirmation is armed, `options.after` once the decision is taken either way.
+       */
+      _confirmDuplicates: function (findings, dataJson, options) {
+        var settings = options || {};
+        var confirmText = settings.confirmText || "Continue Processing";
         var duplicates = findings.filter(function (finding) { return !!finding.verdict; });
         // Named, not just numbered: several distinct partners with similar names read as the same
         // one repeated when the list shows numbers alone.
@@ -1141,27 +1147,27 @@ sap.ui.define([
         MessageBox.warning(
           "This Business Partner might already exist:\n\n" + listed
             + (notes.length ? "\n\n" + notes.join("\n") : "")
-            + "\n\nContinue to submit it anyway, or Cancel to go back and change it.",
+            + "\n\nContinue anyway, or Cancel to go back and change it.",
           {
             title: "Possible duplicate",
-            actions: ["Continue", MessageBox.Action.CANCEL],
+            actions: [confirmText, MessageBox.Action.CANCEL],
             emphasizedAction: MessageBox.Action.CANCEL,
             contentWidth: "32rem",
             onClose: function (action) {
               var state = this.getView().getModel("maintenance").getData();
-              if (action === "Continue") {
+              if (action === confirmText) {
                 // Armed against this exact payload, whether the warning came from Check or from
                 // Submit — it is the same duplicate check either way, so confirming it once is
                 // enough. Editing anything afterwards changes the payload and asks again.
                 state.awaitingConfirmation = true;
                 state.awaitingConfirmationFor = dataJson || "";
-                MessageToast.show("Press Submit Request to confirm.");
+                if (typeof settings.onConfirm === "function") settings.onConfirm();
               } else {
                 // Cancelled: drop the confirmation so an unchanged payload is checked afresh.
                 state.awaitingConfirmation = false;
                 state.awaitingConfirmationFor = "";
               }
-              if (typeof after === "function") after();
+              if (typeof settings.after === "function") settings.after();
             }.bind(this)
           }
         );
@@ -1195,8 +1201,11 @@ sap.ui.define([
         return messages;
       },
 
-      /** action is "saveRequest" (stays a draft) or "submitRequest". */
-      _sendChangeRequest: async function (action) {
+      /**
+       * action is "saveRequest" (stays a draft) or "submitRequest". `confirmed` is set only by the
+       * duplicate dialog's own Submit Request, so one re-entry is possible and no more.
+       */
+      _sendChangeRequest: async function (action, confirmed) {
         var maintenanceModel = this.getView().getModel("maintenance");
         var state = maintenanceModel.getData();
         state.busy = true;
@@ -1257,7 +1266,14 @@ sap.ui.define([
           // now — a banner above a long object page is easy to submit straight past.
           if (result && result.NeedsConfirmation) {
             state.messages = [];
-            this._confirmDuplicates(this._findingsFrom(result), parameters.DataJson);
+            this._confirmDuplicates(this._findingsFrom(result), parameters.DataJson, {
+              // The button IS the submit. `confirmed` stops a second dialog from re-submitting,
+              // so a server that somehow asks again is answered by the user, not by a loop.
+              confirmText: "Submit Request",
+              onConfirm: confirmed ? null : function () {
+                this._sendChangeRequest(action, true);
+              }.bind(this)
+            });
             return;
           }
 
@@ -1356,9 +1372,13 @@ sap.ui.define([
             return;
           }
           if (duplicates.some(function (finding) { return !!finding.verdict; })) {
-            // After the derived values were applied, so Continue arms the payload Submit will
-            // actually send and no second dialog appears.
-            this._confirmDuplicates(duplicates, this._requestDataJson(state), offerNormalisations);
+            // After the derived values were applied, so confirming arms the payload Submit will
+            // actually send and no second dialog appears. From Check the button only continues the
+            // check — pressing it must not submit anything.
+            this._confirmDuplicates(duplicates, this._requestDataJson(state), {
+              confirmText: "Continue Processing",
+              after: offerNormalisations
+            });
             return;
           }
           if (normalisations.length) {

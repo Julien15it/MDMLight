@@ -127,13 +127,27 @@ test('the check button is wired to the pipeline action', () => {
 });
 
 // A banner above a long object page is easy to submit straight past; this is a decision.
-test('an unconfirmed duplicate opens a dialog with Continue and Cancel', () => {
-  assert.match(controllerSource, /if \(result && result\.NeedsConfirmation\)[\s\S]{0,320}_confirmDuplicates/u);
-  assert.match(controllerSource, /actions: \["Continue", MessageBox\.Action\.CANCEL\]/u);
-  // Continue arms the next press rather than submitting for the user.
-  assert.match(controllerSource, /Press Submit Request to confirm/u);
+test('an unconfirmed duplicate opens a dialog whose confirming button names what it does', () => {
+  assert.match(controllerSource, /if \(result && result\.NeedsConfirmation\)[\s\S]{0,420}_confirmDuplicates/u);
+  assert.match(controllerSource, /actions: \[confirmText, MessageBox\.Action\.CANCEL\]/u);
+  // From Submit the button IS the submit; from Check it only carries on with the check.
+  assert.match(controllerSource, /confirmText: "Submit Request"/u);
+  assert.match(controllerSource, /confirmText: "Continue Processing"/u);
   // Cancel drops the arming, so an unchanged payload is checked again rather than waved through.
   assert.match(controllerSource, /state\.awaitingConfirmationFor = "";/u);
+});
+
+// The message told people to press a button that no longer has to be pressed, which is worse than
+// no message: it was still on screen after the submit it was asking for had already happened.
+test('no message tells the user to press submit again', () => {
+  assert.equal(/Press Submit Request to confirm/u.test(controllerSource), false);
+  assert.equal(/again to confirm/u.test(controllerSource), false);
+});
+
+// One re-entry and no more: a server that somehow asked twice would otherwise submit in a loop.
+test('the dialog submits once and cannot re-enter itself', () => {
+  assert.match(controllerSource, /_sendChangeRequest: async function \(action, confirmed\)/u);
+  assert.match(controllerSource, /onConfirm: confirmed \? null : function \(\) \{\s*this\._sendChangeRequest\(action, true\);/u);
 });
 
 test('the check reports validations, derivations and duplicates in that order', () => {
@@ -190,12 +204,15 @@ test('malformed json from the check degrades to an empty list', () => {
 // check, so confirming once has to be enough — asking again on Submit is the friction complained
 // about, and the payload tie is what still catches an edit made afterwards.
 test('confirming from Check carries over to Submit', () => {
-  assert.match(controllerSource, /_confirmDuplicates: function \(findings, dataJson, after\)/u);
+  assert.match(controllerSource, /_confirmDuplicates: function \(findings, dataJson, options\)/u);
   assert.match(controllerSource, /state\.awaitingConfirmationFor = dataJson \|\| "";/u);
   // Armed on Continue, not before the dialog opens: a cancelled dialog must leave nothing behind.
   assert.equal(/awaitingConfirmationFor = parameters\.DataJson;/u.test(controllerSource), false);
   // Check arms against the payload as it stands after enrichment, which is what Submit will send.
-  assert.match(controllerSource, /_confirmDuplicates\(duplicates, this\._requestDataJson\(state\), offerNormalisations\)/u);
+  assert.match(
+    controllerSource,
+    /_confirmDuplicates\(duplicates, this\._requestDataJson\(state\), \{[\s\S]{0,160}after: offerNormalisations/u
+  );
 });
 
 test('a derived value can land on an address row, not only on the root', () => {
