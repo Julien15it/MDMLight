@@ -8,6 +8,8 @@ const {
   candidateFromStagedRequest,
   checkAgainstPartners,
   duplicateFindings,
+  duplicateSummary,
+  SUMMARY_LIMIT,
   stagedEntries
 } = require('../srv/ai/duplicate-check');
 const { VERDICTS } = require('../srv/ai/duplicate-engine');
@@ -133,4 +135,58 @@ test('the index and the fallback read run the same rules', async () => {
     viaRead.map((row) => [row.partner.BusinessPartner, row.verdict])
   );
   assert.equal(viaIndex[0].verdict, VERDICTS.DUPLICATE);
+});
+
+// The SPA payload array. One line per matched partner with every reason folded in - the engine
+// already groups indicators per pair, so this needed no change to the results themselves.
+test('bpduplicates gives one line per matched partner, not one per matched field', () => {
+  const candidate = candidateFromStagedRequest(
+    { OrganizationBPName1: 'Alluvion NV', BusinessPartnerCategory: '2' },
+    { TaxNumbers: [{ BPTaxType: 'BE0', BPTaxNumber: 'BE0666471360' }] }
+  );
+  const results = checkAgainstPartners(candidate, [{
+    BusinessPartner: '4711',
+    OrganizationBPName1: 'Alluvion NV',
+    BusinessPartnerFullName: 'Alluvion NV',
+    taxNumbers: [{ BPTaxType: 'BE0', BPTaxNumber: 'BE0666471360' }]
+  }]);
+  const [line, ...rest] = duplicateSummary(duplicateFindings(results));
+
+  assert.deepEqual(rest, [], 'two matching fields on one partner is still one line');
+  const [subject, name, verdict] = line.split('; ');
+  assert.equal(subject, '4711');
+  assert.equal(name, 'Alluvion NV');
+  assert.match(verdict, /^Duplicate: /u);
+  assert.match(verdict, /Name \(exact\)/u);
+  assert.match(verdict, /TaxNumber\.BE0 \(exact\)/u);
+});
+
+// A pending create has no partner number, so it is named by its request instead.
+test('a pending change request is named as one in the payload', () => {
+  const lines = duplicateSummary([{
+    verdict: 'strong', candidateRequest: 'cr-1', candidateName: 'Alluvion BVBA', reasons: ['Name (fuzzy)']
+  }]);
+  assert.deepEqual(lines, ['CR cr-1; Alluvion BVBA; Strong chance of duplicate: Name (fuzzy)']);
+});
+
+test('a finding that carries no verdict is not a duplicate and is left out', () => {
+  assert.deepEqual(duplicateSummary([
+    { checkName: 'duplicate_check', severity: 'info', message: 'The duplicate check could not run.' }
+  ]), []);
+  assert.deepEqual(duplicateSummary([]), []);
+});
+
+// Silent truncation would read as the whole answer.
+test('a long list says how many it left out', () => {
+  const many = Array.from({ length: SUMMARY_LIMIT + 3 }, (unused, index) => ({
+    verdict: 'small', candidateBP: String(index), candidateName: 'X', reasons: ['Name (fuzzy)']
+  }));
+  const lines = duplicateSummary(many);
+  assert.equal(lines.length, SUMMARY_LIMIT + 1);
+  assert.equal(lines.at(-1), '…and 3 more');
+});
+
+test('a match with no readable name still produces a usable line', () => {
+  const [line] = duplicateSummary([{ verdict: 'duplicate', candidateBP: '9', reasons: [] }]);
+  assert.equal(line, '9; (no name); Duplicate: ');
 });

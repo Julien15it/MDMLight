@@ -79,11 +79,22 @@ function checkAgainstPartners(candidate, partners = [], { extra = [], ...options
   return evaluate(candidate, [...toEntries(partners), ...extra], { rules: activeRules(), ...options });
 }
 
+// Shared so the message an approver reads and the reasons SPA receives can never drift apart.
+const reasonsOf = (result) => (result.indicators || []).map((found) => `${found.field} (${found.comparison})`);
+
+// First name that is fit to show a human; the catalog's normalised values are for matching only.
+const displayName = (partner = {}) => String(
+  partner.BusinessPartnerFullName
+  || partner.BusinessPartnerName
+  || partner.OrganizationBPName1
+  || partner.GroupBusinessPartnerName1
+  || partner.Name
+  || ''
+).trim();
+
 function describe(result) {
   const label = VERDICT_LABELS[result.verdict] || result.verdict;
-  const reasons = result.indicators
-    .map((found) => `${found.field} (${found.comparison})`)
-    .join(', ');
+  const reasons = reasonsOf(result).join(', ');
   // A pending create has no partner number yet, so it is named by its request.
   const subject = result.partner?.ChangeRequest
     ? `pending change request ${result.partner.ChangeRequest}`
@@ -104,8 +115,27 @@ function duplicateFindings(results = [], { checkName = DUPLICATE_CHECK_NAME } = 
     // One or the other: a match is either a live partner or a request that has not posted yet.
     candidateBP: String(result.partner?.BusinessPartner || '').slice(0, 10) || null,
     candidateRequest: result.partner?.ChangeRequest || null,
-    score: Number(result.score.toFixed(4))
+    score: Number(result.score.toFixed(4)),
+    // Not CheckFindings columns - they travel in memory to the SPA payload. See FINDING_COLUMNS.
+    candidateName: displayName(result.partner),
+    reasons: reasonsOf(result)
   }));
+}
+
+// One line per matched partner, not per matched field: the engine already folds every indicator for
+// a pair into one result, so `reasons` is the full list of why this BP was flagged.
+const SUMMARY_LIMIT = 20;
+
+function duplicateSummary(findings = []) {
+  const flagged = findings.filter((finding) => finding.verdict);
+  const lines = flagged.slice(0, SUMMARY_LIMIT).map((finding) => [
+    finding.candidateBP || `CR ${finding.candidateRequest}`,
+    finding.candidateName || '(no name)',
+    `${VERDICT_LABELS[finding.verdict] || finding.verdict}: ${(finding.reasons || []).join(', ')}`
+  ].join('; '));
+  // Never truncate in silence: a short list reads as the whole answer.
+  if (flagged.length > lines.length) lines.push(`…and ${flagged.length - lines.length} more`);
+  return lines;
 }
 
 // Pairwise, so O(n²). 261 partners is ~34k comparisons and instant; 50k would be 1.2bn. Refuse
@@ -167,5 +197,9 @@ module.exports = {
   toEntries,
   checkAgainstPartners,
   describe,
-  duplicateFindings
+  displayName,
+  reasonsOf,
+  duplicateFindings,
+  duplicateSummary,
+  SUMMARY_LIMIT
 };

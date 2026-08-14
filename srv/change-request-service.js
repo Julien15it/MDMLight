@@ -3,7 +3,7 @@
 const cds = require('@sap/cds');
 const { startWorkflow, triggerApprovalDecision } = require('./wf/processAutomation');
 const { buildWorkflowInputFromRows } = require('./business-partner-service')._internals;
-const { candidateFromStagedRequest } = require('./ai/duplicate-check');
+const { candidateFromStagedRequest, duplicateSummary } = require('./ai/duplicate-check');
 const { runChecks, runValidations, BLOCKING } = require('./checks/pipeline');
 const { createRegistryStages } = require('./checks/registry-checks');
 const { proposeNormalisations } = require('./checks/normalise');
@@ -42,6 +42,18 @@ const APPROVAL_WORKFLOW_DEFINITION_ID =
 // staging.cds also declares block and delete: both reserved, and meaningless to postToS4. Checked
 // here because RequestType is a String(10), so a bad value otherwise fails at the database instead.
 const SUPPORTED_REQUEST_TYPES = Object.freeze(['create', 'change']);
+
+// A finding also carries candidateName and reasons for the SPA payload; neither is a column, and
+// spreading them into the insert would fail. Whitelisted, so a new field cannot break a submit.
+const FINDING_COLUMNS = Object.freeze([
+  'checkName', 'severity', 'message', 'nodeName', 'fieldName',
+  'candidateBP', 'candidateRequest', 'verdict', 'score'
+]);
+
+const stagedFinding = (finding) => Object.fromEntries(
+  FINDING_COLUMNS.filter((column) => finding[column] !== undefined)
+    .map((column) => [column, finding[column]])
+);
 
 function parseJsonObject(text, label) {
   let value;
@@ -286,7 +298,7 @@ class ChangeRequestService extends cds.ApplicationService {
         await db.run(cds.ql.INSERT.into(FINDINGS).entries(findings.map((finding) => ({
           ID: cds.utils.uuid(),
           request_ID: changeRequest,
-          ...finding
+          ...stagedFinding(finding)
         }))));
       } catch (error) {
         // A check that could not run must not silently read as "no duplicates": the caller is
@@ -408,7 +420,10 @@ class ChangeRequestService extends cds.ApplicationService {
           businesspartner: req.data.BusinessPartner || '',
           emailadressinitiator: requestingUserEmail(req),
           bpurl: approveUrl(changeRequest),
-          businesspartnerinput: businessPartnerInput
+          businesspartnerinput: businessPartnerInput,
+          // One entry per matched partner, so the approver sees what was flagged and why. Empty
+          // when nothing matched, never absent - SPA can then bind it without a null check.
+          bpduplicates: duplicateSummary(findings)
         });
         processInstanceId = result?.id || result?.data?.id || null;
       } catch (error) {
@@ -645,7 +660,9 @@ ChangeRequestService._internals = {
   approveUrl,
   buildBusinessPartnerInput,
   activeStagedRows,
-  SUPPORTED_REQUEST_TYPES
+  SUPPORTED_REQUEST_TYPES,
+  FINDING_COLUMNS,
+  stagedFinding
 };
 
 module.exports = ChangeRequestService;

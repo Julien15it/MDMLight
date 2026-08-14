@@ -11,7 +11,9 @@ const {
   approveUrl,
   buildBusinessPartnerInput,
   activeStagedRows,
-  SUPPORTED_REQUEST_TYPES
+  SUPPORTED_REQUEST_TYPES,
+  FINDING_COLUMNS,
+  stagedFinding
 } = ChangeRequestService._internals;
 
 /** Fakes `db.run` against the staging tables, keyed by their bare entity name. */
@@ -142,4 +144,25 @@ test('only the request types that can reach S/4 are accepted', () => {
   for (const reserved of ['block', 'delete']) {
     assert.equal(SUPPORTED_REQUEST_TYPES.includes(reserved), false);
   }
+});
+
+// candidateName and reasons travel to the SPA payload but are not columns: spreading a finding
+// straight into the insert would fail on them.
+test('only real CheckFindings columns are staged', () => {
+  const staged = stagedFinding({
+    checkName: 'duplicate_check',
+    severity: 'error',
+    verdict: 'duplicate',
+    message: 'Duplicate: Business Partner 4711 matches on Name (exact).',
+    candidateBP: '4711',
+    candidateRequest: null,
+    score: 0.9235,
+    candidateName: 'Alluvion NV',
+    reasons: ['Name (exact)']
+  });
+  assert.equal(staged.candidateName, undefined);
+  assert.equal(staged.reasons, undefined);
+  assert.equal(staged.candidateBP, '4711');
+  assert.equal(staged.verdict, 'duplicate');
+  assert.equal(Object.keys(staged).every((key) => FINDING_COLUMNS.includes(key)), true);
 });
