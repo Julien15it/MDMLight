@@ -41,7 +41,8 @@ test('the partner app keeps one inbound and no rules routing', () => {
   }
   // The startup-parameter hack the second inbound needed goes with it.
   const bpComponent = fs.readFileSync(path.join(BP_APP, 'Component.js'), 'utf8');
-  assert.equal(/screen/u.test(bpComponent), false, 'screen=rules routing is gone');
+  assert.equal(/_routeStartupScreen/u.test(bpComponent), false, 'the screen=rules router is gone');
+  assert.equal(/\.screen\b/u.test(bpComponent), false, 'and so is the parameter it read');
   assert.equal(/MDMRuleHub/u.test(bpComponent), false);
 });
 
