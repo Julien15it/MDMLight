@@ -2,7 +2,9 @@
 
 const cds = require('@sap/cds');
 const { startWorkflow, triggerApprovalDecision } = require('./wf/processAutomation');
-const { buildWorkflowInputFromRows } = require('./business-partner-service')._internals;
+const {
+  buildWorkflowInputFromRows, businessPartnerNavigationPath, normalizeRemoteResult
+} = require('./business-partner-service')._internals;
 const { candidateFromStagedRequest, duplicateSummary } = require('./ai/duplicate-check');
 const { runChecks, runValidations, BLOCKING } = require('./checks/pipeline');
 const { createRegistryStages } = require('./checks/registry-checks');
@@ -41,6 +43,38 @@ const RELATION_FIELDS = Object.freeze({
   CustomerSalesArea: 'Customer',
   SupplierPurchasingOrg: 'Supplier'
 });
+
+/** Navigation off A_BusinessPartner used to resolve each relation field's real
+ *  number - see resolveRelationNumber. */
+const RELATION_NAVIGATION = Object.freeze({
+  Customer: { navigation: 'to_Customer', keyField: 'Customer' },
+  Supplier: { navigation: 'to_Supplier', keyField: 'Supplier' }
+});
+
+/**
+ * Customer and Supplier are their own master records with their own number
+ * range - Customer-Vendor Integration does not guarantee Customer/Supplier ==
+ * BusinessPartner, and on systems where it does not, staging a row under the
+ * BusinessPartner number would silently post it against a Customer/Supplier
+ * that does not exist. Resolved via the to_Customer/to_Supplier navigation,
+ * the same way S/4 itself resolves it - never assumed equal to `businessPartner`.
+ * Returns null when the navigation has no target, e.g. the role was never
+ * assigned (or, for a create request, not posted yet in this same run).
+ */
+async function resolveRelationNumber(s4, businessPartner, relationField) {
+  const relation = RELATION_NAVIGATION[relationField];
+  if (!relation) return businessPartner;
+  try {
+    const path = businessPartnerNavigationPath(
+      { navigation: relation.navigation },
+      { BusinessPartner: businessPartner }
+    );
+    const result = normalizeRemoteResult(await s4.send({ method: 'GET', path }));
+    return result?.[relation.keyField] || null;
+  } catch {
+    return null;
+  }
+}
 
 const GENERAL = `${STAGING}StagedGeneral`;
 const HEADER = `${STAGING}ChangeRequests`;
@@ -551,6 +585,11 @@ class ChangeRequestService extends cds.ApplicationService {
         throw new Error('S/4HANA did not return a Business Partner number.');
       }
 
+      // Resolved lazily, once per relation field, on first use below - by the
+      // time a Customer/Supplier-related node is reached, an earlier node in
+      // this same run may have just posted the role that creates the record.
+      const resolvedRelations = {};
+
       for (const [section, config] of Object.entries(NODES)) {
         const rows = await db.run(
           cds.ql.SELECT.from(config.entity).where({ request_ID: header.ID })
@@ -560,7 +599,17 @@ class ChangeRequestService extends cds.ApplicationService {
           // Staged for context only - the user never touched it.
           if (!action) continue;
           const relationField = RELATION_FIELDS[section] || 'BusinessPartner';
-          data[relationField] = businessPartner;
+
+          if (!(relationField in resolvedRelations)) {
+            resolvedRelations[relationField] = await resolveRelationNumber(s4, businessPartner, relationField);
+          }
+          const relationValue = resolvedRelations[relationField];
+          if (relationValue == null) {
+            throw new Error(
+              `Cannot post ${section}: Business Partner ${businessPartner} has no ${relationField} record yet.`
+            );
+          }
+          data[relationField] = relationValue;
 
           if (action === 'D') {
             await bp.send('deleteBusinessPartnerEntity', {
@@ -685,7 +734,10 @@ ChangeRequestService._internals = {
   activeStagedRows,
   SUPPORTED_REQUEST_TYPES,
   FINDING_COLUMNS,
-  stagedFinding
+  stagedFinding,
+  resolveRelationNumber,
+  RELATION_NAVIGATION,
+  RELATION_FIELDS
 };
 
 module.exports = ChangeRequestService;

@@ -12,7 +12,8 @@ const {
   activeStagedRows,
   SUPPORTED_REQUEST_TYPES,
   FINDING_COLUMNS,
-  stagedFinding
+  stagedFinding,
+  resolveRelationNumber
 } = ChangeRequestService._internals;
 
 /** Fakes `db.run` against the staging tables, keyed by their bare entity name. */
@@ -62,6 +63,28 @@ test('activeStagedRows drops rows staged for deletion', async () => {
   });
   const rows = await activeStagedRows(db, 'mdmlight.staging.StagedAddresses', 'cr-1');
   assert.deepEqual(rows.map((row) => row.AddressID), ['1', '3']);
+});
+
+test('resolveRelationNumber reads the real Customer/Supplier number via navigation, not the BP number', async () => {
+  // The exact scenario reported live: BusinessPartner 249 has Customer 6 -
+  // a system where CVI does not use the same number range for both.
+  let requestedPath;
+  const s4 = { send: async (request) => { requestedPath = request.path; return { Customer: '6' }; } };
+
+  const result = await resolveRelationNumber(s4, '249', 'Customer');
+
+  assert.equal(requestedPath, "/A_BusinessPartner('249')/to_Customer");
+  assert.equal(result, '6');
+});
+
+test('resolveRelationNumber returns null when the navigation has no target', async () => {
+  const s4 = { send: async () => { throw Object.assign(new Error('not found'), { statusCode: 404 }); } };
+  assert.equal(await resolveRelationNumber(s4, '249', 'Supplier'), null);
+});
+
+test('resolveRelationNumber passes the BusinessPartner number straight through for any other relation field', async () => {
+  const s4 = { send: async () => { throw new Error('must not be called'); } };
+  assert.equal(await resolveRelationNumber(s4, '249', 'BusinessPartner'), '249');
 });
 
 test('buildBusinessPartnerInput shapes staged rows for a create request (no BusinessPartner yet)', async () => {

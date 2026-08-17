@@ -446,12 +446,33 @@ sap.ui.define([
           state.originalRoot = clone(state.root);
           rootBinding.destroy();
 
+          // Customer/Supplier are their own master records with their own number
+          // range - CVI does not guarantee Customer/Supplier == BusinessPartner.
+          // Filtering Customers/CustomerCompany/... by the BP number therefore
+          // finds nothing on a system where they diverge; resolve the real
+          // numbers via the to_Customer/to_Supplier navigation instead, same as
+          // S/4 itself does.
+          state.customerNumber = await this._resolveRelationNumber(businessPartner, "to_Customer", "Customer");
+          state.supplierNumber = await this._resolveRelationNumber(businessPartner, "to_Supplier", "Supplier");
+
+          var relationValues = {
+            BusinessPartner: businessPartner,
+            Customer: state.customerNumber,
+            Supplier: state.supplierNumber
+          };
+
           var sections = await Promise.all(
             this._metadata
               .filter(function (section) { return section.kind !== "root"; })
               .map(async function (section) {
+                var relationValue = relationValues[section.relationField];
+                // No Customer/Supplier record exists yet for this BP - nothing to
+                // filter by, and no point asking the server for it.
+                if (relationValue === null || relationValue === undefined) {
+                  return { id: section.id, records: [] };
+                }
                 try {
-                  return await this._loadSection(businessPartner, section);
+                  return await this._loadSection(relationValue, section);
                 } catch (error) {
                   return {
                     id: section.id,
@@ -478,6 +499,27 @@ sap.ui.define([
           this._updatePreview(state);
           maintenanceModel.refresh(true);
           this._renderAll();
+        }
+      },
+
+      /**
+       * Resolves the real key of a to-one navigation off this Business Partner
+       * (to_Customer / to_Supplier), rather than assuming it equals the BP
+       * number. Returns null when the navigation has no target (no such role) -
+       * callers treat that as "nothing to load", not as an error.
+       */
+      _resolveRelationNumber: async function (businessPartner, navigation, keyField) {
+        var model = this.getView().getModel();
+        var binding = model.bindContext(
+          "/BusinessPartners('" + escapeODataKey(businessPartner) + "')/" + navigation
+        );
+        try {
+          var record = await binding.getBoundContext().requestObject();
+          return (record && record[keyField]) || null;
+        } catch (_error) {
+          return null;
+        } finally {
+          binding.destroy();
         }
       },
 
@@ -921,7 +963,14 @@ sap.ui.define([
       _openNewRecord: function (section) {
         var state = this.getView().getModel("maintenance").getData();
         var record = {};
-        if (state.businessPartner) record[section.relationField] = state.businessPartner;
+        // Customer/Supplier carry their own number, not the BP's - see
+        // _resolveRelationNumber. Falls back to the BP number for every other
+        // relationField, and to nothing at all on a not-yet-posted create
+        // request, where no real Customer/Supplier number exists yet.
+        var relationValue = section.relationField === "Customer" ? state.customerNumber
+          : section.relationField === "Supplier" ? state.supplierNumber
+          : state.businessPartner;
+        if (relationValue) record[section.relationField] = relationValue;
         this._openRecordDialog(section, record, true, -1);
       },
 
