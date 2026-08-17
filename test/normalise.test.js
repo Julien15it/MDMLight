@@ -51,6 +51,34 @@ test('each address row is addressed by its own index', () => {
   assert.match(fieldsText(fields), /Addresses\[1\]\.StreetName = "b"/u);
 });
 
+// The prompt names fields "Addresses[0].StreetName", so the model echoes that back as the target.
+// Rejecting it dropped every proposal and left only the deterministic country uppercase on screen.
+test('a target carrying its own row index still matches the field it was offered as', () => {
+  const fields = normalisableFields(payload(
+    { OrganizationBPName1: 'test nv' },
+    { Addresses: [{ StreetName: 'straat' }, { CityName: 'GENT' }] }
+  ));
+  const proposals = sanitizeProposals({
+    proposals: [
+      { target: 'root[0]', index: 0, field: 'OrganizationBPName1', proposed: 'Test NV', reason: 'legal form capitalisation' },
+      { target: 'Addresses[0]', index: 0, field: 'StreetName', proposed: 'Straat', reason: 'street type' },
+      { target: 'Addresses[1]', index: 1, field: 'CityName', proposed: 'Gent', reason: 'city capitalisation' }
+    ]
+  }, fields);
+  assert.deepEqual(proposals.map((entry) => entry.proposed), ['Test NV', 'Straat', 'Gent']);
+  // The stored target stays the section alone - the screen writes back through it.
+  assert.deepEqual(proposals.map((entry) => entry.target), ['root', 'Addresses', 'Addresses']);
+  assert.deepEqual(proposals.map((entry) => entry.index), [0, 0, 1]);
+});
+
+// A bracketed row index must not let a proposal land on a row it was not offered for.
+test('a target index that disagrees with the offered row is still dropped', () => {
+  const fields = normalisableFields(payload({}, { Addresses: [{ CityName: 'gent' }] }));
+  assert.deepEqual(sanitizeProposals({
+    proposals: [{ target: 'Addresses[3]', index: 0, field: 'CityName', proposed: 'Gent', reason: 'casing' }]
+  }, fields), []);
+});
+
 // The model's output is an edit to master data, so it is checked against what was sent.
 test('a proposal for a field that was never offered is dropped', () => {
   const fields = normalisableFields(payload({ OrganizationBPName1: 'alluvion bvba' }));

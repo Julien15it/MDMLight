@@ -186,6 +186,14 @@ function clean(value, maxLength) {
   return value.replace(/\p{C}+/gu, ' ').replace(/\s+/gu, ' ').trim().slice(0, maxLength);
 }
 
+// The prompt names fields "Addresses[0].StreetName", so the model echoes the row index back inside
+// target. Both sides key through here, or every proposal reads as one for a field never offered.
+function proposalKey(target, index, field) {
+  const bracketed = /^(.+?)\[(\d+)\]$/u.exec(String(target ?? '').trim());
+  const section = bracketed ? bracketed[1] : String(target ?? '').trim();
+  return `${section}|${bracketed ? Number(bracketed[2]) : Number(index)}|${field}`;
+}
+
 /**
  * The model's output is an edit to master data, so it is checked against what was actually sent
  * rather than trusted: a proposal for a field that was not offered, or one that does not change
@@ -193,12 +201,12 @@ function clean(value, maxLength) {
  */
 function sanitizeProposals(raw, fields) {
   const offered = new Map(
-    fields.map((entry) => [`${entry.target}|${entry.index}|${entry.field}`, entry])
+    fields.map((entry) => [proposalKey(entry.target, entry.index, entry.field), entry])
   );
   const seen = new Set();
   const proposals = [];
   for (const item of (Array.isArray(raw?.proposals) ? raw.proposals : [])) {
-    const key = `${item?.target}|${Number(item?.index)}|${item?.field}`;
+    const key = proposalKey(item?.target, item?.index, item?.field);
     const source = offered.get(key);
     if (!source || seen.has(key)) continue;
     const proposed = clean(item.proposed, MAX_VALUE_LENGTH);
@@ -298,6 +306,7 @@ module.exports = {
   normaliseConfig,
   normaliseModelName,
   parseJson,
+  proposalKey,
   proposeNormalisations,
   sanitizeProposals
 };
