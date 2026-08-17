@@ -232,9 +232,15 @@ entity StagedIndustries : cuid {
   IndustryKeyDescription : String(100);
 }
 
-/** Customer Data. Full name and name are read-only in S/4; kept for display. */
+/**
+ * Customer Data. Full name and name are read-only in S/4; kept for display.
+ * `action` mirrors the collection nodes' - although there is at most one row,
+ * postToS4 still needs to know whether the requester actually touched it
+ * before replaying it, same as any other child.
+ */
 entity StagedCustomer : cuid {
   request                     : Association to ChangeRequests;
+  action                      : NodeAction;
   Customer                    : String(10);
   CustomerFullName            : String(220);
   CustomerName                : String(80);
@@ -246,8 +252,10 @@ entity StagedCustomer : cuid {
   PostingIsBlocked            : Boolean;
 }
 
+/** Supplier Data. See StagedCustomer for `action`. */
 entity StagedSupplier : cuid {
   request                     : Association to ChangeRequests;
+  action                      : NodeAction;
   Supplier                    : String(10);
   SupplierFullName            : String(220);
   SupplierName                : String(80);

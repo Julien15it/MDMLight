@@ -197,16 +197,18 @@ const MAINTENANCE_ENTITIES = Object.freeze({
   Customers: Object.freeze({
     remote: 'A_Customer',
     navigation: 'to_Customer',
-    creatable: false,
+    creatable: true,
     deletable: false,
-    updatable: true
+    updatable: true,
+    requiredCreateFields: ['CustomerAccountGroup']
   }),
   Suppliers: Object.freeze({
     remote: 'A_Supplier',
     navigation: 'to_Supplier',
-    creatable: false,
+    creatable: true,
     deletable: false,
-    updatable: true
+    updatable: true,
+    requiredCreateFields: ['SupplierAccountGroup']
   }),
   // Nested one level deeper than the rest: A_BusinessPartner has no direct
   // navigation to company code data, only to_Customer/to_Supplier do. Create

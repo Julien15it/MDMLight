@@ -333,7 +333,13 @@ test('all creatable maintenance entities use their Business Partner navigation',
     TaxNumbers: 'to_BusinessPartnerTax',
     BankDetails: 'to_BusinessPartnerBank',
     Identifications: 'to_BuPaIdentification',
-    Industries: 'to_BuPaIndustry'
+    Industries: 'to_BuPaIndustry',
+    // Deliberately allowed to create directly via to_Customer/to_Supplier rather than
+    // requiring the corresponding role first - a real S/4 system may still reject the
+    // POST if CVI expects the role to exist, but that is a backend validation error for
+    // the user to see, not something this app should block ahead of time.
+    Customers: 'to_Customer',
+    Suppliers: 'to_Supplier'
   };
 
   for (const [entityName, navigation] of Object.entries(expected)) {
@@ -354,9 +360,7 @@ test('all creatable maintenance entities use their Business Partner navigation',
     assert.equal(sent.path, `/A_BusinessPartner('1000')/${navigation}`);
   }
 
-  assert.equal(MAINTENANCE_ENTITIES.Customers.creatable, false);
   assert.equal(MAINTENANCE_ENTITIES.Customers.updatable, true);
-  assert.equal(MAINTENANCE_ENTITIES.Suppliers.creatable, false);
   assert.equal(MAINTENANCE_ENTITIES.Suppliers.updatable, true);
   assert.equal(MAINTENANCE_ENTITIES.Addresses.deletable, true);
   assert.equal(MAINTENANCE_ENTITIES.TaxNumbers.deletable, true);

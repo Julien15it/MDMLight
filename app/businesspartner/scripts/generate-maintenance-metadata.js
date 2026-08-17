@@ -127,7 +127,7 @@ const sections = [
     relationField: 'Customer',
     typeName: 'A_CustomerType',
     kind: 'single',
-    creatable: false,
+    creatable: true,
     deletable: false,
     fieldNames: [
       'Customer', 'CustomerFullName', 'CustomerName', 'CustomerAccountGroup',
@@ -138,7 +138,8 @@ const sections = [
       'CustomerFullName', 'CustomerAccountGroup', 'CustomerClassification',
       'BillingIsBlockedForCustomer', 'DeliveryIsBlocked', 'PostingIsBlocked'
     ],
-    excludedFields: ['BR_ICMSTaxPayerType']
+    excludedFields: ['BR_ICMSTaxPayerType'],
+    requiredCreateFields: ['CustomerAccountGroup']
   },
   {
     id: 'CustomerCompany',
@@ -184,7 +185,7 @@ const sections = [
     relationField: 'Supplier',
     typeName: 'A_SupplierType',
     kind: 'single',
-    creatable: false,
+    creatable: true,
     deletable: false,
     fieldNames: [
       'Supplier', 'SupplierFullName', 'SupplierName', 'SupplierAccountGroup',
@@ -199,7 +200,8 @@ const sections = [
       'BusinessPartnerPanNumber',
       'JP_SuplrAmtInCapitalAmount',
       'JP_SupplierCapitalAmountCrcy'
-    ]
+    ],
+    requiredCreateFields: ['SupplierAccountGroup']
   },
   {
     id: 'SupplierCompany',

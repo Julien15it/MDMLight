@@ -205,6 +205,7 @@ class ChangeRequestService extends cds.ApplicationService {
           if (source && Object.keys(stageable(config.entity, source)).length) {
             await db.run(cds.ql.INSERT.into(config.entity).entries({
               request_ID: changeRequest,
+              action: rowAction(source),
               ...stageable(config.entity, source)
             }));
           }

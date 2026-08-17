@@ -1228,7 +1228,7 @@ sap.ui.define([], function () {
         "relationField": "Customer",
         "typeName": "A_CustomerType",
         "kind": "single",
-        "creatable": false,
+        "creatable": true,
         "deletable": false,
         "summaryFields": [
           "CustomerFullName",
@@ -1237,6 +1237,9 @@ sap.ui.define([], function () {
           "BillingIsBlockedForCustomer",
           "DeliveryIsBlocked",
           "PostingIsBlocked"
+        ],
+        "requiredCreateFields": [
+          "CustomerAccountGroup"
         ],
         "fields": [
           {
@@ -1593,7 +1596,7 @@ sap.ui.define([], function () {
         "relationField": "Supplier",
         "typeName": "A_SupplierType",
         "kind": "single",
-        "creatable": false,
+        "creatable": true,
         "deletable": false,
         "summaryFields": [
           "SupplierFullName",
@@ -1602,6 +1605,9 @@ sap.ui.define([], function () {
           "PaymentIsBlockedForSupplier",
           "PostingIsBlocked",
           "PurchasingIsBlocked"
+        ],
+        "requiredCreateFields": [
+          "SupplierAccountGroup"
         ],
         "fields": [
           {

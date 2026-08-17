@@ -861,7 +861,11 @@ sap.ui.define([
               new Button({
                 text: "Add",
                 icon: "sap-icon://add",
-                visible: state.editing && section.creatable !== false,
+                // A "single" section is 1:1 with the Business Partner (Customer/Supplier
+                // Data) - once it has its one record, Add must disappear rather than
+                // invite a second row the remote entity's key cannot hold.
+                visible: state.editing && section.creatable !== false
+                  && (section.kind !== "single" || records.length === 0),
                 press: this._openNewRecord.bind(this, section)
               })
             ]
