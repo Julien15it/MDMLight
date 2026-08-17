@@ -6,7 +6,7 @@
   <Page
     title="MDM Rules"
     showNavButton="true"
-    navButtonPress=".onBackToList">
+    navButtonPress=".onBackToSite">
     <content>
       <!-- Saying it is courtesy; the service checks the scope on every call regardless. -->
       <MessageStrip

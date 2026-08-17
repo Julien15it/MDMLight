@@ -115,15 +115,17 @@ test('every rule page can get back where it came from', () => {
     assert.match(read(path.join('view', `${name}.view.xml`)), /navButtonPress="\.onBackToHub"/u);
     assert.match(read(path.join('controller', `${name}.controller.js`)), /navTo\("MDMRuleHub", \{\}, true\)/u);
   }
-  assert.match(hub, /navButtonPress="\.onBackToList"/u);
+  assert.match(hub, /navButtonPress="\.onBackToSite"/u);
 });
 
-// Back from the hub leaves the app, so it is an intent and not a route - and it must not throw
-// where there is no shell, which is every local run.
-test('the hub leaves for the partner app by intent, and survives having no shell', () => {
+// Back from the hub leaves the app for the SITE, not for the Manage BP tile - landing on another
+// app's tile is not "back". An empty shellHash is the launchpad home. It must also not throw where
+// there is no shell, which is every local run.
+test('the hub leaves for the site, and survives having no shell', () => {
   const controller = read(path.join('controller', 'MDMRuleHub.controller.js'));
   assert.equal(/navTo\("BusinessPartnersList"/u.test(controller), false);
   assert.match(controller, /CrossApplicationNavigation/u);
-  assert.match(controller, /semanticObject: "BusinessPartner", action: "manage"/u);
+  assert.match(controller, /shellHash: "#"/u);
+  assert.equal(/semanticObject: "BusinessPartner"/u.test(controller), false, 'not back to a tile');
   assert.match(controller, /if \(!shell\) return/u);
 });

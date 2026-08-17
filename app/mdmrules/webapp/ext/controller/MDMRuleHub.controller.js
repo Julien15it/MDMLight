@@ -10,13 +10,13 @@ sap.ui.define([
       this._router = UIComponent.getRouterFor(this);
     },
 
-    // The hub is this app's root, so back means the Business Partner app - a cross-app intent,
-    // not a route. Outside a launchpad there is no shell service and the button does nothing.
-    onBackToList: function () {
+    // Back leaves for the site itself, not for another tile: an empty shellHash is the launchpad
+    // home. Outside a launchpad there is no shell service and the button does nothing.
+    onBackToSite: function () {
       var shell = sap.ushell && sap.ushell.Container;
       if (!shell) return;
       shell.getServiceAsync("CrossApplicationNavigation").then(function (navigation) {
-        navigation.toExternal({ target: { semanticObject: "BusinessPartner", action: "manage" } });
+        navigation.toExternal({ target: { shellHash: "#" } });
       });
     },
 
