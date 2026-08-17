@@ -481,9 +481,18 @@ sap.ui.define([
               .map(async function (section) {
                 var relationValue = relationValues[section.relationField];
                 // No Customer/Supplier record exists yet for this BP - nothing to
-                // filter by, and no point asking the server for it.
+                // filter by, and no point asking the server for it. Surfaced as a
+                // warning rather than left silent, so this is visible on screen
+                // instead of only in the browser console.
                 if (relationValue === null || relationValue === undefined) {
-                  return { id: section.id, records: [] };
+                  return {
+                    id: section.id,
+                    records: [],
+                    warning: section.title + ": could not resolve a " + section.relationField
+                      + " number for Business Partner " + businessPartner
+                      + " (checked both the plain field on the Business Partner and the to_"
+                      + section.relationField + " navigation)."
+                  };
                 }
                 try {
                   return await this._loadSection(relationValue, section);
@@ -502,10 +511,9 @@ sap.ui.define([
           sections.forEach(function (result) {
             state.sections[result.id] = result.records;
           });
-          var sectionWarnings = sections
+          state.sectionWarnings = sections
             .filter(function (result) { return Boolean(result.warning); })
-            .map(function (result) { return result.warning; });
-          state.sectionWarnings = sectionWarnings;
+            .map(function (result) { return { text: result.warning }; });
         } catch (error) {
           MessageBox.error(errorMessage(error, "The Business Partner could not be loaded."));
         } finally {
@@ -545,11 +553,20 @@ sap.ui.define([
         var records;
 
         while (true) {
-          var parameters = omittedFields.length
-            ? { $select: availableFields.filter(function (field) {
-              return !omittedFields.includes(field);
-            }).join(",") }
-            : undefined;
+          var parameters = Object.assign(
+            // Every section loads in parallel via Promise.all, and the V4 model's
+            // default "$auto" group batches simultaneous requests together - one
+            // section failing (e.g. a backend 502) otherwise takes every section
+            // queued after it in that same batch down with "previous request
+            // failed", even though they have nothing to do with one another.
+            // "$direct" gives each section its own independent HTTP request.
+            { $$groupId: "$direct" },
+            omittedFields.length
+              ? { $select: availableFields.filter(function (field) {
+                return !omittedFields.includes(field);
+              }).join(",") }
+              : {}
+          );
           var listBinding = model.bindList(
             "/" + section.entitySet,
             null,

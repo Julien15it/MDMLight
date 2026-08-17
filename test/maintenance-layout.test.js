@@ -230,7 +230,7 @@ test('a failed related section does not block root editing', () => {
   assert.match(controller, /records: \[\],\s+warning:/);
   assert.match(controller, /unsupportedFieldFromError/);
   assert.match(controller, /omittedFields\.push/);
-  assert.match(controller, /state\.sectionWarnings = sectionWarnings/);
+  assert.match(controller, /state\.sectionWarnings = sections/);
 });
 
 test('list row navigation uses the supported Fiori binding context', () => {
