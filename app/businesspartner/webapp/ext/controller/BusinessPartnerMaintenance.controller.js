@@ -464,36 +464,45 @@ sap.ui.define([
           // field (already in state.root, no extra call needed); the
           // to_Customer/to_Supplier navigation is only a fallback for a system
           // that leaves that field blank.
-          state.customerNumber = state.root.Customer
-            || await this._resolveRelationNumber(businessPartner, "to_Customer", "Customer");
-          state.supplierNumber = state.root.Supplier
-            || await this._resolveRelationNumber(businessPartner, "to_Supplier", "Supplier");
+          var customerLookup = state.root.Customer
+            ? { value: state.root.Customer, error: null }
+            : await this._resolveRelationNumber(businessPartner, "to_Customer", "Customer");
+          var supplierLookup = state.root.Supplier
+            ? { value: state.root.Supplier, error: null }
+            : await this._resolveRelationNumber(businessPartner, "to_Supplier", "Supplier");
+          state.customerNumber = customerLookup.value;
+          state.supplierNumber = supplierLookup.value;
 
           var relationValues = {
-            BusinessPartner: businessPartner,
-            Customer: state.customerNumber,
-            Supplier: state.supplierNumber
+            BusinessPartner: { value: businessPartner, error: null },
+            Customer: customerLookup,
+            Supplier: supplierLookup
           };
 
           var sections = await Promise.all(
             this._metadata
               .filter(function (section) { return section.kind !== "root"; })
               .map(async function (section) {
-                var relationValue = relationValues[section.relationField];
+                var relation = relationValues[section.relationField];
                 // No Customer/Supplier record exists yet for this BP - nothing to
                 // filter by, and no point asking the server for it. Surfaced as a
                 // warning rather than left silent, so this is visible on screen
-                // instead of only in the browser console.
-                if (relationValue === null || relationValue === undefined) {
+                // instead of only in the browser console - and, if the lookup
+                // itself errored (e.g. a 502 from the destination), that real
+                // error is shown rather than a misleading "does not exist".
+                if (relation.value === null || relation.value === undefined) {
                   return {
                     id: section.id,
                     records: [],
                     warning: section.title + ": could not resolve a " + section.relationField
-                      + " number for Business Partner " + businessPartner
-                      + " (checked both the plain field on the Business Partner and the to_"
-                      + section.relationField + " navigation)."
+                      + " number for Business Partner " + businessPartner + " - "
+                      + (relation.error
+                        ? errorMessage(relation.error, "the lookup failed")
+                        : "no such role exists yet for this Business Partner")
+                      + "."
                   };
                 }
+                var relationValue = relation.value;
                 try {
                   return await this._loadSection(relationValue, section);
                 } catch (error) {
@@ -527,19 +536,24 @@ sap.ui.define([
       /**
        * Resolves the real key of a to-one navigation off this Business Partner
        * (to_Customer / to_Supplier), rather than assuming it equals the BP
-       * number. Returns null when the navigation has no target (no such role) -
-       * callers treat that as "nothing to load", not as an error.
+       * number. `error` distinguishes a genuinely absent role (no error, empty
+       * value) from a lookup that failed for some other reason (e.g. the
+       * destination itself returning a 502) - callers must not treat the two
+       * the same, or a backend outage reads as "this Business Partner simply
+       * has no Customer/Supplier", which is not true and hides the real cause.
        */
       _resolveRelationNumber: async function (businessPartner, navigation, keyField) {
         var model = this.getView().getModel();
         var binding = model.bindContext(
-          "/BusinessPartners('" + escapeODataKey(businessPartner) + "')/" + navigation
+          "/BusinessPartners('" + escapeODataKey(businessPartner) + "')/" + navigation,
+          null,
+          { $$groupId: "$direct" }
         );
         try {
           var record = await binding.getBoundContext().requestObject();
-          return (record && record[keyField]) || null;
-        } catch (_error) {
-          return null;
+          return { value: (record && record[keyField]) || null, error: null };
+        } catch (error) {
+          return { value: null, error: error };
         } finally {
           binding.destroy();
         }
