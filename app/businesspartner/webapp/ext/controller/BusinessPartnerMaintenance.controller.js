@@ -125,6 +125,16 @@ sap.ui.define([
   // BusinessPartnerCategory is intentionally NOT listed here: it keeps its
   // own fixed 3-value Select below instead of an F4 dialog. It still has a
   // matching @Common.ValueList in annotations.cds for other OData consumers.
+  // --- Automatic check triggers ---------------------------------------------------------------
+  // Fields worth a register lookup the moment they are committed. Everything else only marks its
+  // scope dirty; the normalisation runs once the requester moves on, not per field.
+  var REGISTRY_TRIGGER_FIELDS = { BPTaxNumber: true };
+  // Long enough not to fire mid-edit, short enough to feel automatic.
+  var TRIGGER_DELAY_MS = 700;
+  // "Left the section", realised without ObjectPage internals: either the next commit lands in a
+  // different scope, or the requester simply stops typing for this long.
+  var TRIGGER_IDLE_MS = 1500;
+
   var VALUE_HELP_FIELDS = {
     BusinessPartnerGrouping: {
       collectionPath: "BusinessPartnerGroupings", keyField: "BusinessPartnerGrouping",
@@ -746,6 +756,7 @@ sap.ui.define([
           }.bind(this));
         }
 
+        if (control instanceof Input) this._attachCommitTrigger(control, section, field);
         return control;
       },
 
@@ -1355,6 +1366,88 @@ sap.ui.define([
 
       // "Is this record right?" - validate, derive, normalise, and stage nothing. Nothing is
       // written into the form: both stages arrive as proposals in one dialog.
+      // --- Automatic triggers -------------------------------------------------------------------
+      // The same action the Check button calls, but quiet: no MessageBox, no busy overlay, and
+      // nothing written to the form. Derivations stay proposals - see the 2026-08-13 decision.
+
+      _attachCommitTrigger: function (control, section, field) {
+        control.attachChange(function () {
+          this._onFieldCommitted(section, field);
+        }.bind(this));
+      },
+
+      _onFieldCommitted: function (section, field) {
+        // A tax number is worth the register on its own, and only the register: Propose false so
+        // no AI Core call rides along with it.
+        if (REGISTRY_TRIGGER_FIELDS[field.name]) {
+          this._flushPendingScope();
+          this._scheduleTrigger({ propose: false, scope: null });
+          return;
+        }
+        var scope = section.kind === "root" ? "root" : section.id;
+        // Committing in a different scope means the previous one is finished.
+        if (this._pendingScope && this._pendingScope !== scope) this._flushPendingScope();
+        this._pendingScope = scope;
+        clearTimeout(this._idleTimer);
+        this._idleTimer = setTimeout(this._flushPendingScope.bind(this), TRIGGER_IDLE_MS);
+      },
+
+      _flushPendingScope: function () {
+        clearTimeout(this._idleTimer);
+        var scope = this._pendingScope;
+        this._pendingScope = null;
+        if (scope) this._scheduleTrigger({ propose: true, scope: scope });
+      },
+
+      _scheduleTrigger: function (options) {
+        clearTimeout(this._triggerTimer);
+        this._triggerTimer = setTimeout(function () {
+          this._runTriggeredCheck(options);
+        }.bind(this), TRIGGER_DELAY_MS);
+      },
+
+      _runTriggeredCheck: async function (options) {
+        var maintenanceModel = this.getView().getModel("maintenance");
+        var state = maintenanceModel.getData();
+        // Never compete with a button press or another trigger, and never queue - the next commit
+        // schedules the next one anyway.
+        if (state.busy || this._triggerInFlight) return;
+
+        var dataJson = this._requestDataJson(state);
+        // Re-committing a field nobody changed must cost nothing.
+        var key = (options.scope || "-") + "|" + options.propose + "|" + dataJson;
+        if (key === this._lastTriggerKey) return;
+
+        this._triggerInFlight = true;
+        try {
+          var result = await this._executeAction("checkRequest", {
+            ChangeRequest: state.changeRequest || null,
+            BusinessPartner: state.businessPartner || null,
+            DataJson: dataJson,
+            Propose: options.propose,
+            Scope: options.scope || null
+          }, "cr");
+          this._lastTriggerKey = key;
+
+          var validations = this._parseJsonArray(result && result.ValidationsJson);
+          var derivations = this._parseJsonArray(result && result.DerivationsJson);
+          var normalisations = this._parseJsonArray(result && result.NormalisationsJson);
+
+          // Strips, never a MessageBox: the requester is still filling the form.
+          state.messages = this._checkMessages(validations, derivations);
+          this._renderAll();
+
+          // Silence when there is nothing to offer. A dialog on every commit would be unusable.
+          var proposals = this._proposalRows(derivations, normalisations);
+          if (proposals.length) this._offerProposals(proposals);
+        } catch (error) {
+          // A check nobody asked for must never interrupt; the buttons still report properly.
+          console.warn("[triggers] automatic check failed:", errorMessage(error, ""));
+        } finally {
+          this._triggerInFlight = false;
+        }
+      },
+
       onCheck: async function () {
         var maintenanceModel = this.getView().getModel("maintenance");
         var state = maintenanceModel.getData();

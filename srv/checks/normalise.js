@@ -119,17 +119,24 @@ function normaliseConfig(modelName, maxTokens) {
   };
 }
 
-/** Only populated, normalisable fields are sent — an empty field has nothing to reformat. */
-function normalisableFields(payload = {}) {
+/**
+ * Only populated, normalisable fields are sent — an empty field has nothing to reformat.
+ * `scope` narrows to one target ('root' or a section name) so a field trigger asks the model
+ * about the section the requester just left rather than the whole record.
+ */
+function normalisableFields(payload = {}, scope = null) {
+  const inScope = (target) => !scope || scope === target;
   const fields = [];
-  for (const field of NORMALISABLE.root) {
-    const value = payload.root?.[field];
-    if (typeof value === 'string' && value.trim()) {
-      fields.push({ target: 'root', index: 0, field, current: value });
+  if (inScope('root')) {
+    for (const field of NORMALISABLE.root) {
+      const value = payload.root?.[field];
+      if (typeof value === 'string' && value.trim()) {
+        fields.push({ target: 'root', index: 0, field, current: value });
+      }
     }
   }
   for (const [section, names] of Object.entries(NORMALISABLE)) {
-    if (section === 'root') continue;
+    if (section === 'root' || !inScope(section)) continue;
     const rows = payload.sections?.[section];
     if (!Array.isArray(rows)) continue;
     rows.forEach((row, index) => {
@@ -254,9 +261,11 @@ function mergeProposals(deterministic, modelled) {
 }
 
 /** Falls back to the deterministic proposals alone whenever the model cannot be reached or trusted. */
-async function proposeNormalisations({ payload, env = process.env, Client } = {}) {
-  const deterministic = deterministicProposals(payload);
-  const fields = normalisableFields(payload);
+async function proposeNormalisations({ payload, scope = null, env = process.env, Client } = {}) {
+  // Scoped too, or a section trigger would report Country casing from a section nobody touched.
+  const deterministic = deterministicProposals(payload)
+    .filter((proposal) => !scope || proposal.target === scope);
+  const fields = normalisableFields(payload, scope);
   if (!fields.length || !hasAiCoreBinding(env)) return deterministic;
 
   try {

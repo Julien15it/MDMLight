@@ -365,7 +365,7 @@ class ChangeRequestService extends cds.ApplicationService {
 
     // Both buttons, one pipeline: each runs only the stages its answer needs, and neither stages
     // anything. Derivations run for both — a rule needs them even when the screen never shows them.
-    const runRequestChecks = async (req, { propose, duplicates }) => {
+    const runRequestChecks = async (req, { propose, duplicates, scope = null }) => {
       const data = parseJsonObject(req.data.DataJson, 'DataJson');
       // Created per request: the pair shares one VIES/GLEIF lookup between the validation and the
       // derivation, and must not carry it over to the next press of the button.
@@ -377,7 +377,9 @@ class ChangeRequestService extends cds.ApplicationService {
           derivations: registry.derivations,
           // Check is where a human is looking, which is the only place a proposal to rewrite
           // what someone typed makes sense. The register never proposes: it validates and derives.
-          propose: propose ? (derived) => proposeNormalisations({ payload: derived }) : undefined,
+          propose: propose
+            ? (derived) => proposeNormalisations({ payload: derived, scope: scope || null })
+            : undefined,
           checkDuplicates: duplicates ? async (payload) => {
             const bp = await cds.connect.to('BusinessPartnerService');
             const answer = await bp.send('checkBusinessPartnerDuplicates', {
@@ -398,7 +400,11 @@ class ChangeRequestService extends cds.ApplicationService {
     };
 
     this.on('checkRequest', async (req) => {
-      const result = await runRequestChecks(req, { propose: true, duplicates: false });
+      const result = await runRequestChecks(req, {
+        propose: req.data.Propose !== false,
+        duplicates: false,
+        scope: req.data.Scope || null
+      });
       return {
         Valid: result.valid,
         ValidationsJson: JSON.stringify(result.validations),

@@ -93,7 +93,13 @@ service ChangeRequestService @(path: '/service/changerequest') {
   action checkRequest(
     ChangeRequest   : UUID,
     BusinessPartner : String(10),
-    DataJson        : LargeString not null
+    DataJson        : LargeString not null,
+    /** False skips the AI Core normalisation call. Field triggers that only want the
+     *  register (a tax number was entered) pass false; the Check button omits it. */
+    Propose         : Boolean,
+    /** Narrows the normalisation to one target - 'root' or a section name such as
+     *  'addresses' - so a section trigger does not re-ask about the whole record. */
+    Scope           : String(40)
   ) returns {
     /** False when a validation blocked; nothing after validation ran. */
     Valid             : Boolean;

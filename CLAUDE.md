@@ -232,6 +232,43 @@ pipeline, because the screen asks two different things:
 Both stage nothing, and `runRequestChecks` in `srv/change-request-service.js` is
 the one runner they share — the stage list is what differs, never the order.
 
+#### Automatic triggers (2026-08-17)
+
+The buttons are no longer the only way in. `checkRequest` gained two optional
+parameters and the maintenance controller fires it by itself:
+
+- **`Propose : Boolean`** — false skips the AI Core normalisation call entirely.
+  A tax number being committed wants the register, not an LLM.
+- **`Scope : String(40)`** — `'root'` or a section id, narrowing
+  `normalisableFields(payload, scope)` and the deterministic proposals to one
+  target. Omit both and the behaviour is exactly the button's.
+
+Two things were decided rather than assumed, and both keep earlier rules intact:
+
+- **A trigger still only proposes.** Maarten asked for VIES to "add the Address
+  automatically"; that would reverse the 2026-08-13 decision below, so it was
+  raised and he chose proposal-only. A triggered check routes through the same
+  `_offerProposals` dialog and `_applyProposals`, and **nothing is written to the
+  form without a tick**. `test/check-triggers.test.js` pins that a trigger never
+  calls `_applyProposals`.
+- **Normalisation fires per scope, not per field** — one call for an address
+  block, not four.
+
+"Leaving a section" is realised **without** `ObjectPageLayout.sectionChange`,
+because the `ObjectPageSection`s carry no ids to map back to a staging section.
+Instead `_onFieldCommitted` tracks a pending scope and flushes it when the next
+commit lands in a *different* scope, or after `TRIGGER_IDLE_MS`. Same call count,
+no dependency on ObjectPage internals.
+
+The trigger is deliberately timid, and each guard is load-bearing: it hangs off
+`change`, never `attachLiveChange` (which fires per keystroke); it never opens a
+`MessageBox` and never sets `state.busy`, because the requester is mid-form; it
+runs one at a time and drops rather than queues; it de-duplicates on scope +
+payload so re-committing an untouched field costs nothing; and a failure is a
+`console.warn`, never an interruption — the buttons are what report properly. The
+duplicate check is **not** trigger-driven: it is pairwise and already refuses
+above a population limit.
+
 **Derivations no longer auto-apply.** They used to be written straight into the
 form on Check, which made them easy to miss and impossible to decline. They are
 proposals now, and they share the normalisation dialog: one list, a `change`
