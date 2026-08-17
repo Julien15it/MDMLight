@@ -461,48 +461,47 @@ sap.ui.define([
           // Filtering Customers/CustomerCompany/... by the BP number therefore
           // finds nothing on a system where they diverge. A_BusinessPartner
           // itself carries the resolved Customer/Supplier number as a plain
-          // field (already in state.root, no extra call needed); the
-          // to_Customer/to_Supplier navigation is only a fallback for a system
-          // that leaves that field blank.
-          var customerLookup = state.root.Customer
-            ? { value: state.root.Customer, error: null }
-            : await this._resolveRelationNumber(businessPartner, "to_Customer", "Customer");
-          var supplierLookup = state.root.Supplier
-            ? { value: state.root.Supplier, error: null }
-            : await this._resolveRelationNumber(businessPartner, "to_Supplier", "Supplier");
-          state.customerNumber = customerLookup.value;
-          state.supplierNumber = supplierLookup.value;
+          // field, already in state.root from the root read above.
+          //
+          // A to_Customer/to_Supplier navigation-based fallback for when that
+          // field is blank was tried and removed again: reading it through
+          // this app's own OData V4 service crashed the server outright
+          // (`TypeError: Cannot use 'in' operator to search for '$context' in
+          // ...`, inside @sap/cds's own getODataResult) - confirmed live via
+          // `cf logs`. Because the crash was uncaught, it took down every
+          // other in-flight request sharing that container instance too,
+          // which is what actually caused unrelated sections (Addresses,
+          // Roles, ...) to fail alongside it. If the plain field is ever
+          // blank despite the role existing, that needs a dedicated server
+          // action calling S/4 directly - not another attempt at this
+          // navigation from the client.
+          state.customerNumber = state.root.Customer || null;
+          state.supplierNumber = state.root.Supplier || null;
 
           var relationValues = {
-            BusinessPartner: { value: businessPartner, error: null },
-            Customer: customerLookup,
-            Supplier: supplierLookup
+            BusinessPartner: businessPartner,
+            Customer: state.customerNumber,
+            Supplier: state.supplierNumber
           };
 
           var sections = await Promise.all(
             this._metadata
               .filter(function (section) { return section.kind !== "root"; })
               .map(async function (section) {
-                var relation = relationValues[section.relationField];
+                var relationValue = relationValues[section.relationField];
                 // No Customer/Supplier record exists yet for this BP - nothing to
                 // filter by, and no point asking the server for it. Surfaced as a
                 // warning rather than left silent, so this is visible on screen
-                // instead of only in the browser console - and, if the lookup
-                // itself errored (e.g. a 502 from the destination), that real
-                // error is shown rather than a misleading "does not exist".
-                if (relation.value === null || relation.value === undefined) {
+                // instead of only in the browser console.
+                if (relationValue === null || relationValue === undefined) {
                   return {
                     id: section.id,
                     records: [],
-                    warning: section.title + ": could not resolve a " + section.relationField
-                      + " number for Business Partner " + businessPartner + " - "
-                      + (relation.error
-                        ? errorMessage(relation.error, "the lookup failed")
-                        : "no such role exists yet for this Business Partner")
-                      + "."
+                    warning: section.title + ": Business Partner " + businessPartner
+                      + " has no " + section.relationField
+                      + " number on its record - no such role exists yet for this Business Partner."
                   };
                 }
-                var relationValue = relation.value;
                 try {
                   return await this._loadSection(relationValue, section);
                 } catch (error) {
@@ -530,32 +529,6 @@ sap.ui.define([
           this._updatePreview(state);
           maintenanceModel.refresh(true);
           this._renderAll();
-        }
-      },
-
-      /**
-       * Resolves the real key of a to-one navigation off this Business Partner
-       * (to_Customer / to_Supplier), rather than assuming it equals the BP
-       * number. `error` distinguishes a genuinely absent role (no error, empty
-       * value) from a lookup that failed for some other reason (e.g. the
-       * destination itself returning a 502) - callers must not treat the two
-       * the same, or a backend outage reads as "this Business Partner simply
-       * has no Customer/Supplier", which is not true and hides the real cause.
-       */
-      _resolveRelationNumber: async function (businessPartner, navigation, keyField) {
-        var model = this.getView().getModel();
-        var binding = model.bindContext(
-          "/BusinessPartners('" + escapeODataKey(businessPartner) + "')/" + navigation,
-          null,
-          { $$groupId: "$direct" }
-        );
-        try {
-          var record = await binding.getBoundContext().requestObject();
-          return { value: (record && record[keyField]) || null, error: null };
-        } catch (error) {
-          return { value: null, error: error };
-        } finally {
-          binding.destroy();
         }
       },
 
@@ -1010,9 +983,10 @@ sap.ui.define([
         var state = this.getView().getModel("maintenance").getData();
         var record = {};
         // Customer/Supplier carry their own number, not the BP's - see
-        // _resolveRelationNumber. Falls back to the BP number for every other
-        // relationField, and to nothing at all on a not-yet-posted create
-        // request, where no real Customer/Supplier number exists yet.
+        // state.customerNumber/supplierNumber in _loadBusinessPartner. Falls
+        // back to the BP number for every other relationField, and to
+        // nothing at all on a not-yet-posted create request, where no real
+        // Customer/Supplier number exists yet.
         var relationValue = section.relationField === "Customer" ? state.customerNumber
           : section.relationField === "Supplier" ? state.supplierNumber
           : state.businessPartner;
