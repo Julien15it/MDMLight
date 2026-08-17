@@ -21,7 +21,8 @@
   "devDependencies": {
     "@cap-js/sqlite": "^1",
     "@sap/cds-dk": "^8",
-    "@sap/dev-cap-tools": "^1.31.0"
+    "@sap/dev-cap-tools": "^1.31.0",
+    "archiver": "^7.0.1"
   },
   "overrides": {
     "better-sqlite3": "^12"
@@ -34,7 +35,8 @@
     "test": "node --test test/*.test.js",
     "local": "cds watch --profile hybrid",
     "import:bp": "node tools/import-metadata.js API_BUSINESS_PARTNER",
-    "import:valuehelp": "node tools/import-metadata.js ZSRVB_MDMLIGHT_VH"
+    "import:valuehelp": "node tools/import-metadata.js ZSRVB_MDMLIGHT_VH",
+    "package:html5": "node tools/package-html5.js"
   },
   "cds": {
     "requires": {

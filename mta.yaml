@@ -1,6 +1,6 @@
 _schema-version: "3.2"
 ID: mdm-md-businesspartner-manage
-version: 1.16.0
+version: 1.16.1
 description: "Manage Business Partner (F3163) - CAP + Fiori Elements"
 parameters:
   enable-parallel-deployments: true
@@ -72,8 +72,14 @@ modules:
   # is what routes /service/* to mdm-businesspartner-srv-api.
 
   # --- UI: HTML5 application deployer ------------------------------------------
-  # One content module funnels both app zips into the same app-host. Two content
-  # modules targeting one app-host would each replace the other's content.
+  # Both apps go through ONE content module, because two content modules aimed at
+  # one app-host each replace the other's content. Work Zone standard edition
+  # exposes only the FIRST crossNavigation inbound per app, so the MDM Rules tile
+  # has to be its own app rather than a second inbound.
+  #
+  # The zipping is done by tools/package-html5.js, not left to mbt: an html5-type
+  # module with `build-result: dist` produced a 22-byte empty resources zip on
+  # 2026-08-17, which would have wiped both apps from the HTML5 repository.
   - name: mdm-businesspartner-app-content
     type: com.sap.application.content
     path: .
@@ -82,40 +88,14 @@ modules:
         parameters:
           content-target: true
     build-parameters:
+      builder: custom
+      commands:
+        - npm --prefix app/businesspartner install
+        - npm --prefix app/businesspartner run build:cf
+        - npm --prefix app/mdmrules install
+        - npm --prefix app/mdmrules run build:cf
+        - node tools/package-html5.js
       build-result: resources
-      requires:
-        - artifacts:
-            - businesspartner-ui.zip
-          name: businesspartner-ui
-          target-path: resources/
-        - artifacts:
-            - mdmrules-ui.zip
-          name: mdmrules-ui
-          target-path: resources/
-
-  # Work Zone standard edition exposes only the FIRST crossNavigation inbound per
-  # app, so a second tile needs a second app - not a second inbound.
-  - name: businesspartner-ui
-    type: html5
-    path: app/businesspartner
-    build-parameters:
-      build-result: dist
-      builder: custom
-      commands:
-        - npm install
-        - npm run build:cf
-      supported-platforms: []
-
-  - name: mdmrules-ui
-    type: html5
-    path: app/mdmrules
-    build-parameters:
-      build-result: dist
-      builder: custom
-      commands:
-        - npm install
-        - npm run build:cf
-      supported-platforms: []
 
   # --- Destination content -----------------------------------------------------
   - name: mdm-businesspartner-destination-content

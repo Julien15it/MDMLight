@@ -328,11 +328,19 @@ So there are two apps sharing one backend:
   `mdm-businesspartner-srv-api` destination for `/service/duplicateconfig/*` and
   `/service/businesspartner/*` (the latter only for `currentUserPermissions`).
 - One `com.sap.application.content` module at `path: .` funnels **both** app zips
-  into the same app-host, via `build-parameters.requires` naming the
-  `businesspartner-ui` and `mdmrules-ui` html5 modules. Two content modules
-  pointed at one app-host would each replace the other's content. `mbt` archives
-  each module's `build-result` itself, which is why the old
-  `scripts/package-html5.js` / `package:cf` archiver step is gone.
+  into the same app-host. Two content modules pointed at one app-host would each
+  replace the other's content.
+- **`tools/package-html5.js` does the zipping, and that is not a style choice.**
+  The first attempt used the generator's pattern — two `type: html5` modules with
+  `build-result: dist`, referenced from `build-parameters.requires` by
+  `<module>.zip` — on the assumption that `mbt` archives an html5 module's
+  build-result for you. It does not, at least not here: `mbt build` produced
+  `mdm-businesspartner-app-content/resources/data.zip` at **22 bytes**, an empty
+  archive. Deploying that would have shipped empty content to the app-host and
+  **deleted both apps from the HTML5 repository**. The deploy was aborted for an
+  unrelated reason before it got there, which is the only reason it didn't happen.
+  The script therefore refuses to emit a zip under 1KB. Verify before any deploy:
+  `unzip -l mta_archives/*.mtar | grep -i zip` must show two app zips of real size.
 - The hub is the app root (route pattern `""`), and `Component.js` calls
   `getRouter().initialize()` itself — there is no Fiori Elements AppComponent
   here to do it. Back from the hub is a **cross-app intent** to
