@@ -40,14 +40,10 @@ test('only a draft row offers navigation', () => {
   );
 });
 
-// Same gate as the Duplicate Rules button: hiding it is courtesy, the service checks the scope.
+// Hiding it is courtesy, the service checks the scope. Since the Duplicate Rules button moved to
+// the MDM Rules tile, this is the last steward-gated action on the list report.
 test('the change requests button is hidden from anyone without the steward scope', () => {
   assert.equal(listActions.ChangeRequests.visible, '{perm>/isDataSteward}');
-  assert.equal(
-    listActions.ChangeRequests.visible,
-    listActions.DuplicateRules.visible,
-    'both steward-only buttons gate the same way'
-  );
 });
 
 // Consequence worth pinning: with the list steward-only, a requester cannot reach their own

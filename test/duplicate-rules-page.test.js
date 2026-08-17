@@ -57,16 +57,20 @@ test('the steward scope exists and is not folded into partner maintenance', () =
   assert.equal(manager['scope-references'].includes('$XSAPPNAME.Steward'), false);
 });
 
-test('the toolbar action points at a handler that exists', () => {
+// Moved to the MDM Rules tile (2026-08-17): rule configuration is not a partner-list action.
+test('the partner list no longer carries a rules button', () => {
   const actions = routing.targets.BusinessPartnersList.options.settings
     .controlConfiguration['@com.sap.vocabularies.UI.v1.LineItem'].actions;
-  assert.equal(
-    actions.DuplicateRules.press,
-    'mdm.md.businesspartner.manage.ext.CustomActions.openDuplicateRules'
-  );
+  assert.equal(Object.hasOwn(actions, 'DuplicateRules'), false);
   const source = fs.readFileSync(path.join(APP, 'ext', 'CustomActions.js'), 'utf8');
-  assert.match(source, /openDuplicateRules:\s*function/u);
-  assert.match(source, /navigate\("DuplicateRules"\)/u);
+  assert.equal(/openDuplicateRules/u.test(source), false, 'and the handler goes with it');
+});
+
+// Leaving the rules page has to land on the hub it was opened from, not on the partner list.
+test('the rules page returns to the hub, saved or not', () => {
+  assert.equal(/navTo\("BusinessPartnersList"/u.test(controllerSource), false);
+  const matches = controllerSource.match(/navTo\("MDMRuleHub", \{\}, true\)/gu) || [];
+  assert.equal(matches.length, 2, 'both the clean exit and the discard-changes one');
 });
 
 // The whole reason ruleOptions() exists: a copy kept in the view goes stale the moment the
@@ -118,11 +122,12 @@ test('the grid fills the page and carries no permanent info strip', () => {
   assert.equal((view.match(/<ComboBox\s+width="100%"/gu) || []).length, 5);
 });
 
-// Hiding the button is courtesy; the service checks the scope regardless.
-test('the rules button is hidden from anyone without the steward scope', () => {
-  const actions = routing.targets.BusinessPartnersList.options.settings
-    .controlConfiguration['@com.sap.vocabularies.UI.v1.LineItem'].actions;
-  assert.equal(actions.DuplicateRules.visible, '{perm>/isDataSteward}');
+// The permission model is unchanged by the move to a tile: a tile cannot be hidden from the app,
+// so the hub says so and the service still refuses the write.
+test('a non-steward is told the rules are not theirs to save', () => {
+  const hub = fs.readFileSync(path.join(APP, 'ext', 'view', 'MDMRuleHub.view.xml'), 'utf8');
+  assert.match(hub, /!\$\{perm>\/isDataSteward\}/u);
+  assert.match(hub, /limited to data stewards/u);
   const component = fs.readFileSync(path.join(APP, 'Component.js'), 'utf8');
   assert.match(component, /isDataSteward: false/u, 'it starts hidden, never briefly visible');
   assert.match(component, /currentUserPermissions/u);

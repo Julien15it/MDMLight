@@ -52,6 +52,24 @@
             "parameters": {},
             "additionalParameters": "allowed"
           }
+        },
+        "MDMRules-manage": {
+          "semanticObject": "MDMRules",
+          "action": "manage",
+          "title": "MDM Rules",
+          "subTitle": "Duplicate, validation and derivation rules",
+          "icon": "sap-icon://settings",
+          "signature": {
+            "parameters": {
+              "screen": {
+                "required": false,
+                "defaultValue": {
+                  "value": "rules"
+                }
+              }
+            },
+            "additionalParameters": "allowed"
+          }
         }
       }
     }
@@ -201,6 +219,21 @@
           "pattern": "DuplicateRules",
           "name": "DuplicateRuleList",
           "target": "DuplicateRuleList"
+        },
+        {
+          "pattern": "MDMRules",
+          "name": "MDMRuleHub",
+          "target": "MDMRuleHub"
+        },
+        {
+          "pattern": "ValidationRules",
+          "name": "ValidationRuleList",
+          "target": "ValidationRuleList"
+        },
+        {
+          "pattern": "DerivationRules",
+          "name": "DerivationRuleList",
+          "target": "DerivationRuleList"
         }
       ],
       "targets": {
@@ -253,13 +286,6 @@
                       "enabled": true,
                       "requiresSelection": false,
                       "text": "Change Requests"
-                    },
-                    "DuplicateRules": {
-                      "press": "mdm.md.businesspartner.manage.ext.CustomActions.openDuplicateRules",
-                      "visible": "{perm>/isDataSteward}",
-                      "enabled": true,
-                      "requiresSelection": false,
-                      "text": "Duplicate Rules"
                     }
                   }
                 }
@@ -318,6 +344,24 @@
           "type": "View",
           "id": "DuplicateRuleList",
           "name": "mdm.md.businesspartner.manage.ext.view.DuplicateRuleList",
+          "viewType": "XML"
+        },
+        "MDMRuleHub": {
+          "type": "View",
+          "id": "MDMRuleHub",
+          "name": "mdm.md.businesspartner.manage.ext.view.MDMRuleHub",
+          "viewType": "XML"
+        },
+        "ValidationRuleList": {
+          "type": "View",
+          "id": "ValidationRuleList",
+          "name": "mdm.md.businesspartner.manage.ext.view.ValidationRuleList",
+          "viewType": "XML"
+        },
+        "DerivationRuleList": {
+          "type": "View",
+          "id": "DerivationRuleList",
+          "name": "mdm.md.businesspartner.manage.ext.view.DerivationRuleList",
           "viewType": "XML"
         }
       }

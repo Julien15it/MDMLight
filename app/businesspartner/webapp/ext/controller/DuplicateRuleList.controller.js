@@ -35,13 +35,13 @@ sap.ui.define([
           onClose: function (action) {
             if (action === MessageBox.Action.OK) {
               this._model().resetChanges(UPDATE_GROUP);
-              this._router.navTo("BusinessPartnersList", {}, true);
+              this._router.navTo("MDMRuleHub", {}, true);
             }
           }.bind(this)
         });
         return;
       }
-      this._router.navTo("BusinessPartnersList", {}, true);
+      this._router.navTo("MDMRuleHub", {}, true);
     },
 
     /**

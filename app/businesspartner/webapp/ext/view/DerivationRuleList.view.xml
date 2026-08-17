@@ -1,0 +1,82 @@
+<mvc:View
+  controllerName="mdm.md.businesspartner.manage.ext.controller.DerivationRuleList"
+  xmlns:mvc="sap.ui.core.mvc"
+  xmlns:core="sap.ui.core"
+  xmlns="sap.m"
+  height="100%">
+  <Page
+    title="Derivation Rules"
+    showNavButton="true"
+    navButtonPress=".onBackToHub">
+    <content>
+      <!-- Same layout as the duplicate rule table on purpose; see ValidationRuleList.view.xml. -->
+      <MessageStrip
+        class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
+        text="Preview only. Derivation rules are not stored or executed yet — the VIES and GLEIF derivations still come from code (srv/checks/registry-checks.js), and they only ever fill an empty field."
+        type="Warning"
+        showIcon="true" />
+      <Table
+        id="ruleTable"
+        items="{ path: 'rules>/rules' }"
+        mode="SingleSelectMaster"
+        growing="true"
+        growingThreshold="100">
+        <headerToolbar>
+          <OverflowToolbar>
+            <Title text="Rules" level="H2" />
+            <ToolbarSpacer />
+            <Button text="Add Rule" icon="sap-icon://add" type="Transparent" press=".onAddRule" />
+            <Button text="Delete" icon="sap-icon://delete" type="Transparent" press=".onDeleteRule" />
+            <Button text="Save" icon="sap-icon://save" type="Emphasized" enabled="false" tooltip="Not implemented yet" />
+          </OverflowToolbar>
+        </headerToolbar>
+        <columns>
+          <Column width="12%"><Text text="Condition 1 Field" /></Column>
+          <Column width="10%"><Text text="Condition 1 Value" /></Column>
+          <Column width="12%"><Text text="Condition 2 Field" /></Column>
+          <Column width="10%"><Text text="Condition 2 Value" /></Column>
+          <Column width="18%"><Text text="Field to Fill" /></Column>
+          <Column width="17%"><Text text="Source" /></Column>
+          <Column width="17%"><Text text="Source Field" /></Column>
+          <Column width="4rem" hAlign="Center"><Text text="Active" /></Column>
+        </columns>
+        <items>
+          <ColumnListItem>
+            <cells>
+              <ComboBox
+                width="100%"
+                selectedKey="{rules>conditionField}"
+                placeholder="any"
+                items="{ path: 'opt>/fields', templateShareable: false }">
+                <core:Item key="{opt>code}" text="{opt>text}" />
+              </ComboBox>
+              <Input width="100%" value="{rules>conditionValue}" placeholder="any" />
+              <ComboBox
+                width="100%"
+                selectedKey="{rules>conditionField2}"
+                placeholder="any"
+                items="{ path: 'opt>/fields', templateShareable: false }">
+                <core:Item key="{opt>code}" text="{opt>text}" />
+              </ComboBox>
+              <Input width="100%" value="{rules>conditionValue2}" placeholder="any" />
+              <ComboBox
+                width="100%"
+                selectedKey="{rules>field}"
+                items="{ path: 'opt>/fields', templateShareable: false }">
+                <core:Item key="{opt>code}" text="{opt>text}" />
+              </ComboBox>
+              <ComboBox
+                width="100%"
+                selectedKey="{rules>source}"
+                items="{ path: 'opt>/sources', templateShareable: false }">
+                <core:Item key="{opt>code}" text="{opt>text}" />
+              </ComboBox>
+              <Input width="100%" value="{rules>sourceField}" placeholder="same field" />
+              <CheckBox selected="{rules>isActive}" />
+            </cells>
+          </ColumnListItem>
+        </items>
+      </Table>
+    </content>
+  </Page>
+</mvc:View>

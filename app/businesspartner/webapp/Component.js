@@ -31,6 +31,25 @@ sap.ui.define(
                 this._initTaskForm().catch(function (error) {
                     console.error("[taskform] Task form initialisation failed:", error);
                 });
+                this._routeStartupScreen();
+            },
+
+            /**
+             * One app, two tiles. The MDM Rules inbound carries `screen=rules`, which is the only
+             * thing that distinguishes it from the Business Partner inbound — both resolve to this
+             * component, and without this both would open the partner list.
+             *
+             * Routed after the router is initialised, not before: navTo on a router that has not
+             * started yet is dropped silently, which reads as "the tile is broken".
+             */
+            _routeStartupScreen: function () {
+                if ((this._startupParameters().screen || [])[0] !== "rules") return;
+                var router = this.getRouter();
+                var openHub = function () { router.navTo("MDMRuleHub", {}, true); };
+                // Both cases, because which one applies depends on how the shell started us:
+                // attaching after initialisation never fires, navigating before it is dropped.
+                if (router.isInitialized && router.isInitialized()) openHub();
+                else router.attachInitialized(openHub);
             },
 
             /**

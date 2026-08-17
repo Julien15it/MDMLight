@@ -288,7 +288,38 @@ sane, and logs a warning rather than silently under-hiding.
 
 Change requests have their own list (`ext/view/ChangeRequestList.view.xml`),
 reached from the Change Requests button on the list report. **The button is
-steward-only** (`{perm>/isDataSteward}`, same gate as Duplicate Rules).
+steward-only** (`{perm>/isDataSteward}`), and since the rules moved to their own
+tile it is the last steward-gated action on the list report.
+
+### The MDM Rules tile — one app, two tiles (2026-08-17)
+
+Rule configuration left the Maintain BP app's toolbar and became its own tile.
+`ext/view/MDMRuleHub.view.xml` is the landing page: three `GenericTile`s for
+**Duplicate Check Rules**, **Validation Rules** and **Derivation Rules**.
+
+The mechanism is a **second inbound**, `MDMRules-manage`, in
+`sap.app.crossNavigation.inbounds`. Both inbounds resolve to this same component,
+so something has to tell them apart: the rules inbound declares
+`signature.parameters.screen` with `defaultValue: "rules"`, and
+`Component._routeStartupScreen()` navigates to `MDMRuleHub` when it sees it.
+Without that, the tile would open the partner list. It handles the router being
+initialised or not — attaching after initialisation never fires, and navigating
+before it is dropped silently, which reads as "the tile is broken".
+
+**Adding the inbound does not create the tile.** The tile has to be added to the
+SAP Build Work Zone site in the Site Manager (app already exposed by
+`sap.cloud.service`); a redeploy alone will not surface it. Until then the hub is
+reachable at `#/MDMRules` on the existing tile.
+
+Validation and Derivation Rules are **UI previews only**. They copy the duplicate
+rule table's layout, because the shape of a rule is what is being agreed, but
+their rows live in a local JSON model, Save is disabled, and a Warning strip says
+so. They deliberately do **not** bind `dc>/DuplicateRules` — that would show
+duplicate rules under a Validation Rules heading and let someone edit them by
+accident. The field catalog does come from the real `ruleOptions()`, so the
+dropdowns are the true ones and there is no second copy to go stale. The
+validations and derivations that actually run are still the code-defined VIES and
+GLEIF stages in `srv/checks/registry-checks.js`.
 
 A `draft` opens editable via `ChangeRequestEdit`. **Anything further along is not
 navigable from here at all** (changed 2026-08-13): the approve screen is reached

@@ -1,0 +1,53 @@
+<mvc:View
+  controllerName="mdm.md.businesspartner.manage.ext.controller.MDMRuleHub"
+  xmlns:mvc="sap.ui.core.mvc"
+  xmlns="sap.m"
+  height="100%">
+  <Page
+    title="MDM Rules"
+    showNavButton="true"
+    navButtonPress=".onBackToList">
+    <content>
+      <!-- Steward-only, same gate as the rule pages themselves. Hiding it is courtesy; the
+           service checks the scope on every call regardless of what the UI shows. -->
+      <MessageStrip
+        class="sapUiSmallMargin"
+        visible="{= !${perm>/isDataSteward} }"
+        text="Rule configuration is limited to data stewards. You can look, but saving will be refused."
+        type="Information"
+        showIcon="true" />
+      <VBox class="sapUiSmallMargin">
+        <Title text="Choose what to configure" level="H2" class="sapUiSmallMarginBottom" />
+        <HBox wrap="Wrap">
+          <GenericTile
+            class="sapUiTinyMargin"
+            header="Duplicate Check Rules"
+            subheader="Which fields make two partners the same"
+            press=".onDuplicateRules">
+            <TileContent>
+              <ImageContent src="sap-icon://duplicate" />
+            </TileContent>
+          </GenericTile>
+          <GenericTile
+            class="sapUiTinyMargin"
+            header="Validation Rules"
+            subheader="What blocks or warns on a request"
+            press=".onValidationRules">
+            <TileContent>
+              <ImageContent src="sap-icon://validate" />
+            </TileContent>
+          </GenericTile>
+          <GenericTile
+            class="sapUiTinyMargin"
+            header="Derivation Rules"
+            subheader="Which empty fields get filled in, and from where"
+            press=".onDerivationRules">
+            <TileContent>
+              <ImageContent src="sap-icon://download-from-cloud" />
+            </TileContent>
+          </GenericTile>
+        </HBox>
+      </VBox>
+    </content>
+  </Page>
+</mvc:View>
