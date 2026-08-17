@@ -56,14 +56,25 @@ const RELATION_NAVIGATION = Object.freeze({
  * range - Customer-Vendor Integration does not guarantee Customer/Supplier ==
  * BusinessPartner, and on systems where it does not, staging a row under the
  * BusinessPartner number would silently post it against a Customer/Supplier
- * that does not exist. Resolved via the to_Customer/to_Supplier navigation,
- * the same way S/4 itself resolves it - never assumed equal to `businessPartner`.
- * Returns null when the navigation has no target, e.g. the role was never
- * assigned (or, for a create request, not posted yet in this same run).
+ * that does not exist. A_BusinessPartner itself carries the resolved number
+ * as a plain field, tried first; the to_Customer/to_Supplier navigation is
+ * the fallback for a system that leaves that field blank. Returns null when
+ * neither resolves anything, e.g. the role was never assigned (or, for a
+ * create request, not posted yet in this same run).
  */
 async function resolveRelationNumber(s4, businessPartner, relationField) {
   const relation = RELATION_NAVIGATION[relationField];
   if (!relation) return businessPartner;
+  try {
+    const root = await s4.run(
+      cds.ql.SELECT.one.from('API_BUSINESS_PARTNER.A_BusinessPartner')
+        .columns(relation.keyField)
+        .where({ BusinessPartner: businessPartner })
+    );
+    if (root?.[relation.keyField]) return root[relation.keyField];
+  } catch {
+    // Falls through to the navigation-based lookup below.
+  }
   try {
     const path = businessPartnerNavigationPath(
       { navigation: relation.navigation },

@@ -459,11 +459,15 @@ sap.ui.define([
           // Customer/Supplier are their own master records with their own number
           // range - CVI does not guarantee Customer/Supplier == BusinessPartner.
           // Filtering Customers/CustomerCompany/... by the BP number therefore
-          // finds nothing on a system where they diverge; resolve the real
-          // numbers via the to_Customer/to_Supplier navigation instead, same as
-          // S/4 itself does.
-          state.customerNumber = await this._resolveRelationNumber(businessPartner, "to_Customer", "Customer");
-          state.supplierNumber = await this._resolveRelationNumber(businessPartner, "to_Supplier", "Supplier");
+          // finds nothing on a system where they diverge. A_BusinessPartner
+          // itself carries the resolved Customer/Supplier number as a plain
+          // field (already in state.root, no extra call needed); the
+          // to_Customer/to_Supplier navigation is only a fallback for a system
+          // that leaves that field blank.
+          state.customerNumber = state.root.Customer
+            || await this._resolveRelationNumber(businessPartner, "to_Customer", "Customer");
+          state.supplierNumber = state.root.Supplier
+            || await this._resolveRelationNumber(businessPartner, "to_Supplier", "Supplier");
 
           var relationValues = {
             BusinessPartner: businessPartner,
