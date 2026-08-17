@@ -405,7 +405,9 @@ test('the duplicate check derives without reporting what it derived', () => {
     service.indexOf("this.on('checkRequest'"),
     service.indexOf("this.on('duplicateCheckRequest'")
   );
-  assert.match(check, /propose: true, duplicates: false/u);
+  // Propose defaults to true, so the button still proposes; only a field trigger passes false.
+  assert.match(check, /propose: req\.data\.Propose !== false/u);
+  assert.match(check, /duplicates: false/u);
   assert.equal(/DuplicatesJson|RanDuplicateCheck/u.test(check), false);
 });
 

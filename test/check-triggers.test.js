@@ -10,8 +10,8 @@ const { normalisableFields, proposeNormalisations } = require('../srv/checks/nor
 const PAYLOAD = {
   root: { OrganizationBPName1: 'alluvion bv' },
   sections: {
-    addresses: [{ StreetName: 'koedreef 12', CityName: 'brasschaat', Country: 'be' }],
-    taxNumbers: [{ BPTaxNumber: 'BE0404616494' }]
+    Addresses: [{ StreetName: 'koedreef 12', CityName: 'brasschaat', Country: 'be' }],
+    TaxNumbers: [{ BPTaxNumber: 'BE0404616494' }]
   }
 };
 
@@ -20,18 +20,20 @@ const PAYLOAD = {
 test('an unscoped call offers every populated field, a scoped one only its target', () => {
   const all = normalisableFields(PAYLOAD).map((f) => `${f.target}.${f.field}`);
   assert.ok(all.includes('root.OrganizationBPName1'));
-  assert.ok(all.some((k) => k.startsWith('addresses.')));
+  assert.ok(all.some((k) => k.startsWith('Addresses.')));
 
-  const addresses = normalisableFields(PAYLOAD, 'addresses');
+  const addresses = normalisableFields(PAYLOAD, 'Addresses');
   assert.ok(addresses.length > 0, 'the address fields are still offered');
-  assert.ok(addresses.every((f) => f.target === 'addresses'), 'and nothing else is');
+  assert.ok(addresses.every((f) => f.target === 'Addresses'), 'and nothing else is');
 
   const root = normalisableFields(PAYLOAD, 'root');
   assert.ok(root.every((f) => f.target === 'root'));
 });
 
+// BankDetails is a real section id but carries nothing normalisable, so a trigger there is silent.
 test('a scope that matches nothing offers nothing rather than falling back to everything', () => {
-  assert.deepEqual(normalisableFields(PAYLOAD, 'bankDetails'), []);
+  assert.deepEqual(normalisableFields(PAYLOAD, 'BankDetails'), []);
+  assert.deepEqual(normalisableFields(PAYLOAD, 'nonsense'), []);
 });
 
 // Country/Region casing is deterministic, so it survives an AI Core outage - but it must respect
@@ -40,7 +42,7 @@ test('the deterministic proposals are scoped as well', async () => {
   const scoped = await proposeNormalisations({ payload: PAYLOAD, scope: 'root', env: {} });
   assert.ok(scoped.every((p) => p.target === 'root'), 'no address casing from a root trigger');
 
-  const addresses = await proposeNormalisations({ payload: PAYLOAD, scope: 'addresses', env: {} });
+  const addresses = await proposeNormalisations({ payload: PAYLOAD, scope: 'Addresses', env: {} });
   assert.ok(addresses.some((p) => p.field === 'Country'), 'be -> BE is still proposed in scope');
 });
 
@@ -96,7 +98,7 @@ test('a triggered check is quiet, guarded and de-duplicated', () => {
     CONTROLLER.indexOf('_runTriggeredCheck: async function'),
     CONTROLLER.indexOf('onCheck: async function')
   );
-  assert.equal(/MessageBox/u.test(run), false, 'no modal from a trigger');
+  assert.equal(/MessageBox\.\w+\(/u.test(run), false, 'no modal from a trigger');
   assert.equal(/state\.busy = true/u.test(run), false, 'never blocks the form');
   assert.match(run, /if \(state\.busy \|\| this\._triggerInFlight\) return/u, 'one at a time');
   assert.match(run, /if \(key === this\._lastTriggerKey\) return/u, 'unchanged data costs nothing');
