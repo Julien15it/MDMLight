@@ -229,6 +229,24 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     creatable: true,
     deletable: true,
     requiredCreateFields: ['Supplier', 'CompanyCode']
+  }),
+  CustomerSalesArea: Object.freeze({
+    remote: 'A_CustomerSalesArea',
+    navigation: 'to_CustomerSalesArea',
+    parentEntity: 'A_Customer',
+    parentKeyField: 'Customer',
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['Customer', 'SalesOrganization', 'DistributionChannel', 'Division']
+  }),
+  SupplierPurchasingOrg: Object.freeze({
+    remote: 'A_SupplierPurchasingOrg',
+    navigation: 'to_SupplierPurchasingOrg',
+    parentEntity: 'A_Supplier',
+    parentKeyField: 'Supplier',
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['Supplier', 'PurchasingOrganization']
   })
 });
 

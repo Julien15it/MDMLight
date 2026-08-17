@@ -177,6 +177,8 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
   // projections of the same remote entity leave CAP unable to auto-redirect.
   @readonly @cds.redirection.target entity CustomerCompany as projection on S4.A_CustomerCompany;
   @readonly @cds.redirection.target entity SupplierCompany as projection on S4.A_SupplierCompany;
+  @readonly @cds.redirection.target entity CustomerSalesArea as projection on S4.A_CustomerSalesArea;
+  @readonly @cds.redirection.target entity SupplierPurchasingOrg as projection on S4.A_SupplierPurchasingOrg;
 
   // Remaining API_BUSINESS_PARTNER entity sets. They are exposed read-only so
   // consumers can use the complete S/4 API without risking accidental writes.

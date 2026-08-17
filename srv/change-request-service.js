@@ -26,7 +26,9 @@ const NODES = {
   Customers:            { entity: `${STAGING}StagedCustomer`,        many: false },
   Suppliers:            { entity: `${STAGING}StagedSupplier`,        many: false },
   CustomerCompany:      { entity: `${STAGING}StagedCustomerCompany`, many: true },
-  SupplierCompany:      { entity: `${STAGING}StagedSupplierCompany`, many: true }
+  SupplierCompany:      { entity: `${STAGING}StagedSupplierCompany`, many: true },
+  CustomerSalesArea:      { entity: `${STAGING}StagedCustomerSalesArea`,      many: true },
+  SupplierPurchasingOrg:  { entity: `${STAGING}StagedSupplierPurchasingOrg`,  many: true }
 };
 
 /** Business-partner-relation field per node, for postToS4. Anything not listed
@@ -35,7 +37,9 @@ const RELATION_FIELDS = Object.freeze({
   Customers: 'Customer',
   Suppliers: 'Supplier',
   CustomerCompany: 'Customer',
-  SupplierCompany: 'Supplier'
+  SupplierCompany: 'Supplier',
+  CustomerSalesArea: 'Customer',
+  SupplierPurchasingOrg: 'Supplier'
 });
 
 const GENERAL = `${STAGING}StagedGeneral`;

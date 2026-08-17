@@ -1659,6 +1659,260 @@ sap.ui.define([], function () {
             "updatable": true
           }
         ]
+      },
+      {
+        "id": "CustomerSalesArea",
+        "title": "Customer Sales Area Data",
+        "entitySet": "CustomerSalesArea",
+        "remoteEntity": "A_CustomerSalesArea",
+        "relationField": "Customer",
+        "typeName": "A_CustomerSalesAreaType",
+        "kind": "collection",
+        "summaryFields": [
+          "SalesOrganization",
+          "DistributionChannel",
+          "Division",
+          "CreditControlArea",
+          "Currency",
+          "CustomerPaymentTerms"
+        ],
+        "requiredCreateFields": [
+          "SalesOrganization",
+          "DistributionChannel",
+          "Division"
+        ],
+        "fields": [
+          {
+            "name": "Customer",
+            "label": "Customer",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SalesOrganization",
+            "label": "Sales Organization",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "DistributionChannel",
+            "label": "Distribution Channel",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "Division",
+            "label": "Division",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "BillingIsBlockedForCustomer",
+            "label": "BBlock for SlsA",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CreditControlArea",
+            "label": "Credit Control Area",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "Currency",
+            "label": "Currency",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 5,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CustomerPaymentTerms",
+            "label": "Terms of Payment",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CustomerPriceGroup",
+            "label": "Customer Price Group",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CustomerPricingProcedure",
+            "label": "Cust.Pric.Procedure",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "DeliveryPriority",
+            "label": "Delivery Priority",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ShippingCondition",
+            "label": "Shipping Conditions",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          }
+        ]
+      },
+      {
+        "id": "SupplierPurchasingOrg",
+        "title": "Supplier Purchasing Organization Data",
+        "entitySet": "SupplierPurchasingOrg",
+        "remoteEntity": "A_SupplierPurchasingOrg",
+        "relationField": "Supplier",
+        "typeName": "A_SupplierPurchasingOrgType",
+        "kind": "collection",
+        "summaryFields": [
+          "PurchasingOrganization",
+          "PurchasingGroup",
+          "PaymentTerms",
+          "PurchaseOrderCurrency",
+          "PurchasingIsBlockedForSupplier"
+        ],
+        "requiredCreateFields": [
+          "PurchasingOrganization"
+        ],
+        "fields": [
+          {
+            "name": "Supplier",
+            "label": "Supplier",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PurchasingOrganization",
+            "label": "Purch. Organization",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "IncotermsClassification",
+            "label": "Incoterms",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 3,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "InvoiceIsGoodsReceiptBased",
+            "label": "GR-Based Inv. Verif.",
+            "type": "cds.Boolean",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "MinimumOrderAmount",
+            "label": "Minimum order value",
+            "type": "cds.Decimal",
+            "key": false,
+            "nullable": true,
+            "precision": 14,
+            "scale": 3,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PaymentTerms",
+            "label": "Terms of Payment",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PurchaseOrderCurrency",
+            "label": "Order currency",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 5,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PurchasingGroup",
+            "label": "Purchasing Group",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 3,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PurchasingIsBlockedForSupplier",
+            "label": "Pur. block POrg",
+            "type": "cds.Boolean",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          }
+        ]
       }
     ]
   };

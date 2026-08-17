@@ -191,6 +191,24 @@
               </uxap:ObjectPageSubSection>
             </uxap:subSections>
           </uxap:ObjectPageSection>
+          <uxap:ObjectPageSection title="Customer Sales Area Data" titleUppercase="false">
+            <uxap:subSections>
+              <uxap:ObjectPageSubSection>
+                <uxap:blocks>
+                  <VBox id="CustomerSalesAreaContent" width="100%" />
+                </uxap:blocks>
+              </uxap:ObjectPageSubSection>
+            </uxap:subSections>
+          </uxap:ObjectPageSection>
+          <uxap:ObjectPageSection title="Supplier Purchasing Organization Data" titleUppercase="false">
+            <uxap:subSections>
+              <uxap:ObjectPageSubSection>
+                <uxap:blocks>
+                  <VBox id="SupplierPurchasingOrgContent" width="100%" />
+                </uxap:blocks>
+              </uxap:ObjectPageSubSection>
+            </uxap:subSections>
+          </uxap:ObjectPageSection>
         </uxap:sections>
       </uxap:ObjectPageLayout>
     </content>
