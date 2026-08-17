@@ -1331,6 +1331,261 @@ sap.ui.define([], function () {
         ]
       },
       {
+        "id": "CustomerCompany",
+        "title": "Customer Company Code Data",
+        "entitySet": "CustomerCompany",
+        "remoteEntity": "A_CustomerCompany",
+        "relationField": "Customer",
+        "typeName": "A_CustomerCompanyType",
+        "kind": "collection",
+        "summaryFields": [
+          "CompanyCode",
+          "ReconciliationAccount",
+          "PaymentTerms",
+          "PaymentBlockingReason",
+          "HouseBank"
+        ],
+        "requiredCreateFields": [
+          "CompanyCode"
+        ],
+        "fields": [
+          {
+            "name": "Customer",
+            "label": "Customer",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CompanyCode",
+            "label": "Company Code",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "AccountingClerk",
+            "label": "Clerk Abbrev.",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CustomerAccountNote",
+            "label": "Account Memo",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 30,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "HouseBank",
+            "label": "House Bank",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 5,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PaymentBlockingReason",
+            "label": "Payment Block",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 1,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PaymentMethodsList",
+            "label": "Payment Methods",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PaymentTerms",
+            "label": "Terms of Payment",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ReconciliationAccount",
+            "label": "Reconciliation Acct",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          }
+        ]
+      },
+      {
+        "id": "CustomerSalesArea",
+        "title": "Customer Sales Area Data",
+        "entitySet": "CustomerSalesArea",
+        "remoteEntity": "A_CustomerSalesArea",
+        "relationField": "Customer",
+        "typeName": "A_CustomerSalesAreaType",
+        "kind": "collection",
+        "summaryFields": [
+          "SalesOrganization",
+          "DistributionChannel",
+          "Division",
+          "CreditControlArea",
+          "Currency",
+          "CustomerPaymentTerms"
+        ],
+        "requiredCreateFields": [
+          "SalesOrganization",
+          "DistributionChannel",
+          "Division"
+        ],
+        "fields": [
+          {
+            "name": "Customer",
+            "label": "Customer",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SalesOrganization",
+            "label": "Sales Organization",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "DistributionChannel",
+            "label": "Distribution Channel",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "Division",
+            "label": "Division",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "BillingIsBlockedForCustomer",
+            "label": "BBlock for SlsA",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CreditControlArea",
+            "label": "Credit Control Area",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "Currency",
+            "label": "Currency",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 5,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CustomerPaymentTerms",
+            "label": "Terms of Payment",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CustomerPriceGroup",
+            "label": "Customer Price Group",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CustomerPricingProcedure",
+            "label": "Cust.Pric.Procedure",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "DeliveryPriority",
+            "label": "Delivery Priority",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ShippingCondition",
+            "label": "Shipping Conditions",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          }
+        ]
+      },
+      {
         "id": "Suppliers",
         "title": "Supplier Data",
         "entitySet": "Suppliers",
@@ -1433,6 +1688,227 @@ sap.ui.define([], function () {
             "key": false,
             "nullable": true,
             "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          }
+        ]
+      },
+      {
+        "id": "SupplierCompany",
+        "title": "Supplier Company Code Data",
+        "entitySet": "SupplierCompany",
+        "remoteEntity": "A_SupplierCompany",
+        "relationField": "Supplier",
+        "typeName": "A_SupplierCompanyType",
+        "kind": "collection",
+        "summaryFields": [
+          "CompanyCode",
+          "CompanyCodeName",
+          "ReconciliationAccount",
+          "PaymentTerms",
+          "PaymentBlockingReason"
+        ],
+        "requiredCreateFields": [
+          "CompanyCode"
+        ],
+        "fields": [
+          {
+            "name": "Supplier",
+            "label": "Supplier",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CompanyCode",
+            "label": "Company Code",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CompanyCodeName",
+            "label": "Company Name",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 25,
+            "creatable": false,
+            "updatable": false
+          },
+          {
+            "name": "PaymentBlockingReason",
+            "label": "Payment Block",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 1,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "AccountingClerk",
+            "label": "Clerk Abbrev.",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PaymentMethodsList",
+            "label": "Payment Methods",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PaymentTerms",
+            "label": "Terms of Payment",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "HouseBank",
+            "label": "House Bank",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 5,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ReconciliationAccount",
+            "label": "Reconciliation Acct",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          }
+        ]
+      },
+      {
+        "id": "SupplierPurchasingOrg",
+        "title": "Supplier Purchasing Organization Data",
+        "entitySet": "SupplierPurchasingOrg",
+        "remoteEntity": "A_SupplierPurchasingOrg",
+        "relationField": "Supplier",
+        "typeName": "A_SupplierPurchasingOrgType",
+        "kind": "collection",
+        "summaryFields": [
+          "PurchasingOrganization",
+          "PurchasingGroup",
+          "PaymentTerms",
+          "PurchaseOrderCurrency",
+          "PurchasingIsBlockedForSupplier"
+        ],
+        "requiredCreateFields": [
+          "PurchasingOrganization"
+        ],
+        "fields": [
+          {
+            "name": "Supplier",
+            "label": "Supplier",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PurchasingOrganization",
+            "label": "Purch. Organization",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "IncotermsClassification",
+            "label": "Incoterms",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 3,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "InvoiceIsGoodsReceiptBased",
+            "label": "GR-Based Inv. Verif.",
+            "type": "cds.Boolean",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "MinimumOrderAmount",
+            "label": "Minimum order value",
+            "type": "cds.Decimal",
+            "key": false,
+            "nullable": true,
+            "precision": 14,
+            "scale": 3,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PaymentTerms",
+            "label": "Terms of Payment",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PurchaseOrderCurrency",
+            "label": "Order currency",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 5,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PurchasingGroup",
+            "label": "Purchasing Group",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 3,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PurchasingIsBlockedForSupplier",
+            "label": "Pur. block POrg",
+            "type": "cds.Boolean",
+            "key": false,
+            "nullable": true,
             "creatable": true,
             "updatable": true
           }

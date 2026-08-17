@@ -24,8 +24,23 @@ const NODES = {
   Identifications:      { entity: `${STAGING}StagedIdentifications`, many: true },
   Industries:           { entity: `${STAGING}StagedIndustries`,      many: true },
   Customers:            { entity: `${STAGING}StagedCustomer`,        many: false },
-  Suppliers:            { entity: `${STAGING}StagedSupplier`,        many: false }
+  Suppliers:            { entity: `${STAGING}StagedSupplier`,        many: false },
+  CustomerCompany:      { entity: `${STAGING}StagedCustomerCompany`, many: true },
+  SupplierCompany:      { entity: `${STAGING}StagedSupplierCompany`, many: true },
+  CustomerSalesArea:      { entity: `${STAGING}StagedCustomerSalesArea`,      many: true },
+  SupplierPurchasingOrg:  { entity: `${STAGING}StagedSupplierPurchasingOrg`,  many: true }
 };
+
+/** Business-partner-relation field per node, for postToS4. Anything not listed
+ *  here relates via the plain BusinessPartner number. */
+const RELATION_FIELDS = Object.freeze({
+  Customers: 'Customer',
+  Suppliers: 'Supplier',
+  CustomerCompany: 'Customer',
+  SupplierCompany: 'Supplier',
+  CustomerSalesArea: 'Customer',
+  SupplierPurchasingOrg: 'Supplier'
+});
 
 const GENERAL = `${STAGING}StagedGeneral`;
 const HEADER = `${STAGING}ChangeRequests`;
@@ -543,10 +558,8 @@ class ChangeRequestService extends cds.ApplicationService {
           const { ID, request_ID: parent, action, ...data } = row;
           // Staged for context only - the user never touched it.
           if (!action) continue;
-          const relationField = section === 'Customers'
-            ? 'Customer'
-            : section === 'Suppliers' ? 'Supplier' : 'BusinessPartner';
-          if (relationField === 'BusinessPartner') data.BusinessPartner = businessPartner;
+          const relationField = RELATION_FIELDS[section] || 'BusinessPartner';
+          data[relationField] = businessPartner;
 
           if (action === 'D') {
             await bp.send('deleteBusinessPartnerEntity', {

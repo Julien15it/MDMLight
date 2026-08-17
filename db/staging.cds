@@ -78,6 +78,10 @@ entity ChangeRequests : cuid, managed {
   industries        : Composition of many StagedIndustries     on industries.request     = $self;
   customer          : Composition of one  StagedCustomer       on customer.request       = $self;
   supplier          : Composition of one  StagedSupplier       on supplier.request       = $self;
+  customerCompany   : Composition of many StagedCustomerCompany on customerCompany.request = $self;
+  supplierCompany   : Composition of many StagedSupplierCompany on supplierCompany.request = $self;
+  customerSalesArea : Composition of many StagedCustomerSalesArea on customerSalesArea.request = $self;
+  supplierPurchasingOrg : Composition of many StagedSupplierPurchasingOrg on supplierPurchasingOrg.request = $self;
 
   findings          : Composition of many CheckFindings        on findings.request       = $self;
 }
@@ -253,6 +257,81 @@ entity StagedSupplier : cuid {
   PurchasingIsBlocked         : Boolean;
   SupplierProcurementBlock    : String(2);
   VATRegistration             : String(20);
+}
+
+/**
+ * Customer Company Code Data (A_CustomerCompany). One row per company code a
+ * customer is extended to - unlike StagedCustomer, several can exist per
+ * request. `Customer` is left unstaged like every other child's business
+ * partner backlink: it does not exist yet on a create, and postToS4 fills it
+ * in from the posted partner number before replaying the row to S/4.
+ */
+entity StagedCustomerCompany : cuid {
+  request               : Association to ChangeRequests;
+  action                : NodeAction not null default 'C';
+  CompanyCode           : String(4);
+  ReconciliationAccount : String(10);
+  PaymentTerms          : String(4);
+  PaymentMethodsList    : String(10);
+  PaymentBlockingReason : String(1);
+  HouseBank             : String(5);
+  AccountingClerk       : String(2);
+  CustomerAccountNote   : String(30);
+}
+
+/** Supplier Company Code Data (A_SupplierCompany). See StagedCustomerCompany. */
+entity StagedSupplierCompany : cuid {
+  request               : Association to ChangeRequests;
+  action                : NodeAction not null default 'C';
+  CompanyCode           : String(4);
+  CompanyCodeName       : String(25);
+  ReconciliationAccount : String(10);
+  PaymentTerms          : String(4);
+  PaymentMethodsList    : String(10);
+  PaymentBlockingReason : String(1);
+  HouseBank             : String(5);
+  AccountingClerk       : String(2);
+}
+
+/**
+ * Customer Sales Area Data (A_CustomerSalesArea). Natural key is Customer +
+ * SalesOrganization + DistributionChannel + Division - Customer stays
+ * unstaged like every other relation field, the other three are staged
+ * because, unlike Company Code, there is no single default: a customer with
+ * no sales area yet cannot sell anything, so the requester must pick all
+ * three on create.
+ */
+entity StagedCustomerSalesArea : cuid {
+  request                    : Association to ChangeRequests;
+  action                     : NodeAction not null default 'C';
+  SalesOrganization          : String(4);
+  DistributionChannel        : String(2);
+  Division                   : String(2);
+  CreditControlArea          : String(4);
+  Currency                   : String(5);
+  CustomerPriceGroup         : String(2);
+  CustomerPricingProcedure   : String(2);
+  CustomerPaymentTerms       : String(4);
+  DeliveryPriority           : String(2);
+  ShippingCondition          : String(2);
+  BillingIsBlockedForCustomer : String(2);
+}
+
+/**
+ * Supplier Purchasing Organization Data (A_SupplierPurchasingOrg). Natural
+ * key is Supplier + PurchasingOrganization.
+ */
+entity StagedSupplierPurchasingOrg : cuid {
+  request                        : Association to ChangeRequests;
+  action                         : NodeAction not null default 'C';
+  PurchasingOrganization         : String(4);
+  PurchasingGroup                : String(3);
+  PaymentTerms                   : String(4);
+  PurchaseOrderCurrency          : String(5);
+  IncotermsClassification        : String(3);
+  MinimumOrderAmount             : Decimal(14, 3);
+  PurchasingIsBlockedForSupplier : Boolean;
+  InvoiceIsGoodsReceiptBased     : Boolean;
 }
 
 // ---------------------------------------------------------------------------

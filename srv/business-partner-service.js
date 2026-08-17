@@ -207,6 +207,46 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     creatable: false,
     deletable: false,
     updatable: true
+  }),
+  // Nested one level deeper than the rest: A_BusinessPartner has no direct
+  // navigation to company code data, only to_Customer/to_Supplier do. Create
+  // therefore posts under A_Customer/A_Supplier, not A_BusinessPartner - see
+  // parentEntity/parentKeyField in businessPartnerNavigationPath.
+  CustomerCompany: Object.freeze({
+    remote: 'A_CustomerCompany',
+    navigation: 'to_CustomerCompany',
+    parentEntity: 'A_Customer',
+    parentKeyField: 'Customer',
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['Customer', 'CompanyCode']
+  }),
+  SupplierCompany: Object.freeze({
+    remote: 'A_SupplierCompany',
+    navigation: 'to_SupplierCompany',
+    parentEntity: 'A_Supplier',
+    parentKeyField: 'Supplier',
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['Supplier', 'CompanyCode']
+  }),
+  CustomerSalesArea: Object.freeze({
+    remote: 'A_CustomerSalesArea',
+    navigation: 'to_CustomerSalesArea',
+    parentEntity: 'A_Customer',
+    parentKeyField: 'Customer',
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['Customer', 'SalesOrganization', 'DistributionChannel', 'Division']
+  }),
+  SupplierPurchasingOrg: Object.freeze({
+    remote: 'A_SupplierPurchasingOrg',
+    navigation: 'to_SupplierPurchasingOrg',
+    parentEntity: 'A_Supplier',
+    parentKeyField: 'Supplier',
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['Supplier', 'PurchasingOrganization']
   })
 });
 
@@ -333,12 +373,14 @@ function validateMaintenanceCreate(entityName, payload, configuration) {
 }
 
 function businessPartnerNavigationPath(configuration, payload) {
-  const businessPartner = String(payload.BusinessPartner || '').trim();
-  if (!businessPartner) {
-    throw Object.assign(new Error('Enter a business partner number.'), { statusCode: 400 });
+  const parentEntity = configuration.parentEntity || 'A_BusinessPartner';
+  const parentKeyField = configuration.parentKeyField || 'BusinessPartner';
+  const parentKey = String(payload[parentKeyField] || '').trim();
+  if (!parentKey) {
+    throw Object.assign(new Error(`Enter a ${parentKeyField} number.`), { statusCode: 400 });
   }
-  const escapedBusinessPartner = businessPartner.replaceAll("'", "''");
-  return `/A_BusinessPartner('${escapedBusinessPartner}')/${configuration.navigation}`;
+  const escapedParentKey = parentKey.replaceAll("'", "''");
+  return `/${parentEntity}('${escapedParentKey}')/${configuration.navigation}`;
 }
 
 async function createBusinessPartnerChild(s4, configuration, payload) {

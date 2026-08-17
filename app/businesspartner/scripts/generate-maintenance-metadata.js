@@ -141,6 +141,42 @@ const sections = [
     excludedFields: ['BR_ICMSTaxPayerType']
   },
   {
+    id: 'CustomerCompany',
+    title: 'Customer Company Code Data',
+    entitySet: 'CustomerCompany',
+    remoteEntity: 'A_CustomerCompany',
+    relationField: 'Customer',
+    typeName: 'A_CustomerCompanyType',
+    kind: 'collection',
+    fieldNames: [
+      'Customer', 'CompanyCode', 'ReconciliationAccount', 'PaymentTerms',
+      'PaymentMethodsList', 'PaymentBlockingReason', 'HouseBank',
+      'AccountingClerk', 'CustomerAccountNote'
+    ],
+    summaryFields: [
+      'CompanyCode', 'ReconciliationAccount', 'PaymentTerms', 'PaymentBlockingReason', 'HouseBank'
+    ],
+    requiredCreateFields: ['CompanyCode']
+  },
+  {
+    id: 'CustomerSalesArea',
+    title: 'Customer Sales Area Data',
+    entitySet: 'CustomerSalesArea',
+    remoteEntity: 'A_CustomerSalesArea',
+    relationField: 'Customer',
+    typeName: 'A_CustomerSalesAreaType',
+    kind: 'collection',
+    fieldNames: [
+      'Customer', 'SalesOrganization', 'DistributionChannel', 'Division',
+      'CreditControlArea', 'Currency', 'CustomerPriceGroup', 'CustomerPricingProcedure',
+      'CustomerPaymentTerms', 'DeliveryPriority', 'ShippingCondition', 'BillingIsBlockedForCustomer'
+    ],
+    summaryFields: [
+      'SalesOrganization', 'DistributionChannel', 'Division', 'CreditControlArea', 'Currency', 'CustomerPaymentTerms'
+    ],
+    requiredCreateFields: ['SalesOrganization', 'DistributionChannel', 'Division']
+  },
+  {
     id: 'Suppliers',
     title: 'Supplier Data',
     entitySet: 'Suppliers',
@@ -164,6 +200,42 @@ const sections = [
       'JP_SuplrAmtInCapitalAmount',
       'JP_SupplierCapitalAmountCrcy'
     ]
+  },
+  {
+    id: 'SupplierCompany',
+    title: 'Supplier Company Code Data',
+    entitySet: 'SupplierCompany',
+    remoteEntity: 'A_SupplierCompany',
+    relationField: 'Supplier',
+    typeName: 'A_SupplierCompanyType',
+    kind: 'collection',
+    fieldNames: [
+      'Supplier', 'CompanyCode', 'CompanyCodeName', 'ReconciliationAccount',
+      'PaymentTerms', 'PaymentMethodsList', 'PaymentBlockingReason', 'HouseBank',
+      'AccountingClerk'
+    ],
+    summaryFields: [
+      'CompanyCode', 'CompanyCodeName', 'ReconciliationAccount', 'PaymentTerms', 'PaymentBlockingReason'
+    ],
+    requiredCreateFields: ['CompanyCode']
+  },
+  {
+    id: 'SupplierPurchasingOrg',
+    title: 'Supplier Purchasing Organization Data',
+    entitySet: 'SupplierPurchasingOrg',
+    remoteEntity: 'A_SupplierPurchasingOrg',
+    relationField: 'Supplier',
+    typeName: 'A_SupplierPurchasingOrgType',
+    kind: 'collection',
+    fieldNames: [
+      'Supplier', 'PurchasingOrganization', 'PurchasingGroup', 'PaymentTerms',
+      'PurchaseOrderCurrency', 'IncotermsClassification', 'MinimumOrderAmount',
+      'PurchasingIsBlockedForSupplier', 'InvoiceIsGoodsReceiptBased'
+    ],
+    summaryFields: [
+      'PurchasingOrganization', 'PurchasingGroup', 'PaymentTerms', 'PurchaseOrderCurrency', 'PurchasingIsBlockedForSupplier'
+    ],
+    requiredCreateFields: ['PurchasingOrganization']
   }
 ];
 
