@@ -31,19 +31,6 @@ sap.ui.define(
                 this._initTaskForm().catch(function (error) {
                     console.error("[taskform] Task form initialisation failed:", error);
                 });
-                this._routeStartupScreen();
-            },
-
-            // One app, two tiles: `screen=rules` is the only thing telling the MDM Rules inbound
-            // apart from the Business Partner one, since both resolve to this component.
-            _routeStartupScreen: function () {
-                if ((this._startupParameters().screen || [])[0] !== "rules") return;
-                var router = this.getRouter();
-                var openHub = function () { router.navTo("MDMRuleHub", {}, true); };
-                // Both cases, because which one applies depends on how the shell started us:
-                // attaching after initialisation never fires, navigating before it is dropped.
-                if (router.isInitialized && router.isInitialized()) openHub();
-                else router.attachInitialized(openHub);
             },
 
             /**

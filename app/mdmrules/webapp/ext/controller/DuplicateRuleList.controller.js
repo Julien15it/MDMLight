@@ -16,7 +16,7 @@ sap.ui.define([
     { field: "conditionField2", value: "conditionValue2" }
   ];
 
-  return Controller.extend("mdm.md.businesspartner.manage.ext.controller.DuplicateRuleList", {
+  return Controller.extend("mdm.md.mdmrules.manage.ext.controller.DuplicateRuleList", {
 
     onInit: function () {
       this.getView().setModel(new JSONModel({

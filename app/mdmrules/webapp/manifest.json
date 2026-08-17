@@ -1,0 +1,181 @@
+{
+  "_version": "1.65.0",
+  "sap.app": {
+    "id": "mdm.md.mdmrules.manage",
+    "type": "application",
+    "i18n": "i18n/i18n.properties",
+    "applicationVersion": {
+      "version": "1.0.0"
+    },
+    "title": "{{appTitle}}",
+    "description": "{{appDescription}}",
+    "resources": "resources.json",
+    "dataSources": {
+      "mainService": {
+        "uri": "service/businesspartner/",
+        "type": "OData",
+        "settings": {
+          "annotations": [],
+          "odataVersion": "4.0"
+        }
+      },
+      "duplicateConfigService": {
+        "uri": "service/duplicateconfig/",
+        "type": "OData",
+        "settings": {
+          "annotations": [],
+          "odataVersion": "4.0"
+        }
+      }
+    },
+    "crossNavigation": {
+      "inbounds": {
+        "MDMRules-manage": {
+          "semanticObject": "MDMRules",
+          "action": "manage",
+          "title": "{{appTitle}}",
+          "subTitle": "{{appSubTitle}}",
+          "icon": "sap-icon://settings",
+          "signature": {
+            "parameters": {},
+            "additionalParameters": "allowed"
+          }
+        }
+      }
+    }
+  },
+  "sap.ui": {
+    "technology": "UI5",
+    "icons": {
+      "icon": "sap-icon://settings",
+      "favIcon": "",
+      "phone": "",
+      "phone@2": "",
+      "tablet": "",
+      "tablet@2": ""
+    },
+    "deviceTypes": {
+      "desktop": true,
+      "tablet": true,
+      "phone": true
+    }
+  },
+  "sap.ui5": {
+    "flexEnabled": true,
+    "dependencies": {
+      "minUI5Version": "1.120.0",
+      "libs": {
+        "sap.m": {},
+        "sap.ui.core": {},
+        "sap.ushell": {}
+      }
+    },
+    "contentDensities": {
+      "compact": true,
+      "cozy": true
+    },
+    "models": {
+      "i18n": {
+        "type": "sap.ui.model.resource.ResourceModel",
+        "settings": {
+          "bundleName": "mdm.md.mdmrules.manage.i18n.i18n"
+        }
+      },
+      "": {
+        "dataSource": "mainService",
+        "preload": true,
+        "settings": {
+          "synchronizationMode": "None",
+          "operationMode": "Server",
+          "autoExpandSelect": true,
+          "earlyRequests": false
+        }
+      },
+      "dc": {
+        "dataSource": "duplicateConfigService",
+        "preload": true,
+        "settings": {
+          "synchronizationMode": "None",
+          "operationMode": "Server",
+          "autoExpandSelect": true,
+          "earlyRequests": false
+        }
+      }
+    },
+    "routing": {
+      "config": {
+        "routerClass": "sap.m.routing.Router",
+        "controlAggregation": "pages",
+        "controlId": "appContent",
+        "transition": "slide",
+        "async": true,
+        "viewType": "XML"
+      },
+      "routes": [
+        {
+          "pattern": "",
+          "name": "MDMRuleHub",
+          "target": "MDMRuleHub"
+        },
+        {
+          "pattern": "DuplicateRules",
+          "name": "DuplicateRuleList",
+          "target": "DuplicateRuleList"
+        },
+        {
+          "pattern": "ValidationRules",
+          "name": "ValidationRuleList",
+          "target": "ValidationRuleList"
+        },
+        {
+          "pattern": "DerivationRules",
+          "name": "DerivationRuleList",
+          "target": "DerivationRuleList"
+        }
+      ],
+      "targets": {
+        "MDMRuleHub": {
+          "type": "View",
+          "id": "MDMRuleHub",
+          "name": "mdm.md.mdmrules.manage.ext.view.MDMRuleHub",
+          "viewType": "XML"
+        },
+        "DuplicateRuleList": {
+          "type": "View",
+          "id": "DuplicateRuleList",
+          "name": "mdm.md.mdmrules.manage.ext.view.DuplicateRuleList",
+          "viewType": "XML"
+        },
+        "ValidationRuleList": {
+          "type": "View",
+          "id": "ValidationRuleList",
+          "name": "mdm.md.mdmrules.manage.ext.view.ValidationRuleList",
+          "viewType": "XML"
+        },
+        "DerivationRuleList": {
+          "type": "View",
+          "id": "DerivationRuleList",
+          "name": "mdm.md.mdmrules.manage.ext.view.DerivationRuleList",
+          "viewType": "XML"
+        }
+      }
+    },
+    "rootView": {
+      "viewName": "mdm.md.mdmrules.manage.view.App",
+      "type": "XML",
+      "id": "appRootView"
+    }
+  },
+  "sap.platform.abap": {
+    "uri": "",
+    "_version": "1.1.0"
+  },
+  "sap.platform.hcp": {
+    "uri": "",
+    "_version": "1.1.0"
+  },
+  "sap.cloud": {
+    "public": true,
+    "service": "mdm.md.businesspartner"
+  }
+}

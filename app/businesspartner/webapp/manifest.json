@@ -5,7 +5,7 @@
     "type": "application",
     "i18n": "i18n/i18n.properties",
     "applicationVersion": {
-      "version": "1.9.0"
+      "version": "1.10.0"
     },
     "title": "{{appTitle}}",
     "description": "{{appDescription}}",
@@ -31,14 +31,6 @@
           "annotations": [],
           "odataVersion": "4.0"
         }
-      },
-      "duplicateConfigService": {
-        "uri": "service/duplicateconfig/",
-        "type": "OData",
-        "settings": {
-          "annotations": [],
-          "odataVersion": "4.0"
-        }
       }
     },
     "crossNavigation": {
@@ -50,24 +42,6 @@
           "subTitle": "{{appSubTitle}}",
           "signature": {
             "parameters": {},
-            "additionalParameters": "allowed"
-          }
-        },
-        "MDMRules-manage": {
-          "semanticObject": "MDMRules",
-          "action": "manage",
-          "title": "MDM Rules",
-          "subTitle": "Duplicate, validation and derivation rules",
-          "icon": "sap-icon://settings",
-          "signature": {
-            "parameters": {
-              "screen": {
-                "required": false,
-                "defaultValue": {
-                  "value": "rules"
-                }
-              }
-            },
             "additionalParameters": "allowed"
           }
         }
@@ -146,16 +120,6 @@
           "autoExpandSelect": true,
           "earlyRequests": false
         }
-      },
-      "dc": {
-        "dataSource": "duplicateConfigService",
-        "preload": false,
-        "settings": {
-          "synchronizationMode": "None",
-          "operationMode": "Server",
-          "autoExpandSelect": true,
-          "earlyRequests": false
-        }
       }
     },
     "resources": {
@@ -214,26 +178,6 @@
           "pattern": "BusinessPartners({key}):?query:",
           "name": "BusinessPartnersObjectPage",
           "target": "BusinessPartnersObjectPage"
-        },
-        {
-          "pattern": "DuplicateRules",
-          "name": "DuplicateRuleList",
-          "target": "DuplicateRuleList"
-        },
-        {
-          "pattern": "MDMRules",
-          "name": "MDMRuleHub",
-          "target": "MDMRuleHub"
-        },
-        {
-          "pattern": "ValidationRules",
-          "name": "ValidationRuleList",
-          "target": "ValidationRuleList"
-        },
-        {
-          "pattern": "DerivationRules",
-          "name": "DerivationRuleList",
-          "target": "DerivationRuleList"
         }
       ],
       "targets": {
@@ -339,30 +283,6 @@
               }
             }
           }
-        },
-        "DuplicateRuleList": {
-          "type": "View",
-          "id": "DuplicateRuleList",
-          "name": "mdm.md.businesspartner.manage.ext.view.DuplicateRuleList",
-          "viewType": "XML"
-        },
-        "MDMRuleHub": {
-          "type": "View",
-          "id": "MDMRuleHub",
-          "name": "mdm.md.businesspartner.manage.ext.view.MDMRuleHub",
-          "viewType": "XML"
-        },
-        "ValidationRuleList": {
-          "type": "View",
-          "id": "ValidationRuleList",
-          "name": "mdm.md.businesspartner.manage.ext.view.ValidationRuleList",
-          "viewType": "XML"
-        },
-        "DerivationRuleList": {
-          "type": "View",
-          "id": "DerivationRuleList",
-          "name": "mdm.md.businesspartner.manage.ext.view.DerivationRuleList",
-          "viewType": "XML"
         }
       }
     },
@@ -379,36 +299,67 @@
     "archeType": "transactional"
   },
   "sap.bpa.task": {
-  "_version": "1.1.0",
-  "category": "approval",
-  "outcomes": [
-    { "id": "approve", "label": "{{Approve}}", "type": "positive" },
-    { "id": "reject", "label": "{{Reject}}", "type": "negative" }
-  ],
-  "inputs": {
-    "$schema": "http://json-schema.org/draft-07/schema#",
-    "title": "input",
-    "type": "object",
-    "required": ["changerequestid"],
-    "properties": {
-      "changerequestid": { "type": "string", "title": "Change Request" },
-      "requesttype": { "type": "string", "title": "Request Type" },
-      "businesspartner": { "type": "string", "title": "Business Partner" },
-      "emailadressinitiator": { "type": "string", "title": "Initiator" },
-      "bpurl": { "type": "string", "title": "Approve URL" },
-      "businesspartnerinput": { "type": "object", "title": "Business Partner Data" }
+    "_version": "1.1.0",
+    "category": "approval",
+    "outcomes": [
+      {
+        "id": "approve",
+        "label": "{{Approve}}",
+        "type": "positive"
+      },
+      {
+        "id": "reject",
+        "label": "{{Reject}}",
+        "type": "negative"
+      }
+    ],
+    "inputs": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "input",
+      "type": "object",
+      "required": [
+        "changerequestid"
+      ],
+      "properties": {
+        "changerequestid": {
+          "type": "string",
+          "title": "Change Request"
+        },
+        "requesttype": {
+          "type": "string",
+          "title": "Request Type"
+        },
+        "businesspartner": {
+          "type": "string",
+          "title": "Business Partner"
+        },
+        "emailadressinitiator": {
+          "type": "string",
+          "title": "Initiator"
+        },
+        "bpurl": {
+          "type": "string",
+          "title": "Approve URL"
+        },
+        "businesspartnerinput": {
+          "type": "object",
+          "title": "Business Partner Data"
+        }
+      }
+    },
+    "outputs": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "output",
+      "type": "object",
+      "required": [],
+      "properties": {
+        "comment": {
+          "type": "string",
+          "title": "Comment"
+        }
+      }
     }
   },
-  "outputs": {
-    "$schema": "http://json-schema.org/draft-07/schema#",
-    "title": "output",
-    "type": "object",
-    "required": [],
-    "properties": {
-      "comment": { "type": "string", "title": "Comment" }
-    }
-  }
-},
   "sap.platform.abap": {
     "uri": "",
     "_version": "1.1.0"

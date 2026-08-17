@@ -42,7 +42,13 @@ npm run generate:metadata # regenerate maintenance metadata used by the full-scr
 npm run unit-tests        # QUnit unit tests via fiori run
 npm run int-tests         # OPA5 integration tests via fiori run
 npm run build:cf          # generate metadata + ui5 build preload for Cloud Foundry
-npm run package:cf        # zip the built app for HTML5 repo deployment
+```
+
+UI (`app/mdmrules`, the MDM Rules tile — again a separate npm project):
+```bash
+cd app/mdmrules
+npm install
+npm run build:cf         # ui5 build preload for Cloud Foundry
 ```
 
 Deployment (multi-target app):
@@ -291,25 +297,55 @@ reached from the Change Requests button on the list report. **The button is
 steward-only** (`{perm>/isDataSteward}`), and since the rules moved to their own
 tile it is the last steward-gated action on the list report.
 
-### The MDM Rules tile — one app, two tiles (2026-08-17)
+### The MDM Rules tile — its own app (`app/mdmrules`, 2026-08-17)
 
 Rule configuration left the Maintain BP app's toolbar and became its own tile.
-`ext/view/MDMRuleHub.view.xml` is the landing page: three `GenericTile`s for
-**Duplicate Check Rules**, **Validation Rules** and **Derivation Rules**.
+`app/mdmrules/webapp/ext/view/MDMRuleHub.view.xml` is the landing page: three
+`GenericTile`s for **Duplicate Check Rules**, **Validation Rules** and
+**Derivation Rules**.
 
-The mechanism is a **second inbound**, `MDMRules-manage`, in
-`sap.app.crossNavigation.inbounds`. Both inbounds resolve to this same component,
-so something has to tell them apart: the rules inbound declares
-`signature.parameters.screen` with `defaultValue: "rules"`, and
-`Component._routeStartupScreen()` navigates to `MDMRuleHub` when it sees it.
-Without that, the tile would open the partner list. It handles the router being
-initialised or not — attaching after initialisation never fires, and navigating
-before it is dropped silently, which reads as "the tile is broken".
+**It is a second HTML5 app, not a second inbound.** The first attempt declared
+`MDMRules-manage` alongside `BusinessPartner-manage` in one manifest and told
+them apart with a `screen=rules` startup parameter. That cannot work: **SAP Build
+Work Zone, standard edition exposes only the FIRST `crossNavigation.inbounds`
+entry per `sap.app.id`.** Extra inbounds are dropped silently — they never reach
+the Content Explorer, so no amount of refreshing the HTML5 Apps channel surfaces
+them, and the deployed manifest verifiably contains an inbound that Work Zone
+ignores. SAP confirmed this as not supported on a customer ticket. Do not
+reintroduce a second inbound, and do not read a missing tile as a deploy problem.
 
-**Adding the inbound does not create the tile.** The tile has to be added to the
-SAP Build Work Zone site in the Site Manager (app already exposed by
-`sap.cloud.service`); a redeploy alone will not surface it. Until then the hub is
-reachable at `#/MDMRules` on the existing tile.
+A **local copy** in Content Manager can add a tile with its own parameters, and
+that path was tried; it produced a tile that would not load. It is also
+documented to stop reflecting later descriptor changes. Rejected for that.
+
+So there are two apps sharing one backend:
+
+- Unique **`sap.app.id`** (`mdm.md.mdmrules.manage`) — required, or the deploy
+  collides.
+- **Shared `sap.cloud.service`** (`mdm.md.businesspartner`) — deliberate. Apps in
+  one MTA may share it, which is why no new destination, app-host or XSUAA entry
+  was needed; `app/mdmrules/xs-app.json` reuses the existing
+  `mdm-businesspartner-srv-api` destination for `/service/duplicateconfig/*` and
+  `/service/businesspartner/*` (the latter only for `currentUserPermissions`).
+- One `com.sap.application.content` module at `path: .` funnels **both** app zips
+  into the same app-host, via `build-parameters.requires` naming the
+  `businesspartner-ui` and `mdmrules-ui` html5 modules. Two content modules
+  pointed at one app-host would each replace the other's content. `mbt` archives
+  each module's `build-result` itself, which is why the old
+  `scripts/package-html5.js` / `package:cf` archiver step is gone.
+- The hub is the app root (route pattern `""`), and `Component.js` calls
+  `getRouter().initialize()` itself — there is no Fiori Elements AppComponent
+  here to do it. Back from the hub is a **cross-app intent** to
+  `BusinessPartner-manage`, not a route, and it no-ops where there is no shell.
+
+**Adding the app does not create the tile.** After deploying, refresh the HTML5
+Apps content provider in Channel Manager, then add the app from the **Content
+Explorer** (it does not appear in Content Manager until you do), then assign it
+to a group, a catalog, a role, and the role to the site.
+
+Bump `sap.app.applicationVersion.version` on every UI deploy. It sat at `1.9.0`
+across several deploys, which made `cf html5-list` useless for telling whether a
+UI change had actually landed.
 
 Validation and Derivation Rules are **UI previews only**. They copy the duplicate
 rule table's layout, because the shape of a rule is what is being agreed, but

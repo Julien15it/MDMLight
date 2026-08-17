@@ -1,0 +1,27 @@
+{
+  "name": "mdm.md.mdmrules.manage",
+  "version": "1.0.0",
+  "description": "MDM Rules - duplicate, validation and derivation rule configuration",
+  "keywords": [
+    "ui5",
+    "openui5",
+    "sapui5",
+    "master-data-rules"
+  ],
+  "main": "webapp/index.html",
+  "scripts": {
+    "start": "fiori run --open \"index.html\"",
+    "build": "ui5 build --config=ui5.yaml --clean-dest --dest dist",
+    "build:cf": "ui5 build preload --clean-dest --config ui5.yaml --dest dist --include-task=generateCachebusterInfo && node -e \"require('node:fs').copyFileSync('xs-app.json','dist/xs-app.json')\""
+  },
+  "devDependencies": {
+    "@sap/ux-ui5-tooling": "^1",
+    "@ui5/cli": "^4.0.60"
+  },
+  "sapuxLayer": "CUSTOMER_BASE",
+  "ui5": {
+    "dependencies": [
+      "@sap/ux-ui5-tooling"
+    ]
+  }
+}

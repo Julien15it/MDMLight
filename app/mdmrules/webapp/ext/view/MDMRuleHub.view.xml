@@ -1,5 +1,5 @@
 <mvc:View
-  controllerName="mdm.md.businesspartner.manage.ext.controller.MDMRuleHub"
+  controllerName="mdm.md.mdmrules.manage.ext.controller.MDMRuleHub"
   xmlns:mvc="sap.ui.core.mvc"
   xmlns="sap.m"
   height="100%">

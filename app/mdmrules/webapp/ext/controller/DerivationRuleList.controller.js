@@ -6,23 +6,18 @@ sap.ui.define([
 ], function (Controller, UIComponent, JSONModel, MessageToast) {
   "use strict";
 
-  // A preview of the screen, not of the feature: rows are local and go away with the page. Binding
-  // this to DuplicateRules would show those rules here and let someone edit them by accident.
-  return Controller.extend("mdm.md.businesspartner.manage.ext.controller.ValidationRuleList", {
+  /** A preview of the screen, not of the feature — see ValidationRuleList.controller.js. */
+  return Controller.extend("mdm.md.mdmrules.manage.ext.controller.DerivationRuleList", {
 
     onInit: function () {
       this._router = UIComponent.getRouterFor(this);
       this.getView().setModel(new JSONModel({ rules: [] }), "rules");
       this.getView().setModel(new JSONModel({
         fields: [],
-        checks: [
-          { code: "required", text: "Must have a value" },
-          { code: "format", text: "Must match a format" },
-          { code: "registry", text: "Must exist in an official register" }
-        ],
-        severities: [
-          { code: "error", text: "Block the request" },
-          { code: "warning", text: "Warn, but allow" }
+        // The registries that already derive in code, so the preview names real sources.
+        sources: [
+          { code: "vies", text: "VIES (EU VAT register)" },
+          { code: "gleif", text: "GLEIF (LEI register)" }
         ]
       }), "opt");
       this._loadFields();
@@ -32,7 +27,6 @@ sap.ui.define([
       this._router.navTo("MDMRuleHub", {}, true);
     },
 
-    /** The same catalog the duplicate rules use — one source, so it cannot go stale separately. */
     _loadFields: async function () {
       var model = this.getView().getModel("dc") || this.getOwnerComponent().getModel("dc");
       if (!model || !model.bindContext) return;
@@ -45,8 +39,7 @@ sap.ui.define([
           this.getView().getModel("opt").setProperty("/fields", options.fields);
         }
       } catch (error) {
-        // A preview with empty dropdowns is still a readable preview, so this never interrupts.
-        console.warn("[validationrules] Field catalog unavailable:", error && error.message);
+        console.warn("[derivationrules] Field catalog unavailable:", error && error.message);
       } finally {
         binding.destroy();
       }
@@ -60,8 +53,8 @@ sap.ui.define([
         conditionField2: "",
         conditionValue2: "",
         field: "",
-        check: "required",
-        severity: "error",
+        source: "vies",
+        sourceField: "",
         isActive: true
       }));
     },

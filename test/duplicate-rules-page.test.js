@@ -6,8 +6,10 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
-const APP = path.join(__dirname, '..', 'app', 'businesspartner', 'webapp');
+const APP = path.join(__dirname, '..', 'app', 'mdmrules', 'webapp');
+const BP_APP = path.join(__dirname, '..', 'app', 'businesspartner', 'webapp');
 const manifest = JSON.parse(fs.readFileSync(path.join(APP, 'manifest.json'), 'utf8'));
+const bpManifest = JSON.parse(fs.readFileSync(path.join(BP_APP, 'manifest.json'), 'utf8'));
 const view = fs.readFileSync(path.join(APP, 'ext', 'view', 'DuplicateRuleList.view.xml'), 'utf8');
 const controllerSource = fs.readFileSync(
   path.join(APP, 'ext', 'controller', 'DuplicateRuleList.controller.js'),
@@ -30,7 +32,7 @@ test('the rules page is reachable through its own route and model', () => {
   assert.ok(route, 'the route is registered');
   assert.equal(route.pattern, 'DuplicateRules');
   assert.equal(routing.targets.DuplicateRuleList.name,
-    'mdm.md.businesspartner.manage.ext.view.DuplicateRuleList');
+    'mdm.md.mdmrules.manage.ext.view.DuplicateRuleList');
   assert.equal(manifest['sap.app'].dataSources.duplicateConfigService.uri, 'service/duplicateconfig/');
   assert.equal(manifest['sap.ui5'].models.dc.dataSource, 'duplicateConfigService');
 });
@@ -38,7 +40,7 @@ test('the rules page is reachable through its own route and model', () => {
 // Without a route entry the approuter catch-all sends the calls to the HTML5 repo, where they 404.
 test('the service the page calls is routed through the approuter', () => {
   const routes = JSON.parse(
-    fs.readFileSync(path.join(__dirname, '..', 'app', 'businesspartner', 'xs-app.json'), 'utf8')
+    fs.readFileSync(path.join(__dirname, '..', 'app', 'mdmrules', 'xs-app.json'), 'utf8')
   ).routes;
   const configRoute = routes.find((entry) => entry.source.includes('duplicateconfig'));
   assert.ok(configRoute, 'the duplicate config service has its own route');
@@ -59,10 +61,10 @@ test('the steward scope exists and is not folded into partner maintenance', () =
 
 // Moved to the MDM Rules tile (2026-08-17): rule configuration is not a partner-list action.
 test('the partner list no longer carries a rules button', () => {
-  const actions = routing.targets.BusinessPartnersList.options.settings
+  const actions = bpManifest['sap.ui5'].routing.targets.BusinessPartnersList.options.settings
     .controlConfiguration['@com.sap.vocabularies.UI.v1.LineItem'].actions;
   assert.equal(Object.hasOwn(actions, 'DuplicateRules'), false);
-  const source = fs.readFileSync(path.join(APP, 'ext', 'CustomActions.js'), 'utf8');
+  const source = fs.readFileSync(path.join(BP_APP, 'ext', 'CustomActions.js'), 'utf8');
   assert.equal(/openDuplicateRules/u.test(source), false, 'and the handler goes with it');
 });
 

@@ -1,6 +1,6 @@
 _schema-version: "3.2"
 ID: mdm-md-businesspartner-manage
-version: 1.15.0
+version: 1.16.0
 description: "Manage Business Partner (F3163) - CAP + Fiori Elements"
 parameters:
   enable-parallel-deployments: true
@@ -72,20 +72,50 @@ modules:
   # is what routes /service/* to mdm-businesspartner-srv-api.
 
   # --- UI: HTML5 application deployer ------------------------------------------
+  # One content module funnels both app zips into the same app-host. Two content
+  # modules targeting one app-host would each replace the other's content.
   - name: mdm-businesspartner-app-content
     type: com.sap.application.content
-    path: app/businesspartner
+    path: .
     requires:
       - name: mdm-businesspartner-repo-host
         parameters:
           content-target: true
     build-parameters:
+      build-result: resources
+      requires:
+        - artifacts:
+            - businesspartner-ui.zip
+          name: businesspartner-ui
+          target-path: resources/
+        - artifacts:
+            - mdmrules-ui.zip
+          name: mdmrules-ui
+          target-path: resources/
+
+  # Work Zone standard edition exposes only the FIRST crossNavigation inbound per
+  # app, so a second tile needs a second app - not a second inbound.
+  - name: businesspartner-ui
+    type: html5
+    path: app/businesspartner
+    build-parameters:
+      build-result: dist
       builder: custom
       commands:
         - npm install
         - npm run build:cf
-        - npm run package:cf
-      build-result: resources
+      supported-platforms: []
+
+  - name: mdmrules-ui
+    type: html5
+    path: app/mdmrules
+    build-parameters:
+      build-result: dist
+      builder: custom
+      commands:
+        - npm install
+        - npm run build:cf
+      supported-platforms: []
 
   # --- Destination content -----------------------------------------------------
   - name: mdm-businesspartner-destination-content

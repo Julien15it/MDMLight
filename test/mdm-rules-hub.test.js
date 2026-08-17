@@ -5,40 +5,60 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 
-const APP = path.join(__dirname, '..', 'app', 'businesspartner', 'webapp');
+const APP = path.join(__dirname, '..', 'app', 'mdmrules', 'webapp');
+const BP_APP = path.join(__dirname, '..', 'app', 'businesspartner', 'webapp');
 const manifest = JSON.parse(fs.readFileSync(path.join(APP, 'manifest.json'), 'utf8'));
+const bpManifest = JSON.parse(fs.readFileSync(path.join(BP_APP, 'manifest.json'), 'utf8'));
 const routing = manifest['sap.ui5'].routing;
 const hub = fs.readFileSync(path.join(APP, 'ext', 'view', 'MDMRuleHub.view.xml'), 'utf8');
 const component = fs.readFileSync(path.join(APP, 'Component.js'), 'utf8');
 
 const read = (file) => fs.readFileSync(path.join(APP, 'ext', file), 'utf8');
 
-// One app, two tiles. Both inbounds resolve to this component, so something has to tell them
-// apart — that is the whole job of `screen=rules`.
-test('the MDM Rules tile has its own inbound, distinguished by a startup parameter', () => {
-  const inbound = manifest['sap.app'].crossNavigation.inbounds['MDMRules-manage'];
-  assert.ok(inbound, 'the inbound is declared');
-  assert.equal(inbound.semanticObject, 'MDMRules');
-  assert.equal(inbound.action, 'manage');
-  assert.equal(inbound.signature.parameters.screen.defaultValue.value, 'rules');
-  // The partner tile keeps its own inbound untouched.
-  assert.equal(manifest['sap.app'].crossNavigation.inbounds['BusinessPartner-manage'].semanticObject, 'BusinessPartner');
+// Work Zone standard edition exposes only the FIRST inbound of an app, so the rules tile has to be
+// its own app. A second inbound on the partner app was silently dropped and never reached the
+// Content Explorer at all.
+test('the rules app is its own app with exactly one inbound', () => {
+  const inbounds = manifest['sap.app'].crossNavigation.inbounds;
+  assert.deepEqual(Object.keys(inbounds), ['MDMRules-manage']);
+  assert.equal(inbounds['MDMRules-manage'].semanticObject, 'MDMRules');
+  assert.equal(inbounds['MDMRules-manage'].action, 'manage');
+  assert.equal(manifest['sap.app'].id, 'mdm.md.mdmrules.manage');
 });
 
-// navTo on a router that has not started yet is dropped silently, which reads as a broken tile.
-test('the rules tile lands on the hub, and only that tile does', () => {
-  assert.match(component, /screen \|\| \[\]\)\[0\] !== "rules"/u);
-  assert.match(component, /navTo\("MDMRuleHub", \{\}, true\)/u);
-  // Attaching after initialisation never fires; navigating before it is dropped. Both are handled.
-  assert.match(component, /isInitialized\(\)\) openHub\(\);\s*else router\.attachInitialized\(openHub\)/u);
+// Unique per subaccount, or the deploy collides; shared service, or it needs its own destinations.
+test('the two apps share the business service and differ only by app id', () => {
+  assert.equal(manifest['sap.cloud'].service, bpManifest['sap.cloud'].service);
+  assert.notEqual(manifest['sap.app'].id, bpManifest['sap.app'].id);
+});
+
+test('the partner app keeps one inbound and no rules routing', () => {
+  assert.deepEqual(Object.keys(bpManifest['sap.app'].crossNavigation.inbounds), ['BusinessPartner-manage']);
+  const names = bpManifest['sap.ui5'].routing.routes.map((entry) => entry.name);
+  for (const gone of ['MDMRuleHub', 'DuplicateRuleList', 'ValidationRuleList', 'DerivationRuleList']) {
+    assert.equal(names.includes(gone), false, `${gone} is still routed in the partner app`);
+    assert.equal(Object.hasOwn(bpManifest['sap.ui5'].routing.targets, gone), false);
+  }
+  // The startup-parameter hack the second inbound needed goes with it.
+  const bpComponent = fs.readFileSync(path.join(BP_APP, 'Component.js'), 'utf8');
+  assert.equal(/screen/u.test(bpComponent), false, 'screen=rules routing is gone');
+  assert.equal(/MDMRuleHub/u.test(bpComponent), false);
+});
+
+// The hub is the app root, so it must be what an empty hash resolves to.
+test('the hub is the landing page and starts the router itself', () => {
+  const root = routing.routes.find((entry) => entry.pattern === '');
+  assert.ok(root, 'an empty pattern is routed');
+  assert.equal(root.name, 'MDMRuleHub');
+  assert.match(component, /getRouter\(\)\.initialize\(\)/u);
 });
 
 test('each rule screen has a route, a target and a view that exists', () => {
-  for (const name of ['MDMRuleHub', 'ValidationRuleList', 'DerivationRuleList']) {
+  for (const name of ['MDMRuleHub', 'DuplicateRuleList', 'ValidationRuleList', 'DerivationRuleList']) {
     const route = routing.routes.find((entry) => entry.name === name);
     assert.ok(route, `${name} has a route`);
     assert.equal(route.target, name);
-    assert.equal(routing.targets[name].name, `mdm.md.businesspartner.manage.ext.view.${name}`);
+    assert.equal(routing.targets[name].name, `mdm.md.mdmrules.manage.ext.view.${name}`);
     assert.ok(fs.existsSync(path.join(APP, 'ext', 'view', `${name}.view.xml`)), `${name}.view.xml exists`);
     assert.ok(
       fs.existsSync(path.join(APP, 'ext', 'controller', `${name}.controller.js`)),
@@ -95,4 +115,14 @@ test('every rule page can get back where it came from', () => {
     assert.match(read(path.join('controller', `${name}.controller.js`)), /navTo\("MDMRuleHub", \{\}, true\)/u);
   }
   assert.match(hub, /navButtonPress="\.onBackToList"/u);
+});
+
+// Back from the hub leaves the app, so it is an intent and not a route - and it must not throw
+// where there is no shell, which is every local run.
+test('the hub leaves for the partner app by intent, and survives having no shell', () => {
+  const controller = read(path.join('controller', 'MDMRuleHub.controller.js'));
+  assert.equal(/navTo\("BusinessPartnersList"/u.test(controller), false);
+  assert.match(controller, /CrossApplicationNavigation/u);
+  assert.match(controller, /semanticObject: "BusinessPartner", action: "manage"/u);
+  assert.match(controller, /if \(!shell\) return/u);
 });

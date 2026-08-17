@@ -1,5 +1,5 @@
 <mvc:View
-  controllerName="mdm.md.businesspartner.manage.ext.controller.DuplicateRuleList"
+  controllerName="mdm.md.mdmrules.manage.ext.controller.DuplicateRuleList"
   xmlns:mvc="sap.ui.core.mvc"
   xmlns:core="sap.ui.core"
   xmlns="sap.m"

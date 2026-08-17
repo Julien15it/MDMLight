@@ -16,7 +16,6 @@
     "generate:metadata": "node scripts/generate-maintenance-metadata.js",
     "build": "npm run generate:metadata && ui5 build --config=ui5.yaml --clean-dest --dest dist",
     "build:cf": "npm run generate:metadata && ui5 build preload --clean-dest --config ui5.yaml --dest dist --include-task=generateCachebusterInfo && node -e \"require('node:fs').copyFileSync('xs-app.json','dist/xs-app.json')\"",
-    "package:cf": "node scripts/package-html5.js",
     "deploy": "fiori deploy --config ui5-deploy.yaml && rimraf archive.zip",
     "start-mock": "fiori run --config ./ui5-mock.yaml --open \"test/flpSandbox.html#BusinessPartner-manage\"",
     "unit-tests": "fiori run --config ./ui5-mock.yaml --open 'test/unit/unitTests.qunit.html'",
@@ -25,7 +24,6 @@
   "devDependencies": {
     "@sap/ux-ui5-tooling": "^1",
     "@ui5/cli": "^4.0.60",
-    "archiver": "^7.0.1",
     "rimraf": "^5"
   },
   "sapuxLayer": "CUSTOMER_BASE",
@@ -34,12 +32,12 @@
       "@sap/ux-ui5-tooling"
     ]
   },
-   "cds": {
-     "requires": {
-       "API_BUSINESS_PARTNER": {
-         "kind": "odata",
-         "model": "srv/external/API_BUSINESS_PARTNER"
-       }
-     }
-   }
+  "cds": {
+    "requires": {
+      "API_BUSINESS_PARTNER": {
+        "kind": "odata",
+        "model": "srv/external/API_BUSINESS_PARTNER"
+      }
+    }
+  }
 }

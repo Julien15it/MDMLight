@@ -1,18 +1,19 @@
 <mvc:View
-  controllerName="mdm.md.businesspartner.manage.ext.controller.DerivationRuleList"
+  controllerName="mdm.md.mdmrules.manage.ext.controller.ValidationRuleList"
   xmlns:mvc="sap.ui.core.mvc"
   xmlns:core="sap.ui.core"
   xmlns="sap.m"
   height="100%">
   <Page
-    title="Derivation Rules"
+    title="Validation Rules"
     showNavButton="true"
     navButtonPress=".onBackToHub">
     <content>
-      <!-- Same layout as the duplicate rule table on purpose; see ValidationRuleList.view.xml. -->
+      <!-- The duplicate rule table's layout on purpose: the shape of a rule is what we are
+           agreeing on. A table that looks live and stores nothing is worse than no table. -->
       <MessageStrip
         class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
-        text="Preview only. Derivation rules are not stored or executed yet — the VIES and GLEIF derivations still come from code (srv/checks/registry-checks.js), and they only ever fill an empty field."
+        text="Preview only. Validation rules are not stored or executed yet — VIES and GLEIF are still the only validations that run, and they are wired in code (srv/checks/registry-checks.js)."
         type="Warning"
         showIcon="true" />
       <Table
@@ -35,9 +36,9 @@
           <Column width="10%"><Text text="Condition 1 Value" /></Column>
           <Column width="12%"><Text text="Condition 2 Field" /></Column>
           <Column width="10%"><Text text="Condition 2 Value" /></Column>
-          <Column width="18%"><Text text="Field to Fill" /></Column>
-          <Column width="17%"><Text text="Source" /></Column>
-          <Column width="17%"><Text text="Source Field" /></Column>
+          <Column width="18%"><Text text="Field" /></Column>
+          <Column width="17%"><Text text="Rule" /></Column>
+          <Column width="17%"><Text text="Severity" /></Column>
           <Column width="4rem" hAlign="Center"><Text text="Active" /></Column>
         </columns>
         <items>
@@ -67,11 +68,16 @@
               </ComboBox>
               <ComboBox
                 width="100%"
-                selectedKey="{rules>source}"
-                items="{ path: 'opt>/sources', templateShareable: false }">
+                selectedKey="{rules>check}"
+                items="{ path: 'opt>/checks', templateShareable: false }">
                 <core:Item key="{opt>code}" text="{opt>text}" />
               </ComboBox>
-              <Input width="100%" value="{rules>sourceField}" placeholder="same field" />
+              <ComboBox
+                width="100%"
+                selectedKey="{rules>severity}"
+                items="{ path: 'opt>/severities', templateShareable: false }">
+                <core:Item key="{opt>code}" text="{opt>text}" />
+              </ComboBox>
               <CheckBox selected="{rules>isActive}" />
             </cells>
           </ColumnListItem>
