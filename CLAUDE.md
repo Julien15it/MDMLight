@@ -245,9 +245,14 @@ Consequences worth keeping:
 
 Duplicate findings survive the dialog in a collapsed, self-scrolling `Panel`
 (`_setDuplicatePanel`) — dismissing the MessageBox used to destroy the only copy
-of the list, so looking a candidate up meant pressing the button again. A check
-that **did not run** leaves the previous findings standing; clearing them would
-read as "checked again, and now clean".
+of the list, so looking a candidate up meant pressing the button again.
+
+**Only a match ever changes that panel**, and only Duplicate Check and Submit
+match. Check does not touch it, and neither does applying a proposal: the
+findings stand until something re-matches and replaces them. A check that **did
+not run** leaves them standing too. Every one of these is the same rule — a
+screen that looks clean must never be clean on the strength of a check nobody
+ran, which is the wrong answer `pipeline.js` refuses to give server-side.
 
 **Submit runs the validations and the duplicate check, but never the
 derivations** (decided 2026-08-13). A derivation changes the data and the

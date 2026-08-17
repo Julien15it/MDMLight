@@ -320,11 +320,37 @@ test('the proposed value is editable, and what was typed is what gets applied', 
   assert.equal(state.root.SearchTerm1, undefined, 'an emptied field is a decline, not a blanking');
 });
 
-// The payload changed, so findings taken against the old one are stale.
-test('applying a proposal clears the duplicate findings and any confirmation', () => {
+// Only Duplicate Check and Submit ever match, so clearing the findings on Check would leave the
+// screen looking clean on the strength of a check nobody ran.
+test('applying a proposal drops the confirmation but keeps the duplicate findings', () => {
+  const controller = loadController();
+  const state = {
+    root: {},
+    sections: {},
+    awaitingConfirmation: true,
+    awaitingConfirmationFor: 'old-payload',
+    duplicates: [{ title: '4711' }],
+    duplicatesHeader: '1 possible duplicate'
+  };
+  controller._updatePreview = function () {};
+  controller._renderAll = function () {};
+  controller.getView = function () {
+    return { getModel: function () { return { getData: function () { return state; } }; } };
+  };
+  controller._applyProposals.call(controller, [
+    { target: 'root', index: 0, field: 'SearchTerm1', current: 'abc', proposed: 'ABC', accepted: true }
+  ]);
+  assert.equal(state.root.SearchTerm1, 'ABC');
+  assert.equal(state.awaitingConfirmation, false, 'the payload changed, so the confirmation lapses');
+  assert.equal(state.duplicates.length, 1, 'the findings stand until something matches again');
+  assert.equal(state.duplicatesHeader, '1 possible duplicate');
+});
+
+// Submit matches as well, so its findings replace the panel rather than sitting next to it.
+test('a submit that found duplicates refreshes the panel', () => {
   assert.match(
     controllerSource,
-    /state\.awaitingConfirmationFor = "";\s*state\.duplicates = \[\];/u
+    /NeedsConfirmation[\s\S]{0,320}_setDuplicatePanel\(state, this\._findingsFrom\(result\), \{ RanDuplicateCheck: true \}\)/u
   );
 });
 

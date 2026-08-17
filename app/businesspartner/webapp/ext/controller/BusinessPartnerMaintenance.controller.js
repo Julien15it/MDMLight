@@ -1257,6 +1257,9 @@ sap.ui.define([
           // now — a banner above a long object page is easy to submit straight past.
           if (result && result.NeedsConfirmation) {
             state.messages = [];
+            // Submit matched too, so its findings replace what the panel was showing rather than
+            // leaving an older list up next to a newer dialog.
+            this._setDuplicatePanel(state, this._findingsFrom(result), { RanDuplicateCheck: true });
             this._confirmDuplicates(this._findingsFrom(result), parameters.DataJson, {
               // `confirmed` stops a second dialog re-submitting, so no loop if the server asks twice.
               confirmText: "Submit Request",
@@ -1614,11 +1617,12 @@ sap.ui.define([
         });
         if (!applied) return;
         // The payload changed, so a duplicate confirmation taken against the old one no longer
-        // applies - the next submit has to check again, and the findings on screen are stale.
+        // applies - the next submit has to check again.
         state.awaitingConfirmation = false;
         state.awaitingConfirmationFor = "";
-        state.duplicates = [];
-        state.duplicatesHeader = "";
+        // The findings deliberately stay. Only Duplicate Check and Submit ever match, so clearing
+        // them here would leave the screen looking clean on the strength of a check nobody ran -
+        // the same wrong answer the pipeline refuses to give. They go when a match replaces them.
         this._updatePreview(state);
         this._renderAll();
         MessageToast.show(applied + " field(s) updated.");
