@@ -164,6 +164,42 @@ const sections = [
       'JP_SuplrAmtInCapitalAmount',
       'JP_SupplierCapitalAmountCrcy'
     ]
+  },
+  {
+    id: 'CustomerCompany',
+    title: 'Customer Company Code Data',
+    entitySet: 'CustomerCompany',
+    remoteEntity: 'A_CustomerCompany',
+    relationField: 'Customer',
+    typeName: 'A_CustomerCompanyType',
+    kind: 'collection',
+    fieldNames: [
+      'Customer', 'CompanyCode', 'ReconciliationAccount', 'PaymentTerms',
+      'PaymentMethodsList', 'PaymentBlockingReason', 'HouseBank',
+      'AccountingClerk', 'CustomerAccountNote'
+    ],
+    summaryFields: [
+      'CompanyCode', 'ReconciliationAccount', 'PaymentTerms', 'PaymentBlockingReason', 'HouseBank'
+    ],
+    requiredCreateFields: ['CompanyCode']
+  },
+  {
+    id: 'SupplierCompany',
+    title: 'Supplier Company Code Data',
+    entitySet: 'SupplierCompany',
+    remoteEntity: 'A_SupplierCompany',
+    relationField: 'Supplier',
+    typeName: 'A_SupplierCompanyType',
+    kind: 'collection',
+    fieldNames: [
+      'Supplier', 'CompanyCode', 'CompanyCodeName', 'ReconciliationAccount',
+      'PaymentTerms', 'PaymentMethodsList', 'PaymentBlockingReason', 'HouseBank',
+      'AccountingClerk'
+    ],
+    summaryFields: [
+      'CompanyCode', 'CompanyCodeName', 'ReconciliationAccount', 'PaymentTerms', 'PaymentBlockingReason'
+    ],
+    requiredCreateFields: ['CompanyCode']
   }
 ];
 

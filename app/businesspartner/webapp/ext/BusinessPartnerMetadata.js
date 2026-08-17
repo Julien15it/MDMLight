@@ -1437,6 +1437,228 @@ sap.ui.define([], function () {
             "updatable": true
           }
         ]
+      },
+      {
+        "id": "CustomerCompany",
+        "title": "Customer Company Code Data",
+        "entitySet": "CustomerCompany",
+        "remoteEntity": "A_CustomerCompany",
+        "relationField": "Customer",
+        "typeName": "A_CustomerCompanyType",
+        "kind": "collection",
+        "summaryFields": [
+          "CompanyCode",
+          "ReconciliationAccount",
+          "PaymentTerms",
+          "PaymentBlockingReason",
+          "HouseBank"
+        ],
+        "requiredCreateFields": [
+          "CompanyCode"
+        ],
+        "fields": [
+          {
+            "name": "Customer",
+            "label": "Customer",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CompanyCode",
+            "label": "Company Code",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "AccountingClerk",
+            "label": "Clerk Abbrev.",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CustomerAccountNote",
+            "label": "Account Memo",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 30,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "HouseBank",
+            "label": "House Bank",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 5,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PaymentBlockingReason",
+            "label": "Payment Block",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 1,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PaymentMethodsList",
+            "label": "Payment Methods",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PaymentTerms",
+            "label": "Terms of Payment",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ReconciliationAccount",
+            "label": "Reconciliation Acct",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          }
+        ]
+      },
+      {
+        "id": "SupplierCompany",
+        "title": "Supplier Company Code Data",
+        "entitySet": "SupplierCompany",
+        "remoteEntity": "A_SupplierCompany",
+        "relationField": "Supplier",
+        "typeName": "A_SupplierCompanyType",
+        "kind": "collection",
+        "summaryFields": [
+          "CompanyCode",
+          "CompanyCodeName",
+          "ReconciliationAccount",
+          "PaymentTerms",
+          "PaymentBlockingReason"
+        ],
+        "requiredCreateFields": [
+          "CompanyCode"
+        ],
+        "fields": [
+          {
+            "name": "Supplier",
+            "label": "Supplier",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CompanyCode",
+            "label": "Company Code",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CompanyCodeName",
+            "label": "Company Name",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 25,
+            "creatable": false,
+            "updatable": false
+          },
+          {
+            "name": "PaymentBlockingReason",
+            "label": "Payment Block",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 1,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "AccountingClerk",
+            "label": "Clerk Abbrev.",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PaymentMethodsList",
+            "label": "Payment Methods",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PaymentTerms",
+            "label": "Terms of Payment",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "HouseBank",
+            "label": "House Bank",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 5,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ReconciliationAccount",
+            "label": "Reconciliation Acct",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          }
+        ]
       }
     ]
   };

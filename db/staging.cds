@@ -78,6 +78,8 @@ entity ChangeRequests : cuid, managed {
   industries        : Composition of many StagedIndustries     on industries.request     = $self;
   customer          : Composition of one  StagedCustomer       on customer.request       = $self;
   supplier          : Composition of one  StagedSupplier       on supplier.request       = $self;
+  customerCompany   : Composition of many StagedCustomerCompany on customerCompany.request = $self;
+  supplierCompany   : Composition of many StagedSupplierCompany on supplierCompany.request = $self;
 
   findings          : Composition of many CheckFindings        on findings.request       = $self;
 }
@@ -253,6 +255,40 @@ entity StagedSupplier : cuid {
   PurchasingIsBlocked         : Boolean;
   SupplierProcurementBlock    : String(2);
   VATRegistration             : String(20);
+}
+
+/**
+ * Customer Company Code Data (A_CustomerCompany). One row per company code a
+ * customer is extended to - unlike StagedCustomer, several can exist per
+ * request. `Customer` is left unstaged like every other child's business
+ * partner backlink: it does not exist yet on a create, and postToS4 fills it
+ * in from the posted partner number before replaying the row to S/4.
+ */
+entity StagedCustomerCompany : cuid {
+  request               : Association to ChangeRequests;
+  action                : NodeAction not null default 'C';
+  CompanyCode           : String(4);
+  ReconciliationAccount : String(10);
+  PaymentTerms          : String(4);
+  PaymentMethodsList    : String(10);
+  PaymentBlockingReason : String(1);
+  HouseBank             : String(5);
+  AccountingClerk       : String(2);
+  CustomerAccountNote   : String(30);
+}
+
+/** Supplier Company Code Data (A_SupplierCompany). See StagedCustomerCompany. */
+entity StagedSupplierCompany : cuid {
+  request               : Association to ChangeRequests;
+  action                : NodeAction not null default 'C';
+  CompanyCode           : String(4);
+  CompanyCodeName       : String(25);
+  ReconciliationAccount : String(10);
+  PaymentTerms          : String(4);
+  PaymentMethodsList    : String(10);
+  PaymentBlockingReason : String(1);
+  HouseBank             : String(5);
+  AccountingClerk       : String(2);
 }
 
 // ---------------------------------------------------------------------------

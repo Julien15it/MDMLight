@@ -173,6 +173,24 @@
               </uxap:ObjectPageSubSection>
             </uxap:subSections>
           </uxap:ObjectPageSection>
+          <uxap:ObjectPageSection title="Customer Company Code Data" titleUppercase="false">
+            <uxap:subSections>
+              <uxap:ObjectPageSubSection>
+                <uxap:blocks>
+                  <VBox id="CustomerCompanyContent" width="100%" />
+                </uxap:blocks>
+              </uxap:ObjectPageSubSection>
+            </uxap:subSections>
+          </uxap:ObjectPageSection>
+          <uxap:ObjectPageSection title="Supplier Company Code Data" titleUppercase="false">
+            <uxap:subSections>
+              <uxap:ObjectPageSubSection>
+                <uxap:blocks>
+                  <VBox id="SupplierCompanyContent" width="100%" />
+                </uxap:blocks>
+              </uxap:ObjectPageSubSection>
+            </uxap:subSections>
+          </uxap:ObjectPageSection>
         </uxap:sections>
       </uxap:ObjectPageLayout>
     </content>
