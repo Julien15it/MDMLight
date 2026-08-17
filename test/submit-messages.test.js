@@ -119,11 +119,25 @@ test('the preview step is gone from the screen and the controller', () => {
   );
 });
 
-test('the check button is wired to the pipeline action', () => {
+// Two questions, two buttons: "is this record right?" and "does it already exist?".
+test('both check buttons are wired to their own action', () => {
   assert.match(view, /text="Check"/u);
   assert.match(view, /press="\.onCheck"/u);
+  assert.match(view, /text="Duplicate Check"/u);
+  assert.match(view, /press="\.onDuplicateCheck"/u);
   assert.match(view, /visible="\{maintenance>\/showCheckButton\}"/u);
   assert.match(controllerSource, /_executeAction\("checkRequest"/u);
+  assert.match(controllerSource, /_executeAction\("duplicateCheckRequest"/u);
+});
+
+// Check answers about the record, not about other partners.
+test('the check action neither asks for nor reads duplicates', () => {
+  const check = controllerSource.slice(
+    controllerSource.indexOf('onCheck: async function'),
+    controllerSource.indexOf('onDuplicateCheck: async function')
+  );
+  assert.equal(/DuplicatesJson|_confirmDuplicates|RanDuplicateCheck/u.test(check), false);
+  assert.match(check, /_proposalRows\(derivations, normalisations\)/u);
 });
 
 // A banner above a long object page is easy to submit straight past; this is a decision.
@@ -156,24 +170,28 @@ test('the dialog submits once and cannot re-enter itself', () => {
   assert.match(controllerSource, /onConfirm: confirmed \? null : function \(\) \{\s*this\._sendChangeRequest\(action, true\);/u);
 });
 
-test('the check reports validations, derivations and duplicates in that order', () => {
+// A derivation that filled a field is a proposal now, so it belongs in the dialog and not in a
+// strip. One that carries no field could never be applied, so the strip is the only place for it.
+test('the check strips carry validations and statements, never an appliable derivation', () => {
   const controller = loadController();
   const messages = controller._checkMessages.call(
     controller,
     [{ severity: 'warning', message: 'Search term is short.' }],
-    [{ field: 'Country', value: 'BE', message: 'Country was derived as BE.' }],
-    [],
-    { Valid: true, RanDuplicateCheck: true }
+    [
+      { field: 'Country', value: 'BE', message: 'Country was derived as BE.' },
+      { message: 'A street is available but there is no Addresses row to hold it.' }
+    ]
   );
-  assert.deepEqual(Array.from(messages, (message) => message.type), ['Warning', 'Information', 'Success']);
+  assert.deepEqual(Array.from(messages, (message) => message.type), ['Warning', 'Information']);
+  assert.equal(messages.some((message) => /derived as BE/u.test(message.text)), false);
+  assert.match(messages[1].text, /no Addresses row/u);
 });
 
-test('a blocked validation stops the check reporting anything about duplicates', () => {
+test('a blocked validation stops the duplicate check reporting anything about duplicates', () => {
   const controller = loadController();
-  const messages = controller._checkMessages.call(
+  const messages = controller._duplicateCheckMessages.call(
     controller,
     [{ severity: 'error', message: 'Enter a grouping.' }],
-    [],
     [],
     { Valid: false, RanDuplicateCheck: false }
   );
@@ -184,12 +202,41 @@ test('a blocked validation stops the check reporting anything about duplicates',
 // The one wrong answer the check must not give.
 test('a duplicate check that did not run is never reported as no duplicates', () => {
   const controller = loadController();
-  const messages = controller._checkMessages.call(
-    controller, [], [], [], { Valid: true, RanDuplicateCheck: false }
+  const messages = controller._duplicateCheckMessages.call(
+    controller, [], [], { Valid: true, RanDuplicateCheck: false }
   );
   assert.equal(messages.some((message) => /no duplicate detected/u.test(message.text)), false);
   assert.match(messages[0].text, /did not run/u);
   assert.match(controllerSource, /RanDuplicateCheck === false[\s\S]{0,200}Nothing was ruled out/u);
+});
+
+// Dismissing the dialog used to be the only copy of the list, so checking a candidate meant
+// pressing the button again to see who it was.
+test('the duplicate findings stay on screen in a panel that collapses', () => {
+  const controller = loadController();
+  const state = { duplicates: [], duplicatesHeader: '' };
+  controller._setDuplicatePanel.call(controller, state, [
+    { verdict: 'duplicate', candidateBP: '4711', candidateName: 'Alluvion BV', message: 'Same VAT number.' },
+    { verdict: 'possible', candidateRequest: 'abc', candidateName: 'Alluvion BVBA' },
+    { message: 'A rule could not run.' }
+  ], { RanDuplicateCheck: true });
+  assert.equal(state.duplicates.length, 2, 'only findings with a verdict are duplicates');
+  assert.match(state.duplicates[0].title, /4711/u);
+  assert.match(state.duplicates[1].title, /pending request abc/u);
+  assert.match(state.duplicatesHeader, /2 possible duplicates/u);
+  assert.match(view, /expandable="true"[\s\S]{0,200}expanded="false"/u);
+  assert.match(view, /<ScrollContainer[\s\S]{0,120}items="\{ path: 'maintenance>\/duplicates'/u);
+});
+
+// Clearing them would read as "checked again, and now clean".
+test('a duplicate check that did not run leaves the previous findings standing', () => {
+  const controller = loadController();
+  const state = { duplicates: [{ title: '4711' }], duplicatesHeader: '1 possible duplicate' };
+  controller._setDuplicatePanel.call(controller, state, [], { RanDuplicateCheck: false });
+  assert.equal(state.duplicates.length, 1);
+  // A check that did run and found nothing does clear them.
+  controller._setDuplicatePanel.call(controller, state, [], { RanDuplicateCheck: true });
+  assert.equal(state.duplicates.length, 0);
 });
 
 // Lengths and fields, not deepEqual: the controller runs in its own vm realm, so both its arrays
@@ -214,32 +261,77 @@ test('only the submit dialog arms the confirmation, and only for its own payload
   assert.match(controllerSource, /state\.awaitingConfirmationFor = dataJson \|\| "";/u);
   // Armed on the decision, not when the dialog opens: closing it must leave nothing behind.
   assert.equal(/awaitingConfirmationFor = parameters\.DataJson;/u.test(controllerSource), false);
-  // Check arms against the payload as it stands after enrichment, which is what Submit will send.
-  // Check passes no confirmText, which is what leaves it with one button and no arming.
+  // Duplicate Check passes no confirmText, which is what leaves it with one button and no arming.
   assert.match(
     controllerSource,
-    /_confirmDuplicates\(duplicates, this\._requestDataJson\(state\), \{\s*after: offerNormalisations\s*\}\)/u
+    /_confirmDuplicates\(duplicates, this\._requestDataJson\(state\), \{\}\)/u
   );
 });
 
-test('a derived value can land on an address row, not only on the root', () => {
-  assert.match(controllerSource, /entry\.target === "root"[\s\S]{0,120}state\.sections\[entry\.target\]/u);
-  // Without marking the row changed, an enriched field never reaches staging.
-  assert.match(controllerSource, /record\.__state = "changed"/u);
-});
+// --- The proposals dialog: derivations and normalisations in one list ------------------
 
-test('the check reports enrichment and validation at the top, duplicates only in the dialog', () => {
+test('derivations and normalisations become one list, labelled by what they do', () => {
   const controller = loadController();
-  const messages = controller._checkMessages.call(
+  const rows = controller._proposalRows.call(
     controller,
-    [],
-    [{ target: 'Addresses', index: 0, field: 'StreetName', message: 'StreetName was filled in as "Kerkstraat" from GLEIF.' }],
-    [{ verdict: 'duplicate', candidateBP: '4711' }],
-    { Valid: true, RanDuplicateCheck: true }
+    [
+      { target: 'Addresses', index: 0, field: 'CityName', value: 'Gent', message: 'From VIES.' },
+      { message: 'A street is available but there is no Addresses row.' }
+    ],
+    [{ target: 'root', index: 0, field: 'OrganizationBPName1', current: 'test nv', proposed: 'Test NV', reason: 'legal form' }]
   );
-  assert.equal(messages.some((message) => /from GLEIF/u.test(message.text)), true);
-  assert.equal(messages.some((message) => /4711/u.test(message.text)), false);
-  assert.equal(messages.some((message) => /might already exist/u.test(message.text)), false);
+  assert.equal(rows.length, 2, 'a derivation with no field cannot be applied, so it is not a row');
+  assert.equal(rows[0].change, 'Filled in');
+  assert.equal(rows[0].current, '', 'a derivation only ever fills an empty field');
+  assert.equal(rows[1].change, 'Reformatted');
+  assert.equal(rows[1].current, 'test nv');
+  assert.equal(rows.every((row) => row.accepted), true, 'everything starts ticked');
+});
+
+// Applying both would write the same field twice, and the normalised value is the better one.
+test('a derived field the model then reformatted is one row, not two', () => {
+  const controller = loadController();
+  const rows = controller._proposalRows.call(
+    controller,
+    [{ target: 'Addresses', index: 0, field: 'StreetName', value: 'koedreef st', message: 'From GLEIF.' }],
+    [{ target: 'Addresses', index: 0, field: 'StreetName', current: 'koedreef st', proposed: 'Koedreef Straat', reason: 'street type spelled out' }]
+  );
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].change, 'Filled in');
+  assert.equal(rows[0].proposed, 'Koedreef Straat', 'the normalised value wins');
+  assert.match(rows[0].reason, /street type spelled out/u);
+});
+
+// "st" needing to be resolved is right; resolving it to "Straat" rather than "Sint" may not be.
+test('the proposed value is editable, and what was typed is what gets applied', () => {
+  assert.match(controllerSource, /new Input\(\{ value: "\{proposed\}" \}\)/u);
+  const controller = loadController();
+  const state = { root: {}, sections: { Addresses: [{}] }, duplicates: [], duplicatesHeader: '' };
+  controller._updatePreview = function () {};
+  controller._renderAll = function () {};
+  controller.getView = function () {
+    return { getModel: function () { return { getData: function () { return state; } }; } };
+  };
+  controller._applyProposals.call(controller, [
+    { target: 'Addresses', index: 0, field: 'StreetName', current: 'koedreef st', proposed: 'Koedreef Sint', accepted: true },
+    { target: 'root', index: 0, field: 'SearchTerm1', current: 'abc', proposed: '   ', accepted: true }
+  ]);
+  assert.equal(state.sections.Addresses[0].StreetName, 'Koedreef Sint', 'the edited value, not the proposed one');
+  assert.equal(state.root.SearchTerm1, undefined, 'an emptied field is a decline, not a blanking');
+});
+
+// The payload changed, so findings taken against the old one are stale.
+test('applying a proposal clears the duplicate findings and any confirmation', () => {
+  assert.match(
+    controllerSource,
+    /state\.awaitingConfirmationFor = "";\s*state\.duplicates = \[\];/u
+  );
+});
+
+test('an applied proposal can land on an address row, not only on the root', () => {
+  assert.match(controllerSource, /proposal\.target === "root"[\s\S]{0,140}state\.sections\[proposal\.target\]/u);
+  // Without marking the row changed, an accepted field never reaches staging.
+  assert.match(controllerSource, /record\.__state = "changed"/u);
 });
 
 // "Cancel" cancels nothing once the request is in approval, and every other footer button is
@@ -267,10 +359,28 @@ test('submit validates but does not derive', () => {
   const submitBody = service.slice(submitAt, service.indexOf("this.on('getRequestPayload'", submitAt));
   assert.match(submitBody, /runValidations\(/u);
   assert.equal(/runDerivations|registry\.derivations/u.test(submitBody), false, 'no derivation on submit');
-  // The Check action is where derivations do run.
-  const checkAt = service.indexOf("this.on('checkRequest'");
-  const checkBody = service.slice(checkAt, service.indexOf("this.on('submitRequest'", checkAt));
-  assert.match(checkBody, /derivations: registry\.derivations/u);
+  // Both buttons derive, through the one runner they share.
+  const runnerAt = service.indexOf('const runRequestChecks =');
+  const runnerBody = service.slice(runnerAt, service.indexOf("this.on('checkRequest'", runnerAt));
+  assert.match(runnerBody, /derivations: registry\.derivations/u);
+});
+
+// Duplicate Check derives in memory so a rule conditioned on a field nobody typed still fires,
+// but returns nothing about it: applying values is the other button's job.
+test('the duplicate check derives without reporting what it derived', () => {
+  const service = fs.readFileSync(
+    path.join(__dirname, '..', 'srv', 'change-request-service.js'), 'utf8'
+  );
+  const body = service.slice(service.indexOf("this.on('duplicateCheckRequest'"));
+  assert.match(body, /propose: false, duplicates: true/u);
+  assert.equal(/DerivationsJson|NormalisationsJson/u.test(body), false);
+  // And Check is the other way round: proposals, no matching.
+  const check = service.slice(
+    service.indexOf("this.on('checkRequest'"),
+    service.indexOf("this.on('duplicateCheckRequest'")
+  );
+  assert.match(check, /propose: true, duplicates: false/u);
+  assert.equal(/DuplicatesJson|RanDuplicateCheck/u.test(check), false);
 });
 
 test('a blocking validation stops the submit and leaves it a draft', () => {

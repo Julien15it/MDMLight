@@ -24,6 +24,32 @@
           showCloseButton="false"
           class="sapUiTinyMarginBottom" />
       </VBox>
+      <!-- The duplicate findings stay on screen after the dialog is dismissed, so checking them
+           does not mean pressing the button again to remember what they were. Collapsed by
+           default and scrolling inside itself: twenty near-matches must not push the form away. -->
+      <Panel
+        id="duplicateFindings"
+        class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
+        expandable="true"
+        expanded="false"
+        visible="{= ${maintenance>/duplicates}.length > 0 }"
+        headerText="{maintenance>/duplicatesHeader}">
+        <MessageStrip
+          text="Nothing is blocked. Review these before submitting."
+          type="Warning"
+          showIcon="true"
+          class="sapUiTinyMarginBottom" />
+        <ScrollContainer height="14rem" vertical="true" horizontal="false" focusable="true">
+          <List items="{ path: 'maintenance>/duplicates', templateShareable: false }">
+            <StandardListItem
+              title="{maintenance>title}"
+              description="{maintenance>description}"
+              info="{maintenance>verdict}"
+              infoState="Warning"
+              wrapping="true" />
+          </List>
+        </ScrollContainer>
+      </Panel>
       <uxap:ObjectPageLayout
         id="maintenanceObjectPage"
         showAnchorBar="true"
@@ -179,13 +205,19 @@
     <footer>
       <OverflowToolbar visible="{maintenance>/showFooter}">
         <ToolbarSpacer />
-        <!-- Validate, derive, then check for duplicates — the order is fixed server-side in
-             srv/checks/pipeline.js. Optional: Submit runs the same duplicate check anyway. -->
+        <!-- Two questions, two buttons. Check asks whether the record is right (validate, derive,
+             normalise) and offers what it found as proposals; Duplicate Check asks whether the
+             partner already exists. Submit runs the duplicate check anyway, so neither is a gate. -->
         <Button
           text="Check"
           icon="sap-icon://validate"
           visible="{maintenance>/showCheckButton}"
           press=".onCheck" />
+        <Button
+          text="Duplicate Check"
+          icon="sap-icon://duplicate"
+          visible="{maintenance>/showCheckButton}"
+          press=".onDuplicateCheck" />
         <Button
           text="Save Request"
           icon="sap-icon://save"

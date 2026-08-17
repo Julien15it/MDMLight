@@ -211,14 +211,50 @@ dropped. Identifiers (tax numbers, IBAN, BP number) are deliberately outside
 It runs on **Check only**, and returns `[]` on any failure — an AI Core outage
 must not stop a check or a submit.
 
-The **Check** button (`checkRequest`) runs the pipeline over the payload on
-screen and **stages nothing** — pressing it can never leave a row behind.
+#### Two buttons, two questions (changed 2026-08-17)
+
+`checkRequest` and `duplicateCheckRequest` are separate actions over the same
+pipeline, because the screen asks two different things:
+
+- **Check** — "is this record right?": validate, derive, normalise. Returns
+  derivations and normalisations and **nothing about duplicates**.
+- **Duplicate Check** — "does it already exist?": validate, derive, match. The
+  derivations still run, but **in memory only** — nothing derived is returned or
+  shown. They run because a rule conditioned on a country nobody typed yet still
+  has to fire, which is the whole reason derive precedes match in `pipeline.js`.
+
+Both stage nothing, and `runRequestChecks` in `srv/change-request-service.js` is
+the one runner they share — the stage list is what differs, never the order.
+
+**Derivations no longer auto-apply.** They used to be written straight into the
+form on Check, which made them easy to miss and impossible to decline. They are
+proposals now, and they share the normalisation dialog: one list, a `change`
+column saying `Filled in` or `Reformatted`, everything ticked by default.
+Consequences worth keeping:
+
+- A field a derivation filled and the model then reformatted is **one row, not
+  two** (`_proposalRows`), and the normalised value wins — applying both would
+  write the same field twice.
+- The proposed value is an **editable input**. A model that spells "st" out as
+  "Straat" where the requester meant "Sint" is right that the abbreviation needs
+  resolving and wrong about how; `_applyProposals` reads back from the model, so
+  what was typed is what lands. Clearing the field is a decline, not an
+  instruction to blank what is there.
+- A derivation carrying **no `field`** is a statement, not a value. It cannot be
+  applied, so it stays a message strip.
+
+Duplicate findings survive the dialog in a collapsed, self-scrolling `Panel`
+(`_setDuplicatePanel`) — dismissing the MessageBox used to destroy the only copy
+of the list, so looking a candidate up meant pressing the button again. A check
+that **did not run** leaves the previous findings standing; clearing them would
+read as "checked again, and now clean".
 
 **Submit runs the validations and the duplicate check, but never the
 derivations** (decided 2026-08-13). A derivation changes the data and the
-requester has to have seen what they are asking for, so Check is the derivation
-trigger; more triggers get decided on their own merits when there is a
-derivation framework. A blocking validation on submit leaves the request a
+requester has to have seen what they are asking for, so Check is where they are
+proposed; more triggers get decided on their own merits when there is a
+derivation framework. Since Check only proposes now, **no derived value reaches
+a request without the requester having ticked it.** A blocking validation on submit leaves the request a
 `draft` and reports at the top of the screen — a list of things to fix in the
 form, not a decision to take, which is why it is strips and not a dialog.
 

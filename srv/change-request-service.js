@@ -314,23 +314,29 @@ class ChangeRequestService extends cds.ApplicationService {
     };
 
     /**
-     * The Check button. Same pipeline the submit will grow into, but over the payload on screen:
-     * it stages nothing, starts nothing and can be pressed as often as anyone likes.
+     * Both buttons, one pipeline. They ask different questions — Check asks whether the record is
+     * right, Duplicate Check whether it already exists — so each runs only the stages its answer
+     * needs. Neither stages anything or starts anything, and both can be pressed as often as
+     * anyone likes.
+     *
+     * The derivations run for both. Duplicate Check never shows or returns what they filled in,
+     * but a rule conditioned on a country the requester has not typed yet still has to fire, which
+     * is the whole reason derive comes before match in srv/checks/pipeline.js.
      */
-    this.on('checkRequest', async (req) => {
+    const runRequestChecks = async (req, { propose, duplicates }) => {
       const data = parseJsonObject(req.data.DataJson, 'DataJson');
       // Created per request: the pair shares one VIES/GLEIF lookup between the validation and the
       // derivation, and must not carry it over to the next press of the button.
       const registry = createRegistryStages();
-      const result = await runChecks(
+      return runChecks(
         { root: data.root || {}, sections: data.sections || {} },
         {
           validations: registry.validations,
           derivations: registry.derivations,
           // Check is where a human is looking, which is the only place a proposal to rewrite
           // what someone typed makes sense. The register never proposes: it validates and derives.
-          propose: (derived) => proposeNormalisations({ payload: derived }),
-          checkDuplicates: async (payload) => {
+          propose: propose ? (derived) => proposeNormalisations({ payload: derived }) : undefined,
+          checkDuplicates: duplicates ? async (payload) => {
             const bp = await cds.connect.to('BusinessPartnerService');
             const answer = await bp.send('checkBusinessPartnerDuplicates', {
               // The derived payload, not the typed one: a country filled in from VIES is exactly
@@ -344,16 +350,27 @@ class ChangeRequestService extends cds.ApplicationService {
               ExcludeRequest: req.data.ChangeRequest || null
             });
             return JSON.parse(answer || '{}').findings || [];
-          }
+          } : undefined
         }
       );
+    };
 
+    this.on('checkRequest', async (req) => {
+      const result = await runRequestChecks(req, { propose: true, duplicates: false });
+      return {
+        Valid: result.valid,
+        ValidationsJson: JSON.stringify(result.validations),
+        DerivationsJson: JSON.stringify(result.derivations),
+        NormalisationsJson: JSON.stringify(result.normalisations)
+      };
+    });
+
+    this.on('duplicateCheckRequest', async (req) => {
+      const result = await runRequestChecks(req, { propose: false, duplicates: true });
       return {
         Valid: result.valid,
         RanDuplicateCheck: result.ranDuplicateCheck,
         ValidationsJson: JSON.stringify(result.validations),
-        DerivationsJson: JSON.stringify(result.derivations),
-        NormalisationsJson: JSON.stringify(result.normalisations),
         DuplicatesJson: JSON.stringify(result.duplicates)
       };
     });

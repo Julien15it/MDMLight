@@ -352,6 +352,10 @@ sap.ui.define([
           saveButtonText: "Submit Request",
           cancelButtonText: "Cancel",
           messages: [],
+          // Findings from the last duplicate check, kept on screen in a collapsed panel so they
+          // survive the dialog being dismissed.
+          duplicates: [],
+          duplicatesHeader: "",
           // Set when a duplicate check found something; the next press confirms.
           awaitingConfirmation: false,
           awaitingConfirmationFor: "",
@@ -1278,6 +1282,10 @@ sap.ui.define([
           state.showFooter = false;
           state.title = "Request submitted for approval";
           state.messages = this._submitMessages(result);
+          // The findings belong to a payload that is now in approval; the approver has them on
+          // CheckFindings, and leaving the panel up invites editing a request nobody can edit.
+          state.duplicates = [];
+          state.duplicatesHeader = "";
           // Deliberately no navigation: the request header and its messages stay on screen, the
           // way Save already behaves and the way MDG reports a submit.
         } catch (error) {
@@ -1290,11 +1298,12 @@ sap.ui.define([
       },
 
       /**
-       * Validate, derive, then check for duplicates — the order is fixed server-side in
-       * srv/checks/pipeline.js and the reasons live there. Stages nothing: this is a question the
-       * user can ask as often as they like without leaving a change request behind.
+       * "Is this record right?" — validate, derive, normalise. Stages nothing, so it is a question
+       * the user can ask as often as they like without leaving a change request behind.
        *
-       * Submit runs the same duplicate check regardless, so Check is a convenience, never a gate.
+       * Nothing is written into the form here. Derivations and normalisations are both proposals
+       * now and arrive in one dialog the requester ticks, edits and applies — filling a field
+       * silently was the thing that made a derivation hard to notice and impossible to decline.
        */
       onCheck: async function () {
         var maintenanceModel = this.getView().getModel("maintenance");
@@ -1317,30 +1326,62 @@ sap.ui.define([
 
           var validations = this._parseJsonArray(result && result.ValidationsJson);
           var derivations = this._parseJsonArray(result && result.DerivationsJson);
-          var duplicates = this._parseJsonArray(result && result.DuplicatesJson);
           var normalisations = this._parseJsonArray(result && result.NormalisationsJson);
 
-          // Derived values are written into the form so the user sees what was filled in, rather
-          // than discovering it after approval. A derivation can target an address row, not only
-          // the root, which is the whole reason the pipeline works on the payload shape.
-          derivations.filter(function (entry) { return entry.field; }).forEach(function (entry) {
-            var record = (!entry.target || entry.target === "root")
-              ? state.root
-              : (state.sections[entry.target] || [])[entry.index || 0];
-            if (!record) return;
-            record[entry.field] = entry.value;
-            // Mark an existing row as changed, or the enriched fields never reach staging.
-            if (record !== state.root && !record.__state) record.__state = "changed";
-          });
-          if (derivations.length) this._updatePreview(state);
-
-          state.messages = this._checkMessages(validations, derivations, duplicates, result);
+          state.messages = this._checkMessages(validations, derivations);
           this._renderAll();
 
-          // Queued behind whichever dialog comes first: a duplicate warning used to discard these.
-          var offerNormalisations = normalisations.length
-            ? function () { this._offerNormalisations(normalisations); }.bind(this)
-            : function () {};
+          if (!result || result.Valid === false) {
+            MessageBox.error(
+              "The data is not valid yet:\n\n"
+              + validations.map(function (entry) { return "  \u2022 " + entry.message; }).join("\n")
+            );
+            return;
+          }
+
+          var proposals = this._proposalRows(derivations, normalisations);
+          if (proposals.length) {
+            this._offerProposals(proposals);
+            return;
+          }
+          MessageToast.show("Checked: nothing to propose.");
+        } catch (error) {
+          MessageBox.error(errorMessage(error, "The check could not be run."));
+        } finally {
+          state.busy = false;
+          maintenanceModel.refresh(true);
+        }
+      },
+
+      /**
+       * "Does this partner already exist?" — validate, derive in memory, match. The derived values
+       * are never shown or applied here; they exist so a rule conditioned on a field the requester
+       * has not filled in yet still fires. Stages nothing either.
+       */
+      onDuplicateCheck: async function () {
+        var maintenanceModel = this.getView().getModel("maintenance");
+        var state = maintenanceModel.getData();
+        var errors = state.mode === "create" ? this._validationErrors(state.root) : [];
+        if (errors.length) {
+          MessageBox.error(errors.join("\n"));
+          return;
+        }
+
+        state.busy = true;
+        maintenanceModel.refresh(true);
+        try {
+          var result = await this._executeAction("duplicateCheckRequest", {
+            ChangeRequest: state.changeRequest || null,
+            BusinessPartner: state.businessPartner || null,
+            DataJson: this._requestDataJson(state)
+          }, "cr");
+
+          var validations = this._parseJsonArray(result && result.ValidationsJson);
+          var duplicates = this._parseJsonArray(result && result.DuplicatesJson);
+
+          this._setDuplicatePanel(state, duplicates, result);
+          state.messages = this._duplicateCheckMessages(validations, duplicates, result);
+          this._renderAll();
 
           if (!result || result.Valid === false) {
             MessageBox.error(
@@ -1351,31 +1392,44 @@ sap.ui.define([
           }
           // A check that could not run must never read as an all-clear.
           if (result.RanDuplicateCheck === false) {
-            MessageBox.information(
-              "The duplicate check could not run. Nothing was ruled out.",
-              { onClose: offerNormalisations }
-            );
+            MessageBox.information("The duplicate check could not run. Nothing was ruled out.");
             return;
           }
           if (duplicates.some(function (finding) { return !!finding.verdict; })) {
-            // No confirmText: Check reports, it does not ask. Deciding belongs to Submit, which
+            // No confirmText: this reports, it does not ask. Deciding belongs to Submit, which
             // offers the submit itself, so acknowledging here confirms nothing.
-            this._confirmDuplicates(duplicates, this._requestDataJson(state), {
-              after: offerNormalisations
-            });
-            return;
-          }
-          if (normalisations.length) {
-            offerNormalisations();
+            this._confirmDuplicates(duplicates, this._requestDataJson(state), {});
             return;
           }
           MessageToast.show("Checked: no duplicate detected.");
         } catch (error) {
-          MessageBox.error(errorMessage(error, "The check could not be run."));
+          MessageBox.error(errorMessage(error, "The duplicate check could not be run."));
         } finally {
           state.busy = false;
           maintenanceModel.refresh(true);
         }
+      },
+
+      /**
+       * The findings outlive the dialog: dismissing a MessageBox used to be the only copy of the
+       * list, so anyone wanting to look a candidate up had to press the button again.
+       */
+      _setDuplicatePanel: function (state, findings, result) {
+        // A check that did not run leaves the previous findings standing rather than clearing
+        // them, which would read as "checked again, and now clean".
+        if (result && result.RanDuplicateCheck === false) return;
+        var found = (findings || []).filter(function (finding) { return !!finding.verdict; });
+        state.duplicates = found.map(function (finding) {
+          var subject = finding.candidateBP || ("pending request " + finding.candidateRequest);
+          return {
+            title: subject + (finding.candidateName ? " \u2014 " + finding.candidateName : ""),
+            description: finding.message || "",
+            verdict: finding.verdict || ""
+          };
+        });
+        state.duplicatesHeader = found.length
+          ? found.length + (found.length === 1 ? " possible duplicate" : " possible duplicates")
+          : "";
       },
 
       _parseJsonArray: function (text) {
@@ -1387,21 +1441,32 @@ sap.ui.define([
         }
       },
 
-      _checkMessages: function (validations, derivations, duplicates, result) {
-        var messages = [];
-        validations.forEach(function (entry) {
-          messages.push({
+      _validationMessages: function (validations) {
+        return validations.map(function (entry) {
+          return {
             type: entry.severity === "error" ? "Error" : "Warning",
             text: entry.message
+          };
+        });
+      },
+
+      _checkMessages: function (validations, derivations) {
+        var messages = this._validationMessages(validations);
+        // A derivation carrying no field is a statement, not a value — there is nothing to tick,
+        // so it is said here instead of in the proposals dialog.
+        derivations.filter(function (entry) { return !entry.field && entry.message; })
+          .forEach(function (entry) {
+            messages.push({ type: "Information", text: entry.message });
           });
-        });
-        derivations.forEach(function (entry) {
-          messages.push({ type: "Information", text: entry.message });
-        });
+        return messages;
+      },
+
+      _duplicateCheckMessages: function (validations, duplicates, result) {
+        var messages = this._validationMessages(validations);
         if (!result || result.Valid === false) return messages;
 
-        // A found duplicate is reported by the dialog and nowhere else — it is a decision, and
-        // repeating it as a strip is what made the old message area redundant.
+        // The findings themselves live in the panel, which stays on screen — this only says
+        // whether the check ran and got a clean answer.
         var found = duplicates.filter(function (finding) { return !!finding.verdict; });
         if (result.RanDuplicateCheck === false) {
           messages.push({ type: "Warning", text: "The duplicate check did not run." });
@@ -1416,22 +1481,73 @@ sap.ui.define([
       },
 
       /**
-       * Proposals, never changes. Each row is a field that already has a value and that the
-       * model thinks is formatted inconsistently; nothing moves until the requester ticks it
-       * and presses Apply. Declining is simply not ticking it - there is no "no" to record,
-       * because the next Check will propose it again and that is the intended behaviour.
+       * One list for both stages, because to the requester they are one question: here is what we
+       * would change, which of it do you want? They stay distinguishable — a derivation fills an
+       * empty field, a normalisation rewrites one that already has a value — which is what the
+       * Change column says.
+       *
+       * A field the derivation filled and the model then reformatted is **one row, not two**: the
+       * normalised value wins, since applying both would mean writing the same field twice.
        */
-      _offerNormalisations: function (proposals) {
-        var model = new JSONModel({ proposals: proposals.map(function (proposal) {
-          return Object.assign({ accepted: true }, proposal);
-        }) });
+      _proposalRows: function (derivations, normalisations) {
+        var rows = [];
+        var seen = {};
+        var keyOf = function (entry) {
+          return (entry.target || "root") + "|" + (entry.index || 0) + "|" + entry.field;
+        };
+        derivations.filter(function (entry) { return entry.field; }).forEach(function (entry) {
+          seen[keyOf(entry)] = rows.length;
+          rows.push({
+            change: "Filled in",
+            target: entry.target || "root",
+            index: entry.index || 0,
+            field: entry.field,
+            current: "",
+            proposed: entry.value,
+            reason: entry.message || "found in the official register",
+            accepted: true
+          });
+        });
+        normalisations.forEach(function (entry) {
+          var existing = seen[keyOf(entry)];
+          if (existing !== undefined) {
+            rows[existing].proposed = entry.proposed;
+            rows[existing].reason += " (" + entry.reason + ")";
+            return;
+          }
+          rows.push({
+            change: "Reformatted",
+            target: entry.target || "root",
+            index: entry.index || 0,
+            field: entry.field,
+            current: entry.current,
+            proposed: entry.proposed,
+            reason: entry.reason,
+            accepted: true
+          });
+        });
+        return rows;
+      },
+
+      /**
+       * Proposals, never changes. Nothing moves until the requester ticks a row and presses Apply,
+       * and declining is simply not ticking it - there is no "no" to record, because the next
+       * Check will propose it again and that is the intended behaviour.
+       *
+       * The proposed value is an editable field: a model that spells "st" out as "Straat" when the
+       * requester meant "Sint" is right that the abbreviation needs resolving and wrong about how,
+       * and retyping the whole field afterwards is a worse answer than correcting it here.
+       */
+      _offerProposals: function (proposals) {
+        var model = new JSONModel({ proposals: proposals });
 
         var table = new Table({
           mode: "MultiSelect",
           columns: [
             new Column({ header: new Text({ text: "Field" }) }),
+            new Column({ header: new Text({ text: "Change" }) }),
             new Column({ header: new Text({ text: "Current" }) }),
-            new Column({ header: new Text({ text: "Proposed" }) }),
+            new Column({ header: new Text({ text: "Proposed" }), width: "14rem" }),
             new Column({ header: new Text({ text: "Why" }) })
           ]
         });
@@ -1441,8 +1557,9 @@ sap.ui.define([
             selected: "{accepted}",
             cells: [
               new Text({ text: "{field}" }),
+              new Text({ text: "{change}" }),
               new Text({ text: "{current}" }),
-              new Text({ text: "{proposed}" }),
+              new Input({ value: "{proposed}" }),
               new Text({ text: "{reason}" })
             ]
           })
@@ -1450,12 +1567,12 @@ sap.ui.define([
         table.setModel(model);
 
         var dialog = new Dialog({
-          title: "Suggested changes",
-          contentWidth: "48rem",
+          title: "Proposed changes",
+          contentWidth: "56rem",
           resizable: true,
           content: [
             new Text({
-              text: "These values differ from the official register, or from how master data is usually written. Nothing changes unless you apply it.",
+              text: "These values were filled in from the official register, or differ from how master data is usually written. Edit anything you want to change, untick what you do not want, and nothing else is touched.",
               wrapping: true
             }).addStyleClass("sapUiSmallMargin"),
             table
@@ -1464,13 +1581,11 @@ sap.ui.define([
             text: "Apply Selected",
             type: "Emphasized",
             press: function () {
-              this._applyNormalisations(
-                model.getProperty("/proposals").filter(function (proposal, index) {
-                  return table.getSelectedContexts().some(function (context) {
-                    return context.getPath() === "/proposals/" + index;
-                  });
-                })
-              );
+              // Read back from the model, not from the row: the value may have been edited, and
+              // `accepted` is two-way bound to the checkbox.
+              this._applyProposals(model.getProperty("/proposals").filter(function (proposal) {
+                return proposal.accepted;
+              }));
               dialog.close();
             }.bind(this)
           }),
@@ -1481,25 +1596,32 @@ sap.ui.define([
         dialog.open();
       },
 
-      _applyNormalisations: function (accepted) {
-        if (!accepted.length) return;
+      _applyProposals: function (accepted) {
+        var applied = 0;
         var state = this.getView().getModel("maintenance").getData();
         accepted.forEach(function (proposal) {
           var record = (!proposal.target || proposal.target === "root")
             ? state.root
             : (state.sections[proposal.target] || [])[proposal.index || 0];
           if (!record) return;
-          record[proposal.field] = proposal.proposed;
+          // An emptied field is a decline, not an instruction to blank what is there.
+          var value = String(proposal.proposed === undefined ? "" : proposal.proposed).trim();
+          if (!value || value === proposal.current) return;
+          record[proposal.field] = value;
           // Or the accepted value never reaches staging.
           if (record !== state.root && !record.__state) record.__state = "changed";
+          applied += 1;
         });
+        if (!applied) return;
         // The payload changed, so a duplicate confirmation taken against the old one no longer
-        // applies - the next submit has to check again.
+        // applies - the next submit has to check again, and the findings on screen are stale.
         state.awaitingConfirmation = false;
         state.awaitingConfirmationFor = "";
+        state.duplicates = [];
+        state.duplicatesHeader = "";
         this._updatePreview(state);
         this._renderAll();
-        MessageToast.show(accepted.length + " field(s) updated.");
+        MessageToast.show(applied + " field(s) updated.");
       },
 
       onSaveRequest: function () {

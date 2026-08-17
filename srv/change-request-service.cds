@@ -86,16 +86,16 @@ service ChangeRequestService @(path: '/service/changerequest') {
   };
 
   /**
-   * Runs the check pipeline over an unsaved payload and reports what it found.
-   * **Stages nothing and starts nothing** - this is the Check button, not a
-   * dry-run submit, so pressing it can never leave a row behind.
+   * The Check button: "is this record right?" - validate, derive, propose
+   * reformatting. **Stages nothing and starts nothing**, so pressing it can
+   * never leave a row behind.
    *
-   * Order is validate -> derive -> duplicate check, and it is fixed in
-   * srv/checks/pipeline.js: invalid data cannot be a duplicate, and incomplete
-   * data can be missing the fields a duplicate rule needs. A blocking
-   * validation therefore stops the rest, and `RanDuplicateCheck` says whether
-   * the duplicate check got as far as running - an empty `DuplicatesJson` on
-   * its own does not mean "no duplicates".
+   * Derivations and normalisations are both returned as *proposals* and neither
+   * is applied here. The screen offers them in one dialog where the requester
+   * ticks, edits and applies them; a change to stored master data always has a
+   * human behind it.
+   *
+   * Duplicates are deliberately absent - see duplicateCheckRequest.
    */
   action checkRequest(
     ChangeRequest   : UUID,
@@ -104,13 +104,37 @@ service ChangeRequestService @(path: '/service/changerequest') {
   ) returns {
     /** False when a validation blocked; nothing after validation ran. */
     Valid             : Boolean;
-    RanDuplicateCheck : Boolean;
     ValidationsJson   : LargeString;
-    /** Fields the derivations filled in, for the screen to apply and show. */
+    /** Values the derivations would fill into empty fields. Proposals only. */
     DerivationsJson   : LargeString;
     /** AI-proposed reformatting of fields that already have a value. Proposals
      *  only - nothing is applied until the requester accepts it. */
     NormalisationsJson : LargeString;
+  };
+
+  /**
+   * The Duplicate Check button: "does this partner already exist?". Stages
+   * nothing either.
+   *
+   * Validate -> derive -> match, and the order is fixed in
+   * srv/checks/pipeline.js: invalid data cannot be a duplicate, and incomplete
+   * data can be missing the very fields a duplicate rule needs. The derivations
+   * therefore still run, but **in memory only** - nothing derived is returned
+   * or shown, because this button answers one question and applying values is
+   * the other button's job.
+   *
+   * `RanDuplicateCheck` says whether the match got as far as running: an empty
+   * `DuplicatesJson` on its own does not mean "no duplicates".
+   */
+  action duplicateCheckRequest(
+    ChangeRequest   : UUID,
+    BusinessPartner : String(10),
+    DataJson        : LargeString not null
+  ) returns {
+    /** False when a validation blocked; nothing after validation ran. */
+    Valid             : Boolean;
+    RanDuplicateCheck : Boolean;
+    ValidationsJson   : LargeString;
     DuplicatesJson    : LargeString;
   };
 
