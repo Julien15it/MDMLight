@@ -86,16 +86,9 @@ service ChangeRequestService @(path: '/service/changerequest') {
   };
 
   /**
-   * The Check button: "is this record right?" - validate, derive, propose
-   * reformatting. **Stages nothing and starts nothing**, so pressing it can
-   * never leave a row behind.
-   *
-   * Derivations and normalisations are both returned as *proposals* and neither
-   * is applied here. The screen offers them in one dialog where the requester
-   * ticks, edits and applies them; a change to stored master data always has a
-   * human behind it.
-   *
-   * Duplicates are deliberately absent - see duplicateCheckRequest.
+   * The Check button: validate, derive, propose reformatting. Stages nothing.
+   * Everything comes back as a *proposal* - the requester applies it, not this.
+   * Duplicates are deliberately absent; see duplicateCheckRequest.
    */
   action checkRequest(
     ChangeRequest   : UUID,
@@ -113,18 +106,9 @@ service ChangeRequestService @(path: '/service/changerequest') {
   };
 
   /**
-   * The Duplicate Check button: "does this partner already exist?". Stages
-   * nothing either.
-   *
-   * Validate -> derive -> match, and the order is fixed in
-   * srv/checks/pipeline.js: invalid data cannot be a duplicate, and incomplete
-   * data can be missing the very fields a duplicate rule needs. The derivations
-   * therefore still run, but **in memory only** - nothing derived is returned
-   * or shown, because this button answers one question and applying values is
-   * the other button's job.
-   *
-   * `RanDuplicateCheck` says whether the match got as far as running: an empty
-   * `DuplicatesJson` on its own does not mean "no duplicates".
+   * The Duplicate Check button: validate -> derive -> match, order fixed in
+   * srv/checks/pipeline.js. Derives in memory only and returns none of it.
+   * `RanDuplicateCheck` false means an empty `DuplicatesJson` proves nothing.
    */
   action duplicateCheckRequest(
     ChangeRequest   : UUID,

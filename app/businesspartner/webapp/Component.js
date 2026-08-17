@@ -34,14 +34,8 @@ sap.ui.define(
                 this._routeStartupScreen();
             },
 
-            /**
-             * One app, two tiles. The MDM Rules inbound carries `screen=rules`, which is the only
-             * thing that distinguishes it from the Business Partner inbound — both resolve to this
-             * component, and without this both would open the partner list.
-             *
-             * Routed after the router is initialised, not before: navTo on a router that has not
-             * started yet is dropped silently, which reads as "the tile is broken".
-             */
+            // One app, two tiles: `screen=rules` is the only thing telling the MDM Rules inbound
+            // apart from the Business Partner one, since both resolve to this component.
             _routeStartupScreen: function () {
                 if ((this._startupParameters().screen || [])[0] !== "rules") return;
                 var router = this.getRouter();

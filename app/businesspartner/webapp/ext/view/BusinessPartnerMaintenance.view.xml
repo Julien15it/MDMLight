@@ -24,9 +24,8 @@
           showCloseButton="false"
           class="sapUiTinyMarginBottom" />
       </VBox>
-      <!-- The duplicate findings stay on screen after the dialog is dismissed, so checking them
-           does not mean pressing the button again to remember what they were. Collapsed by
-           default and scrolling inside itself: twenty near-matches must not push the form away. -->
+      <!-- The findings stay after the dialog is dismissed. Collapsed and scrolling inside itself,
+           so twenty near-matches cannot push the form off screen. -->
       <Panel
         id="duplicateFindings"
         class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
@@ -205,9 +204,8 @@
     <footer>
       <OverflowToolbar visible="{maintenance>/showFooter}">
         <ToolbarSpacer />
-        <!-- Two questions, two buttons. Check asks whether the record is right (validate, derive,
-             normalise) and offers what it found as proposals; Duplicate Check asks whether the
-             partner already exists. Submit runs the duplicate check anyway, so neither is a gate. -->
+        <!-- Two questions, two buttons: is this record right, and does it already exist? Submit
+             runs the duplicate check anyway, so neither is a gate. -->
         <Button
           text="Check"
           icon="sap-icon://validate"

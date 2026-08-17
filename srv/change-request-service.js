@@ -313,16 +313,8 @@ class ChangeRequestService extends cds.ApplicationService {
       return findings;
     };
 
-    /**
-     * Both buttons, one pipeline. They ask different questions — Check asks whether the record is
-     * right, Duplicate Check whether it already exists — so each runs only the stages its answer
-     * needs. Neither stages anything or starts anything, and both can be pressed as often as
-     * anyone likes.
-     *
-     * The derivations run for both. Duplicate Check never shows or returns what they filled in,
-     * but a rule conditioned on a country the requester has not typed yet still has to fire, which
-     * is the whole reason derive comes before match in srv/checks/pipeline.js.
-     */
+    // Both buttons, one pipeline: each runs only the stages its answer needs, and neither stages
+    // anything. Derivations run for both — a rule needs them even when the screen never shows them.
     const runRequestChecks = async (req, { propose, duplicates }) => {
       const data = parseJsonObject(req.data.DataJson, 'DataJson');
       // Created per request: the pair shares one VIES/GLEIF lookup between the validation and the

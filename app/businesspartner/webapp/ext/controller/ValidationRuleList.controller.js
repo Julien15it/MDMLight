@@ -6,16 +6,8 @@ sap.ui.define([
 ], function (Controller, UIComponent, JSONModel, MessageToast) {
   "use strict";
 
-  /**
-   * A preview of the screen, not of the feature. Rows live in a local JSON model and go away with
-   * the page: nothing is stored, nothing is executed, and the table says so. Binding this to the
-   * DuplicateRules entity set to "make it work" would be the one genuinely wrong move here — it
-   * would show duplicate rules under a Validation Rules heading and let someone edit them by
-   * accident.
-   *
-   * The field catalog is the real one (`ruleOptions`), because the shape of a rule is what we are
-   * agreeing on and empty dropdowns would make it unreadable.
-   */
+  // A preview of the screen, not of the feature: rows are local and go away with the page. Binding
+  // this to DuplicateRules would show those rules here and let someone edit them by accident.
   return Controller.extend("mdm.md.businesspartner.manage.ext.controller.ValidationRuleList", {
 
     onInit: function () {

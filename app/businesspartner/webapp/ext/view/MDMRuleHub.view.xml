@@ -8,8 +8,7 @@
     showNavButton="true"
     navButtonPress=".onBackToList">
     <content>
-      <!-- Steward-only, same gate as the rule pages themselves. Hiding it is courtesy; the
-           service checks the scope on every call regardless of what the UI shows. -->
+      <!-- Saying it is courtesy; the service checks the scope on every call regardless. -->
       <MessageStrip
         class="sapUiSmallMargin"
         visible="{= !${perm>/isDataSteward} }"

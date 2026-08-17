@@ -9,10 +9,8 @@
     showNavButton="true"
     navButtonPress=".onBackToHub">
     <content>
-      <!-- The layout is the duplicate rule table's, deliberately: the shape of a rule is the part
-           we are agreeing on here. Nothing is stored or executed yet, and saying so is the whole
-           point of this strip - a table that looks live and silently does nothing is worse than
-           no table at all. -->
+      <!-- The duplicate rule table's layout on purpose: the shape of a rule is what we are
+           agreeing on. A table that looks live and stores nothing is worse than no table. -->
       <MessageStrip
         class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
         text="Preview only. Validation rules are not stored or executed yet — VIES and GLEIF are still the only validations that run, and they are wired in code (srv/checks/registry-checks.js)."

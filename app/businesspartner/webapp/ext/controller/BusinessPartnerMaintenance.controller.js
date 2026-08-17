@@ -1285,8 +1285,8 @@ sap.ui.define([
           state.showFooter = false;
           state.title = "Request submitted for approval";
           state.messages = this._submitMessages(result);
-          // The findings belong to a payload that is now in approval; the approver has them on
-          // CheckFindings, and leaving the panel up invites editing a request nobody can edit.
+          // The approver has these on CheckFindings; leaving the panel up invites editing a
+          // request nobody can edit any more.
           state.duplicates = [];
           state.duplicatesHeader = "";
           // Deliberately no navigation: the request header and its messages stay on screen, the
@@ -1300,14 +1300,8 @@ sap.ui.define([
         }
       },
 
-      /**
-       * "Is this record right?" — validate, derive, normalise. Stages nothing, so it is a question
-       * the user can ask as often as they like without leaving a change request behind.
-       *
-       * Nothing is written into the form here. Derivations and normalisations are both proposals
-       * now and arrive in one dialog the requester ticks, edits and applies — filling a field
-       * silently was the thing that made a derivation hard to notice and impossible to decline.
-       */
+      // "Is this record right?" - validate, derive, normalise, and stage nothing. Nothing is
+      // written into the form: both stages arrive as proposals in one dialog.
       onCheck: async function () {
         var maintenanceModel = this.getView().getModel("maintenance");
         var state = maintenanceModel.getData();
@@ -1356,11 +1350,8 @@ sap.ui.define([
         }
       },
 
-      /**
-       * "Does this partner already exist?" — validate, derive in memory, match. The derived values
-       * are never shown or applied here; they exist so a rule conditioned on a field the requester
-       * has not filled in yet still fires. Stages nothing either.
-       */
+      // "Does this partner already exist?" - validate, derive in memory, match. The derived values
+      // are never shown; they exist so a rule on a field nobody typed yet still fires.
       onDuplicateCheck: async function () {
         var maintenanceModel = this.getView().getModel("maintenance");
         var state = maintenanceModel.getData();
@@ -1413,13 +1404,9 @@ sap.ui.define([
         }
       },
 
-      /**
-       * The findings outlive the dialog: dismissing a MessageBox used to be the only copy of the
-       * list, so anyone wanting to look a candidate up had to press the button again.
-       */
+      // The findings outlive the dialog: dismissing it used to destroy the only copy of the list.
       _setDuplicatePanel: function (state, findings, result) {
-        // A check that did not run leaves the previous findings standing rather than clearing
-        // them, which would read as "checked again, and now clean".
+        // A check that did not run leaves them standing - clearing reads as "now clean".
         if (result && result.RanDuplicateCheck === false) return;
         var found = (findings || []).filter(function (finding) { return !!finding.verdict; });
         state.duplicates = found.map(function (finding) {
@@ -1483,15 +1470,8 @@ sap.ui.define([
         return messages;
       },
 
-      /**
-       * One list for both stages, because to the requester they are one question: here is what we
-       * would change, which of it do you want? They stay distinguishable — a derivation fills an
-       * empty field, a normalisation rewrites one that already has a value — which is what the
-       * Change column says.
-       *
-       * A field the derivation filled and the model then reformatted is **one row, not two**: the
-       * normalised value wins, since applying both would mean writing the same field twice.
-       */
+      // One list for both stages: to the requester they are one question. The Change column keeps
+      // them apart - a derivation fills an empty field, a normalisation rewrites a filled one.
       _proposalRows: function (derivations, normalisations) {
         var rows = [];
         var seen = {};
@@ -1513,6 +1493,7 @@ sap.ui.define([
         });
         normalisations.forEach(function (entry) {
           var existing = seen[keyOf(entry)];
+          // A field derived and then reformatted is one row: applying both writes it twice.
           if (existing !== undefined) {
             rows[existing].proposed = entry.proposed;
             rows[existing].reason += " (" + entry.reason + ")";
@@ -1532,15 +1513,8 @@ sap.ui.define([
         return rows;
       },
 
-      /**
-       * Proposals, never changes. Nothing moves until the requester ticks a row and presses Apply,
-       * and declining is simply not ticking it - there is no "no" to record, because the next
-       * Check will propose it again and that is the intended behaviour.
-       *
-       * The proposed value is an editable field: a model that spells "st" out as "Straat" when the
-       * requester meant "Sint" is right that the abbreviation needs resolving and wrong about how,
-       * and retyping the whole field afterwards is a worse answer than correcting it here.
-       */
+      // Proposals, never changes: declining is not ticking it, and the next Check proposes it again.
+      // Proposed is an Input because the model can be right that "st" needs resolving and wrong how.
       _offerProposals: function (proposals) {
         var model = new JSONModel({ proposals: proposals });
 
@@ -1620,9 +1594,8 @@ sap.ui.define([
         // applies - the next submit has to check again.
         state.awaitingConfirmation = false;
         state.awaitingConfirmationFor = "";
-        // The findings deliberately stay. Only Duplicate Check and Submit ever match, so clearing
-        // them here would leave the screen looking clean on the strength of a check nobody ran -
-        // the same wrong answer the pipeline refuses to give. They go when a match replaces them.
+        // The findings deliberately stay: only a match may clear them, or the screen would look
+        // clean on the strength of a check nobody ran.
         this._updatePreview(state);
         this._renderAll();
         MessageToast.show(applied + " field(s) updated.");
