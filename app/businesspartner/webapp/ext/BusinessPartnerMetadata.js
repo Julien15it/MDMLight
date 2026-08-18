@@ -1230,6 +1230,10 @@ sap.ui.define([], function () {
         "kind": "single",
         "creatable": true,
         "deletable": false,
+        "childSections": [
+          "CustomerCompany",
+          "CustomerSalesArea"
+        ],
         "fieldGroups": [
           {
             "title": "General",
@@ -2088,6 +2092,10 @@ sap.ui.define([], function () {
         "kind": "single",
         "creatable": true,
         "deletable": false,
+        "childSections": [
+          "SupplierCompany",
+          "SupplierPurchasingOrg"
+        ],
         "fieldGroups": [
           {
             "title": "General",

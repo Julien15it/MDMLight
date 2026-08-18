@@ -282,3 +282,48 @@ test('Customer and Supplier carry their whole entity, grouped, behind a Details 
   assert.match(controller, /section\.fieldGroups/);
   assert.match(controller, /text: "Details"/);
 });
+
+test('company code, sales area and purchasing org live inside their role Details dialog', () => {
+  const metadata = loadMaintenanceMetadata();
+  const view = fs.readFileSync(
+    path.join(webapp, 'ext', 'view', 'BusinessPartnerMaintenance.view.xml'),
+    'utf8'
+  );
+
+  const expected = {
+    Customers: ['CustomerCompany', 'CustomerSalesArea'],
+    Suppliers: ['SupplierCompany', 'SupplierPurchasingOrg']
+  };
+
+  for (const [parentId, childIds] of Object.entries(expected)) {
+    const parent = metadata.sections.find((entry) => entry.id === parentId);
+    assert.deepEqual(parent.childSections, childIds);
+
+    for (const childId of childIds) {
+      // Still a real section: it is loaded, staged and posted exactly as before - only
+      // where it renders has moved.
+      const child = metadata.sections.find((entry) => entry.id === childId);
+      assert.ok(child, `${childId} is no longer a section`);
+
+      // ...but it must not also keep an Object Page block, or it would render twice and
+      // the page would be back to three blocks per role.
+      assert.doesNotMatch(
+        view,
+        new RegExp(`id="${childId}Content"`),
+        `${childId} still has its own Object Page block`
+      );
+    }
+  }
+
+  // One block per role is the whole point.
+  assert.match(view, /id="CustomersContent"/);
+  assert.match(view, /id="SuppliersContent"/);
+
+  const controller = fs.readFileSync(
+    path.join(webapp, 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),
+    'utf8'
+  );
+  // The dialog registers a container per child so the ordinary re-render paths reach it.
+  assert.match(controller, /_hostedSectionContainers/);
+  assert.match(controller, /section\.childSections/);
+});

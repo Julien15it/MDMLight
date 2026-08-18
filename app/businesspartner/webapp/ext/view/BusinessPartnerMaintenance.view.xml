@@ -195,40 +195,24 @@
               </uxap:ObjectPageSubSection>
             </uxap:subSections>
           </uxap:ObjectPageSection>
+          <!-- One block per role. Company Codes, Sales Areas and Purchasing Organizations
+               deliberately have no block of their own: they render inside the Details
+               dialog of the customer/supplier they belong to (childSections in
+               BusinessPartnerMetadata), as the standard MDG ERP Customer screen does. -->
           <uxap:ObjectPageSection title="Customer Data" titleUppercase="false">
             <uxap:subSections>
-              <uxap:ObjectPageSubSection title="General">
+              <uxap:ObjectPageSubSection>
                 <uxap:blocks>
                   <VBox id="CustomersContent" width="100%" />
-                </uxap:blocks>
-              </uxap:ObjectPageSubSection>
-              <uxap:ObjectPageSubSection title="Company Code Data">
-                <uxap:blocks>
-                  <VBox id="CustomerCompanyContent" width="100%" />
-                </uxap:blocks>
-              </uxap:ObjectPageSubSection>
-              <uxap:ObjectPageSubSection title="Sales Area Data">
-                <uxap:blocks>
-                  <VBox id="CustomerSalesAreaContent" width="100%" />
                 </uxap:blocks>
               </uxap:ObjectPageSubSection>
             </uxap:subSections>
           </uxap:ObjectPageSection>
           <uxap:ObjectPageSection title="Supplier Data" titleUppercase="false">
             <uxap:subSections>
-              <uxap:ObjectPageSubSection title="General">
+              <uxap:ObjectPageSubSection>
                 <uxap:blocks>
                   <VBox id="SuppliersContent" width="100%" />
-                </uxap:blocks>
-              </uxap:ObjectPageSubSection>
-              <uxap:ObjectPageSubSection title="Company Code Data">
-                <uxap:blocks>
-                  <VBox id="SupplierCompanyContent" width="100%" />
-                </uxap:blocks>
-              </uxap:ObjectPageSubSection>
-              <uxap:ObjectPageSubSection title="Purchasing Organization Data">
-                <uxap:blocks>
-                  <VBox id="SupplierPurchasingOrgContent" width="100%" />
                 </uxap:blocks>
               </uxap:ObjectPageSubSection>
             </uxap:subSections>

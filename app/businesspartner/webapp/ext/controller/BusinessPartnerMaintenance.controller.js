@@ -931,8 +931,20 @@ sap.ui.define([
         return keys.concat(details).slice(0, 6);
       },
 
+      /**
+       * Where a section's table currently lives. Normally its own Object Page block, but
+       * a child section (Company Codes, Sales Areas) is hosted inside its parent's Details
+       * dialog instead and has no block of its own - so the dialog registers its container
+       * here, and every existing re-render path keeps working unchanged.
+       */
+      _sectionContainer: function (section) {
+        var hosted = this._hostedSectionContainers && this._hostedSectionContainers[section.id];
+        if (hosted && !hosted.bIsDestroyed) return hosted;
+        return this.byId(section.id + "Content");
+      },
+
       _renderSection: function (section) {
-        var container = this.byId(section.id + "Content");
+        var container = this._sectionContainer(section);
         if (!container) return;
         container.removeAllItems();
 
@@ -1101,14 +1113,39 @@ sap.ui.define([
         var state = this.getView().getModel("maintenance").getData();
         var editing = Boolean(state.editing);
         var form = this._createForm(section, record, isCreate, editing);
+        var items = [form];
+
+        // Child sections (Company Codes, Sales Areas, Purchasing Organizations) render
+        // inside this dialog rather than as Object Page blocks of their own, so one role
+        // is one block on the page and everything below it is reached through Details -
+        // the way the standard MDG ERP Customer screen is laid out. They read and write
+        // the same state.sections arrays either way, so staging and posting are untouched.
+        var hosted = (section.childSections || []).map(function (childId) {
+          var child = this._metadata.find(function (candidate) { return candidate.id === childId; });
+          if (!child) return null;
+          var container = new VBox();
+          items.push(new VBox({
+            items: [
+              new Title({ text: child.title, level: "H3" }).addStyleClass("sapUiSmallMarginTop"),
+              container
+            ]
+          }));
+          return { section: child, container: container };
+        }, this).filter(Boolean);
+
+        this._hostedSectionContainers = this._hostedSectionContainers || {};
+        hosted.forEach(function (entry) {
+          this._hostedSectionContainers[entry.section.id] = entry.container;
+        }, this);
+
         var dialog = new Dialog({
           title: (isCreate ? "Add " : editing ? "Edit " : "View ") + section.title,
-          contentWidth: "70rem",
+          contentWidth: hosted.length ? "90rem" : "70rem",
           contentHeight: "70%",
           resizable: true,
           draggable: true,
           stretchOnPhone: true,
-          content: new VBox({ items: [form] }).addStyleClass("sapUiSmallMargin"),
+          content: new VBox({ items: items }).addStyleClass("sapUiSmallMargin"),
           beginButton: new Button({
             text: "Apply",
             type: "Emphasized",
@@ -1138,10 +1175,18 @@ sap.ui.define([
             text: editing ? "Cancel" : "Close",
             press: function () { dialog.close(); }
           }),
-          afterClose: function () { dialog.destroy(); }
+          afterClose: function () {
+            // Deregister before destroying, so a later re-render of these sections falls
+            // back to their Object Page container instead of a destroyed VBox.
+            hosted.forEach(function (entry) {
+              delete this._hostedSectionContainers[entry.section.id];
+            }, this);
+            dialog.destroy();
+          }.bind(this)
         });
         this.getView().addDependent(dialog);
         dialog.open();
+        hosted.forEach(function (entry) { this._renderSection(entry.section); }, this);
       },
 
       // modelName selects the service: undefined is BusinessPartnerService,

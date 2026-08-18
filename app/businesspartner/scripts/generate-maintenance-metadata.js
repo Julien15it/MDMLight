@@ -129,6 +129,10 @@ const sections = [
     kind: 'single',
     creatable: true,
     deletable: false,
+    // Rendered inside this section's Details dialog instead of as Object Page blocks of
+    // their own - one block per role on the page, everything else behind Details, as the
+    // standard MDG ERP Customer screen does it.
+    childSections: ['CustomerCompany', 'CustomerSalesArea'],
     // Grouped rather than one flat wall of 50 inputs, mirroring how the standard MDG
     // "ERP Customer" screen splits the same data into Control Data / Tax Information /
     // Additional Data blocks. `fieldNames` is derived from these below, so a field added
@@ -237,6 +241,8 @@ const sections = [
     kind: 'single',
     creatable: true,
     deletable: false,
+    // See the Customers section above.
+    childSections: ['SupplierCompany', 'SupplierPurchasingOrg'],
     // See the Customers section above for why these are grouped.
     fieldGroups: [
       {
@@ -417,6 +423,16 @@ for (const section of sections) {
         updatable: property['sap:updatable'] !== 'false'
       };
     });
+}
+
+// A child section is hosted in its parent's Details dialog and has no Object Page block of
+// its own, so a stale id here would leave its data unreachable rather than merely unstyled.
+const sectionIds = new Set(sections.map((section) => section.id));
+for (const section of sections) {
+  const unknown = (section.childSections || []).filter((id) => !sectionIds.has(id));
+  if (unknown.length) {
+    throw new Error(`${section.id}: childSections name unknown section(s): ${unknown.join(', ')}.`);
+  }
 }
 
 const clientSections = sections.map(({ excludedFields, fieldNames, ...section }) => section);
