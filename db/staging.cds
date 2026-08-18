@@ -81,6 +81,7 @@ entity ChangeRequests : cuid, managed {
   customerCompany   : Composition of many StagedCustomerCompany on customerCompany.request = $self;
   supplierCompany   : Composition of many StagedSupplierCompany on supplierCompany.request = $self;
   customerSalesArea : Composition of many StagedCustomerSalesArea on customerSalesArea.request = $self;
+  customerTaxGrouping : Composition of many StagedCustomerTaxGrouping on customerTaxGrouping.request = $self;
   supplierPurchasingOrg : Composition of many StagedSupplierPurchasingOrg on supplierPurchasingOrg.request = $self;
 
   findings          : Composition of many CheckFindings        on findings.request       = $self;
@@ -323,6 +324,22 @@ entity StagedCustomerSalesArea : cuid {
   DeliveryPriority           : String(2);
   ShippingCondition          : String(2);
   BillingIsBlockedForCustomer : String(2);
+}
+
+/**
+ * Customer Tax Categories (A_CustomerTaxGrouping) - the "Tax Categories" block
+ * of the MDG ERP Customer screen. Natural key is Customer + the grouping code.
+ */
+entity StagedCustomerTaxGrouping : cuid {
+  request                        : Association to ChangeRequests;
+  action                         : NodeAction not null default 'C';
+  CustomerTaxGroupingCode        : String(3);
+  CustTaxGrpExemptionCertificate : String(15);
+  CustTaxGroupExemptionRate      : Decimal;
+  CustTaxGroupExemptionStartDate : Date;
+  CustTaxGroupExemptionEndDate   : Date;
+  CustTaxGroupSubjectedStartDate : Date;
+  CustTaxGroupSubjectedEndDate   : Date;
 }
 
 /**

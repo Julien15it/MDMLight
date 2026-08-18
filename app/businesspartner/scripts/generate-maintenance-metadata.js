@@ -132,7 +132,9 @@ const sections = [
     // Rendered inside this section's Details dialog instead of as Object Page blocks of
     // their own - one block per role on the page, everything else behind Details, as the
     // standard MDG ERP Customer screen does it.
-    childSections: ['CustomerCompany', 'CustomerSalesArea'],
+    // Ordered as the MDG screen orders them: Tax Categories, then Company Codes, then
+    // Sales Areas.
+    childSections: ['CustomerTaxGrouping', 'CustomerCompany', 'CustomerSalesArea'],
     // Grouped rather than one flat wall of 50 inputs, mirroring how the standard MDG
     // "ERP Customer" screen splits the same data into Control Data / Tax Information /
     // Additional Data blocks. `fieldNames` is derived from these below, so a field added
@@ -217,7 +219,10 @@ const sections = [
     fieldNames: [
       'Customer', 'CompanyCode', 'ReconciliationAccount', 'PaymentTerms',
       'PaymentMethodsList', 'PaymentBlockingReason', 'HouseBank',
-      'AccountingClerk', 'CustomerAccountNote'
+      'AccountingClerk', 'CustomerAccountNote',
+      // MDG shows this under the customer's Payment Transactions; in
+      // API_BUSINESS_PARTNER it is company-code level.
+      'AlternativePayerAccount'
     ],
     summaryFields: [
       'CompanyCode', 'ReconciliationAccount', 'PaymentTerms', 'PaymentBlockingReason', 'HouseBank'
@@ -235,12 +240,38 @@ const sections = [
     fieldNames: [
       'Customer', 'SalesOrganization', 'DistributionChannel', 'Division',
       'CreditControlArea', 'Currency', 'CustomerPriceGroup', 'CustomerPricingProcedure',
-      'CustomerPaymentTerms', 'DeliveryPriority', 'ShippingCondition', 'BillingIsBlockedForCustomer'
+      'CustomerPaymentTerms', 'DeliveryPriority', 'ShippingCondition', 'BillingIsBlockedForCustomer',
+      // MDG shows these as "Condition Group 1-5" under the customer's Additional Data;
+      // in API_BUSINESS_PARTNER they are sales-area level, so they live here.
+      'AdditionalCustomerGroup1', 'AdditionalCustomerGroup2', 'AdditionalCustomerGroup3',
+      'AdditionalCustomerGroup4', 'AdditionalCustomerGroup5'
     ],
     summaryFields: [
       'SalesOrganization', 'DistributionChannel', 'Division', 'CreditControlArea', 'Currency', 'CustomerPaymentTerms'
     ],
     requiredCreateFields: ['SalesOrganization', 'DistributionChannel', 'Division']
+  },
+  {
+    // The MDG screen's "ERP Customer: Tax Categories" block, field for field.
+    id: 'CustomerTaxGrouping',
+    title: 'Customer Tax Categories',
+    entitySet: 'CustomerTaxGrouping',
+    remoteEntity: 'A_CustomerTaxGrouping',
+    relationField: 'Customer',
+    typeName: 'A_CustomerTaxGroupingType',
+    kind: 'collection',
+    fieldNames: [
+      'Customer', 'CustomerTaxGroupingCode', 'CustTaxGroupSubjectedStartDate',
+      'CustTaxGroupSubjectedEndDate', 'CustTaxGrpExemptionCertificate',
+      'CustTaxGroupExemptionRate', 'CustTaxGroupExemptionStartDate',
+      'CustTaxGroupExemptionEndDate'
+    ],
+    summaryFields: [
+      'CustomerTaxGroupingCode', 'CustTaxGroupSubjectedStartDate',
+      'CustTaxGroupSubjectedEndDate', 'CustTaxGrpExemptionCertificate',
+      'CustTaxGroupExemptionRate'
+    ],
+    requiredCreateFields: ['CustomerTaxGroupingCode']
   },
   {
     id: 'Suppliers',

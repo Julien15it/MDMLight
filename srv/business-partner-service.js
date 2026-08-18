@@ -241,6 +241,15 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     deletable: true,
     requiredCreateFields: ['Customer', 'SalesOrganization', 'DistributionChannel', 'Division']
   }),
+  CustomerTaxGrouping: Object.freeze({
+    remote: 'A_CustomerTaxGrouping',
+    navigation: 'to_CustomerTaxGrouping',
+    parentEntity: 'A_Customer',
+    parentKeyField: 'Customer',
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['Customer', 'CustomerTaxGroupingCode']
+  }),
   SupplierPurchasingOrg: Object.freeze({
     remote: 'A_SupplierPurchasingOrg',
     navigation: 'to_SupplierPurchasingOrg',

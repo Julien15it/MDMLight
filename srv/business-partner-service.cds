@@ -178,6 +178,7 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
   @readonly @cds.redirection.target entity CustomerCompany as projection on S4.A_CustomerCompany;
   @readonly @cds.redirection.target entity SupplierCompany as projection on S4.A_SupplierCompany;
   @readonly @cds.redirection.target entity CustomerSalesArea as projection on S4.A_CustomerSalesArea;
+  @readonly @cds.redirection.target entity CustomerTaxGrouping as projection on S4.A_CustomerTaxGrouping;
   @readonly @cds.redirection.target entity SupplierPurchasingOrg as projection on S4.A_SupplierPurchasingOrg;
 
   // Remaining API_BUSINESS_PARTNER entity sets. They are exposed read-only so

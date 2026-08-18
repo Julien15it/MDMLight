@@ -30,6 +30,7 @@ const NODES = {
   CustomerCompany:      { entity: `${STAGING}StagedCustomerCompany`, many: true },
   SupplierCompany:      { entity: `${STAGING}StagedSupplierCompany`, many: true },
   CustomerSalesArea:      { entity: `${STAGING}StagedCustomerSalesArea`,      many: true },
+  CustomerTaxGrouping:    { entity: `${STAGING}StagedCustomerTaxGrouping`,    many: true },
   SupplierPurchasingOrg:  { entity: `${STAGING}StagedSupplierPurchasingOrg`,  many: true }
 };
 
@@ -41,6 +42,7 @@ const RELATION_FIELDS = Object.freeze({
   CustomerCompany: 'Customer',
   SupplierCompany: 'Supplier',
   CustomerSalesArea: 'Customer',
+  CustomerTaxGrouping: 'Customer',
   SupplierPurchasingOrg: 'Supplier'
 });
 

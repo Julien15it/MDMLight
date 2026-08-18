@@ -1231,6 +1231,7 @@ sap.ui.define([], function () {
         "creatable": true,
         "deletable": false,
         "childSections": [
+          "CustomerTaxGrouping",
           "CustomerCompany",
           "CustomerSalesArea"
         ],
@@ -1877,6 +1878,16 @@ sap.ui.define([], function () {
             "updatable": true
           },
           {
+            "name": "AlternativePayerAccount",
+            "label": "Alternative payer",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
             "name": "CustomerAccountNote",
             "label": "Account Memo",
             "type": "cds.String",
@@ -2077,6 +2088,154 @@ sap.ui.define([], function () {
             "key": false,
             "nullable": true,
             "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "AdditionalCustomerGroup1",
+            "label": "Customer Group 1",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 3,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "AdditionalCustomerGroup2",
+            "label": "Customer Group 2",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 3,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "AdditionalCustomerGroup3",
+            "label": "Customer Group 3",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 3,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "AdditionalCustomerGroup4",
+            "label": "Customer Group 4",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 3,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "AdditionalCustomerGroup5",
+            "label": "Customer Group 5",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 3,
+            "creatable": true,
+            "updatable": true
+          }
+        ]
+      },
+      {
+        "id": "CustomerTaxGrouping",
+        "title": "Customer Tax Categories",
+        "entitySet": "CustomerTaxGrouping",
+        "remoteEntity": "A_CustomerTaxGrouping",
+        "relationField": "Customer",
+        "typeName": "A_CustomerTaxGroupingType",
+        "kind": "collection",
+        "summaryFields": [
+          "CustomerTaxGroupingCode",
+          "CustTaxGroupSubjectedStartDate",
+          "CustTaxGroupSubjectedEndDate",
+          "CustTaxGrpExemptionCertificate",
+          "CustTaxGroupExemptionRate"
+        ],
+        "requiredCreateFields": [
+          "CustomerTaxGroupingCode"
+        ],
+        "fields": [
+          {
+            "name": "Customer",
+            "label": "Customer",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CustomerTaxGroupingCode",
+            "label": "Tax Category",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 3,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CustTaxGrpExemptionCertificate",
+            "label": "Exempt. Number",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 15,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CustTaxGroupExemptionRate",
+            "label": "Exemption Rate",
+            "type": "cds.Decimal",
+            "key": false,
+            "nullable": true,
+            "precision": 5,
+            "scale": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CustTaxGroupExemptionStartDate",
+            "label": "Exempted from",
+            "type": "cds.Date",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CustTaxGroupExemptionEndDate",
+            "label": "Exempted Until",
+            "type": "cds.Date",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CustTaxGroupSubjectedStartDate",
+            "label": "subjected from",
+            "type": "cds.Date",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CustTaxGroupSubjectedEndDate",
+            "label": "subjected until",
+            "type": "cds.Date",
+            "key": false,
+            "nullable": true,
             "creatable": true,
             "updatable": true
           }

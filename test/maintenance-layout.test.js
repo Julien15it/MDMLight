@@ -300,7 +300,7 @@ test('company code, sales area and purchasing org live inside their role Details
   );
 
   const expected = {
-    Customers: ['CustomerCompany', 'CustomerSalesArea'],
+    Customers: ['CustomerTaxGrouping', 'CustomerCompany', 'CustomerSalesArea'],
     Suppliers: ['SupplierCompany', 'SupplierPurchasingOrg']
   };
 
