@@ -129,16 +129,66 @@ const sections = [
     kind: 'single',
     creatable: true,
     deletable: false,
-    fieldNames: [
-      'Customer', 'CustomerFullName', 'CustomerName', 'CustomerAccountGroup',
-      'CustomerClassification', 'BillingIsBlockedForCustomer',
-      'DeliveryIsBlocked', 'OrderIsBlockedForCustomer', 'PostingIsBlocked'
+    // Grouped rather than one flat wall of 50 inputs, mirroring how the standard MDG
+    // "ERP Customer" screen splits the same data into Control Data / Tax Information /
+    // Additional Data blocks. `fieldNames` is derived from these below, so a field added
+    // to a group is automatically fetched too - the two can never drift apart.
+    fieldGroups: [
+      {
+        title: 'General',
+        fields: [
+          'Customer', 'CustomerFullName', 'CustomerName', 'CustomerAccountGroup',
+          'CustomerClassification', 'CustomerCorporateGroup', 'AuthorizationGroup',
+          'CreatedByUser', 'CreationDate'
+        ]
+      },
+      {
+        title: 'Blocks and Status',
+        fields: [
+          'BillingIsBlockedForCustomer', 'DeliveryIsBlocked', 'OrderIsBlockedForCustomer',
+          'PostingIsBlocked', 'DeletionIndicator'
+        ]
+      },
+      {
+        title: 'Tax Information',
+        fields: [
+          'VATRegistration', 'TaxNumberType', 'TaxNumber1', 'TaxNumber2', 'TaxNumber3',
+          'TaxNumber4', 'TaxNumber5', 'FiscalAddress', 'CityCode', 'County',
+          'ResponsibleType', 'NFPartnerIsNaturalPerson'
+        ]
+      },
+      {
+        title: 'Industry',
+        fields: [
+          'Industry', 'IndustryCode1', 'IndustryCode2', 'IndustryCode3',
+          'IndustryCode4', 'IndustryCode5', 'NielsenRegion'
+        ]
+      },
+      {
+        title: 'Reference Data',
+        fields: [
+          'Supplier', 'PaymentReason', 'ExpressTrainStationName', 'TrainStationName',
+          'InternationalLocationNumber1', 'InternationalLocationNumber2',
+          'InternationalLocationNumber3'
+        ]
+      },
+      {
+        title: 'Additional Data',
+        fields: [
+          'FreeDefinedAttribute01', 'FreeDefinedAttribute02', 'FreeDefinedAttribute03',
+          'FreeDefinedAttribute04', 'FreeDefinedAttribute05', 'FreeDefinedAttribute06',
+          'FreeDefinedAttribute07', 'FreeDefinedAttribute08', 'FreeDefinedAttribute09',
+          'FreeDefinedAttribute10'
+        ]
+      }
     ],
     summaryFields: [
       'CustomerFullName', 'CustomerAccountGroup', 'CustomerClassification',
       'BillingIsBlockedForCustomer', 'DeliveryIsBlocked', 'PostingIsBlocked'
     ],
-    excludedFields: ['BR_ICMSTaxPayerType'],
+    // Not exposed by the VF on-premise implementation - see the drift warning in
+    // srv/metadata-drift.js. Requesting it makes the whole section read fail.
+    excludedFields: ['BR_ICMSTaxPayerType', 'BPCustomerFullName', 'BPCustomerName'],
     requiredCreateFields: ['CustomerAccountGroup']
   },
   {
@@ -187,15 +237,53 @@ const sections = [
     kind: 'single',
     creatable: true,
     deletable: false,
-    fieldNames: [
-      'Supplier', 'SupplierFullName', 'SupplierName', 'SupplierAccountGroup',
-      'PaymentIsBlockedForSupplier', 'PostingIsBlocked', 'PurchasingIsBlocked',
-      'SupplierProcurementBlock', 'VATRegistration'
+    // See the Customers section above for why these are grouped.
+    fieldGroups: [
+      {
+        title: 'General',
+        fields: [
+          'Supplier', 'SupplierFullName', 'SupplierName', 'SupplierAccountGroup',
+          'SupplierCorporateGroup', 'AuthorizationGroup', 'CreatedByUser', 'CreationDate'
+        ]
+      },
+      {
+        title: 'Blocks and Status',
+        fields: [
+          'PaymentIsBlockedForSupplier', 'PostingIsBlocked', 'PurchasingIsBlocked',
+          'SupplierProcurementBlock', 'DeletionIndicator'
+        ]
+      },
+      {
+        title: 'Tax Information',
+        fields: [
+          'VATRegistration', 'TaxNumberType', 'TaxNumber1', 'TaxNumber2', 'TaxNumber3',
+          'TaxNumber4', 'TaxNumber5', 'TaxNumberResponsible', 'FiscalAddress',
+          'ResponsibleType', 'IsNaturalPerson', 'BR_TaxIsSplit'
+        ]
+      },
+      {
+        title: 'Quality Management',
+        fields: [
+          'SuplrQualityManagementSystem', 'SuplrQltyInProcmtCertfnValidTo',
+          'SuplrProofOfDelivRlvtCode'
+        ]
+      },
+      {
+        title: 'Reference Data',
+        fields: [
+          'Customer', 'Industry', 'AlternativePayeeAccountNumber', 'PaymentReason',
+          'DataExchangeInstructionKey', 'BirthDate', 'ConcatenatedInternationalLocNo',
+          'InternationalLocationNumber1', 'InternationalLocationNumber2',
+          'InternationalLocationNumber3'
+        ]
+      }
     ],
     summaryFields: [
       'SupplierFullName', 'SupplierAccountGroup', 'VATRegistration',
       'PaymentIsBlockedForSupplier', 'PostingIsBlocked', 'PurchasingIsBlocked'
     ],
+    // Not exposed by the VF on-premise implementation - see the drift warning in
+    // srv/metadata-drift.js. Requesting them makes the whole section read fail.
     excludedFields: [
       'BusinessPartnerPanNumber',
       'JP_SuplrAmtInCapitalAmount',
@@ -283,6 +371,30 @@ function humanize(name) {
 for (const section of sections) {
   const definition = csn.definitions[`API_BUSINESS_PARTNER.${section.remoteEntity}`];
   const edmxProperties = entityTypeProperties(section.typeName);
+
+  // A grouped section states its fields once, in the groups. Deriving the flat list from
+  // them keeps the two in step: a field added to a group is fetched, and one that is only
+  // fetched but belongs to no group would never render, so it is not silently allowed.
+  if (section.fieldGroups) {
+    if (section.fieldNames) {
+      throw new Error(`${section.id}: set either fieldGroups or fieldNames, not both.`);
+    }
+    section.fieldNames = section.fieldGroups.flatMap((group) => group.fields);
+    const unknown = section.fieldNames.filter((name) => !definition.elements[name]);
+    if (unknown.length) {
+      throw new Error(
+        `${section.id}: fieldGroups name field(s) that ${section.remoteEntity} does not have: `
+        + `${unknown.join(', ')}.`
+      );
+    }
+    const excluded = section.fieldNames.filter((name) => (section.excludedFields || []).includes(name));
+    if (excluded.length) {
+      throw new Error(
+        `${section.id}: fieldGroups name excluded field(s): ${excluded.join(', ')}. `
+        + 'Remove them from the group or from excludedFields.'
+      );
+    }
+  }
 
   section.fields = Object.entries(definition.elements)
     .filter(([name, element]) => (

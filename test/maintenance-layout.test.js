@@ -242,3 +242,43 @@ test('list row navigation uses the supported Fiori binding context', () => {
   assert.match(extension, /contextInfo && contextInfo\.bindingContext/);
   assert.doesNotMatch(extension, /sourceBindingContext/);
 });
+
+/** Evaluates the generated UI5 metadata module without a UI5 runtime. */
+function loadMaintenanceMetadata() {
+  const source = fs.readFileSync(path.join(webapp, 'ext', 'BusinessPartnerMetadata.js'), 'utf8');
+  let exported;
+  const sap = { ui: { define: (_dependencies, factory) => { exported = factory(); } } };
+  new Function('sap', source)(sap);
+  return exported;
+}
+
+test('Customer and Supplier carry their whole entity, grouped, behind a Details button', () => {
+  const metadata = loadMaintenanceMetadata();
+
+  for (const id of ['Customers', 'Suppliers']) {
+    const section = metadata.sections.find((entry) => entry.id === id);
+    assert.ok(section.fieldGroups && section.fieldGroups.length, `${id} has no fieldGroups`);
+
+    // The point of the drill-down: the table stays at six summary columns while the
+    // detail form carries the full entity, instead of the nine fields it used to show.
+    assert.ok(section.fields.length > 30, `${id} exposes only ${section.fields.length} fields`);
+
+    // generate-maintenance-metadata.js derives fieldNames from the groups, so these two
+    // must agree exactly - a field in one but not the other is either fetched and never
+    // rendered, or rendered from data that was never fetched.
+    const grouped = section.fieldGroups.flatMap((group) => group.fields).sort();
+    const fetched = section.fields.map((field) => field.name).sort();
+    assert.deepEqual(grouped, fetched, `${id}: fieldGroups and fields disagree`);
+  }
+
+  // Sections without groups must keep the single flat grid.
+  const addresses = metadata.sections.find((entry) => entry.id === 'Addresses');
+  assert.equal(addresses.fieldGroups, undefined);
+
+  const controller = fs.readFileSync(
+    path.join(webapp, 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),
+    'utf8'
+  );
+  assert.match(controller, /section\.fieldGroups/);
+  assert.match(controller, /text: "Details"/);
+});

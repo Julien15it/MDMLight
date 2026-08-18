@@ -27,6 +27,8 @@ sap.ui.define([
   "sap/m/ObjectStatus",
   "sap/m/SearchField",
   "sap/m/VBox",
+  "sap/m/HBox",
+  "sap/m/Title",
   "mdm/md/businesspartner/manage/ext/BusinessPartnerMetadata",
   "mdm/md/businesspartner/manage/ext/BusinessPartnerAssistant"
 ], function (
@@ -58,6 +60,8 @@ sap.ui.define([
   ObjectStatus,
   SearchField,
   VBox,
+  HBox,
+  Title,
   Metadata,
   BusinessPartnerAssistant
 ) {
@@ -639,7 +643,39 @@ sap.ui.define([
       },
 
       _createForm: function (section, record, isCreate, editing) {
-        var content = section.fields.filter(function (field) {
+        // A section with fieldGroups renders one titled block per group, the way the
+        // standard MDG screen splits Control Data / Tax Information / Additional Data.
+        // Without them it stays one flat grid, which is what every other section wants.
+        if (!section.fieldGroups || !section.fieldGroups.length) {
+          return this._createFieldGrid(section, section.fields, record, isCreate, editing);
+        }
+
+        var byName = {};
+        section.fields.forEach(function (field) { byName[field.name] = field; });
+
+        var blocks = section.fieldGroups.map(function (group) {
+          var fields = group.fields.map(function (name) { return byName[name]; }).filter(Boolean);
+          var grid = this._createFieldGrid(section, fields, record, isCreate, editing);
+          // A group whose every field was filtered out (all keys hidden on create, say)
+          // would otherwise leave a heading with nothing under it.
+          if (!grid.getContent().length) {
+            grid.destroy();
+            return null;
+          }
+          return new VBox({
+            items: [
+              new Title({ text: group.title, level: "H3" }).addStyleClass("sapUiSmallMarginTop"),
+              grid
+            ]
+          });
+        }, this).filter(Boolean);
+
+        return new VBox({ items: blocks });
+      },
+
+      /** The field controls for one flat list of fields, laid out in a responsive grid. */
+      _createFieldGrid: function (section, fields, record, isCreate, editing) {
+        var content = fields.filter(function (field) {
           if (field.name === section.relationField) return false;
           return !(isCreate && field.key && field.creatable === false);
         }).map(function (field) {
@@ -937,22 +973,39 @@ sap.ui.define([
           table.addColumn(new Column({ header: new Text({ text: field.label }) }));
         });
         var showDelete = state.editing && section.deletable !== false;
-        if (showDelete) {
-          table.addColumn(new Column({ width: "4rem", header: new Text({ text: "Actions" }) }));
-        }
+        // Always present, even when there is nothing to delete: pressing the row already
+        // opened the record, but nothing on screen said so. An explicit Details button is
+        // how the standard MDG screen exposes it, and it is the only affordance at all on
+        // a non-deletable section such as Customer/Supplier Data.
+        table.addColumn(new Column({
+          width: showDelete ? "9rem" : "6rem",
+          hAlign: "End",
+          header: new Text({ text: "Actions" })
+        }));
 
         records.forEach(function (record, index) {
           var cells = summaryFields.map(function (field) {
             return new Text({ text: displayValue(record[field.name]), wrapping: false });
           });
+          var actions = [
+            new Button({
+              text: "Details",
+              icon: "sap-icon://detail-view",
+              type: "Transparent",
+              tooltip: state.editing ? "Open to view or edit every field" : "Open to view every field",
+              press: this._openExistingRecord.bind(this, section, index)
+            })
+          ];
           if (showDelete) {
-            cells.push(new Button({
+            actions.push(new Button({
               icon: "sap-icon://delete",
               type: "Transparent",
               tooltip: "Delete",
               press: this._confirmDeleteRecord.bind(this, section, index)
             }));
           }
+          cells.push(new HBox({ items: actions, justifyContent: "End" }));
+
           var item = new ColumnListItem({
             type: "Active",
             cells: cells
