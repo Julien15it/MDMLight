@@ -177,7 +177,14 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
   // projections of the same remote entity leave CAP unable to auto-redirect.
   @readonly @cds.redirection.target entity CustomerCompany as projection on S4.A_CustomerCompany;
   @readonly @cds.redirection.target entity SupplierCompany as projection on S4.A_SupplierCompany;
-  @readonly @cds.redirection.target entity CustomerSalesArea as projection on S4.A_CustomerSalesArea;
+  // CustomerStatisticsGroup is excluded for the same reason as BR_ICMSTaxPayerType on
+  // A_Customer: the VF on-premise implementation no longer exposes it, and asking for it
+  // fails the whole read with "Resource not found for the segment
+  // 'CustomerStatisticsGroup'" - confirmed against the live service. The drift check in
+  // srv/metadata-drift.js reports it; this is the fix it asks for.
+  @readonly @cds.redirection.target entity CustomerSalesArea as projection on S4.A_CustomerSalesArea excluding {
+    CustomerStatisticsGroup
+  };
   @readonly @cds.redirection.target entity CustomerTaxGrouping as projection on S4.A_CustomerTaxGrouping;
   @readonly @cds.redirection.target entity SupplierPurchasingOrg as projection on S4.A_SupplierPurchasingOrg;
 
@@ -220,7 +227,9 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
   @readonly entity A_CustomerCompanyText                 as projection on S4.A_CustomerCompanyText;
   @readonly entity A_CustomerDunning                     as projection on S4.A_CustomerDunning;
   @readonly entity A_CustomerWithHoldingTax              as projection on S4.A_CustomerWithHoldingTax;
-  @readonly entity A_CustomerSalesArea                   as projection on S4.A_CustomerSalesArea;
+  @readonly entity A_CustomerSalesArea                   as projection on S4.A_CustomerSalesArea excluding {
+    CustomerStatisticsGroup
+  };
   @readonly entity A_CustSalesPartnerFunc                as projection on S4.A_CustSalesPartnerFunc;
   @readonly entity A_CustomerSalesAreaTax                as projection on S4.A_CustomerSalesAreaTax;
   @readonly entity A_CustSlsAreaAddrDepdntTaxInfo        as projection on S4.A_CustSlsAreaAddrDepdntTaxInfo;

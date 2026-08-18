@@ -50,6 +50,20 @@ test('facade excludes fields missing in the target S/4 release', async () => {
   assert.equal(supplier.elements.JP_SuplrAmtInCapitalAmount, undefined);
   assert.equal(supplier.elements.JP_SupplierCapitalAmountCrcy, undefined);
 
+  // Asking the live service for this one answers 404 "Resource not found for the segment
+  // 'CustomerStatisticsGroup'", which fails the whole Sales Area read - so the section
+  // renders empty for a customer that does have sales area data. Both projections on
+  // A_CustomerSalesArea must drop it, not just the one the maintenance screen reads.
+  for (const name of ['CustomerSalesArea', 'A_CustomerSalesArea']) {
+    const salesArea = model.definitions[`BusinessPartnerService.${name}`];
+    assert.ok(salesArea, `${name} is not exposed`);
+    assert.equal(
+      salesArea.elements.CustomerStatisticsGroup,
+      undefined,
+      `${name} still requests CustomerStatisticsGroup`
+    );
+  }
+
   const metadata = fs.readFileSync(
     path.join(webapp, 'ext', 'BusinessPartnerMetadata.js'),
     'utf8'
