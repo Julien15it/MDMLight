@@ -657,22 +657,73 @@ sap.ui.define([
 
         var blocks = section.fieldGroups.map(function (group) {
           var fields = group.fields.map(function (name) { return byName[name]; }).filter(Boolean);
-          var grid = this._createFieldGrid(section, fields, record, isCreate, editing, compact);
+          // Grouped sections sit directly above the child tables (Company Codes, Sales
+          // Areas) in the same dialog, so their fields use the same table control rather
+          // than a form - field names as the header row, their inputs as the row beneath,
+          // giving both the same rules and alignment instead of fields that appear to
+          // float next to bounded tables.
+          var body = compact
+            ? this._createFieldTable(section, fields, record, isCreate, editing)
+            : this._createFieldGrid(section, fields, record, isCreate, editing, compact);
           // A group whose every field was filtered out (all keys hidden on create, say)
           // would otherwise leave a heading with nothing under it.
-          if (!grid.getContent().length) {
-            grid.destroy();
+          if (!body.getItems && !body.getContent().length) {
+            body.destroy();
+            return null;
+          }
+          if (body.getItems && !body.getItems().length) {
+            body.destroy();
             return null;
           }
           return new VBox({
             items: [
               new Title({ text: group.title, level: "H3" }).addStyleClass("sapUiSmallMarginTop"),
-              grid
+              body
             ]
           });
         }, this).filter(Boolean);
 
         return new VBox({ items: blocks });
+      },
+
+      /**
+       * One field group rendered with the same sap.m.Table the record sections use, so a
+       * group of fields and a table of child records carry identical chrome. Fields are
+       * chunked four to a table because one table of a dozen columns would not fit; each
+       * chunk is padded back to four columns so the column widths line up down the block.
+       */
+      _createFieldTable: function (section, fields, record, isCreate, editing) {
+        var COLUMNS = 4;
+        var shown = fields.filter(function (field) {
+          if (field.name === section.relationField) return false;
+          return !(isCreate && field.key && field.creatable === false);
+        });
+
+        var container = new VBox();
+        for (var start = 0; start < shown.length; start += COLUMNS) {
+          var chunk = shown.slice(start, start + COLUMNS);
+          var table = new Table({ inset: false, showSeparators: "All" });
+
+          chunk.forEach(function (field) {
+            table.addColumn(new Column({
+              header: new Text({
+                text: field.label + (this._isRequired(section, field, isCreate, editing) ? " *" : "")
+              })
+            }));
+          }, this);
+          for (var pad = chunk.length; pad < COLUMNS; pad += 1) {
+            table.addColumn(new Column({ header: new Text({ text: "" }) }));
+          }
+
+          var cells = chunk.map(function (field) {
+            return this._createFieldControl(section, field, record, isCreate, editing);
+          }, this);
+          while (cells.length < COLUMNS) cells.push(new Text({ text: "" }));
+
+          table.addItem(new ColumnListItem({ cells: cells }));
+          container.addItem(table);
+        }
+        return container;
       },
 
       /**
