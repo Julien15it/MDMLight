@@ -241,8 +241,11 @@ const sections = [
       'Customer', 'SalesOrganization', 'DistributionChannel', 'Division',
       'CreditControlArea', 'Currency', 'CustomerPriceGroup', 'CustomerPricingProcedure',
       'CustomerPaymentTerms', 'DeliveryPriority', 'ShippingCondition', 'BillingIsBlockedForCustomer',
-      // MDG shows these as "Condition Group 1-5" under the customer's Additional Data;
-      // in API_BUSINESS_PARTNER they are sales-area level, so they live here.
+      // KNVV.KVGR1-5, "Customer Group 1-5". NOT the MDG screen's "Condition Group 1-5",
+      // which is KNA1.KDKG1-5 ("Customer condition group") - a different field at
+      // customer level that API_BUSINESS_PARTNER does not expose at all. Checked against
+      // the system's own data dictionary; an earlier revision of this file claimed
+      // otherwise and was wrong.
       'AdditionalCustomerGroup1', 'AdditionalCustomerGroup2', 'AdditionalCustomerGroup3',
       'AdditionalCustomerGroup4', 'AdditionalCustomerGroup5'
     ],
