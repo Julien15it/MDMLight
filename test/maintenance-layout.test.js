@@ -281,6 +281,12 @@ test('Customer and Supplier carry their whole entity, grouped, behind a Details 
   );
   assert.match(controller, /section\.fieldGroups/);
   assert.match(controller, /text: "Details"/);
+
+  // Record dialogs use the SAP form layout (label beside its field, two per row) so a
+  // fifty-field dialog stays readable; the Object Page cards keep their roomier layout.
+  assert.match(controller, /sap\/ui\/layout\/form\/SimpleForm/);
+  assert.match(controller, /new SimpleForm\(/);
+  assert.match(controller, /this\._createForm\(section, record, isCreate, editing, true\)/);
 });
 
 test('company code, sales area and purchasing org live inside their role Details dialog', () => {

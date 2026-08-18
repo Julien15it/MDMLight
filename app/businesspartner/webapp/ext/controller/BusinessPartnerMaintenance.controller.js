@@ -16,6 +16,7 @@ sap.ui.define([
   "sap/m/DateTimePicker",
   "sap/ui/core/Item",
   "sap/ui/layout/Grid",
+  "sap/ui/layout/form/SimpleForm",
   "sap/m/Table",
   "sap/m/Column",
   "sap/m/ColumnListItem",
@@ -49,6 +50,7 @@ sap.ui.define([
   DateTimePicker,
   Item,
   Grid,
+  SimpleForm,
   Table,
   Column,
   ColumnListItem,
@@ -642,12 +644,12 @@ sap.ui.define([
         ).addStyleClass("bpObjectPageCard"));
       },
 
-      _createForm: function (section, record, isCreate, editing) {
+      _createForm: function (section, record, isCreate, editing, compact) {
         // A section with fieldGroups renders one titled block per group, the way the
         // standard MDG screen splits Control Data / Tax Information / Additional Data.
         // Without them it stays one flat grid, which is what every other section wants.
         if (!section.fieldGroups || !section.fieldGroups.length) {
-          return this._createFieldGrid(section, section.fields, record, isCreate, editing);
+          return this._createFieldGrid(section, section.fields, record, isCreate, editing, compact);
         }
 
         var byName = {};
@@ -655,7 +657,7 @@ sap.ui.define([
 
         var blocks = section.fieldGroups.map(function (group) {
           var fields = group.fields.map(function (name) { return byName[name]; }).filter(Boolean);
-          var grid = this._createFieldGrid(section, fields, record, isCreate, editing);
+          var grid = this._createFieldGrid(section, fields, record, isCreate, editing, compact);
           // A group whose every field was filtered out (all keys hidden on create, say)
           // would otherwise leave a heading with nothing under it.
           if (!grid.getContent().length) {
@@ -673,12 +675,47 @@ sap.ui.define([
         return new VBox({ items: blocks });
       },
 
-      /** The field controls for one flat list of fields, laid out in a responsive grid. */
-      _createFieldGrid: function (section, fields, record, isCreate, editing) {
-        var content = fields.filter(function (field) {
+      /**
+       * The field controls for one flat list of fields.
+       *
+       * `compact` picks the SAP form layout - label left of its field, two pairs per row -
+       * which is what the standard MDG screens use and what keeps a fifty-field dialog
+       * readable next to the tables below it. Without it the fields keep the roomier
+       * label-above-field cards the Object Page uses for General Information and Names.
+       */
+      _createFieldGrid: function (section, fields, record, isCreate, editing, compact) {
+        var shown = fields.filter(function (field) {
           if (field.name === section.relationField) return false;
           return !(isCreate && field.key && field.creatable === false);
-        }).map(function (field) {
+        });
+
+        if (compact) {
+          var formContent = [];
+          shown.forEach(function (field) {
+            var control = this._createFieldControl(section, field, record, isCreate, editing);
+            formContent.push(new Label({
+              text: field.label + (this._isRequired(section, field, isCreate, editing) ? " *" : ""),
+              labelFor: control
+            }));
+            formContent.push(control);
+          }, this);
+
+          return new SimpleForm({
+            layout: "ResponsiveGridLayout",
+            editable: Boolean(editing),
+            columnsXL: 2,
+            columnsL: 2,
+            columnsM: 1,
+            labelSpanXL: 5,
+            labelSpanL: 5,
+            labelSpanM: 5,
+            labelSpanS: 12,
+            adjustLabelSpan: false,
+            content: formContent
+          });
+        }
+
+        var content = shown.map(function (field) {
           var control = this._createFieldControl(section, field, record, isCreate, editing);
           return new VBox({
             items: [
@@ -869,7 +906,8 @@ sap.ui.define([
           section,
           record,
           state.mode === "create",
-          state.editing
+          state.editing,
+          true
         ).addStyleClass("bpAdditionalFields");
         var dialog = new Dialog({
           title: "Additional Business Partner Fields",
@@ -1112,7 +1150,7 @@ sap.ui.define([
       _openRecordDialog: function (section, record, isCreate, index) {
         var state = this.getView().getModel("maintenance").getData();
         var editing = Boolean(state.editing);
-        var form = this._createForm(section, record, isCreate, editing);
+        var form = this._createForm(section, record, isCreate, editing, true);
         var items = [form];
 
         // Child sections (Company Codes, Sales Areas, Purchasing Organizations) render
