@@ -1236,27 +1236,17 @@ sap.ui.define([], function () {
         ],
         "fieldGroups": [
           {
-            "title": "General",
+            "title": "Control Data",
             "fields": [
               "Customer",
+              "CustomerAccountGroup",
               "CustomerFullName",
               "CustomerName",
-              "CustomerAccountGroup",
               "CustomerClassification",
               "CustomerCorporateGroup",
               "AuthorizationGroup",
               "CreatedByUser",
               "CreationDate"
-            ]
-          },
-          {
-            "title": "Blocks and Status",
-            "fields": [
-              "BillingIsBlockedForCustomer",
-              "DeliveryIsBlocked",
-              "OrderIsBlockedForCustomer",
-              "PostingIsBlocked",
-              "DeletionIndicator"
             ]
           },
           {
@@ -1298,6 +1288,16 @@ sap.ui.define([], function () {
               "InternationalLocationNumber1",
               "InternationalLocationNumber2",
               "InternationalLocationNumber3"
+            ]
+          },
+          {
+            "title": "Blocks and Status",
+            "fields": [
+              "BillingIsBlockedForCustomer",
+              "DeliveryIsBlocked",
+              "OrderIsBlockedForCustomer",
+              "PostingIsBlocked",
+              "DeletionIndicator"
             ]
           },
           {
@@ -2098,26 +2098,16 @@ sap.ui.define([], function () {
         ],
         "fieldGroups": [
           {
-            "title": "General",
+            "title": "Control Data",
             "fields": [
               "Supplier",
+              "SupplierAccountGroup",
               "SupplierFullName",
               "SupplierName",
-              "SupplierAccountGroup",
               "SupplierCorporateGroup",
               "AuthorizationGroup",
               "CreatedByUser",
               "CreationDate"
-            ]
-          },
-          {
-            "title": "Blocks and Status",
-            "fields": [
-              "PaymentIsBlockedForSupplier",
-              "PostingIsBlocked",
-              "PurchasingIsBlocked",
-              "SupplierProcurementBlock",
-              "DeletionIndicator"
             ]
           },
           {
@@ -2158,6 +2148,16 @@ sap.ui.define([], function () {
               "InternationalLocationNumber1",
               "InternationalLocationNumber2",
               "InternationalLocationNumber3"
+            ]
+          },
+          {
+            "title": "Blocks and Status",
+            "fields": [
+              "PaymentIsBlockedForSupplier",
+              "PostingIsBlocked",
+              "PurchasingIsBlocked",
+              "SupplierProcurementBlock",
+              "DeletionIndicator"
             ]
           }
         ],

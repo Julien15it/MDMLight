@@ -137,20 +137,24 @@ const sections = [
     // "ERP Customer" screen splits the same data into Control Data / Tax Information /
     // Additional Data blocks. `fieldNames` is derived from these below, so a field added
     // to a group is automatically fetched too - the two can never drift apart.
+    // Block names and order follow the S/4 MDG "ERP Customer" screen: Control Data first,
+    // then Tax Information, with Additional Data last before the child tables.
+    //
+    // It cannot match field for field. MDG draws on the MDG staging model, this app on
+    // API_BUSINESS_PARTNER, and A_Customer simply does not carry Trading Partner, Location
+    // Code, SubTrib Group, Type of Business, Representative's Name, Liable for VAT, Sales
+    // Equalization Tax, ICMS/IPI-Exempt, CFOP Category, Type of Industry, DME Indicator,
+    // Instruction Key, Alternative Payer, the Condition Groups or any Export Data field.
+    // Those blocks are therefore absent rather than empty. Conversely A_Customer carries
+    // fields MDG shows elsewhere (VAT number, Tax Number 1-5, the industry codes), which
+    // are grouped here by what they are.
     fieldGroups: [
       {
-        title: 'General',
+        title: 'Control Data',
         fields: [
-          'Customer', 'CustomerFullName', 'CustomerName', 'CustomerAccountGroup',
+          'Customer', 'CustomerAccountGroup', 'CustomerFullName', 'CustomerName',
           'CustomerClassification', 'CustomerCorporateGroup', 'AuthorizationGroup',
           'CreatedByUser', 'CreationDate'
-        ]
-      },
-      {
-        title: 'Blocks and Status',
-        fields: [
-          'BillingIsBlockedForCustomer', 'DeliveryIsBlocked', 'OrderIsBlockedForCustomer',
-          'PostingIsBlocked', 'DeletionIndicator'
         ]
       },
       {
@@ -174,6 +178,13 @@ const sections = [
           'Supplier', 'PaymentReason', 'ExpressTrainStationName', 'TrainStationName',
           'InternationalLocationNumber1', 'InternationalLocationNumber2',
           'InternationalLocationNumber3'
+        ]
+      },
+      {
+        title: 'Blocks and Status',
+        fields: [
+          'BillingIsBlockedForCustomer', 'DeliveryIsBlocked', 'OrderIsBlockedForCustomer',
+          'PostingIsBlocked', 'DeletionIndicator'
         ]
       },
       {
@@ -244,19 +255,13 @@ const sections = [
     // See the Customers section above.
     childSections: ['SupplierCompany', 'SupplierPurchasingOrg'],
     // See the Customers section above for why these are grouped.
+    // Same ordering as Customers above, and the same caveat about MDG-only fields.
     fieldGroups: [
       {
-        title: 'General',
+        title: 'Control Data',
         fields: [
-          'Supplier', 'SupplierFullName', 'SupplierName', 'SupplierAccountGroup',
+          'Supplier', 'SupplierAccountGroup', 'SupplierFullName', 'SupplierName',
           'SupplierCorporateGroup', 'AuthorizationGroup', 'CreatedByUser', 'CreationDate'
-        ]
-      },
-      {
-        title: 'Blocks and Status',
-        fields: [
-          'PaymentIsBlockedForSupplier', 'PostingIsBlocked', 'PurchasingIsBlocked',
-          'SupplierProcurementBlock', 'DeletionIndicator'
         ]
       },
       {
@@ -281,6 +286,13 @@ const sections = [
           'DataExchangeInstructionKey', 'BirthDate', 'ConcatenatedInternationalLocNo',
           'InternationalLocationNumber1', 'InternationalLocationNumber2',
           'InternationalLocationNumber3'
+        ]
+      },
+      {
+        title: 'Blocks and Status',
+        fields: [
+          'PaymentIsBlockedForSupplier', 'PostingIsBlocked', 'PurchasingIsBlocked',
+          'SupplierProcurementBlock', 'DeletionIndicator'
         ]
       }
     ],
