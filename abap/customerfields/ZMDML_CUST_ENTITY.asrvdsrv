@@ -1,0 +1,10 @@
+@EndUserText.label: 'Customer master fields for MDM Light'
+define service ZMDML_CUST_ENTITY {
+  expose I_Customer            as Customers;
+  expose I_CustomerCompany     as CustomerCompanies;
+  expose I_CustomerSalesArea   as CustomerSalesAreas;
+  expose I_CustSalesAreaTax    as CustomerSalesAreaTaxes;
+  expose I_Supplier            as Suppliers;
+  expose I_SupplierCompany     as SupplierCompanies;
+  expose I_SupplierPurchasingOrg as SupplierPurchasingOrgs;
+}
