@@ -143,11 +143,13 @@ test('every button that checks cancels the pending trigger first', () => {
   for (const [entry, label] of Object.entries(heads)) {
     const at = CONTROLLER.indexOf(entry);
     assert.ok(at > 0, `${label} exists`);
-    // Within the first few lines of the handler, and before any early return.
-    const head = CONTROLLER.slice(at, at + 400);
+    // Comment lines are stripped first: onCheck explains this very ordering in a comment that
+    // contains the word "return", and a naive search matches that ahead of the statement.
+    const head = CONTROLLER.slice(at, at + 600)
+      .split('\n').filter((line) => !/^\s*\/\//u.test(line)).join('\n');
     assert.match(head, /this\._cancelPendingTrigger\(\)/u, `${label} cancels the pending trigger`);
     const cancelAt = head.indexOf('_cancelPendingTrigger');
-    const returnAt = head.indexOf('return');
+    const returnAt = head.search(/\breturn\b/u);
     if (returnAt > -1) {
       assert.ok(cancelAt < returnAt, `${label} cancels before it can return early`);
     }

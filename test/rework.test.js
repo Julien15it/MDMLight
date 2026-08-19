@@ -136,10 +136,14 @@ test('the resubmit signal carries the BP context flat inside inputs', () => {
 test('submit and resubmit send the same BP context, built once', () => {
   assert.match(serviceJs, /const workflowContext = async \(req, changeRequest, header, findings\)/u);
   assert.equal((serviceJs.match(/await workflowContext\(/gu) || []).length, 2, 'both paths use it');
-  // The context literal exists in exactly one place.
-  assert.equal((serviceJs.match(/changerequestid:/gu) || []).length, 1);
+  // Scoped to the builder, not the whole file: withdraw also sends `changerequestid`, but as a
+  // single field on its own signal rather than a second copy of the context.
+  const builder = serviceJs.slice(
+    serviceJs.indexOf('const workflowContext ='), serviceJs.indexOf('const persist =')
+  );
+  assert.equal((builder.match(/changerequestid:/gu) || []).length, 1, 'one context literal');
   for (const key of ['businesspartnerinput', 'bpduplicates', 'bpurl', 'reworkurl', 'requesttype']) {
-    assert.match(serviceJs, new RegExp(`${key}:`, 'u'), `${key} is in the context`);
+    assert.match(builder, new RegExp(`${key}:`, 'u'), `${key} is in the context`);
   }
 });
 
