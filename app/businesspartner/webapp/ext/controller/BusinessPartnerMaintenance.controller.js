@@ -16,7 +16,6 @@ sap.ui.define([
   "sap/m/DateTimePicker",
   "sap/ui/core/Item",
   "sap/ui/layout/Grid",
-  "sap/ui/layout/form/SimpleForm",
   "sap/m/Table",
   "sap/m/Column",
   "sap/m/ColumnListItem",
@@ -50,7 +49,6 @@ sap.ui.define([
   DateTimePicker,
   Item,
   Grid,
-  SimpleForm,
   Table,
   Column,
   ColumnListItem,
@@ -495,18 +493,12 @@ sap.ui.define([
               .filter(function (section) { return section.kind !== "root"; })
               .map(async function (section) {
                 var relationValue = relationValues[section.relationField];
-                // No Customer/Supplier record exists yet for this BP - nothing to
-                // filter by, and no point asking the server for it. Surfaced as a
-                // warning rather than left silent, so this is visible on screen
-                // instead of only in the browser console.
+                // No Customer/Supplier number on the partner means the role was never
+                // assigned. That is an ordinary state, not a problem, so the section
+                // simply stays empty - its own "no records" text already says so, and a
+                // banner per affected section would bury the real warnings.
                 if (relationValue === null || relationValue === undefined) {
-                  return {
-                    id: section.id,
-                    records: [],
-                    warning: section.title + ": Business Partner " + businessPartner
-                      + " has no " + section.relationField
-                      + " number on its record - no such role exists yet for this Business Partner."
-                  };
+                  return { id: section.id, records: [] };
                 }
                 try {
                   return await this._loadSection(relationValue, section);
@@ -727,44 +719,15 @@ sap.ui.define([
       },
 
       /**
-       * The field controls for one flat list of fields.
-       *
-       * `compact` picks the SAP form layout - label left of its field, two pairs per row -
-       * which is what the standard MDG screens use and what keeps a fifty-field dialog
-       * readable next to the tables below it. Without it the fields keep the roomier
-       * label-above-field cards the Object Page uses for General Information and Names.
+       * The field controls for one flat list of fields, as label-above-field cards in a
+       * responsive grid. This is the layout every section has always used and the only
+       * one outside the grouped Customer/Supplier blocks - see _createFieldTable.
        */
-      _createFieldGrid: function (section, fields, record, isCreate, editing, compact) {
+      _createFieldGrid: function (section, fields, record, isCreate, editing) {
         var shown = fields.filter(function (field) {
           if (field.name === section.relationField) return false;
           return !(isCreate && field.key && field.creatable === false);
         });
-
-        if (compact) {
-          var formContent = [];
-          shown.forEach(function (field) {
-            var control = this._createFieldControl(section, field, record, isCreate, editing);
-            formContent.push(new Label({
-              text: field.label + (this._isRequired(section, field, isCreate, editing) ? " *" : ""),
-              labelFor: control
-            }));
-            formContent.push(control);
-          }, this);
-
-          return new SimpleForm({
-            layout: "ResponsiveGridLayout",
-            editable: Boolean(editing),
-            columnsXL: 2,
-            columnsL: 2,
-            columnsM: 1,
-            labelSpanXL: 5,
-            labelSpanL: 5,
-            labelSpanM: 5,
-            labelSpanS: 12,
-            adjustLabelSpan: false,
-            content: formContent
-          });
-        }
 
         var content = shown.map(function (field) {
           var control = this._createFieldControl(section, field, record, isCreate, editing);
@@ -957,8 +920,7 @@ sap.ui.define([
           section,
           record,
           state.mode === "create",
-          state.editing,
-          true
+          state.editing
         ).addStyleClass("bpAdditionalFields");
         var dialog = new Dialog({
           title: "Additional Business Partner Fields",
@@ -1201,7 +1163,11 @@ sap.ui.define([
       _openRecordDialog: function (section, record, isCreate, index) {
         var state = this.getView().getModel("maintenance").getData();
         var editing = Boolean(state.editing);
-        var form = this._createForm(section, record, isCreate, editing, true);
+        // Only a grouped section (Customer/Supplier) switches to the table layout, because
+        // only there do field blocks sit directly above child tables and need to match
+        // them. Every other dialog keeps the card layout it has always had.
+        var grouped = Boolean(section.fieldGroups && section.fieldGroups.length);
+        var form = this._createForm(section, record, isCreate, editing, grouped);
         var items = [form];
 
         // Child sections (Company Codes, Sales Areas, Purchasing Organizations) render

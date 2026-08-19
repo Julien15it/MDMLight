@@ -300,10 +300,13 @@ test('Customer and Supplier carry their whole entity, grouped, behind a Details 
   // fields render with the same sap.m.Table - field names as the header row, inputs as
   // the row below - rather than as a form that would look unbounded beside them.
   assert.match(controller, /_createFieldTable/);
-  assert.match(controller, /this\._createForm\(section, record, isCreate, editing, true\)/);
-  // Ungrouped dialogs still get the SAP form layout.
-  assert.match(controller, /sap\/ui\/layout\/form\/SimpleForm/);
-  assert.match(controller, /new SimpleForm\(/);
+
+  // That table layout is for grouped sections only. Every other dialog - Addresses,
+  // Roles, Tax Numbers, Additional Fields - keeps the label-above-field cards it has
+  // always had, so the flag is derived from the section rather than passed as a literal.
+  assert.match(controller, /var grouped = Boolean\(section\.fieldGroups/);
+  assert.doesNotMatch(controller, /isCreate, editing, true\)/);
+  assert.doesNotMatch(controller, /SimpleForm/);
 });
 
 test('company code, sales area and purchasing org live inside their role Details dialog', () => {
