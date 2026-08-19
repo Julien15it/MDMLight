@@ -316,11 +316,23 @@ test('company code, sales area and purchasing org live inside their role Details
     'utf8'
   );
 
+  // The full MDG "ERP Customer" / "ERP Supplier" tree, in the order MDG lists it: the
+  // role's own node first, then Company Code and everything under it, then Sales Area /
+  // Purchasing Organization and everything under those.
   const expected = {
     Customers: [
-      'CustomerTaxGrouping', 'CustomerCompany', 'CustomerSalesArea', 'CustomerTaxIndicators'
+      'CustomerText', 'CustomerAddressExtIdentifier', 'CustomerAddressInfo',
+      'CustomerTaxGrouping', 'CustomerCompany', 'CustomerCompanyText',
+      'CustomerDunning', 'CustomerWithholdingTax', 'CustomerSalesArea',
+      'CustomerTaxIndicators', 'CustomerSalesAreaText',
+      'CustomerSalesPartnerFunctions', 'CustomerSalesAreaAddressInfo',
+      'CustomerUnloadingPoint', 'CustomerUnloadingPointAddressInfo'
     ],
-    Suppliers: ['SupplierCompany', 'SupplierPurchasingOrg']
+    Suppliers: [
+      'SupplierText', 'SupplierCompany', 'SupplierCompanyText', 'SupplierDunning',
+      'SupplierWithholdingTax', 'SupplierPurchasingOrg', 'SupplierPurchasingOrgText',
+      'SupplierPartnerFunctions'
+    ]
   };
 
   for (const [parentId, childIds] of Object.entries(expected)) {

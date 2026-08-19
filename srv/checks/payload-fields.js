@@ -46,7 +46,25 @@ const PAYLOAD_NODES = Object.freeze({
   SupplierCompany:       { entity: `${STAGING}StagedSupplierCompany`,       many: true },
   CustomerSalesArea:     { entity: `${STAGING}StagedCustomerSalesArea`,     many: true },
   CustomerTaxGrouping:   { entity: `${STAGING}StagedCustomerTaxGrouping`,   many: true },
-  SupplierPurchasingOrg: { entity: `${STAGING}StagedSupplierPurchasingOrg`, many: true }
+  SupplierPurchasingOrg: { entity: `${STAGING}StagedSupplierPurchasingOrg`, many: true },
+  CustomerText:                      { entity: `${STAGING}StagedCustomerText`, many: true },
+  CustomerAddressExtIdentifier:      { entity: `${STAGING}StagedCustomerAddressExtIdentifier`, many: true },
+  CustomerAddressInfo:               { entity: `${STAGING}StagedCustomerAddressInfo`, many: true },
+  CustomerCompanyText:               { entity: `${STAGING}StagedCustomerCompanyText`, many: true },
+  CustomerDunning:                   { entity: `${STAGING}StagedCustomerDunning`, many: true },
+  CustomerWithholdingTax:            { entity: `${STAGING}StagedCustomerWithholdingTax`, many: true },
+  CustomerSalesAreaText:             { entity: `${STAGING}StagedCustomerSalesAreaText`, many: true },
+  CustomerTaxIndicators:             { entity: `${STAGING}StagedCustomerTaxIndicators`, many: true },
+  CustomerSalesPartnerFunctions:     { entity: `${STAGING}StagedCustomerSalesPartnerFunc`, many: true },
+  CustomerSalesAreaAddressInfo:      { entity: `${STAGING}StagedCustomerSalesAreaAddressInfo`, many: true },
+  CustomerUnloadingPoint:            { entity: `${STAGING}StagedCustomerUnloadingPoint`, many: true },
+  CustomerUnloadingPointAddressInfo: { entity: `${STAGING}StagedCustomerUnloadingPointAddressInfo`, many: true },
+  SupplierText:                      { entity: `${STAGING}StagedSupplierText`, many: true },
+  SupplierCompanyText:               { entity: `${STAGING}StagedSupplierCompanyText`, many: true },
+  SupplierDunning:                   { entity: `${STAGING}StagedSupplierDunning`, many: true },
+  SupplierWithholdingTax:            { entity: `${STAGING}StagedSupplierWithholdingTax`, many: true },
+  SupplierPurchasingOrgText:         { entity: `${STAGING}StagedSupplierPurchasingOrgText`, many: true },
+  SupplierPartnerFunctions:          { entity: `${STAGING}StagedSupplierPartnerFunc`, many: true }
 });
 
 /** The payload root's section id, and the value the pipeline expects in `target`. */
@@ -77,7 +95,25 @@ const SECTION_TEXT = Object.freeze({
   SupplierCompany: 'Supplier Company Code',
   CustomerSalesArea: 'Customer Sales Area',
   CustomerTaxGrouping: 'Customer Tax Category',
-  SupplierPurchasingOrg: 'Supplier Purchasing Org'
+  SupplierPurchasingOrg: 'Supplier Purchasing Org',
+  CustomerText:                      'Customer Text',
+  CustomerAddressExtIdentifier:      'Customer Address Ext. Identifier',
+  CustomerAddressInfo:               'Customer Address Info',
+  CustomerCompanyText:               'Customer Company Code Text',
+  CustomerDunning:                   'Customer Dunning',
+  CustomerWithholdingTax:            'Customer Withholding Tax',
+  CustomerSalesAreaText:             'Customer Sales Area Text',
+  CustomerTaxIndicators:             'Customer Tax Indicator',
+  CustomerSalesPartnerFunctions:     'Customer Partner Function',
+  CustomerSalesAreaAddressInfo:      'Customer Sales Area Address Info',
+  CustomerUnloadingPoint:            'Customer Unloading Point',
+  CustomerUnloadingPointAddressInfo: 'Customer Unloading Point Address Info',
+  SupplierText:                      'Supplier Text',
+  SupplierCompanyText:               'Supplier Company Code Text',
+  SupplierDunning:                   'Supplier Dunning',
+  SupplierWithholdingTax:            'Supplier Withholding Tax',
+  SupplierPurchasingOrgText:         'Supplier Purchasing Org Text',
+  SupplierPartnerFunctions:          'Supplier Partner Function'
 });
 
 // A space before each capital that starts a new word, so BusinessPartnerCategory reads as

@@ -135,7 +135,12 @@ const sections = [
     // Ordered as the MDG screen orders them: Tax Categories, then Company Codes, then
     // Sales Areas.
     childSections: [
-      'CustomerTaxGrouping', 'CustomerCompany', 'CustomerSalesArea', 'CustomerTaxIndicators'
+      'CustomerText', 'CustomerAddressExtIdentifier', 'CustomerAddressInfo',
+      'CustomerTaxGrouping', 'CustomerCompany', 'CustomerCompanyText', 'CustomerDunning',
+      'CustomerWithholdingTax', 'CustomerSalesArea', 'CustomerTaxIndicators',
+      'CustomerSalesAreaText', 'CustomerSalesPartnerFunctions',
+      'CustomerSalesAreaAddressInfo', 'CustomerUnloadingPoint',
+      'CustomerUnloadingPointAddressInfo'
     ],
     // Grouped rather than one flat wall of 50 inputs, mirroring how the standard MDG
     // "ERP Customer" screen splits the same data into Control Data / Tax Information /
@@ -279,12 +284,9 @@ const sections = [
     requiredCreateFields: ['CustomerTaxGroupingCode']
   },
   {
-    // The MDG screen's "ERP Customer: Tax Indicators" block. Read-only: its key includes
-    // the sales area, so creating one means posting under
-    // A_CustomerSalesArea(Customer=…,SalesOrganization=…,DistributionChannel=…,Division=…),
-    // and businessPartnerNavigationPath only builds single-key parent paths. Displaying
-    // it is the useful half and costs nothing; making it maintainable needs that builder
-    // to handle composite parent keys first.
+    // The MDG screen's "ERP Customer: Tax Indicators" block. Posted under
+    // A_CustomerSalesArea(Customer=…,SalesOrganization=…,DistributionChannel=…,Division=…) -
+    // businessPartnerNavigationPath addresses that through parentKeyFields.
     id: 'CustomerTaxIndicators',
     title: 'Customer Tax Indicators',
     entitySet: 'A_CustomerSalesAreaTax',
@@ -292,8 +294,10 @@ const sections = [
     relationField: 'Customer',
     typeName: 'A_CustomerSalesAreaTaxType',
     kind: 'collection',
-    creatable: false,
-    deletable: false,
+    requiredCreateFields: [
+      'SalesOrganization', 'DistributionChannel', 'Division',
+      'DepartureCountry', 'CustomerTaxCategory'
+    ],
     emptyText: 'No tax indicators for this customer.',
     fieldNames: [
       'Customer', 'SalesOrganization', 'DistributionChannel', 'Division',
@@ -315,7 +319,11 @@ const sections = [
     creatable: true,
     deletable: false,
     // See the Customers section above.
-    childSections: ['SupplierCompany', 'SupplierPurchasingOrg'],
+    childSections: [
+      'SupplierText', 'SupplierCompany', 'SupplierCompanyText', 'SupplierDunning',
+      'SupplierWithholdingTax', 'SupplierPurchasingOrg', 'SupplierPurchasingOrgText',
+      'SupplierPartnerFunctions'
+    ],
     // See the Customers section above for why these are grouped.
     // Same ordering as Customers above, and the same caveat about MDG-only fields.
     fieldGroups: [
@@ -406,6 +414,358 @@ const sections = [
       'PurchasingOrganization', 'PurchasingGroup', 'PaymentTerms', 'PurchaseOrderCurrency', 'PurchasingIsBlockedForSupplier'
     ],
     requiredCreateFields: ['PurchasingOrganization']
+  },
+  {
+    id: 'CustomerText',
+    title: 'Customer Texts',
+    entitySet: 'A_CustomerText',
+    remoteEntity: 'A_CustomerText',
+    relationField: 'Customer',
+    typeName: 'A_CustomerTextType',
+    kind: 'collection',
+    emptyText: 'No texts for this customer.',
+    fieldNames: ['Customer', 'Language', 'LongTextID', 'LongText'],
+    summaryFields: ['Language', 'LongTextID', 'LongText'],
+    requiredCreateFields: ['Language', 'LongTextID']
+  },
+  {
+    id: 'CustomerAddressExtIdentifier',
+    title: 'Customer Address External Identifiers',
+    entitySet: 'A_CustAddrDepdntExtIdentifier',
+    remoteEntity: 'A_CustAddrDepdntExtIdentifier',
+    relationField: 'Customer',
+    typeName: 'A_CustAddrDepdntExtIdentifierType',
+    kind: 'collection',
+    emptyText: 'No address-dependent external identifiers for this customer.',
+    fieldNames: ['Customer', 'AddressID', 'CustomerExternalRefID'],
+    summaryFields: ['AddressID', 'CustomerExternalRefID'],
+    requiredCreateFields: ['AddressID']
+  },
+  {
+    id: 'CustomerAddressInfo',
+    title: 'Customer Address-Dependent Information',
+    entitySet: 'A_CustAddrDepdntInformation',
+    remoteEntity: 'A_CustAddrDepdntInformation',
+    relationField: 'Customer',
+    typeName: 'A_CustAddrDepdntInformationType',
+    kind: 'collection',
+    emptyText: 'No address-dependent information for this customer.',
+    fieldNames: [
+      'Customer', 'AddressID', 'ExpressTrainStationName', 'TrainStationName', 'CityCode',
+      'County'
+    ],
+    summaryFields: ['AddressID', 'CityCode', 'County', 'TrainStationName'],
+    requiredCreateFields: ['AddressID']
+  },
+  {
+    id: 'CustomerCompanyText',
+    title: 'Customer Company Code Texts',
+    entitySet: 'A_CustomerCompanyText',
+    remoteEntity: 'A_CustomerCompanyText',
+    relationField: 'Customer',
+    typeName: 'A_CustomerCompanyTextType',
+    kind: 'collection',
+    emptyText: 'No company code texts for this customer.',
+    fieldNames: ['Customer', 'CompanyCode', 'Language', 'LongTextID', 'LongText'],
+    summaryFields: ['CompanyCode', 'Language', 'LongTextID', 'LongText'],
+    requiredCreateFields: ['CompanyCode', 'Language', 'LongTextID']
+  },
+  {
+    id: 'CustomerDunning',
+    title: 'Customer Dunning',
+    entitySet: 'A_CustomerDunning',
+    remoteEntity: 'A_CustomerDunning',
+    relationField: 'Customer',
+    typeName: 'A_CustomerDunningType',
+    kind: 'collection',
+    emptyText: 'No dunning data for this customer.',
+    fieldNames: [
+      'Customer', 'CompanyCode', 'DunningArea', 'DunningProcedure', 'DunningLevel',
+      'DunningBlock', 'DunningRecipient', 'DunningClerk', 'LastDunnedOn',
+      'LegDunningProcedureOn', 'AuthorizationGroup'
+    ],
+    summaryFields: [
+      'CompanyCode', 'DunningArea', 'DunningProcedure', 'DunningLevel', 'DunningBlock'
+    ],
+    requiredCreateFields: ['CompanyCode', 'DunningArea']
+  },
+  {
+    id: 'CustomerWithholdingTax',
+    title: 'Customer Withholding Tax',
+    entitySet: 'A_CustomerWithHoldingTax',
+    remoteEntity: 'A_CustomerWithHoldingTax',
+    relationField: 'Customer',
+    typeName: 'A_CustomerWithHoldingTaxType',
+    kind: 'collection',
+    emptyText: 'No withholding tax data for this customer.',
+    fieldNames: [
+      'Customer', 'CompanyCode', 'WithholdingTaxType', 'WithholdingTaxCode',
+      'WithholdingTaxAgent', 'ObligationDateBegin', 'ObligationDateEnd',
+      'WithholdingTaxNumber', 'WithholdingTaxCertificate', 'WithholdingTaxExmptPercent',
+      'ExemptionDateBegin', 'ExemptionDateEnd', 'ExemptionReason', 'RecipientType',
+      'AuthorizationGroup'
+    ],
+    summaryFields: [
+      'CompanyCode', 'WithholdingTaxType', 'WithholdingTaxCode', 'WithholdingTaxNumber'
+    ],
+    requiredCreateFields: ['CompanyCode', 'WithholdingTaxType']
+  },
+  {
+    id: 'CustomerSalesAreaText',
+    title: 'Customer Sales Area Texts',
+    entitySet: 'A_CustomerSalesAreaText',
+    remoteEntity: 'A_CustomerSalesAreaText',
+    relationField: 'Customer',
+    typeName: 'A_CustomerSalesAreaTextType',
+    kind: 'collection',
+    emptyText: 'No sales area texts for this customer.',
+    fieldNames: [
+      'Customer', 'SalesOrganization', 'DistributionChannel', 'Division', 'Language',
+      'LongTextID', 'LongText'
+    ],
+    summaryFields: [
+      'SalesOrganization', 'DistributionChannel', 'Division', 'Language', 'LongText'
+    ],
+    requiredCreateFields: [
+      'SalesOrganization', 'DistributionChannel', 'Division', 'Language', 'LongTextID'
+    ]
+  },
+  {
+    id: 'CustomerSalesPartnerFunctions',
+    title: 'Customer Partner Functions',
+    entitySet: 'A_CustSalesPartnerFunc',
+    remoteEntity: 'A_CustSalesPartnerFunc',
+    relationField: 'Customer',
+    typeName: 'A_CustSalesPartnerFuncType',
+    kind: 'collection',
+    emptyText: 'No partner functions for this customer.',
+    fieldNames: [
+      'Customer', 'SalesOrganization', 'DistributionChannel', 'Division', 'PartnerFunction',
+      'PartnerCounter', 'BPCustomerNumber', 'DefaultPartner', 'Supplier', 'PersonnelNumber',
+      'ContactPerson', 'AddressID', 'AuthorizationGroup'
+    ],
+    summaryFields: [
+      'SalesOrganization', 'DistributionChannel', 'Division', 'PartnerFunction',
+      'BPCustomerNumber', 'DefaultPartner'
+    ],
+    requiredCreateFields: [
+      'SalesOrganization', 'DistributionChannel', 'Division', 'PartnerFunction',
+      'PartnerCounter'
+    ]
+  },
+  {
+    id: 'CustomerSalesAreaAddressInfo',
+    title: 'Customer Sales Area Address-Dependent Information',
+    entitySet: 'A_CustSlsAreaAddrDepdntInfo',
+    remoteEntity: 'A_CustSlsAreaAddrDepdntInfo',
+    relationField: 'Customer',
+    typeName: 'A_CustSlsAreaAddrDepdntInfoType',
+    kind: 'collection',
+    emptyText: 'No sales area address-dependent information for this customer.',
+    fieldNames: [
+      'Customer', 'SalesOrganization', 'DistributionChannel', 'Division', 'AddressID',
+      'IncotermsClassification', 'IncotermsLocation1', 'IncotermsLocation2',
+      'IncotermsVersion', 'DeliveryIsBlocked', 'SalesOffice', 'SalesGroup',
+      'ShippingCondition', 'SupplyingPlant'
+    ],
+    summaryFields: [
+      'SalesOrganization', 'DistributionChannel', 'Division', 'AddressID',
+      'IncotermsClassification', 'DeliveryIsBlocked'
+    ],
+    requiredCreateFields: ['SalesOrganization', 'DistributionChannel', 'Division', 'AddressID']
+  },
+  {
+    id: 'CustomerUnloadingPoint',
+    title: 'Customer Unloading Points',
+    entitySet: 'A_CustomerUnloadingPoint',
+    remoteEntity: 'A_CustomerUnloadingPoint',
+    relationField: 'Customer',
+    typeName: 'A_CustomerUnloadingPointType',
+    kind: 'collection',
+    emptyText: 'No unloading points for this customer.',
+    fieldGroups: [
+      { title: 'Unloading Point', fields: ['Customer', 'UnloadingPointName', 'CustomerFactoryCalenderCode', 'BPGoodsReceivingHoursCode', 'IsDfltBPUnloadingPoint'] },
+      {
+        title: 'Monday',
+        fields: ['MondayMorningOpeningTime', 'MondayMorningClosingTime', 'MondayAfternoonOpeningTime', 'MondayAfternoonClosingTime']
+      },
+      {
+        title: 'Tuesday',
+        fields: ['TuesdayMorningOpeningTime', 'TuesdayMorningClosingTime', 'TuesdayAfternoonOpeningTime', 'TuesdayAfternoonClosingTime']
+      },
+      {
+        title: 'Wednesday',
+        fields: ['WednesdayMorningOpeningTime', 'WednesdayMorningClosingTime', 'WednesdayAfternoonOpeningTime', 'WednesdayAfternoonClosingTime']
+      },
+      {
+        title: 'Thursday',
+        fields: ['ThursdayMorningOpeningTime', 'ThursdayMorningClosingTime', 'ThursdayAfternoonOpeningTime', 'ThursdayAfternoonClosingTime']
+      },
+      {
+        title: 'Friday',
+        fields: ['FridayMorningOpeningTime', 'FridayMorningClosingTime', 'FridayAfternoonOpeningTime', 'FridayAfternoonClosingTime']
+      },
+      {
+        title: 'Saturday',
+        fields: ['SaturdayMorningOpeningTime', 'SaturdayMorningClosingTime', 'SaturdayAfternoonOpeningTime', 'SaturdayAfternoonClosingTime']
+      },
+      {
+        title: 'Sunday',
+        fields: ['SundayMorningOpeningTime', 'SundayMorningClosingTime', 'SundayAfternoonOpeningTime', 'SundayAfternoonClosingTime']
+      }
+    ],
+    summaryFields: [
+      'UnloadingPointName', 'CustomerFactoryCalenderCode', 'BPGoodsReceivingHoursCode',
+      'IsDfltBPUnloadingPoint'
+    ],
+    requiredCreateFields: ['UnloadingPointName']
+  },
+  {
+    id: 'CustomerUnloadingPointAddressInfo',
+    title: 'Customer Unloading Point Address-Dependent Information',
+    entitySet: 'A_CustUnldgPtAddrDepdntInfo',
+    remoteEntity: 'A_CustUnldgPtAddrDepdntInfo',
+    relationField: 'Customer',
+    typeName: 'A_CustUnldgPtAddrDepdntInfoType',
+    kind: 'collection',
+    emptyText: 'No unloading point address information for this customer.',
+    fieldGroups: [
+      { title: 'Unloading Point', fields: ['Customer', 'AddressID', 'UnloadingPointName', 'CustomerFactoryCalenderCode', 'BPGoodsReceivingHoursCode', 'IsDfltBPUnloadingPoint'] },
+      {
+        title: 'Monday',
+        fields: ['MondayMorningOpeningTime', 'MondayMorningClosingTime', 'MondayAfternoonOpeningTime', 'MondayAfternoonClosingTime']
+      },
+      {
+        title: 'Tuesday',
+        fields: ['TuesdayMorningOpeningTime', 'TuesdayMorningClosingTime', 'TuesdayAfternoonOpeningTime', 'TuesdayAfternoonClosingTime']
+      },
+      {
+        title: 'Wednesday',
+        fields: ['WednesdayMorningOpeningTime', 'WednesdayMorningClosingTime', 'WednesdayAfternoonOpeningTime', 'WednesdayAfternoonClosingTime']
+      },
+      {
+        title: 'Thursday',
+        fields: ['ThursdayMorningOpeningTime', 'ThursdayMorningClosingTime', 'ThursdayAfternoonOpeningTime', 'ThursdayAfternoonClosingTime']
+      },
+      {
+        title: 'Friday',
+        fields: ['FridayMorningOpeningTime', 'FridayMorningClosingTime', 'FridayAfternoonOpeningTime', 'FridayAfternoonClosingTime']
+      },
+      {
+        title: 'Saturday',
+        fields: ['SaturdayMorningOpeningTime', 'SaturdayMorningClosingTime', 'SaturdayAfternoonOpeningTime', 'SaturdayAfternoonClosingTime']
+      },
+      {
+        title: 'Sunday',
+        fields: ['SundayMorningOpeningTime', 'SundayMorningClosingTime', 'SundayAfternoonOpeningTime', 'SundayAfternoonClosingTime']
+      }
+    ],
+    summaryFields: [
+      'AddressID', 'UnloadingPointName', 'BPGoodsReceivingHoursCode',
+      'IsDfltBPUnloadingPoint'
+    ],
+    requiredCreateFields: ['AddressID', 'UnloadingPointName']
+  },
+  {
+    id: 'SupplierText',
+    title: 'Supplier Texts',
+    entitySet: 'A_SupplierText',
+    remoteEntity: 'A_SupplierText',
+    relationField: 'Supplier',
+    typeName: 'A_SupplierTextType',
+    kind: 'collection',
+    emptyText: 'No texts for this supplier.',
+    fieldNames: ['Supplier', 'Language', 'LongTextID', 'LongText'],
+    summaryFields: ['Language', 'LongTextID', 'LongText'],
+    requiredCreateFields: ['Language', 'LongTextID']
+  },
+  {
+    id: 'SupplierCompanyText',
+    title: 'Supplier Company Code Texts',
+    entitySet: 'A_SupplierCompanyText',
+    remoteEntity: 'A_SupplierCompanyText',
+    relationField: 'Supplier',
+    typeName: 'A_SupplierCompanyTextType',
+    kind: 'collection',
+    emptyText: 'No company code texts for this supplier.',
+    fieldNames: ['Supplier', 'CompanyCode', 'Language', 'LongTextID', 'LongText'],
+    summaryFields: ['CompanyCode', 'Language', 'LongTextID', 'LongText'],
+    requiredCreateFields: ['CompanyCode', 'Language', 'LongTextID']
+  },
+  {
+    id: 'SupplierDunning',
+    title: 'Supplier Dunning',
+    entitySet: 'A_SupplierDunning',
+    remoteEntity: 'A_SupplierDunning',
+    relationField: 'Supplier',
+    typeName: 'A_SupplierDunningType',
+    kind: 'collection',
+    emptyText: 'No dunning data for this supplier.',
+    fieldNames: [
+      'Supplier', 'CompanyCode', 'DunningArea', 'DunningProcedure', 'DunningLevel',
+      'DunningBlock', 'DunningRecipient', 'DunningClerk', 'LastDunnedOn',
+      'LegDunningProcedureOn', 'AuthorizationGroup'
+    ],
+    summaryFields: [
+      'CompanyCode', 'DunningArea', 'DunningProcedure', 'DunningLevel', 'DunningBlock'
+    ],
+    requiredCreateFields: ['CompanyCode', 'DunningArea']
+  },
+  {
+    id: 'SupplierWithholdingTax',
+    title: 'Supplier Withholding Tax',
+    entitySet: 'A_SupplierWithHoldingTax',
+    remoteEntity: 'A_SupplierWithHoldingTax',
+    relationField: 'Supplier',
+    typeName: 'A_SupplierWithHoldingTaxType',
+    kind: 'collection',
+    emptyText: 'No withholding tax data for this supplier.',
+    fieldNames: [
+      'Supplier', 'CompanyCode', 'WithholdingTaxType', 'WithholdingTaxCode',
+      'IsWithholdingTaxSubject', 'WithholdingTaxNumber', 'WithholdingTaxCertificate',
+      'WithholdingTaxExmptPercent', 'ExemptionDateBegin', 'ExemptionDateEnd',
+      'ExemptionReason', 'RecipientType', 'AuthorizationGroup'
+    ],
+    summaryFields: [
+      'CompanyCode', 'WithholdingTaxType', 'WithholdingTaxCode', 'IsWithholdingTaxSubject',
+      'WithholdingTaxNumber'
+    ],
+    requiredCreateFields: ['CompanyCode', 'WithholdingTaxType']
+  },
+  {
+    id: 'SupplierPurchasingOrgText',
+    title: 'Supplier Purchasing Organization Texts',
+    entitySet: 'A_SupplierPurchasingOrgText',
+    remoteEntity: 'A_SupplierPurchasingOrgText',
+    relationField: 'Supplier',
+    typeName: 'A_SupplierPurchasingOrgTextType',
+    kind: 'collection',
+    emptyText: 'No purchasing organization texts for this supplier.',
+    fieldNames: ['Supplier', 'PurchasingOrganization', 'Language', 'LongTextID', 'LongText'],
+    summaryFields: ['PurchasingOrganization', 'Language', 'LongTextID', 'LongText'],
+    requiredCreateFields: ['PurchasingOrganization', 'Language', 'LongTextID']
+  },
+  {
+    id: 'SupplierPartnerFunctions',
+    title: 'Supplier Partner Functions',
+    entitySet: 'A_SupplierPartnerFunc',
+    remoteEntity: 'A_SupplierPartnerFunc',
+    relationField: 'Supplier',
+    typeName: 'A_SupplierPartnerFuncType',
+    kind: 'collection',
+    emptyText: 'No partner functions for this supplier.',
+    fieldNames: [
+      'Supplier', 'PurchasingOrganization', 'SupplierSubrange', 'Plant', 'PartnerFunction',
+      'PartnerCounter', 'DefaultPartner', 'ReferenceSupplier', 'AuthorizationGroup'
+    ],
+    summaryFields: [
+      'PurchasingOrganization', 'SupplierSubrange', 'Plant', 'PartnerFunction',
+      'DefaultPartner'
+    ],
+    requiredCreateFields: [
+      'PurchasingOrganization', 'SupplierSubrange', 'Plant', 'PartnerFunction',
+      'PartnerCounter'
+    ]
   }
 ];
 

@@ -38,7 +38,25 @@ const RELATION_FIELDS = Object.freeze({
   SupplierCompany: 'Supplier',
   CustomerSalesArea: 'Customer',
   CustomerTaxGrouping: 'Customer',
-  SupplierPurchasingOrg: 'Supplier'
+  SupplierPurchasingOrg: 'Supplier',
+  CustomerText:                      'Customer',
+  CustomerAddressExtIdentifier:      'Customer',
+  CustomerAddressInfo:               'Customer',
+  CustomerCompanyText:               'Customer',
+  CustomerDunning:                   'Customer',
+  CustomerWithholdingTax:            'Customer',
+  CustomerSalesAreaText:             'Customer',
+  CustomerTaxIndicators:             'Customer',
+  CustomerSalesPartnerFunctions:     'Customer',
+  CustomerSalesAreaAddressInfo:      'Customer',
+  CustomerUnloadingPoint:            'Customer',
+  CustomerUnloadingPointAddressInfo: 'Customer',
+  SupplierText:                      'Supplier',
+  SupplierCompanyText:               'Supplier',
+  SupplierDunning:                   'Supplier',
+  SupplierWithholdingTax:            'Supplier',
+  SupplierPurchasingOrgText:         'Supplier',
+  SupplierPartnerFunctions:          'Supplier'
 });
 
 /** Navigation off A_BusinessPartner used to resolve each relation field's real

@@ -1231,10 +1231,21 @@ sap.ui.define([], function () {
         "creatable": true,
         "deletable": false,
         "childSections": [
+          "CustomerText",
+          "CustomerAddressExtIdentifier",
+          "CustomerAddressInfo",
           "CustomerTaxGrouping",
           "CustomerCompany",
+          "CustomerCompanyText",
+          "CustomerDunning",
+          "CustomerWithholdingTax",
           "CustomerSalesArea",
-          "CustomerTaxIndicators"
+          "CustomerTaxIndicators",
+          "CustomerSalesAreaText",
+          "CustomerSalesPartnerFunctions",
+          "CustomerSalesAreaAddressInfo",
+          "CustomerUnloadingPoint",
+          "CustomerUnloadingPointAddressInfo"
         ],
         "fieldGroups": [
           {
@@ -2250,8 +2261,13 @@ sap.ui.define([], function () {
         "relationField": "Customer",
         "typeName": "A_CustomerSalesAreaTaxType",
         "kind": "collection",
-        "creatable": false,
-        "deletable": false,
+        "requiredCreateFields": [
+          "SalesOrganization",
+          "DistributionChannel",
+          "Division",
+          "DepartureCountry",
+          "CustomerTaxCategory"
+        ],
         "emptyText": "No tax indicators for this customer.",
         "summaryFields": [
           "DepartureCountry",
@@ -2345,8 +2361,14 @@ sap.ui.define([], function () {
         "creatable": true,
         "deletable": false,
         "childSections": [
+          "SupplierText",
           "SupplierCompany",
-          "SupplierPurchasingOrg"
+          "SupplierCompanyText",
+          "SupplierDunning",
+          "SupplierWithholdingTax",
+          "SupplierPurchasingOrg",
+          "SupplierPurchasingOrgText",
+          "SupplierPartnerFunctions"
         ],
         "fieldGroups": [
           {
@@ -3015,6 +3037,2391 @@ sap.ui.define([], function () {
             "type": "cds.Boolean",
             "key": false,
             "nullable": true,
+            "creatable": true,
+            "updatable": true
+          }
+        ]
+      },
+      {
+        "id": "CustomerText",
+        "title": "Customer Texts",
+        "entitySet": "A_CustomerText",
+        "remoteEntity": "A_CustomerText",
+        "relationField": "Customer",
+        "typeName": "A_CustomerTextType",
+        "kind": "collection",
+        "emptyText": "No texts for this customer.",
+        "summaryFields": [
+          "Language",
+          "LongTextID",
+          "LongText"
+        ],
+        "requiredCreateFields": [
+          "Language",
+          "LongTextID"
+        ],
+        "fields": [
+          {
+            "name": "Customer",
+            "label": "Customer",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "Language",
+            "label": "Language",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "LongTextID",
+            "label": "Text ID",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "LongText",
+            "label": "String",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "creatable": false,
+            "updatable": false
+          }
+        ]
+      },
+      {
+        "id": "CustomerAddressExtIdentifier",
+        "title": "Customer Address External Identifiers",
+        "entitySet": "A_CustAddrDepdntExtIdentifier",
+        "remoteEntity": "A_CustAddrDepdntExtIdentifier",
+        "relationField": "Customer",
+        "typeName": "A_CustAddrDepdntExtIdentifierType",
+        "kind": "collection",
+        "emptyText": "No address-dependent external identifiers for this customer.",
+        "summaryFields": [
+          "AddressID",
+          "CustomerExternalRefID"
+        ],
+        "requiredCreateFields": [
+          "AddressID"
+        ],
+        "fields": [
+          {
+            "name": "Customer",
+            "label": "Customer",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "AddressID",
+            "label": "Address Number",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": false,
+            "updatable": true
+          },
+          {
+            "name": "CustomerExternalRefID",
+            "label": "SlrDfndCustAddrID",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 12,
+            "creatable": true,
+            "updatable": true
+          }
+        ]
+      },
+      {
+        "id": "CustomerAddressInfo",
+        "title": "Customer Address-Dependent Information",
+        "entitySet": "A_CustAddrDepdntInformation",
+        "remoteEntity": "A_CustAddrDepdntInformation",
+        "relationField": "Customer",
+        "typeName": "A_CustAddrDepdntInformationType",
+        "kind": "collection",
+        "emptyText": "No address-dependent information for this customer.",
+        "summaryFields": [
+          "AddressID",
+          "CityCode",
+          "County",
+          "TrainStationName"
+        ],
+        "requiredCreateFields": [
+          "AddressID"
+        ],
+        "fields": [
+          {
+            "name": "Customer",
+            "label": "Customer",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "AddressID",
+            "label": "Address Number",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": false,
+            "updatable": true
+          },
+          {
+            "name": "ExpressTrainStationName",
+            "label": "Express station",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 25,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "TrainStationName",
+            "label": "Train station",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 25,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CityCode",
+            "label": "City Code",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "County",
+            "label": "County Code",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 3,
+            "creatable": true,
+            "updatable": true
+          }
+        ]
+      },
+      {
+        "id": "CustomerCompanyText",
+        "title": "Customer Company Code Texts",
+        "entitySet": "A_CustomerCompanyText",
+        "remoteEntity": "A_CustomerCompanyText",
+        "relationField": "Customer",
+        "typeName": "A_CustomerCompanyTextType",
+        "kind": "collection",
+        "emptyText": "No company code texts for this customer.",
+        "summaryFields": [
+          "CompanyCode",
+          "Language",
+          "LongTextID",
+          "LongText"
+        ],
+        "requiredCreateFields": [
+          "CompanyCode",
+          "Language",
+          "LongTextID"
+        ],
+        "fields": [
+          {
+            "name": "Customer",
+            "label": "Customer",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CompanyCode",
+            "label": "Company Code",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "Language",
+            "label": "Language",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "LongTextID",
+            "label": "Text ID",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "LongText",
+            "label": "String",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "creatable": false,
+            "updatable": false
+          }
+        ]
+      },
+      {
+        "id": "CustomerDunning",
+        "title": "Customer Dunning",
+        "entitySet": "A_CustomerDunning",
+        "remoteEntity": "A_CustomerDunning",
+        "relationField": "Customer",
+        "typeName": "A_CustomerDunningType",
+        "kind": "collection",
+        "emptyText": "No dunning data for this customer.",
+        "summaryFields": [
+          "CompanyCode",
+          "DunningArea",
+          "DunningProcedure",
+          "DunningLevel",
+          "DunningBlock"
+        ],
+        "requiredCreateFields": [
+          "CompanyCode",
+          "DunningArea"
+        ],
+        "fields": [
+          {
+            "name": "Customer",
+            "label": "Customer",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CompanyCode",
+            "label": "Company Code",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "DunningArea",
+            "label": "Dunning Area",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "DunningBlock",
+            "label": "Dunning Block",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 1,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "DunningLevel",
+            "label": "Dunning Level",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 1,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "DunningProcedure",
+            "label": "Dunning Procedure",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "DunningRecipient",
+            "label": "Dunning Recipient",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "LastDunnedOn",
+            "label": "Last Dunned",
+            "type": "cds.Date",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "LegDunningProcedureOn",
+            "label": "Legal Dunn.Proc.From",
+            "type": "cds.Date",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "DunningClerk",
+            "label": "Dunning Clerk",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "AuthorizationGroup",
+            "label": "Authorization",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          }
+        ]
+      },
+      {
+        "id": "CustomerWithholdingTax",
+        "title": "Customer Withholding Tax",
+        "entitySet": "A_CustomerWithHoldingTax",
+        "remoteEntity": "A_CustomerWithHoldingTax",
+        "relationField": "Customer",
+        "typeName": "A_CustomerWithHoldingTaxType",
+        "kind": "collection",
+        "emptyText": "No withholding tax data for this customer.",
+        "summaryFields": [
+          "CompanyCode",
+          "WithholdingTaxType",
+          "WithholdingTaxCode",
+          "WithholdingTaxNumber"
+        ],
+        "requiredCreateFields": [
+          "CompanyCode",
+          "WithholdingTaxType"
+        ],
+        "fields": [
+          {
+            "name": "Customer",
+            "label": "Customer",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CompanyCode",
+            "label": "Company Code",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "WithholdingTaxType",
+            "label": "Withholding Tax Type",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "WithholdingTaxCode",
+            "label": "W/Tax Code",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "WithholdingTaxAgent",
+            "label": "WTax Agent",
+            "type": "cds.Boolean",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ObligationDateBegin",
+            "label": "W/Tax Obligated Frm",
+            "type": "cds.Date",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ObligationDateEnd",
+            "label": "Oblig.to W/Tax Until",
+            "type": "cds.Date",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "WithholdingTaxNumber",
+            "label": "W/tax number",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 16,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "WithholdingTaxCertificate",
+            "label": "Exemption Number",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 25,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "WithholdingTaxExmptPercent",
+            "label": "Exemption Rate",
+            "type": "cds.Decimal",
+            "key": false,
+            "nullable": true,
+            "precision": 5,
+            "scale": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ExemptionDateBegin",
+            "label": "Exemption Start Date",
+            "type": "cds.Date",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ExemptionDateEnd",
+            "label": "Exemption End Date",
+            "type": "cds.Date",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ExemptionReason",
+            "label": "Exemption Reason",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "RecipientType",
+            "label": "Recipient Type",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "AuthorizationGroup",
+            "label": "Authorization",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          }
+        ]
+      },
+      {
+        "id": "CustomerSalesAreaText",
+        "title": "Customer Sales Area Texts",
+        "entitySet": "A_CustomerSalesAreaText",
+        "remoteEntity": "A_CustomerSalesAreaText",
+        "relationField": "Customer",
+        "typeName": "A_CustomerSalesAreaTextType",
+        "kind": "collection",
+        "emptyText": "No sales area texts for this customer.",
+        "summaryFields": [
+          "SalesOrganization",
+          "DistributionChannel",
+          "Division",
+          "Language",
+          "LongText"
+        ],
+        "requiredCreateFields": [
+          "SalesOrganization",
+          "DistributionChannel",
+          "Division",
+          "Language",
+          "LongTextID"
+        ],
+        "fields": [
+          {
+            "name": "Customer",
+            "label": "Customer",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SalesOrganization",
+            "label": "Sales Organization",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "DistributionChannel",
+            "label": "Distribution Channel",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "Division",
+            "label": "Division",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "Language",
+            "label": "Language",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "LongTextID",
+            "label": "Text ID",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "LongText",
+            "label": "String",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "creatable": false,
+            "updatable": false
+          }
+        ]
+      },
+      {
+        "id": "CustomerSalesPartnerFunctions",
+        "title": "Customer Partner Functions",
+        "entitySet": "A_CustSalesPartnerFunc",
+        "remoteEntity": "A_CustSalesPartnerFunc",
+        "relationField": "Customer",
+        "typeName": "A_CustSalesPartnerFuncType",
+        "kind": "collection",
+        "emptyText": "No partner functions for this customer.",
+        "summaryFields": [
+          "SalesOrganization",
+          "DistributionChannel",
+          "Division",
+          "PartnerFunction",
+          "BPCustomerNumber",
+          "DefaultPartner"
+        ],
+        "requiredCreateFields": [
+          "SalesOrganization",
+          "DistributionChannel",
+          "Division",
+          "PartnerFunction",
+          "PartnerCounter"
+        ],
+        "fields": [
+          {
+            "name": "Customer",
+            "label": "Customer",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SalesOrganization",
+            "label": "Sales Organization",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "DistributionChannel",
+            "label": "Distribution Channel",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "Division",
+            "label": "Division",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PartnerCounter",
+            "label": "Partner counter",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 3,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PartnerFunction",
+            "label": "Partner Function",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "BPCustomerNumber",
+            "label": "Supplier",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "DefaultPartner",
+            "label": "Default Partner",
+            "type": "cds.Boolean",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "Supplier",
+            "label": "Supplier",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PersonnelNumber",
+            "label": "Personnel Number",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 8,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ContactPerson",
+            "label": "Contact Person",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "AddressID",
+            "label": "Address Number",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 10,
+            "creatable": false,
+            "updatable": true
+          },
+          {
+            "name": "AuthorizationGroup",
+            "label": "Authorization",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          }
+        ]
+      },
+      {
+        "id": "CustomerSalesAreaAddressInfo",
+        "title": "Customer Sales Area Address-Dependent Information",
+        "entitySet": "A_CustSlsAreaAddrDepdntInfo",
+        "remoteEntity": "A_CustSlsAreaAddrDepdntInfo",
+        "relationField": "Customer",
+        "typeName": "A_CustSlsAreaAddrDepdntInfoType",
+        "kind": "collection",
+        "emptyText": "No sales area address-dependent information for this customer.",
+        "summaryFields": [
+          "SalesOrganization",
+          "DistributionChannel",
+          "Division",
+          "AddressID",
+          "IncotermsClassification",
+          "DeliveryIsBlocked"
+        ],
+        "requiredCreateFields": [
+          "SalesOrganization",
+          "DistributionChannel",
+          "Division",
+          "AddressID"
+        ],
+        "fields": [
+          {
+            "name": "Customer",
+            "label": "Customer",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SalesOrganization",
+            "label": "Sales Organization",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "DistributionChannel",
+            "label": "Distribution Channel",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "Division",
+            "label": "Division",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "AddressID",
+            "label": "Address Number",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": false,
+            "updatable": true
+          },
+          {
+            "name": "IncotermsClassification",
+            "label": "Incoterms",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 3,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "IncotermsLocation1",
+            "label": "Incoterms Location 1",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 70,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "IncotermsLocation2",
+            "label": "Incoterms Location 2",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 70,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "DeliveryIsBlocked",
+            "label": "DelBlckSalesAr.",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SalesOffice",
+            "label": "Sales Office",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SalesGroup",
+            "label": "Sales Group",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 3,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ShippingCondition",
+            "label": "Shipping Conditions",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SupplyingPlant",
+            "label": "Delivering Plant",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "IncotermsVersion",
+            "label": "Incoterms Version",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          }
+        ]
+      },
+      {
+        "id": "CustomerUnloadingPoint",
+        "title": "Customer Unloading Points",
+        "entitySet": "A_CustomerUnloadingPoint",
+        "remoteEntity": "A_CustomerUnloadingPoint",
+        "relationField": "Customer",
+        "typeName": "A_CustomerUnloadingPointType",
+        "kind": "collection",
+        "emptyText": "No unloading points for this customer.",
+        "fieldGroups": [
+          {
+            "title": "Unloading Point",
+            "fields": [
+              "Customer",
+              "UnloadingPointName",
+              "CustomerFactoryCalenderCode",
+              "BPGoodsReceivingHoursCode",
+              "IsDfltBPUnloadingPoint"
+            ]
+          },
+          {
+            "title": "Monday",
+            "fields": [
+              "MondayMorningOpeningTime",
+              "MondayMorningClosingTime",
+              "MondayAfternoonOpeningTime",
+              "MondayAfternoonClosingTime"
+            ]
+          },
+          {
+            "title": "Tuesday",
+            "fields": [
+              "TuesdayMorningOpeningTime",
+              "TuesdayMorningClosingTime",
+              "TuesdayAfternoonOpeningTime",
+              "TuesdayAfternoonClosingTime"
+            ]
+          },
+          {
+            "title": "Wednesday",
+            "fields": [
+              "WednesdayMorningOpeningTime",
+              "WednesdayMorningClosingTime",
+              "WednesdayAfternoonOpeningTime",
+              "WednesdayAfternoonClosingTime"
+            ]
+          },
+          {
+            "title": "Thursday",
+            "fields": [
+              "ThursdayMorningOpeningTime",
+              "ThursdayMorningClosingTime",
+              "ThursdayAfternoonOpeningTime",
+              "ThursdayAfternoonClosingTime"
+            ]
+          },
+          {
+            "title": "Friday",
+            "fields": [
+              "FridayMorningOpeningTime",
+              "FridayMorningClosingTime",
+              "FridayAfternoonOpeningTime",
+              "FridayAfternoonClosingTime"
+            ]
+          },
+          {
+            "title": "Saturday",
+            "fields": [
+              "SaturdayMorningOpeningTime",
+              "SaturdayMorningClosingTime",
+              "SaturdayAfternoonOpeningTime",
+              "SaturdayAfternoonClosingTime"
+            ]
+          },
+          {
+            "title": "Sunday",
+            "fields": [
+              "SundayMorningOpeningTime",
+              "SundayMorningClosingTime",
+              "SundayAfternoonOpeningTime",
+              "SundayAfternoonClosingTime"
+            ]
+          }
+        ],
+        "summaryFields": [
+          "UnloadingPointName",
+          "CustomerFactoryCalenderCode",
+          "BPGoodsReceivingHoursCode",
+          "IsDfltBPUnloadingPoint"
+        ],
+        "requiredCreateFields": [
+          "UnloadingPointName"
+        ],
+        "fields": [
+          {
+            "name": "Customer",
+            "label": "Customer",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "UnloadingPointName",
+            "label": "Unloading Point",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 25,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CustomerFactoryCalenderCode",
+            "label": "Cust.fact.calendar",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "BPGoodsReceivingHoursCode",
+            "label": "Goods receiving hrs",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 3,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "IsDfltBPUnloadingPoint",
+            "label": "Default unloading pt",
+            "type": "cds.Boolean",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "MondayMorningOpeningTime",
+            "label": "Monday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "MondayMorningClosingTime",
+            "label": "Monday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "MondayAfternoonOpeningTime",
+            "label": "Monday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "MondayAfternoonClosingTime",
+            "label": "Monday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "TuesdayMorningOpeningTime",
+            "label": "Tuesday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "TuesdayMorningClosingTime",
+            "label": "Tuesday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "TuesdayAfternoonOpeningTime",
+            "label": "Tuesday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "TuesdayAfternoonClosingTime",
+            "label": "Tuesday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "WednesdayMorningOpeningTime",
+            "label": "Wednesday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "WednesdayMorningClosingTime",
+            "label": "Wednesday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "WednesdayAfternoonOpeningTime",
+            "label": "Wednesday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "WednesdayAfternoonClosingTime",
+            "label": "Wednesday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ThursdayMorningOpeningTime",
+            "label": "Thursday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ThursdayMorningClosingTime",
+            "label": "Thursday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ThursdayAfternoonOpeningTime",
+            "label": "Thursday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ThursdayAfternoonClosingTime",
+            "label": "Thursday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "FridayMorningOpeningTime",
+            "label": "Friday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "FridayMorningClosingTime",
+            "label": "Friday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "FridayAfternoonOpeningTime",
+            "label": "Friday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "FridayAfternoonClosingTime",
+            "label": "Friday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SaturdayMorningOpeningTime",
+            "label": "Saturday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SaturdayMorningClosingTime",
+            "label": "Saturday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SaturdayAfternoonOpeningTime",
+            "label": "Saturday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SaturdayAfternoonClosingTime",
+            "label": "Saturday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SundayMorningOpeningTime",
+            "label": "Sunday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SundayMorningClosingTime",
+            "label": "Sunday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SundayAfternoonOpeningTime",
+            "label": "Sunday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SundayAfternoonClosingTime",
+            "label": "Sunday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          }
+        ]
+      },
+      {
+        "id": "CustomerUnloadingPointAddressInfo",
+        "title": "Customer Unloading Point Address-Dependent Information",
+        "entitySet": "A_CustUnldgPtAddrDepdntInfo",
+        "remoteEntity": "A_CustUnldgPtAddrDepdntInfo",
+        "relationField": "Customer",
+        "typeName": "A_CustUnldgPtAddrDepdntInfoType",
+        "kind": "collection",
+        "emptyText": "No unloading point address information for this customer.",
+        "fieldGroups": [
+          {
+            "title": "Unloading Point",
+            "fields": [
+              "Customer",
+              "AddressID",
+              "UnloadingPointName",
+              "CustomerFactoryCalenderCode",
+              "BPGoodsReceivingHoursCode",
+              "IsDfltBPUnloadingPoint"
+            ]
+          },
+          {
+            "title": "Monday",
+            "fields": [
+              "MondayMorningOpeningTime",
+              "MondayMorningClosingTime",
+              "MondayAfternoonOpeningTime",
+              "MondayAfternoonClosingTime"
+            ]
+          },
+          {
+            "title": "Tuesday",
+            "fields": [
+              "TuesdayMorningOpeningTime",
+              "TuesdayMorningClosingTime",
+              "TuesdayAfternoonOpeningTime",
+              "TuesdayAfternoonClosingTime"
+            ]
+          },
+          {
+            "title": "Wednesday",
+            "fields": [
+              "WednesdayMorningOpeningTime",
+              "WednesdayMorningClosingTime",
+              "WednesdayAfternoonOpeningTime",
+              "WednesdayAfternoonClosingTime"
+            ]
+          },
+          {
+            "title": "Thursday",
+            "fields": [
+              "ThursdayMorningOpeningTime",
+              "ThursdayMorningClosingTime",
+              "ThursdayAfternoonOpeningTime",
+              "ThursdayAfternoonClosingTime"
+            ]
+          },
+          {
+            "title": "Friday",
+            "fields": [
+              "FridayMorningOpeningTime",
+              "FridayMorningClosingTime",
+              "FridayAfternoonOpeningTime",
+              "FridayAfternoonClosingTime"
+            ]
+          },
+          {
+            "title": "Saturday",
+            "fields": [
+              "SaturdayMorningOpeningTime",
+              "SaturdayMorningClosingTime",
+              "SaturdayAfternoonOpeningTime",
+              "SaturdayAfternoonClosingTime"
+            ]
+          },
+          {
+            "title": "Sunday",
+            "fields": [
+              "SundayMorningOpeningTime",
+              "SundayMorningClosingTime",
+              "SundayAfternoonOpeningTime",
+              "SundayAfternoonClosingTime"
+            ]
+          }
+        ],
+        "summaryFields": [
+          "AddressID",
+          "UnloadingPointName",
+          "BPGoodsReceivingHoursCode",
+          "IsDfltBPUnloadingPoint"
+        ],
+        "requiredCreateFields": [
+          "AddressID",
+          "UnloadingPointName"
+        ],
+        "fields": [
+          {
+            "name": "Customer",
+            "label": "Customer",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "AddressID",
+            "label": "Address Number",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": false,
+            "updatable": true
+          },
+          {
+            "name": "UnloadingPointName",
+            "label": "Unloading Point",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 25,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CustomerFactoryCalenderCode",
+            "label": "Cust.fact.calendar",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "BPGoodsReceivingHoursCode",
+            "label": "Goods receiving hrs",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 3,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "IsDfltBPUnloadingPoint",
+            "label": "Default unloading pt",
+            "type": "cds.Boolean",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "MondayMorningOpeningTime",
+            "label": "Monday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "MondayMorningClosingTime",
+            "label": "Monday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "MondayAfternoonOpeningTime",
+            "label": "Monday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "MondayAfternoonClosingTime",
+            "label": "Monday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "TuesdayMorningOpeningTime",
+            "label": "Tuesday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "TuesdayMorningClosingTime",
+            "label": "Tuesday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "TuesdayAfternoonOpeningTime",
+            "label": "Tuesday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "TuesdayAfternoonClosingTime",
+            "label": "Tuesday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "WednesdayMorningOpeningTime",
+            "label": "Wednesday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "WednesdayMorningClosingTime",
+            "label": "Wednesday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "WednesdayAfternoonOpeningTime",
+            "label": "Wednesday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "WednesdayAfternoonClosingTime",
+            "label": "Wednesday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ThursdayMorningOpeningTime",
+            "label": "Thursday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ThursdayMorningClosingTime",
+            "label": "Thursday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ThursdayAfternoonOpeningTime",
+            "label": "Thursday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ThursdayAfternoonClosingTime",
+            "label": "Thursday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "FridayMorningOpeningTime",
+            "label": "Friday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "FridayMorningClosingTime",
+            "label": "Friday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "FridayAfternoonOpeningTime",
+            "label": "Friday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "FridayAfternoonClosingTime",
+            "label": "Friday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SaturdayMorningOpeningTime",
+            "label": "Saturday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SaturdayMorningClosingTime",
+            "label": "Saturday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SaturdayAfternoonOpeningTime",
+            "label": "Saturday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SaturdayAfternoonClosingTime",
+            "label": "Saturday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SundayMorningOpeningTime",
+            "label": "Sunday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SundayMorningClosingTime",
+            "label": "Sunday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SundayAfternoonOpeningTime",
+            "label": "Sunday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SundayAfternoonClosingTime",
+            "label": "Sunday",
+            "type": "cds.Time",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          }
+        ]
+      },
+      {
+        "id": "SupplierText",
+        "title": "Supplier Texts",
+        "entitySet": "A_SupplierText",
+        "remoteEntity": "A_SupplierText",
+        "relationField": "Supplier",
+        "typeName": "A_SupplierTextType",
+        "kind": "collection",
+        "emptyText": "No texts for this supplier.",
+        "summaryFields": [
+          "Language",
+          "LongTextID",
+          "LongText"
+        ],
+        "requiredCreateFields": [
+          "Language",
+          "LongTextID"
+        ],
+        "fields": [
+          {
+            "name": "Supplier",
+            "label": "Supplier",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "Language",
+            "label": "Language",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "LongTextID",
+            "label": "Text ID",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "LongText",
+            "label": "String",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "creatable": false,
+            "updatable": false
+          }
+        ]
+      },
+      {
+        "id": "SupplierCompanyText",
+        "title": "Supplier Company Code Texts",
+        "entitySet": "A_SupplierCompanyText",
+        "remoteEntity": "A_SupplierCompanyText",
+        "relationField": "Supplier",
+        "typeName": "A_SupplierCompanyTextType",
+        "kind": "collection",
+        "emptyText": "No company code texts for this supplier.",
+        "summaryFields": [
+          "CompanyCode",
+          "Language",
+          "LongTextID",
+          "LongText"
+        ],
+        "requiredCreateFields": [
+          "CompanyCode",
+          "Language",
+          "LongTextID"
+        ],
+        "fields": [
+          {
+            "name": "Supplier",
+            "label": "Supplier",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CompanyCode",
+            "label": "Company Code",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "Language",
+            "label": "Language",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "LongTextID",
+            "label": "Text ID",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "LongText",
+            "label": "String",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "creatable": false,
+            "updatable": false
+          }
+        ]
+      },
+      {
+        "id": "SupplierDunning",
+        "title": "Supplier Dunning",
+        "entitySet": "A_SupplierDunning",
+        "remoteEntity": "A_SupplierDunning",
+        "relationField": "Supplier",
+        "typeName": "A_SupplierDunningType",
+        "kind": "collection",
+        "emptyText": "No dunning data for this supplier.",
+        "summaryFields": [
+          "CompanyCode",
+          "DunningArea",
+          "DunningProcedure",
+          "DunningLevel",
+          "DunningBlock"
+        ],
+        "requiredCreateFields": [
+          "CompanyCode",
+          "DunningArea"
+        ],
+        "fields": [
+          {
+            "name": "Supplier",
+            "label": "Supplier",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CompanyCode",
+            "label": "Company Code",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "DunningArea",
+            "label": "Dunning Area",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "DunningBlock",
+            "label": "Dunning Block",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 1,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "DunningLevel",
+            "label": "Dunning Level",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 1,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "DunningProcedure",
+            "label": "Dunning Procedure",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "DunningRecipient",
+            "label": "Dunn.recipient",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "LastDunnedOn",
+            "label": "Last Dunned",
+            "type": "cds.Date",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "LegDunningProcedureOn",
+            "label": "Legal Dunn.Proc.From",
+            "type": "cds.Date",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "DunningClerk",
+            "label": "Dunning Clerk",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "AuthorizationGroup",
+            "label": "Authorization",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          }
+        ]
+      },
+      {
+        "id": "SupplierWithholdingTax",
+        "title": "Supplier Withholding Tax",
+        "entitySet": "A_SupplierWithHoldingTax",
+        "remoteEntity": "A_SupplierWithHoldingTax",
+        "relationField": "Supplier",
+        "typeName": "A_SupplierWithHoldingTaxType",
+        "kind": "collection",
+        "emptyText": "No withholding tax data for this supplier.",
+        "summaryFields": [
+          "CompanyCode",
+          "WithholdingTaxType",
+          "WithholdingTaxCode",
+          "IsWithholdingTaxSubject",
+          "WithholdingTaxNumber"
+        ],
+        "requiredCreateFields": [
+          "CompanyCode",
+          "WithholdingTaxType"
+        ],
+        "fields": [
+          {
+            "name": "Supplier",
+            "label": "Supplier",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CompanyCode",
+            "label": "Company Code",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "WithholdingTaxType",
+            "label": "Withholding Tax Type",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ExemptionDateBegin",
+            "label": "Exemption Start Date",
+            "type": "cds.Date",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ExemptionDateEnd",
+            "label": "Exemption End Date",
+            "type": "cds.Date",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ExemptionReason",
+            "label": "Exemption Reason",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "IsWithholdingTaxSubject",
+            "label": "Subject to W/Tx",
+            "type": "cds.Boolean",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "RecipientType",
+            "label": "Recipient Type",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "WithholdingTaxCertificate",
+            "label": "Exemption Number",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 25,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "WithholdingTaxCode",
+            "label": "W/Tax Code",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "WithholdingTaxExmptPercent",
+            "label": "Exemption Rate",
+            "type": "cds.Decimal",
+            "key": false,
+            "nullable": true,
+            "precision": 5,
+            "scale": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "WithholdingTaxNumber",
+            "label": "W/tax number",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 16,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "AuthorizationGroup",
+            "label": "Authorization",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          }
+        ]
+      },
+      {
+        "id": "SupplierPurchasingOrgText",
+        "title": "Supplier Purchasing Organization Texts",
+        "entitySet": "A_SupplierPurchasingOrgText",
+        "remoteEntity": "A_SupplierPurchasingOrgText",
+        "relationField": "Supplier",
+        "typeName": "A_SupplierPurchasingOrgTextType",
+        "kind": "collection",
+        "emptyText": "No purchasing organization texts for this supplier.",
+        "summaryFields": [
+          "PurchasingOrganization",
+          "Language",
+          "LongTextID",
+          "LongText"
+        ],
+        "requiredCreateFields": [
+          "PurchasingOrganization",
+          "Language",
+          "LongTextID"
+        ],
+        "fields": [
+          {
+            "name": "Supplier",
+            "label": "Supplier",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PurchasingOrganization",
+            "label": "Purch. Organization",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "Language",
+            "label": "Language",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "LongTextID",
+            "label": "Text ID",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "LongText",
+            "label": "String",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "creatable": false,
+            "updatable": false
+          }
+        ]
+      },
+      {
+        "id": "SupplierPartnerFunctions",
+        "title": "Supplier Partner Functions",
+        "entitySet": "A_SupplierPartnerFunc",
+        "remoteEntity": "A_SupplierPartnerFunc",
+        "relationField": "Supplier",
+        "typeName": "A_SupplierPartnerFuncType",
+        "kind": "collection",
+        "emptyText": "No partner functions for this supplier.",
+        "summaryFields": [
+          "PurchasingOrganization",
+          "SupplierSubrange",
+          "Plant",
+          "PartnerFunction",
+          "DefaultPartner"
+        ],
+        "requiredCreateFields": [
+          "PurchasingOrganization",
+          "SupplierSubrange",
+          "Plant",
+          "PartnerFunction",
+          "PartnerCounter"
+        ],
+        "fields": [
+          {
+            "name": "Supplier",
+            "label": "Supplier",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PurchasingOrganization",
+            "label": "Purch. Organization",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SupplierSubrange",
+            "label": "Supplier Subrange",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 6,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "Plant",
+            "label": "Plant",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PartnerFunction",
+            "label": "Partner Function",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PartnerCounter",
+            "label": "Partner counter",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 3,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "DefaultPartner",
+            "label": "Default Partner",
+            "type": "cds.Boolean",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ReferenceSupplier",
+            "label": "Ref. to suplr",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "AuthorizationGroup",
+            "label": "Authorization",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 4,
             "creatable": true,
             "updatable": true
           }

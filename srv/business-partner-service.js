@@ -258,6 +258,206 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     creatable: true,
     deletable: true,
     requiredCreateFields: ['Supplier', 'PurchasingOrganization']
+  }),
+  // --- The rest of the MDG "ERP Customer" / "ERP Supplier" tree ------------------
+  // Everything below is a grandchild of the business partner, and several hang off a
+  // *composite-keyed* parent: Dunning and Withholding Tax off
+  // A_CustomerCompany(Customer, CompanyCode), the sales-area nodes off
+  // A_CustomerSalesArea(Customer, SalesOrganization, DistributionChannel, Division).
+  // Those are addressed through parentKeyFields - see businessPartnerNavigationPath.
+  CustomerText: Object.freeze({
+    remote: 'A_CustomerText',
+    navigation: 'to_CustomerText',
+    parentEntity: 'A_Customer',
+    parentKeyField: 'Customer',
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['Customer', 'Language', 'LongTextID']
+  }),
+  CustomerAddressExtIdentifier: Object.freeze({
+    remote: 'A_CustAddrDepdntExtIdentifier',
+    navigation: 'to_CustAddrDepdntExtIdentifier',
+    parentEntity: 'A_Customer',
+    parentKeyField: 'Customer',
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['Customer', 'AddressID']
+  }),
+  CustomerAddressInfo: Object.freeze({
+    remote: 'A_CustAddrDepdntInformation',
+    navigation: 'to_CustAddrDepdntInformation',
+    parentEntity: 'A_Customer',
+    parentKeyField: 'Customer',
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['Customer', 'AddressID']
+  }),
+  CustomerUnloadingPoint: Object.freeze({
+    remote: 'A_CustomerUnloadingPoint',
+    navigation: 'to_CustomerUnloadingPoint',
+    parentEntity: 'A_Customer',
+    parentKeyField: 'Customer',
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['Customer', 'UnloadingPointName']
+  }),
+  CustomerUnloadingPointAddressInfo: Object.freeze({
+    remote: 'A_CustUnldgPtAddrDepdntInfo',
+    navigation: 'to_CustUnldgPtAddrDepdntInfo',
+    parentEntity: 'A_Customer',
+    parentKeyField: 'Customer',
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['Customer', 'AddressID', 'UnloadingPointName']
+  }),
+  CustomerCompanyText: Object.freeze({
+    remote: 'A_CustomerCompanyText',
+    navigation: 'to_CompanyText',
+    parentEntity: 'A_CustomerCompany',
+    parentKeyFields: ['Customer', 'CompanyCode'],
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['Customer', 'CompanyCode', 'Language', 'LongTextID']
+  }),
+  CustomerDunning: Object.freeze({
+    remote: 'A_CustomerDunning',
+    navigation: 'to_CustomerDunning',
+    parentEntity: 'A_CustomerCompany',
+    parentKeyFields: ['Customer', 'CompanyCode'],
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['Customer', 'CompanyCode', 'DunningArea'],
+    excludedCreateFields: ['CustomerAccountGroup'],
+    excludedUpdateFields: ['CustomerAccountGroup']
+  }),
+  CustomerWithholdingTax: Object.freeze({
+    remote: 'A_CustomerWithHoldingTax',
+    navigation: 'to_WithHoldingTax',
+    parentEntity: 'A_CustomerCompany',
+    parentKeyFields: ['Customer', 'CompanyCode'],
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['Customer', 'CompanyCode', 'WithholdingTaxType']
+  }),
+  CustomerSalesAreaText: Object.freeze({
+    remote: 'A_CustomerSalesAreaText',
+    navigation: 'to_SalesAreaText',
+    parentEntity: 'A_CustomerSalesArea',
+    parentKeyFields: ['Customer', 'SalesOrganization', 'DistributionChannel', 'Division'],
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: [
+      'Customer', 'SalesOrganization', 'DistributionChannel', 'Division', 'Language',
+      'LongTextID'
+    ]
+  }),
+  CustomerTaxIndicators: Object.freeze({
+    remote: 'A_CustomerSalesAreaTax',
+    navigation: 'to_SalesAreaTax',
+    parentEntity: 'A_CustomerSalesArea',
+    parentKeyFields: ['Customer', 'SalesOrganization', 'DistributionChannel', 'Division'],
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: [
+      'Customer', 'SalesOrganization', 'DistributionChannel', 'Division', 'DepartureCountry',
+      'CustomerTaxCategory'
+    ]
+  }),
+  CustomerSalesPartnerFunctions: Object.freeze({
+    remote: 'A_CustSalesPartnerFunc',
+    navigation: 'to_PartnerFunction',
+    parentEntity: 'A_CustomerSalesArea',
+    parentKeyFields: ['Customer', 'SalesOrganization', 'DistributionChannel', 'Division'],
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: [
+      'Customer', 'SalesOrganization', 'DistributionChannel', 'Division', 'PartnerFunction',
+      'PartnerCounter'
+    ],
+    excludedCreateFields: ['CustomerPartnerDescription'],
+    excludedUpdateFields: ['CustomerPartnerDescription']
+  }),
+  CustomerSalesAreaAddressInfo: Object.freeze({
+    remote: 'A_CustSlsAreaAddrDepdntInfo',
+    navigation: 'to_SlsAreaAddrDepdntInfo',
+    parentEntity: 'A_CustomerSalesArea',
+    parentKeyFields: ['Customer', 'SalesOrganization', 'DistributionChannel', 'Division'],
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: [
+      'Customer', 'SalesOrganization', 'DistributionChannel', 'Division', 'AddressID'
+    ]
+  }),
+  SupplierText: Object.freeze({
+    remote: 'A_SupplierText',
+    navigation: 'to_SupplierText',
+    parentEntity: 'A_Supplier',
+    parentKeyField: 'Supplier',
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['Supplier', 'Language', 'LongTextID']
+  }),
+  SupplierCompanyText: Object.freeze({
+    remote: 'A_SupplierCompanyText',
+    navigation: 'to_CompanyText',
+    parentEntity: 'A_SupplierCompany',
+    parentKeyFields: ['Supplier', 'CompanyCode'],
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['Supplier', 'CompanyCode', 'Language', 'LongTextID']
+  }),
+  SupplierDunning: Object.freeze({
+    remote: 'A_SupplierDunning',
+    navigation: 'to_SupplierDunning',
+    parentEntity: 'A_SupplierCompany',
+    parentKeyFields: ['Supplier', 'CompanyCode'],
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['Supplier', 'CompanyCode', 'DunningArea'],
+    excludedCreateFields: ['SupplierAccountGroup'],
+    excludedUpdateFields: ['SupplierAccountGroup']
+  }),
+  SupplierWithholdingTax: Object.freeze({
+    remote: 'A_SupplierWithHoldingTax',
+    navigation: 'to_SupplierWithHoldingTax',
+    parentEntity: 'A_SupplierCompany',
+    parentKeyFields: ['Supplier', 'CompanyCode'],
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['Supplier', 'CompanyCode', 'WithholdingTaxType'],
+    excludedCreateFields: [
+      'BusinessPartner', 'BusinessPartnerFullName', 'HouseNumber', 'StreetName', 'City',
+      'Country', 'CountryName', 'PostalCode', 'Region', 'RegionName', 'MatchRuleName',
+      'MatchScore'
+    ],
+    excludedUpdateFields: [
+      'BusinessPartner', 'BusinessPartnerFullName', 'HouseNumber', 'StreetName', 'City',
+      'Country', 'CountryName', 'PostalCode', 'Region', 'RegionName', 'MatchRuleName',
+      'MatchScore'
+    ]
+  }),
+  SupplierPurchasingOrgText: Object.freeze({
+    remote: 'A_SupplierPurchasingOrgText',
+    navigation: 'to_PurchasingOrgText',
+    parentEntity: 'A_SupplierPurchasingOrg',
+    parentKeyFields: ['Supplier', 'PurchasingOrganization'],
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['Supplier', 'PurchasingOrganization', 'Language', 'LongTextID']
+  }),
+  SupplierPartnerFunctions: Object.freeze({
+    remote: 'A_SupplierPartnerFunc',
+    navigation: 'to_PartnerFunction',
+    parentEntity: 'A_SupplierPurchasingOrg',
+    parentKeyFields: ['Supplier', 'PurchasingOrganization'],
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: [
+      'Supplier', 'PurchasingOrganization', 'SupplierSubrange', 'Plant', 'PartnerFunction',
+      'PartnerCounter'
+    ],
+    excludedCreateFields: ['CreationDate', 'CreatedByUser'],
+    excludedUpdateFields: ['CreationDate', 'CreatedByUser']
   })
 });
 
@@ -383,15 +583,36 @@ function validateMaintenanceCreate(entityName, payload, configuration) {
   }
 }
 
+/**
+ * Path a child node is created under: the parent's canonical URI plus the navigation.
+ *
+ * A parent may itself be a child - Dunning hangs off A_CustomerCompany, which is keyed
+ * (Customer, CompanyCode), and Partner Functions hang off A_CustomerSalesArea, keyed on
+ * four fields. So the parent key is a list, declared as parentKeyFields; parentKeyField
+ * stays supported for the single-key nodes that already use it.
+ *
+ * Every key value is read off the payload the client sent, because a grandchild carries
+ * its parent's keys as its own leading keys - that is what makes the row addressable at
+ * all, and it is why no extra round trip is needed to find the parent.
+ */
 function businessPartnerNavigationPath(configuration, payload) {
   const parentEntity = configuration.parentEntity || 'A_BusinessPartner';
-  const parentKeyField = configuration.parentKeyField || 'BusinessPartner';
-  const parentKey = String(payload[parentKeyField] || '').trim();
-  if (!parentKey) {
-    throw Object.assign(new Error(`Enter a ${parentKeyField} number.`), { statusCode: 400 });
-  }
-  const escapedParentKey = parentKey.replaceAll("'", "''");
-  return `/${parentEntity}('${escapedParentKey}')/${configuration.navigation}`;
+  const parentKeyFields = configuration.parentKeyFields
+    || [configuration.parentKeyField || 'BusinessPartner'];
+  const values = parentKeyFields.map((field) => {
+    const value = String(payload[field] ?? '').trim();
+    if (!value) {
+      throw Object.assign(new Error(`Enter a ${field} number.`), { statusCode: 400 });
+    }
+    return { field, value: value.replaceAll("'", "''") };
+  });
+  // A single key is addressed positionally, A_Customer('54') - the form the existing nodes
+  // already send. A composite key has to name each field, because position alone would not
+  // say which key is which: A_CustomerCompany(Customer='54',CompanyCode='1000').
+  const keyPredicate = values.length === 1
+    ? `'${values[0].value}'`
+    : values.map(({ field, value }) => `${field}='${value}'`).join(',');
+  return `/${parentEntity}(${keyPredicate})/${configuration.navigation}`;
 }
 
 async function createBusinessPartnerChild(s4, configuration, payload) {
