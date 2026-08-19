@@ -174,9 +174,9 @@ test('resubmit signals the parked instance and never starts a new one', () => {
     serviceJs.indexOf("this.on('resubmitRequest'"),
     serviceJs.indexOf("this.on('withdrawRequest'")
   );
-  assert.match(resubmit, /triggerApprovalDecision\(before\.processInstanceId, RESUBMITTED_SIGNAL\)/u);
+  // The call shape and the signal value are pinned by "the resubmit signal carries the BP context
+  // flat inside inputs" - this test is about the instance being reused rather than replaced.
   assert.equal(/startWorkflow/u.test(resubmit), false, 'no second workflow for one request');
-  assert.equal(RESUBMITTED_SIGNAL, 'resubmitted');
   // No parked instance means nothing to hand back to. Starting one silently would give the request
   // two audit threads and possibly two approver tasks.
   assert.match(resubmit, /if \(!before\.processInstanceId\)/u);
