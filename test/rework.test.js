@@ -18,7 +18,9 @@ const controller = read(APP, 'ext', 'controller', 'BusinessPartnerMaintenance.co
 const view = read(APP, 'ext', 'view', 'BusinessPartnerMaintenance.view.xml');
 const manifest = JSON.parse(read(APP, 'manifest.json'));
 
-const { EDITABLE_STATUSES, WITHDRAWABLE_STATUSES, RESUBMITTED_SIGNAL, reworkUrl } =
+const {
+  EDITABLE_STATUSES, WITHDRAWABLE_STATUSES, RESUBMITTED_SIGNAL, WITHDRAWN_SIGNAL, reworkUrl
+} =
   require('../srv/change-request-service')._internals;
 const { ACTIVE_REQUEST_STATUSES } = require('../srv/business-partner-service')._internals;
 
@@ -112,7 +114,7 @@ test('resubmit runs the same gates as a first submit', () => {
  */
 test('the resubmit signal carries the BP context flat inside inputs', () => {
   const wf = read(ROOT, 'srv', 'wf', 'processAutomation.js');
-  assert.match(wf, /async function triggerApprovalDecision\(executionId, result, extraInputs = \{\}\)/u);
+  assert.match(wf, /async function sendTrigger\(triggerId, label, executionId, result, extraInputs = \{\}\)/u);
   assert.match(wf, /inputs: \{ result, \.\.\.extraInputs \}/u);
   // executionId is the process instance, not the change request UUID. Arthur calls it the CR id;
   // swapping the two would leave the trigger unable to resolve the parked instance.
@@ -121,7 +123,7 @@ test('the resubmit signal carries the BP context flat inside inputs', () => {
     serviceJs.indexOf("this.on('resubmitRequest'"),
     serviceJs.indexOf("this.on('withdrawRequest'")
   );
-  assert.match(resubmit, /triggerApprovalDecision\(before\.processInstanceId, RESUBMITTED_SIGNAL, context\)/u);
+  assert.match(resubmit, /triggerRequesterCallback\(before\.processInstanceId, RESUBMITTED_SIGNAL, context\)/u);
   // His spelling, capitalised, unlike approved/rejected. A signal that does not match leaves the
   // request parked forever, so this is pinned rather than tidied.
   assert.equal(RESUBMITTED_SIGNAL, 'Resubmitted');
@@ -152,20 +154,34 @@ test('the resubmit context is rebuilt after the edits, not before', () => {
   );
   const persistAt = resubmit.indexOf('await persist(req)');
   const contextAt = resubmit.indexOf('await workflowContext(');
-  const signalAt = resubmit.indexOf('triggerApprovalDecision');
+  const signalAt = resubmit.indexOf('triggerRequesterCallback');
   assert.ok(persistAt < contextAt, 'the payload is saved before the context is built');
   assert.ok(contextAt < signalAt, 'and the context is built before it is sent');
   // Built from a fresh read, not from the header fetched before the guard.
   assert.match(resubmit.slice(persistAt, contextAt), /SELECT\.one\.from\(HEADER\)/u);
 });
 
-// Approve, reject and withdraw were not part of the agreed change, so their payload is untouched.
-test('the other signals still send result alone', () => {
+/**
+ * Two triggers, and which one a signal goes to is the contract. Arthur gave `requesterCallBack` for
+ * the requester's actions on 2026-08-19; approve and reject stay on the approver's `zApproved_wf`.
+ * Sending one down the other's trigger reaches a process step that is not waiting for it.
+ */
+test('the requester actions use their own trigger, the approver actions keep theirs', () => {
+  const wf = read(ROOT, 'srv', 'wf', 'processAutomation.js');
+  assert.match(wf, /REQUESTER_CALLBACK_TRIGGER_ID = "eu10\.alluvion-dev-cf\.mdmlightapproval\.requesterCallBack"/u);
+  assert.match(wf, /APPROVAL_DECISION_TRIGGER_ID = "eu10\.alluvion-dev-cf\.mdmlightapproval\.zApproved_wf"/u);
+  // The host stays with the destination. Writing the gateway in here would bypass the proxy and the
+  // token that `sbpa-destination` provides.
+  assert.equal(/spa-api-gateway/u.test(wf), false, 'the gateway host is not hardcoded');
+  assert.match(wf, /path: `\/unified\/v1\/triggers\/api\/\$\{triggerId\}\?environmentId=bpapprovalpoc`/u);
+  // Approve and reject are untouched by the rework work.
   for (const call of ["notifyWorkflow('rejected')", "notifyWorkflow('approved')"]) {
     assert.ok(serviceJs.includes(call), `${call} is unchanged`);
   }
-  const withdraw = serviceJs.slice(serviceJs.indexOf("this.on('withdrawRequest'"));
-  assert.match(withdraw, /triggerApprovalDecision\(header\.processInstanceId, 'withdrawn'\)/u);
+  assert.match(serviceJs, /triggerApprovalDecision\(header\.processInstanceId, workflowResult\)/u);
+  // Following his `Resubmitted` convention, not his instruction - he never specified this one.
+  assert.equal(WITHDRAWN_SIGNAL, 'Withdrawn');
+  assert.equal(RESUBMITTED_SIGNAL, 'Resubmitted');
 });
 
 /** Resume, not restart: one instance per request means one audit thread on Arthur's side. */
@@ -191,7 +207,7 @@ test('a failed signal leaves the request reworkable rather than stranded', () =>
     serviceJs.indexOf("this.on('resubmitRequest'"),
     serviceJs.indexOf("this.on('withdrawRequest'")
   );
-  const signalAt = resubmit.indexOf('triggerApprovalDecision');
+  const signalAt = resubmit.indexOf('triggerRequesterCallback');
   const statusAt = resubmit.indexOf("status: 'inApproval'");
   assert.ok(signalAt < statusAt, 'the signal is sent before the status moves');
   assert.match(resubmit.slice(signalAt, statusAt), /req\.reject\(502/u);
@@ -234,9 +250,9 @@ test('withdrawing an already-deleted request is not an error', () => {
 // rather than swallowed - an open approver task may be left needing a human.
 test('withdraw tells the process, best-effort, and says so when it could not', () => {
   const withdraw = serviceJs.slice(serviceJs.indexOf("this.on('withdrawRequest'"));
-  assert.match(withdraw, /triggerApprovalDecision\(header\.processInstanceId, 'withdrawn'\)/u);
+  assert.match(withdraw, /triggerRequesterCallback\(header\.processInstanceId, WITHDRAWN_SIGNAL/u);
   assert.match(withdraw, /req\.info\(200,/u);
-  const signalAt = withdraw.indexOf('triggerApprovalDecision');
+  const signalAt = withdraw.indexOf('triggerRequesterCallback');
   assert.ok(signalAt < withdraw.indexOf('DELETE.from(HEADER)'));
 });
 

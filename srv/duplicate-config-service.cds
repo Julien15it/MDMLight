@@ -2,16 +2,10 @@ using { mdmlight.config as config } from '../db/duplicate-rules';
 using { mdmlight.config as quality } from '../db/quality-rules';
 
 /**
- * Data-steward configuration for the data quality controls - the duplicate check
- * and, since 2026-08-19, the validation and derivation tables. Separate from
- * BusinessPartnerService because it is a control, maintained by different people
- * with a different scope, over local tables rather than the S/4 facade.
- *
- * The three tables share this service, and the path keeps its original name on
- * purpose: `/service/duplicateconfig` is in `app/mdmrules/xs-app.json` and in the
- * deployed approuter config, so renaming it would cost a route change and a
- * redeploy to gain nothing. One service also means one `@requires: 'Steward'`
- * and no second destination.
+ * Data-steward configuration for all three quality controls. Separate from BusinessPartnerService
+ * because it is a control over local tables, maintained by different people. The path keeps its
+ * original name: it is in xs-app.json and the deployed approuter config, so renaming it costs a
+ * route change to gain nothing - and one service means one `@requires` and no second destination.
  */
 @path: '/service/duplicateconfig'
 @requires: 'Steward'
@@ -21,9 +15,7 @@ service DuplicateConfigService {
   entity ValidationRules as projection on quality.ValidationRules;
   entity DerivationRules as projection on quality.DerivationRules;
 
-  /** Every list is key/text so the grid binds them all the same way. Arrays of
-   *  bare strings do not bind reliably in a table cell, which is what left the
-   *  first version of this page with three empty dropdowns. */
+  /** Key/text, not bare strings: those do not bind reliably in a cell, which emptied the dropdowns. */
   // `code`/`text`, not `key`/`text`: `key` is a CDS keyword and prefixes a key
   // element, so `key : String(40)` does not compile.
   type CatalogField {
@@ -43,9 +35,7 @@ service DuplicateConfigService {
     fields      : array of CatalogField;
     comparisons : array of Option;
     indicators  : array of Option;
-    /** 'configured' or 'defaults'. An empty or unusable table falls back to the
-     *  built-in rules, and the page has to say so - an empty grid otherwise
-     *  reads as "the check is off", which it never is. */
+    /** 'configured' or 'defaults'. The page must say which: an empty grid reads as "check is off". */
     source      : String(12);
     ruleCount   : Integer;
   }
@@ -54,17 +44,14 @@ service DuplicateConfigService {
    *  code-defined catalog - never a hand-kept copy in the UI. */
   function ruleOptions() returns RuleOptions;
 
-  /** Runs a ruleset over the whole partner index and reports counts per verdict
-   *  plus sample pairs, without saving. `RulesJson` is optional: pass the
-   *  unsaved grid state to see a change before committing it. */
+  /** Counts per verdict plus sample pairs, without saving. `RulesJson` takes unsaved grid state. */
   action testRuleset(
     RulesJson  : LargeString,
     SampleSize : Integer
   ) returns LargeString;
 
-  /** A qualified payload field: `General.Language`, `Addresses.Country`. Wider
-   *  than `CatalogField.code` because it carries the section, and separate from it
-   *  because `indexed` is a duplicate-index concern that means nothing here. */
+  /** A qualified payload field. Wider than `CatalogField.code` (it carries the section) and separate
+   *  from it, because `indexed` is a duplicate-index concern that means nothing here. */
   type PayloadField {
     code    : String(60);
     text    : String(120);
@@ -76,9 +63,7 @@ service DuplicateConfigService {
     type    : String(20);
   }
 
-  /** `needsValue` false means the Value cell is meaningless for that comparison,
-   *  which is what lets the grid disable it rather than accept a value it will
-   *  silently ignore. */
+  /** False lets the grid disable the Value cell rather than accept a value it will ignore. */
   type ComparisonOption {
     code       : String(20);
     text       : String(60);
@@ -93,9 +78,7 @@ service DuplicateConfigService {
     derivationCount : Integer;
   }
 
-  /** Everything the validation and derivation grids need, generated from the
-   *  staging model and the engine - never a hand-kept copy in the UI. The counts
-   *  are of rules that would actually run, so a page can say when a saved row is
-   *  being skipped. */
+  /** Generated from the staging model and the engine, never a hand-kept UI copy. The counts are of
+   *  rules that would actually run, so a page can say when a saved row is being skipped. */
   function qualityRuleOptions() returns QualityRuleOptions;
 }

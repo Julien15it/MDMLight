@@ -4,18 +4,10 @@ const cds = require('@sap/cds');
 const { createConfiguredStages } = require('./rule-engine');
 
 /**
- * Holds the configured validation and derivation rows in memory and turns them
- * into pipeline stages.
- *
- * Same shape of problem as `createRuleStore` in srv/ai/rule-config.js, and one
- * deliberate difference: **there is no fallback ruleset.** An empty duplicate
- * table falls back to built-in defaults, because an empty one would switch the
- * duplicate check off. There are no default validations to fall back to, and
- * inventing a rule nobody configured would be worse than running none.
- *
- * What an unreadable table must not do is pass as "nothing to report". A read
- * failure with nothing cached therefore produces a stage that says so - the same
- * discipline `pipeline.js` applies to a duplicate check that could not run.
+ * Holds the configured rows in memory and turns them into pipeline stages. Unlike the duplicate
+ * store there is NO fallback ruleset - inventing a rule nobody configured beats nothing only for a
+ * check an empty table would switch off. An unreadable table produces a stage that says so, rather
+ * than passing as "nothing to report".
  */
 
 const VALIDATION_RULES = 'mdmlight.config.ValidationRules';
@@ -79,10 +71,7 @@ async function configuredRules({ readRows = read, force = false } = {}) {
   return inFlight;
 }
 
-/**
- * The stages for one request. `model` is passed through to the field catalog so
- * the caller can inject a CSN in a test.
- */
+/** The stages for one request. `model` is passed to the catalog so a test can inject a CSN. */
 async function configuredStages(options = {}) {
   const loaded = await configuredRules(options);
   if (!loaded) {

@@ -3,35 +3,16 @@
 const cds = require('@sap/cds');
 
 /**
- * The field catalog validation and derivation rules are written against.
- *
- * This is **not** the duplicate catalog. `srv/ai/duplicate-fields.js` describes
- * bags of normalised values for comparing two partners; a rule that fills in a
- * language or asserts a region has to read and write the request payload the
- * maintenance screen posts - `{ root, sections }` - so it needs that shape's own
- * field names, with their real values.
- *
- * The catalog is generated from the staging model rather than listed here, so it
- * cannot drift from what a request can actually hold: if `db/staging.cds` gains
- * a column, the dropdown has it.
- *
- * Names are **qualified and always dotted** - `General.Language`,
- * `Addresses.Country`. That is what lets the Value column mean two things
- * without a second column to say which: a value that resolves to a catalog name
- * is a field reference, and a literal never can be one.
+ * The catalog validation and derivation rules are written against - NOT the duplicate catalog, which
+ * holds normalised value bags for comparing partners. These rules read and write the request payload,
+ * so they need its own field names and real values. Generated from db/staging.cds, so it cannot drift.
+ * Names are always dotted (`General.Language`), which is what lets a Value be a literal or a field.
  */
 
 const STAGING = 'mdmlight.staging.';
 
-/**
- * Section id -> staging entity, the single source of truth for both this catalog
- * and `NODES` in srv/change-request-service.js. The ids are the ones
- * app/businesspartner/scripts/generate-maintenance-metadata.js emits, so nothing
- * is translated between the screen, the payload and a rule.
- *
- * `General` is the payload root rather than a node of its own - it is the one
- * entry with `root: true`, which is why it carries no `many`.
- */
+// The single source of truth for this catalog and for `NODES` in change-request-service.js, using the
+// generated metadata ids. `General` is the payload root rather than a node, hence `root` and no `many`.
 const PAYLOAD_NODES = Object.freeze({
   General:               { entity: `${STAGING}StagedGeneral`,               root: true },
   Addresses:             { entity: `${STAGING}StagedAddresses`,             many: true },
@@ -71,11 +52,7 @@ const PAYLOAD_NODES = Object.freeze({
 const ROOT_SECTION = 'General';
 const ROOT_TARGET = 'root';
 
-/**
- * Never offered as a rule field. Keys, backlinks and the row's own change
- * indicator are plumbing: a rule over `action` would look like a rule and change
- * nothing anyone asked for, and `request_ID` is not master data at all.
- */
+// Never offered as a rule field: keys, backlinks and `action` are plumbing, not master data.
 const EXCLUDED = new Set([
   'ID', 'request', 'request_ID', 'action',
   'createdAt', 'createdBy', 'modifiedAt', 'modifiedBy'
@@ -126,10 +103,7 @@ function humanise(name) {
 
 const definitionsOf = (model) => (model || cds.model || {}).definitions || {};
 
-/**
- * Every rule-addressable field, as `{ field, section, element, type, text }`.
- * `model` is injectable so this is testable without a loaded CAP model.
- */
+/** Every rule-addressable field. `model` is injectable, so this is testable without a CAP model. */
 function payloadFields(model) {
   const definitions = definitionsOf(model);
   const fields = [];
@@ -153,12 +127,8 @@ function payloadFields(model) {
   return fields;
 }
 
-/**
- * `{ field, section, element, node }` for a qualified name, or null.
- *
- * An unqualified name is rejected rather than defaulted to General: guessing the
- * section would validate a different field from the one that was written down.
- */
+// Resolves a qualified name, or null. An unqualified one is rejected rather than defaulted to
+// General: guessing the section would validate a different field from the one written down.
 function resolvePayloadField(name, model) {
   const qualified = String(name || '').trim();
   const at = qualified.indexOf('.');
@@ -179,10 +149,8 @@ const isRootSection = (section) => Boolean(PAYLOAD_NODES[section]?.root);
 /** The pipeline's `target` for a section: 'root' for General, the section id otherwise. */
 const targetFor = (section) => (isRootSection(section) ? ROOT_TARGET : section);
 
-/**
- * The rows a section contributes, always as `{ index, record }[]`. A to-one node
- * (Customers, Suppliers) is one row at index 0, so no caller branches on cardinality.
- */
+// A section's rows, always as `{ index, record }[]` - a to-one node is one row, so nothing branches
+// on cardinality.
 function sectionRows(payload = {}, section) {
   if (isRootSection(section)) return [{ index: 0, record: payload.root || {} }];
   const value = (payload.sections || {})[section];

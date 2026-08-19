@@ -276,6 +276,41 @@ payload so re-committing an untouched field costs nothing; and a failure is a
 duplicate check is **not** trigger-driven: it is pairwise and already refuses
 above a population limit.
 
+##### Check used to derive twice (fixed 2026-08-19)
+
+Pressing **Check** shortly after typing produced a second proposals dialog for the
+same record. The guard was **one-directional**, and that was the whole bug:
+
+- `_runTriggeredCheck` refused to start while `state.busy`, and a button press sets
+  it. A trigger firing *during* a check was correctly dropped.
+- Nothing stopped an already **scheduled** trigger from firing the moment the
+  button released busy. Commit a field, press Check inside `TRIGGER_IDLE_MS`
+  (1500ms), and: Check runs → busy goes false → the idle timer fires →
+  `_flushPendingScope` → a second `checkRequest` over the same payload.
+
+`_cancelPendingTrigger()` is the fix, called by **every button that runs a check of
+its own** — Check, Duplicate Check, Save/Submit/Resubmit and Withdraw. It clears
+both timers (`_idleTimer` for the pending scope, `_triggerTimer` for the debounce
+after it flushes) and nulls `_pendingScope`, or the next commit in a different
+scope would flush the stale one. It runs **before** the client-side validation, so
+a press that fails that check has still superseded what the trigger was about to
+ask.
+
+Cancelling timers cannot help a trigger that is already **mid-flight**, and the
+busy check happens before the await — so a button pressed *during* a trigger would
+still have produced two dialogs. `_buttonRun` closes that half: the trigger records
+which press it started under and drops its result if that changed, because an
+explicit press is the answer the requester is looking at and the trigger was only
+ever a convenience. It still records `_lastTriggerKey` first, so the wasted call is
+not repeated by the next identical commit.
+
+Two things not to "simplify" here. Setting `_lastTriggerKey` from the buttons
+instead would **not** work: the key is `scope|propose|dataJson` and a triggered
+check is scoped where a button's is not, so the keys never collide. And the cancel
+belongs on all the buttons, not just Check — Duplicate Check asks the same question
+of the same record, and the submit paths move the request past the point a trigger
+reports on.
+
 **Derivations no longer auto-apply.** They used to be written straight into the
 form on Check, which made them easy to miss and impossible to decline. They are
 proposals now, and they share the normalisation dialog: one list, a `change`

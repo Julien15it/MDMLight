@@ -5,17 +5,9 @@ const {
 } = require('./payload-fields');
 
 /**
- * The evaluator for the configured validation and derivation tables.
- *
- * Deliberately deterministic and offline: these are the gating checks, so no rule
- * here may depend on a network call. VIES and GLEIF stay in
- * `srv/checks/registry-checks.js`, where an outage can be graded down to a
- * warning; a decision table that cannot be evaluated is a broken rule, not a
- * degraded one.
- *
- * Both kinds share their condition columns, and both are evaluated against the
- * **request payload** (`{ root, sections }`) through the qualified field catalog
- * in payload-fields.js.
+ * Evaluates the configured validation and derivation tables against the request payload, through the
+ * qualified catalog in payload-fields.js. Deterministic and offline on purpose: these are gating
+ * checks, so no rule may depend on a network call - the registries stay in registry-checks.js.
  */
 
 /** Mirrors CONDITION_PAIRS in srv/ai/duplicate-engine.js, over the same column names. */
@@ -26,16 +18,8 @@ const CONDITION_PAIRS = Object.freeze([
 
 const SEVERITIES = Object.freeze(['error', 'warning', 'info']);
 
-/**
- * `needsValue: false` means the Value column is meaningless for it, which is what
- * lets the grid disable the cell instead of letting someone fill in a value that
- * is silently ignored.
- *
- * `=` and `!=` are compared case-insensitively after trimming, because master
- * data arrives with both, and a rule that fails on ` be` vs `BE` is a rule nobody
- * trusts. The ordering comparisons compare numbers as numbers when both sides are
- * numeric - otherwise `9` would be greater than `10`.
- */
+// `needsValue: false` lets the grid disable the Value cell rather than ignore what is typed in it.
+// Text compares trimmed and case-insensitively; numbers compare numerically, or 9 would exceed 10.
 const COMPARISONS = Object.freeze({
   eq:       { text: '=  equal to',                 needsValue: true,  apply: (a, b) => compare(a, b) === 0 },
   ne:       { text: '!=  not equal to',            needsValue: true,  apply: (a, b) => compare(a, b) !== 0 },
@@ -78,12 +62,8 @@ function compare(left, right) {
 
 const trimmed = (value) => String(value === null || value === undefined ? '' : value).trim();
 
-/**
- * The Value column means one of two things and this is where that is decided: a
- * value that resolves to a qualified catalog field is a **reference** to that
- * field, anything else is a literal. Catalog names are always dotted, so a
- * literal can never be mistaken for one.
- */
+// Where the Value column's two meanings are decided: a value resolving to a catalog field is a
+// reference, anything else a literal. Catalog names are always dotted, so a literal cannot collide.
 function readValueSpec(raw, model) {
   const value = trimmed(raw);
   if (!value) return { kind: 'literal', literal: '' };
@@ -91,15 +71,8 @@ function readValueSpec(raw, model) {
   return reference ? { kind: 'reference', reference } : { kind: 'literal', literal: value };
 }
 
-/**
- * The value a spec resolves to for one row of the rule's own section.
- *
- * A reference into the **same section** reads the same row - "fill this address's
- * Region from this address's Country" is about one address, not about the first
- * one. A reference anywhere else takes the first value that section actually
- * holds, and `undefined` when it holds none: a reference to an empty field is
- * nothing to copy, which is different from copying an empty string over it.
- */
+// A same-section reference reads the same row - one address, not the first one. Anywhere else takes
+// that section's first value, and `undefined` when it has none: nothing to copy is not a blank.
 function resolveValue(spec, payload, ownSection, model) {
   if (spec.kind === 'literal') return spec.literal;
   const { section, element } = spec.reference;
@@ -130,17 +103,8 @@ function readConditions(rule, model) {
     }));
 }
 
-/**
- * Does a condition hold, for a rule whose own field lives in `ownSection` and, when
- * the condition is on that same section, for this particular row?
- *
- * Scoping is the part worth reading twice. A condition on the **same section** as
- * the rule's field is evaluated **per row**: "where Addresses.Country = BE,
- * Addresses.Region must have a value" is about the Belgian address rows, not about
- * every address of a partner that happens to have one Belgian address. A condition
- * on any other section (or on General) is a statement about the partner, so it holds
- * when **any** row of that section matches.
- */
+// Scoping, worth reading twice: a condition on the rule's OWN section is evaluated per row, so it
+// narrows to the matching rows. On any other section it is about the partner, so any row satisfies it.
 function conditionHolds(condition, payload, ownSection, row, model) {
   if (!condition.resolved) return false;
   const { section, element } = condition.resolved;
@@ -168,18 +132,10 @@ function describeCondition(conditions) {
     .join(' and ')})`;
 }
 
-// ---------------------------------------------------------------------------
-// Validation
-// ---------------------------------------------------------------------------
+// --- Validation ------------------------------------------------------------
 
-/**
- * One stored row -> the findings it produces, over every row of its own section.
- *
- * A rule whose field is **empty produces nothing**, and that is load-bearing
- * rather than lenient: `pipeline.js` runs validations *before* derivations, so a
- * rule that failed on an empty field would block the derivation that was about to
- * fill it. `notEmpty` is how a steward says a field is required.
- */
+// One row -> its findings, over every row of its own section. An empty field produces nothing, and
+// that is load-bearing: validations run before derivations, so it would block the one about to fill it.
 function runValidationRule(rule, payload, model) {
   const resolved = resolvePayloadField(rule.field, model);
   const comparison = COMPARISONS[trimmed(rule.comparison)];
@@ -242,19 +198,10 @@ function runValidationRule(rule, payload, model) {
   return findings;
 }
 
-// ---------------------------------------------------------------------------
-// Derivation
-// ---------------------------------------------------------------------------
+// --- Derivation ------------------------------------------------------------
 
-/**
- * One stored row -> the pipeline derivation entries it produces.
- *
- * Only the entries are produced here. **Not overwriting** is `pipeline.js`'s
- * rule and stays there, so the two kinds of derivation - these and the registry's
- * - cannot disagree about it. A row that does not exist is likewise not invented:
- * `sectionRows` simply yields nothing, and the pipeline says so for the registry
- * case where a value was found but has nowhere to go.
- */
+// One row -> its pipeline entries. Not-overwriting stays in pipeline.js so these and the registry's
+// derivations cannot disagree about it, and a row that does not exist is never invented.
 function runDerivationRule(rule, payload, model) {
   const resolved = resolvePayloadField(rule.field, model);
   if (!resolved) {
@@ -292,9 +239,7 @@ function runDerivationRule(rule, payload, model) {
   return entries;
 }
 
-// ---------------------------------------------------------------------------
-// Save-time validation of the rows themselves
-// ---------------------------------------------------------------------------
+// --- Save-time validation of the rows themselves ---------------------------
 
 /** The condition halves both tables share. Half a condition is the dangerous half. */
 function conditionProblems(rule, model) {
@@ -316,11 +261,8 @@ function conditionProblems(rule, model) {
   return errors;
 }
 
-/**
- * Caught at the keyboard rather than at check time, for the same reason
- * `validateRule` in srv/ai/rule-config.js is: by the time the engine reports a rule
- * it could not run, the check has already answered.
- */
+// Caught at the keyboard, like `validateRule`: by the time the engine reports an unrunnable rule,
+// the check has already answered.
 function validateValidationRule(rule = {}, model) {
   const errors = conditionProblems(rule, model);
   const warnings = [];
@@ -387,19 +329,10 @@ const usable = (rows, validate, model) =>
     .filter((row) => !validate(row, model).errors.length);
 
 /**
- * The configured rows as pipeline stages.
- *
- * One stage per kind, not one per rule: the pipeline blocks on the first error a
- * validation stage reports, and a table of twenty rules should report all twenty
- * problems rather than the first one. Rows are ordered by `sequence` so two
- * derivations onto one field resolve predictably - the first to fill it wins,
- * because the pipeline never overwrites.
- *
- * Rules that fail their own save-time validation are dropped rather than run, and
- * an unusable table therefore contributes nothing instead of blocking every
- * request. The opposite choice for the duplicate check (falling back to built-in
- * defaults) does not apply here: there are no default validations, and inventing
- * one nobody configured would be worse than running none.
+ * One stage per kind, not one per rule: the pipeline blocks on the first error, and twenty rules
+ * should report twenty problems. Ordered by `sequence`, so competing derivations resolve predictably.
+ * Unusable rows are dropped rather than run - unlike the duplicate check there are no defaults to
+ * fall back to, and inventing a rule nobody configured would be worse than running none.
  */
 function createConfiguredStages({ validations = [], derivations = [], model } = {}) {
   const bySequence = (a, b) => (Number(a.sequence) || 0) - (Number(b.sequence) || 0);

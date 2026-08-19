@@ -109,3 +109,68 @@ test('a triggered check is quiet, guarded and de-duplicated', () => {
   assert.equal(/_applyProposals/u.test(run), false, 'a trigger never applies anything itself');
   assert.match(run, /catch \(error\)[\s\S]{0,200}console\.warn/u, 'a failed trigger never interrupts');
 });
+
+/**
+ * Check derived twice, reported 2026-08-19.
+ *
+ * The guard was one-directional: `_runTriggeredCheck` refused to start while `state.busy`, but
+ * nothing stopped an already *scheduled* trigger from firing the moment the button released busy.
+ * Commit a field, press Check inside TRIGGER_IDLE_MS, and the derivation ran twice - a second
+ * proposals dialog for the same record.
+ */
+test('a button press cancels the trigger that was about to fire', () => {
+  const cancel = CONTROLLER.slice(
+    CONTROLLER.indexOf('_cancelPendingTrigger: function'),
+    CONTROLLER.indexOf('_runTriggeredCheck: async function')
+  );
+  // Both timers, or the other one still fires. `_idleTimer` is the pending scope, `_triggerTimer`
+  // the debounce after it flushes.
+  assert.match(cancel, /clearTimeout\(this\._idleTimer\)/u);
+  assert.match(cancel, /clearTimeout\(this\._triggerTimer\)/u);
+  // And the scope, or the next commit in a different scope flushes this stale one.
+  assert.match(cancel, /this\._pendingScope = null/u);
+});
+
+// Every button that runs a check of its own, not just Check - Duplicate Check asks the same
+// question, and Save/Submit/Resubmit/Withdraw move the request past the point a trigger reports on.
+test('every button that checks cancels the pending trigger first', () => {
+  const heads = {
+    'onCheck: async function': 'Check',
+    'onDuplicateCheck: async function': 'Duplicate Check',
+    '_sendChangeRequest: async function': 'Save/Submit/Resubmit',
+    '_withdraw: async function': 'Withdraw'
+  };
+  for (const [entry, label] of Object.entries(heads)) {
+    const at = CONTROLLER.indexOf(entry);
+    assert.ok(at > 0, `${label} exists`);
+    // Within the first few lines of the handler, and before any early return.
+    const head = CONTROLLER.slice(at, at + 400);
+    assert.match(head, /this\._cancelPendingTrigger\(\)/u, `${label} cancels the pending trigger`);
+    const cancelAt = head.indexOf('_cancelPendingTrigger');
+    const returnAt = head.indexOf('return');
+    if (returnAt > -1) {
+      assert.ok(cancelAt < returnAt, `${label} cancels before it can return early`);
+    }
+  }
+});
+
+/**
+ * Cancelling timers cannot help a trigger that is already mid-flight, and the busy check happens
+ * before the await - so a button pressed *during* a trigger would still have produced two dialogs.
+ * The counter is what closes that half: an explicit press is the answer the requester asked for.
+ */
+test('a trigger overtaken by a button press drops its result', () => {
+  const run = CONTROLLER.slice(
+    CONTROLLER.indexOf('_runTriggeredCheck: async function'),
+    CONTROLLER.indexOf('onCheck: async function')
+  );
+  assert.match(run, /var startedUnder = this\._buttonRun \|\| 0;/u);
+  assert.match(run, /if \(startedUnder !== \(this\._buttonRun \|\| 0\)\) return;/u);
+  // Dropped before anything reaches the screen: the strips and the proposals dialog both come after.
+  const guardAt = run.indexOf('startedUnder !== ');
+  assert.ok(guardAt > -1);
+  assert.ok(guardAt < run.indexOf('state.messages = this._checkMessages'), 'before the strips');
+  assert.ok(guardAt < run.indexOf('_offerProposals'), 'before the dialog');
+  // The key is still recorded, so the wasted call is not repeated by the next identical commit.
+  assert.ok(run.indexOf('this._lastTriggerKey = key') < guardAt);
+});

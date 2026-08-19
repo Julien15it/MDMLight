@@ -67,24 +67,18 @@ async function startWorkflow(definitionId, context) {
     return result;
 }
 
-// The trigger a running mDM_LIGHT_APPROVAL_WF instance waits on once a human
-// has decided in our own approve view. `executionId` is the processId the
-// workflow instance was started with (same value as ChangeRequests.processInstanceId,
-// and the same value embedded in the bpurl sent to startWorkflow) - it tells
-// BPA which paused instance to resume, not which API call this is.
+// What a parked mDM_LIGHT_APPROVAL_WF instance waits on once a human has decided in our approve
+// view. `executionId` is `ChangeRequests.processInstanceId` - which instance to resume, not a call id.
 const APPROVAL_DECISION_TRIGGER_ID = "eu10.alluvion-dev-cf.mdmlightapproval.zApproved_wf";
 
-/**
- * `extraInputs` lands **flat inside `inputs`, alongside `result`** - that is the shape Arthur's
- * trigger expects, agreed 2026-08-19, and it is why this is a spread rather than a nested key.
- *
- * `executionId` is the BPA process instance id. Arthur refers to it as the CR id; it is not the
- * change request UUID, and the two must not be swapped - the trigger resolves the parked instance
- * by this value.
- *
- * Approve, reject and withdraw pass nothing extra, so their payload is unchanged.
- */
-async function triggerApprovalDecision(executionId, result, extraInputs = {}) {
+// The requester's trigger, used by resubmit and withdraw; approve and reject keep the approver's.
+// Only the id differs, so the host stays with `sbpa-destination` - hardcoding the gateway would
+// bypass the destination, and with it the proxy and the token.
+const REQUESTER_CALLBACK_TRIGGER_ID = "eu10.alluvion-dev-cf.mdmlightapproval.requesterCallBack";
+
+// `extraInputs` lands flat inside `inputs` next to `result` - Arthur's shape, hence a spread rather
+// than a nested key. `executionId` is the process instance, NOT the change request UUID.
+async function sendTrigger(triggerId, label, executionId, result, extraInputs = {}) {
     const sbpa = await cds.connect.to("SBPA_DESTINATION");
 
     const accessToken = await getAccessToken();
@@ -95,12 +89,12 @@ async function triggerApprovalDecision(executionId, result, extraInputs = {}) {
         inputs: { result, ...extraInputs }
     };
 
-    console.log("Sending approval decision to BPA");
+    console.log(`Sending ${label} to BPA`);
     console.log(payload);
 
     const response = await sbpa.send({
         method: "POST",
-        path: `/unified/v1/triggers/api/${APPROVAL_DECISION_TRIGGER_ID}?environmentId=bpapprovalpoc`,
+        path: `/unified/v1/triggers/api/${triggerId}?environmentId=bpapprovalpoc`,
         headers: {
             "Authorization": `Bearer ${accessToken}`,
             "irpa-api-key": apiKey,
@@ -109,13 +103,27 @@ async function triggerApprovalDecision(executionId, result, extraInputs = {}) {
         data: payload
     });
 
-    console.log("Approval decision sent:");
+    console.log(`${label} sent:`);
     console.log(response);
 
     return response;
 }
 
+/** Approve and reject, from the approve view or the task form. Payload unchanged. */
+async function triggerApprovalDecision(executionId, result, extraInputs = {}) {
+    return sendTrigger(APPROVAL_DECISION_TRIGGER_ID, "approval decision", executionId, result, extraInputs);
+}
+
+// The requester's two ways out of `reworkRequired`. Withdraw calls it so SPA stops the workflow:
+// CAP deletes the request, and the instance would otherwise wait on one that no longer exists.
+async function triggerRequesterCallback(executionId, result, extraInputs = {}) {
+    return sendTrigger(REQUESTER_CALLBACK_TRIGGER_ID, "requester callback", executionId, result, extraInputs);
+}
+
 module.exports = {
     startWorkflow,
-    triggerApprovalDecision
+    triggerApprovalDecision,
+    triggerRequesterCallback,
+    APPROVAL_DECISION_TRIGGER_ID,
+    REQUESTER_CALLBACK_TRIGGER_ID
 };

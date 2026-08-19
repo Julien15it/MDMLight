@@ -60,11 +60,8 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
     // Any write drops the resident ruleset, the same way a partner write drops the name index.
     this.after(['CREATE', 'UPDATE', 'DELETE'], 'DuplicateRules', () => ruleStore.markStale());
 
-    /**
-     * The validation and derivation tables get the same treatment, and for the same reason: a rule
-     * the engine cannot evaluate is caught at the keyboard, because by check time the answer has
-     * already been given. The two differ only in which validator they hand the row to.
-     */
+    // Same treatment for both tables: a rule the engine cannot evaluate is caught at the keyboard,
+    // because by check time the answer has already been given. Only the validator differs.
     const guard = (entity, table, validate) => {
       this.before(['CREATE', 'UPDATE'], entity, async (req) => {
         // A patch carries only what changed, so it is validated against the stored row it lands on.
@@ -86,9 +83,8 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
     guard('ValidationRules', VALIDATIONS, validateValidationRule);
     guard('DerivationRules', DERIVATIONS, validateDerivationRule);
 
-    // Straight from the code-defined catalog, never a copy the UI keeps in step by hand. It also
-    // re-reads the ruleset, so the page can report honestly whether the configured rules are the
-    // ones actually running or whether it has fallen back to the defaults.
+    // Straight from the code-defined catalog, never a hand-kept UI copy. Re-reads the ruleset too, so
+    // the page can say whether the configured rules are running or the defaults are.
     this.on('ruleOptions', async () => {
       await refreshRules(async () => cds.run(cds.ql.SELECT.from(RULES)), { force: true });
       return {
@@ -104,15 +100,8 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
       };
     });
 
-    /**
-     * The validation and derivation grids' choices. Fields come from the staging model via
-     * `payloadFields`, comparisons and severities from the engine — so the dropdowns are the true
-     * ones and there is no second copy to go stale.
-     *
-     * The counts are of rules that **would actually run**: active, and passing the same validator
-     * the save uses. A steward who has saved eight rules and is told six are running has learned
-     * something an empty banner would never have told them.
-     */
+    // Fields from the staging model, comparisons and severities from the engine, so nothing goes stale.
+    // The counts are of rules that WOULD run - active and valid - so a skipped row can be named.
     this.on('qualityRuleOptions', async () => {
       const runnable = async (table, validate) => {
         try {
@@ -139,11 +128,8 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
       };
     });
 
-    /**
-     * Delegated to BusinessPartnerService, which owns the S/4 connection and the one resident
-     * name index. Standing up a second index here would be a second duplicate check by the back
-     * door — exactly what the one-engine requirement forbids.
-     */
+    // Delegated to BusinessPartnerService, which owns the S/4 connection and the one name index: a
+    // second index here would be a second duplicate check by the back door.
     this.on('testRuleset', async (req) => {
       const bp = await cds.connect.to('BusinessPartnerService');
       return bp.send('testDuplicateRuleset', {

@@ -89,11 +89,8 @@ sap.ui.define([
     "BusinessPartnerFullName"
   ];
 
-  // S/4 only persists the name fields that match the chosen
-  // BusinessPartnerCategory — e.g. FirstName/LastName are silently dropped
-  // for an Organization (category 2), even though the create request sends
-  // them. Showing only the applicable fields avoids that surprise instead of
-  // letting the user fill in fields S/4 will discard.
+  // S/4 silently drops name fields that do not match the chosen category, so only the applicable
+  // ones are shown rather than letting someone fill in fields S/4 will discard.
   var CATEGORY_NAME_FIELDS = {
     "1": ["FirstName", "MiddleName", "LastName"],
     "2": ["OrganizationBPName1", "OrganizationBPName2"],
@@ -119,16 +116,10 @@ sap.ui.define([
     GroupBusinessPartnerName2: "Group Name 2"
   };
 
-  // F4 search helps backed by the S/4 value-help service ZSRVB_MDMLIGHT_VH
-  // (see srv/external/ZSRVB_MDMLIGHT_VH, srv/annotations.cds and
-  // VALUE_HELP_ENTITIES in business-partner-service.js — keep all three in
-  // sync). Applies wherever _createFieldControl renders this field name, so
-  // one entry here covers every section that has the field (e.g. Country
-  // applies to both Addresses and Identifications).
-  //
-  // BusinessPartnerCategory is intentionally NOT listed here: it keeps its
-  // own fixed 3-value Select below instead of an F4 dialog. It still has a
-  // matching @Common.ValueList in annotations.cds for other OData consumers.
+  // F4 helps backed by ZSRVB_MDMLIGHT_VH; keep in sync with annotations.cds and VALUE_HELP_ENTITIES.
+  // One entry covers every section with that field. BusinessPartnerCategory is deliberately absent -
+  // it keeps its own fixed 3-value Select.
+
   // --- Automatic check triggers ---------------------------------------------------------------
   // Fields worth a register lookup the moment they are committed. Everything else only marks its
   // scope dirty; the normalisation runs once the requester moves on, not per field.
@@ -264,25 +255,19 @@ sap.ui.define([
     return ["cds.Date", "cds.DateTime"].includes(field.type);
   }
 
-  // cds.DateTime fields (e.g. BusinessPartnerRole's ValidFrom/ValidTo, or
-  // Addresses' ValidityStartDate/EndDate) get a full date+time picker;
-  // cds.Date fields get a date-only picker.
+  // cds.DateTime gets a date+time picker, cds.Date a date-only one.
   function isDateTime(field) {
     return field.type === "cds.DateTime";
   }
 
-  // DatePicker's valueFormat/displayFormat expect a bare "yyyy-MM-dd" —
-  // values coming from the OData model may carry a time/offset suffix
-  // (e.g. "2026-08-06T00:00:00.000Z"), which this strips.
+  // DatePicker expects a bare "yyyy-MM-dd"; model values may carry a time/offset suffix.
   function dateOnly(value) {
     if (!value) return "";
     var text = String(value);
     return text.length >= 10 ? text.slice(0, 10) : text;
   }
 
-  // DateTimePicker's valueFormat is "yyyy-MM-dd'T'HH:mm:ss" — strips any
-  // fractional seconds/timezone suffix the OData model value may carry
-  // (e.g. "2026-08-06T14:30:00.000Z" -> "2026-08-06T14:30:00").
+  // DateTimePicker expects "yyyy-MM-dd'T'HH:mm:ss", so fractional seconds and any suffix go.
   function dateTimeOnly(value) {
     if (!value) return "";
     var text = String(value);
@@ -290,11 +275,8 @@ sap.ui.define([
     return match ? match[1] : text.slice(0, 19);
   }
 
-  // The reverse of dateOnly()/dateTimeOnly(): these fields are typed
-  // cds.Date/cds.DateTime in the model, so the value written back to the
-  // record must always be a full ISO datetime — otherwise the save sends a
-  // bare date (or a date+time string without an explicit UTC marker) for a
-  // field S/4 expects as a proper datetime.
+  // The reverse of dateOnly/dateTimeOnly: the value written back must be a full ISO datetime, or the
+  // save sends a bare date for a field S/4 expects as a datetime.
   function toDateTimeValue(value) {
     if (!value) return "";
     if (value.length === 10) return value + "T00:00:00.000Z"; // date-only picker
@@ -465,25 +447,11 @@ sap.ui.define([
           state.originalRoot = clone(state.root);
           rootBinding.destroy();
 
-          // Customer/Supplier are their own master records with their own number
-          // range - CVI does not guarantee Customer/Supplier == BusinessPartner.
-          // Filtering Customers/CustomerCompany/... by the BP number therefore
-          // finds nothing on a system where they diverge. A_BusinessPartner
-          // itself carries the resolved Customer/Supplier number as a plain
-          // field, already in state.root from the root read above.
-          //
-          // A to_Customer/to_Supplier navigation-based fallback for when that
-          // field is blank was tried and removed again: reading it through
-          // this app's own OData V4 service crashed the server outright
-          // (`TypeError: Cannot use 'in' operator to search for '$context' in
-          // ...`, inside @sap/cds's own getODataResult) - confirmed live via
-          // `cf logs`. Because the crash was uncaught, it took down every
-          // other in-flight request sharing that container instance too,
-          // which is what actually caused unrelated sections (Addresses,
-          // Roles, ...) to fail alongside it. If the plain field is ever
-          // blank despite the role existing, that needs a dedicated server
-          // action calling S/4 directly - not another attempt at this
-          // navigation from the client.
+          // CVI does not guarantee Customer/Supplier == BusinessPartner, so filtering by the BP number
+          // finds nothing where they diverge; A_BusinessPartner carries the resolved number itself.
+          // Do NOT retry a to_Customer/to_Supplier fallback from the client: it crashed the server
+          // uncaught inside @sap/cds getODataResult, taking every other in-flight request with it.
+          // If the plain field is ever blank, that needs a server action calling S/4 directly.
           state.customerNumber = state.root.Customer || null;
           state.supplierNumber = state.root.Supplier || null;
 
@@ -498,10 +466,8 @@ sap.ui.define([
               .filter(function (section) { return section.kind !== "root"; })
               .map(async function (section) {
                 var relationValue = relationValues[section.relationField];
-                // No Customer/Supplier number on the partner means the role was never
-                // assigned. That is an ordinary state, not a problem, so the section
-                // simply stays empty - its own "no records" text already says so, and a
-                // banner per affected section would bury the real warnings.
+                // No number means the role was never assigned - an ordinary state, so the section stays
+                // empty and its own "no records" text says so, rather than a banner burying real warnings.
                 if (relationValue === null || relationValue === undefined) {
                   return { id: section.id, records: [] };
                 }
@@ -526,9 +492,8 @@ sap.ui.define([
             .filter(function (result) { return Boolean(result.warning); })
             .map(function (result) { return { text: result.warning }; });
 
-          // Rendering is synchronous, so the code lists have to be in hand before it
-          // starts - otherwise every coded field would paint its bare code and only
-          // gain its description on some later redraw.
+          // Rendering is synchronous, so the code lists must be in hand first - otherwise every coded
+          // field paints its bare code and gains its description only on a later redraw.
           await this._loadCodeTexts(this._neededCodeTextPaths(state));
         } catch (error) {
           MessageBox.error(errorMessage(error, "The Business Partner could not be loaded."));
@@ -549,12 +514,8 @@ sap.ui.define([
 
         while (true) {
           var parameters = Object.assign(
-            // Every section loads in parallel via Promise.all, and the V4 model's
-            // default "$auto" group batches simultaneous requests together - one
-            // section failing (e.g. a backend 502) otherwise takes every section
-            // queued after it in that same batch down with "previous request
-            // failed", even though they have nothing to do with one another.
-            // "$direct" gives each section its own independent HTTP request.
+            // "$direct", not the default "$auto": batched together, one section's 502 fails every other
+            // section in the same batch with "previous request failed".
             { $$groupId: "$direct" },
             omittedFields.length
               ? { $select: availableFields.filter(function (field) {
@@ -594,16 +555,8 @@ sap.ui.define([
         return { id: section.id, records: records };
       },
 
-      /**
-       * Descriptions for the coded fields, keyed by value-help collection then by code.
-       * The value-help service already carries them - the F4 dialog has always shown
-       * them - they were simply never used outside it, so a screen read "0001" where the
-       * standard MDG screen reads "Vendor (int.number assgnmnt)".
-       *
-       * Fetched once per collection for the life of the controller: these are small
-       * static code lists, and re-reading them per Business Partner would add a round
-       * trip per field for data that does not change.
-       */
+      // Descriptions for the coded fields, so a screen reads "Vendor (int.number assgnmnt)" and not
+      // "0001". Fetched once per collection for the controller's life - these lists do not change.
       _loadCodeTexts: async function (collectionPaths) {
         this._codeTexts = this._codeTexts || {};
         this._codeTextRequests = this._codeTextRequests || {};
@@ -724,9 +677,8 @@ sap.ui.define([
       },
 
       _createForm: function (section, record, isCreate, editing, compact) {
-        // A section with fieldGroups renders one titled block per group, the way the
-        // standard MDG screen splits Control Data / Tax Information / Additional Data.
-        // Without them it stays one flat grid, which is what every other section wants.
+        // fieldGroups renders one titled block per group, as the MDG screen splits Control Data /
+        // Tax Information / Additional Data. Without them it stays the flat grid everything else uses.
         if (!section.fieldGroups || !section.fieldGroups.length) {
           return this._createFieldGrid(section, section.fields, record, isCreate, editing, compact);
         }
@@ -736,11 +688,8 @@ sap.ui.define([
 
         var blocks = section.fieldGroups.map(function (group) {
           var fields = group.fields.map(function (name) { return byName[name]; }).filter(Boolean);
-          // Grouped sections sit directly above the child tables (Company Codes, Sales
-          // Areas) in the same dialog, so their fields use the same table control rather
-          // than a form - field names as the header row, their inputs as the row beneath,
-          // giving both the same rules and alignment instead of fields that appear to
-          // float next to bounded tables.
+          // These sit directly above child tables in the same dialog, so they use the same table control
+          // rather than a form - otherwise the fields appear to float next to bounded tables.
           var body = compact
             ? this._createFieldTable(section, fields, record, isCreate, editing)
             : this._createFieldGrid(section, fields, record, isCreate, editing, compact);
@@ -765,19 +714,13 @@ sap.ui.define([
         return new VBox({ items: blocks });
       },
 
-      /**
-       * One field group rendered with the same sap.m.Table the record sections use, so a
-       * group of fields and a table of child records carry identical chrome. Fields are
-       * chunked four to a table because one table of a dozen columns would not fit; each
-       * chunk is padded back to four columns so the column widths line up down the block.
-       */
+      // One field group in the same sap.m.Table the record sections use, so both carry identical
+      // chrome. Chunked four to a table and padded back to four, so the widths line up down the block.
       _createFieldTable: function (section, fields, record, isCreate, editing) {
         var COLUMNS = 4;
         var shown = fields.filter(function (field) {
-          // On a collection the relation field repeats the same value on every row, so it
-          // is noise. On a "single" section it is the record's own number - the ERP
-          // Customer / ERP Vendor number the MDG screen puts under Administrative Data -
-          // and belongs on screen. It stays read-only either way, via _isEditable.
+          // Noise on a collection, where it repeats per row; on a "single" section it is the record's
+          // own ERP Customer/Vendor number and belongs on screen. Read-only either way, via _isEditable.
           if (field.name === section.relationField && section.kind !== "single") return false;
           return !(isCreate && field.key && field.creatable === false);
         });
@@ -809,17 +752,12 @@ sap.ui.define([
         return container;
       },
 
-      /**
-       * The field controls for one flat list of fields, as label-above-field cards in a
-       * responsive grid. This is the layout every section has always used and the only
-       * one outside the grouped Customer/Supplier blocks - see _createFieldTable.
-       */
+      // Label-above-field cards in a responsive grid: the layout every section uses outside the
+      // grouped Customer/Supplier blocks - see _createFieldTable.
       _createFieldGrid: function (section, fields, record, isCreate, editing) {
         var shown = fields.filter(function (field) {
-          // On a collection the relation field repeats the same value on every row, so it
-          // is noise. On a "single" section it is the record's own number - the ERP
-          // Customer / ERP Vendor number the MDG screen puts under Administrative Data -
-          // and belongs on screen. It stays read-only either way, via _isEditable.
+          // Noise on a collection, where it repeats per row; on a "single" section it is the record's
+          // own ERP Customer/Vendor number and belongs on screen. Read-only either way, via _isEditable.
           if (field.name === section.relationField && section.kind !== "single") return false;
           return !(isCreate && field.key && field.creatable === false);
         });
@@ -950,10 +888,8 @@ sap.ui.define([
         return control;
       },
 
-      /** Generic F4 search-help dialog, config-driven via VALUE_HELP_FIELDS.
-       *  One dialog instance is cached per collectionPath (this._valueHelpDialogs)
-       *  so fields that share a lookup — e.g. CorrespondenceLanguage (root) and
-       *  Language (Addresses) both use "Languages" — reuse the same dialog. */
+      /** Generic F4 dialog, driven by VALUE_HELP_FIELDS. Cached per collectionPath, so fields sharing
+       *  a lookup reuse one dialog instance. */
       _openValueHelp: function (config, input, record, field, section) {
         this._valueHelpDialogs = this._valueHelpDialogs || {};
         var dialog = this._valueHelpDialogs[config.collectionPath];
@@ -1077,12 +1013,8 @@ sap.ui.define([
         return keys.concat(details).slice(0, 6);
       },
 
-      /**
-       * Where a section's table currently lives. Normally its own Object Page block, but
-       * a child section (Company Codes, Sales Areas) is hosted inside its parent's Details
-       * dialog instead and has no block of its own - so the dialog registers its container
-       * here, and every existing re-render path keeps working unchanged.
-       */
+      // Where a section's table lives: normally its Object Page block, but a child section is hosted in
+      // its parent's Details dialog and registers its container here, so re-render paths keep working.
       _sectionContainer: function (section) {
         var hosted = this._hostedSectionContainers && this._hostedSectionContainers[section.id];
         if (hosted && !hosted.bIsDestroyed) return hosted;
@@ -1117,9 +1049,8 @@ sap.ui.define([
               new Button({
                 text: "Add",
                 icon: "sap-icon://add",
-                // A "single" section is 1:1 with the Business Partner (Customer/Supplier
-                // Data) - once it has its one record, Add must disappear rather than
-                // invite a second row the remote entity's key cannot hold.
+                // A "single" section is 1:1 with the partner, so once it has its record Add must disappear
+                // rather than invite a row the remote key cannot hold.
                 visible: state.editing && section.creatable !== false
                   && (section.kind !== "single" || records.length === 0),
                 press: this._openNewRecord.bind(this, section)
@@ -1132,10 +1063,8 @@ sap.ui.define([
           table.addColumn(new Column({ header: new Text({ text: field.label }) }));
         });
         var showDelete = state.editing && section.deletable !== false;
-        // Always present, even when there is nothing to delete: pressing the row already
-        // opened the record, but nothing on screen said so. An explicit Details button is
-        // how the standard MDG screen exposes it, and it is the only affordance at all on
-        // a non-deletable section such as Customer/Supplier Data.
+        // Always present: pressing the row already opened the record but nothing said so, and on a
+        // non-deletable section this is the only affordance there is.
         table.addColumn(new Column({
           width: showDelete ? "9rem" : "6rem",
           hAlign: "End",
@@ -1194,11 +1123,8 @@ sap.ui.define([
       _openNewRecord: function (section) {
         var state = this.getView().getModel("maintenance").getData();
         var record = {};
-        // Customer/Supplier carry their own number, not the BP's - see
-        // state.customerNumber/supplierNumber in _loadBusinessPartner. Falls
-        // back to the BP number for every other relationField, and to
-        // nothing at all on a not-yet-posted create request, where no real
-        // Customer/Supplier number exists yet.
+        // Customer/Supplier carry their own number, not the BP's. Falls back to the BP number for every
+        // other relationField, and to nothing on a create that has not posted.
         var relationValue = section.relationField === "Customer" ? state.customerNumber
           : section.relationField === "Supplier" ? state.supplierNumber
           : state.businessPartner;
@@ -1259,18 +1185,14 @@ sap.ui.define([
       _openRecordDialog: function (section, record, isCreate, index) {
         var state = this.getView().getModel("maintenance").getData();
         var editing = Boolean(state.editing);
-        // Only a grouped section (Customer/Supplier) switches to the table layout, because
-        // only there do field blocks sit directly above child tables and need to match
-        // them. Every other dialog keeps the card layout it has always had.
+        // Only a grouped section switches to the table layout, because only there do field blocks sit
+        // above child tables and need to match them.
         var grouped = Boolean(section.fieldGroups && section.fieldGroups.length);
         var form = this._createForm(section, record, isCreate, editing, grouped);
         var items = [form];
 
-        // Child sections (Company Codes, Sales Areas, Purchasing Organizations) render
-        // inside this dialog rather than as Object Page blocks of their own, so one role
-        // is one block on the page and everything below it is reached through Details -
-        // the way the standard MDG ERP Customer screen is laid out. They read and write
-        // the same state.sections arrays either way, so staging and posting are untouched.
+        // Child sections render inside this dialog rather than as blocks of their own, so one role is one
+        // block. They read and write the same state.sections arrays, so staging and posting are untouched.
         var hosted = (section.childSections || []).map(function (childId) {
           var child = this._metadata.find(function (candidate) { return candidate.id === childId; });
           if (!child) return null;
@@ -1409,21 +1331,16 @@ sap.ui.define([
         if (isCreate || state.mode === "edit") {
           return this._sendChangeRequest("submitRequest");
         }
-        // Rework is the draft view with a different primary action: the button says Resubmit and
-        // routes to resubmitRequest, which hands the request back to the parked approval process
-        // instead of starting a new one.
+        // The draft view with a different primary action: Resubmit hands the request back to the parked
+        // process rather than starting a new one.
         if (state.mode === "rework") {
           return this._sendChangeRequest("resubmitRequest");
         }
         MessageBox.error("This Business Partner is not open for editing.");
       },
 
-      /**
-       * Withdraw: cancels the request and deletes it, staging rows and all.
-       *
-       * Confirmed first, and worded so the consequence is unambiguous - this is the one action in
-       * the screen that destroys data rather than moving it along, and there is no undo.
-       */
+      // Withdraw deletes the request and its staging rows. Confirmed first and worded plainly: it is
+      // the one action here that destroys data, and there is no undo.
       onWithdraw: function () {
         var that = this;
         var state = this.getView().getModel("maintenance").getData();
@@ -1441,6 +1358,9 @@ sap.ui.define([
       },
 
       _withdraw: async function () {
+        // The request is about to stop existing; a trigger firing into the deleted record would
+        // fail server-side and log a warning nobody can act on.
+        this._cancelPendingTrigger();
         var maintenanceModel = this.getView().getModel("maintenance");
         var state = maintenanceModel.getData();
         state.busy = true;
@@ -1476,11 +1396,8 @@ sap.ui.define([
         }
       },
 
-      /**
-       * The screen state as the staging service expects it. Section ids are the
-       * generated metadata ids, which are also the staging node names, so
-       * nothing has to be translated on either side.
-       */
+      // The screen state in the staging service's shape. Section ids are the generated metadata ids,
+      // which are also the staging node names, so nothing is translated on either side.
       _requestDataJson: function (state) {
         var sections = {};
         var deleted = {};
@@ -1563,9 +1480,8 @@ sap.ui.define([
           text: "Change request " + ((result && result.ChangeRequest) || "") + " submitted for approval."
         }];
 
-        // Only the clean outcome is reported here. A duplicate was already put to the user in the
-        // dialog they confirmed through, so repeating it above the submitted request adds nothing
-        // but noise — the finding is on CheckFindings for the approver either way.
+        // Only the clean outcome: a duplicate was already put to the user in the dialog they confirmed
+        // through, and the finding is on CheckFindings for the approver either way.
         if (!duplicates.length) {
           messages.push({
             type: "Information",
@@ -1583,6 +1499,9 @@ sap.ui.define([
 
       /** action is "saveRequest" or "submitRequest"; `confirmed` allows the dialog one re-entry. */
       _sendChangeRequest: async function (action, confirmed) {
+        // Save, Submit and Resubmit all run their own gates. A trigger landing afterwards would
+        // report on a request that has already moved on.
+        this._cancelPendingTrigger();
         var maintenanceModel = this.getView().getModel("maintenance");
         var state = maintenanceModel.getData();
         state.busy = true;
@@ -1596,11 +1515,8 @@ sap.ui.define([
             Reason: null,
             DataJson: this._requestDataJson(state)
           };
-          // Confirmation is tied to the exact payload that was warned about, not to a flag: edit
-          // the record after a warning and the check has to be seen again before it counts.
-          // A resubmit runs the same duplicate gate as a submit, so it needs the same confirming
-          // second press - and tied to the same payload, because the whole point of rework is that
-          // the requester changed the record.
+          // Tied to the exact payload warned about, not a flag: edit after a warning and the check has to
+          // be seen again. A resubmit needs the same second press - rework is the requester changing it.
           if (action === "submitRequest" || action === "resubmitRequest") {
             parameters.Confirm = Boolean(state.awaitingConfirmationFor)
               && state.awaitingConfirmationFor === parameters.DataJson;
@@ -1625,9 +1541,8 @@ sap.ui.define([
             return;
           }
 
-          // A validation blocked, so nothing was submitted. Reported at the top of the screen
-          // rather than in a dialog: this is a list of things to go and fix in the form, not a
-          // decision to take now, and the fields are right there behind it.
+          // A validation blocked, so nothing was submitted. Strips, not a dialog: this is a list of
+          // things to fix in the form behind it, not a decision to take now.
           if (result && result.Valid === false) {
             state.awaitingConfirmation = false;
             state.awaitingConfirmationFor = "";
@@ -1641,9 +1556,8 @@ sap.ui.define([
             return;
           }
 
-          // Nothing was submitted: the check found something and the request is still a draft.
-          // A dialog rather than a message strip, because this is a decision the user has to make
-          // now — a banner above a long object page is easy to submit straight past.
+          // The check found something and the request is still a draft. A dialog, not a strip: this is a
+          // decision to take now, and a banner above a long object page is easy to submit straight past.
           if (result && result.NeedsConfirmation) {
             state.messages = [];
             // Submit matched too, so its findings replace what the panel was showing rather than
@@ -1694,8 +1608,6 @@ sap.ui.define([
         }
       },
 
-      // "Is this record right?" - validate, derive, normalise, and stage nothing. Nothing is
-      // written into the form: both stages arrive as proposals in one dialog.
       // --- Automatic triggers -------------------------------------------------------------------
       // The same action the Check button calls, but quiet: no MessageBox, no busy overlay, and
       // nothing written to the form. Derivations stay proposals - see the 2026-08-13 decision.
@@ -1736,6 +1648,16 @@ sap.ui.define([
         }.bind(this), TRIGGER_DELAY_MS);
       },
 
+      // Called by every button that runs a check. The guard was one-directional: a scheduled trigger
+      // still fired once the button released `busy`, so the derivation ran twice. `_buttonRun` covers
+      // the other half - a trigger already mid-flight drops its result when a press overtakes it.
+      _cancelPendingTrigger: function () {
+        clearTimeout(this._idleTimer);
+        clearTimeout(this._triggerTimer);
+        this._pendingScope = null;
+        this._buttonRun = (this._buttonRun || 0) + 1;
+      },
+
       _runTriggeredCheck: async function (options) {
         var maintenanceModel = this.getView().getModel("maintenance");
         var state = maintenanceModel.getData();
@@ -1748,6 +1670,9 @@ sap.ui.define([
         var key = (options.scope || "-") + "|" + options.propose + "|" + dataJson;
         if (key === this._lastTriggerKey) return;
 
+        // Which button press this trigger started under. If it changes while the call is out, a
+        // button overtook us and its answer is the one the requester is looking at.
+        var startedUnder = this._buttonRun || 0;
         this._triggerInFlight = true;
         try {
           var result = await this._executeAction("checkRequest", {
@@ -1758,6 +1683,10 @@ sap.ui.define([
             Scope: options.scope || null
           }, "cr");
           this._lastTriggerKey = key;
+
+          // A button ran while this was out. Its result is on screen and it asked the same question
+          // of the same record, so reporting this one too is the duplicate dialog we are fixing.
+          if (startedUnder !== (this._buttonRun || 0)) return;
 
           var validations = this._parseJsonArray(result && result.ValidationsJson);
           var derivations = this._parseJsonArray(result && result.DerivationsJson);
@@ -1779,6 +1708,9 @@ sap.ui.define([
       },
 
       onCheck: async function () {
+        // Before the early return below, not after: a press that fails the client-side check has
+        // still superseded whatever the trigger was about to ask.
+        this._cancelPendingTrigger();
         var maintenanceModel = this.getView().getModel("maintenance");
         var state = maintenanceModel.getData();
         // The client-side required-field check first: it needs no round trip.
@@ -1829,6 +1761,7 @@ sap.ui.define([
       // "Does this partner already exist?" - validate, derive in memory, match. The derived values
       // are never shown; they exist so a rule on a field nobody typed yet still fires.
       onDuplicateCheck: async function () {
+        this._cancelPendingTrigger();
         var maintenanceModel = this.getView().getModel("maintenance");
         var state = maintenanceModel.getData();
         var errors = state.mode === "create" ? this._validationErrors(state.root) : [];
@@ -1907,9 +1840,8 @@ sap.ui.define([
         }
       },
 
-      // `info` is its own severity now that the configured validation table can report a rule it
-      // could not evaluate. Showing that as a Warning would put a rule's own problem in the same
-      // strip as the requester's, which is not their problem to fix.
+      // `info` is its own severity: a rule the engine could not evaluate is the table's problem, not
+      // the requester's, so it must not share a strip with theirs.
       _validationMessages: function (validations) {
         var TYPE = { error: "Error", warning: "Warning", info: "Information" };
         return validations.map(function (entry) {
@@ -2100,23 +2032,16 @@ sap.ui.define([
         );
       },
 
-      /**
-       * Rework: the requester's screen for a request the approver sent back.
-       *
-       * Reached only by the `reworkurl` deep link in the notification SPA sends on a rejection -
-       * the change request list is steward-gated, so there is no other way in. Every field is
-       * editable again, and the footer offers Resubmit and Withdraw instead of Submit Request.
-       */
+      // The requester's screen for a request sent back. Reached only by the `reworkurl` deep link -
+      // the list is steward-gated. Every field is editable, and the footer offers Resubmit/Withdraw.
       _onReworkRoute: function (event) {
         return this._loadStagedRequest(
           decodeURIComponent(event.getParameter("arguments").changeRequest), "rework"
         );
       },
 
-      /**
-       * `mode` is one of "approve", "edit" or "rework". It was a boolean `editing` until rework
-       * arrived, which needs the editability of a draft and a different footer from either.
-       */
+      // `mode` is "approve", "edit" or "rework". It was a boolean until rework arrived, which needs a
+      // draft's editability and a footer of its own.
       _loadStagedRequest: async function (changeRequest, mode) {
         var maintenanceModel = this.getView().getModel("maintenance");
         var reworking = mode === "rework";
@@ -2129,15 +2054,12 @@ sap.ui.define([
         state.editing = editing;
         state.changeRequest = changeRequest;
         state.showEditButton = false;
-        // Rework IS the draft view - same editable fields, same Check and Save Request - with one
-        // different primary action. So the buttons are the editing ones in both modes, and only the
-        // label and what onSave routes to change.
+        // Rework IS the draft view with one different primary action, so the buttons are the editing
+        // ones in both modes and only the label and onSave's route change.
         state.showCheckButton = reworking;
         state.showSaveButton = editing;
-        // No Save Request in rework, and not only because two buttons is what was asked for: Save
-        // Request drops the screen out of editing and offers Edit, which re-enters "edit" mode - and
-        // onSave would then route the primary button to submitRequest, starting a second workflow
-        // for a request whose own instance is still parked. Rework resubmits or it withdraws.
+        // No Save Request in rework: it drops the screen out of editing and offers Edit, which re-enters
+        // "edit" mode - and onSave would then start a second workflow for an already-parked instance.
         state.showSaveRequestButton = editing && !reworking;
         state.showDecisionButtons = !editing;
         // Set properly once the status is known: a rework link outlives the state it was sent for.
@@ -2176,9 +2098,8 @@ sap.ui.define([
           state.showDecisionButtons = !editing && state.requestStatus === "inApproval";
 
           if (reworking) {
-            // The link outlives the state it was sent for: a requester who already resubmitted, or
-            // whose request someone else withdrew, must not be offered the buttons again. Same rule
-            // the approve view follows for a task that has already been decided.
+            // The link outlives the state it was sent for, so an already-resubmitted or withdrawn request
+            // must not offer the buttons again - the rule the approve view follows for a decided task.
             var awaitingRework = state.requestStatus === "reworkRequired";
             state.showReworkButtons = awaitingRework;
             state.editing = awaitingRework;

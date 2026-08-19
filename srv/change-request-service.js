@@ -1,7 +1,9 @@
 'use strict';
 
 const cds = require('@sap/cds');
-const { startWorkflow, triggerApprovalDecision } = require('./wf/processAutomation');
+const {
+  startWorkflow, triggerApprovalDecision, triggerRequesterCallback
+} = require('./wf/processAutomation');
 const {
   buildWorkflowInputFromRows, businessPartnerNavigationPath, normalizeRemoteResult
 } = require('./business-partner-service')._internals;
@@ -15,14 +17,8 @@ const { PAYLOAD_NODES, ROOT_SECTION } = require('./checks/payload-fields');
 const STAGING = 'mdmlight.staging.';
 const FINDINGS = `${STAGING}CheckFindings`;
 
-/**
- * Maps a maintenance-screen section id onto its staging entity. The ids are the
- * same ones app/businesspartner/scripts/generate-maintenance-metadata.js emits,
- * so the UI can post its own state without translating anything.
- */
-// Derived from PAYLOAD_NODES rather than listed again: the validation and derivation tables address
-// fields by section id, so a section that exists here and not there (or vice versa) would be a rule
-// pointing at a node nothing stages. `General` is the payload root, not a node, so it drops out.
+// Section id -> staging entity, using the generated metadata ids so nothing is translated. Derived
+// from PAYLOAD_NODES so a rule cannot name a section nothing stages; General is the root, not a node.
 const NODES = Object.fromEntries(
   Object.entries(PAYLOAD_NODES)
     .filter(([section]) => section !== ROOT_SECTION)
@@ -66,17 +62,8 @@ const RELATION_NAVIGATION = Object.freeze({
   Supplier: { navigation: 'to_Supplier', keyField: 'Supplier' }
 });
 
-/**
- * Customer and Supplier are their own master records with their own number
- * range - Customer-Vendor Integration does not guarantee Customer/Supplier ==
- * BusinessPartner, and on systems where it does not, staging a row under the
- * BusinessPartner number would silently post it against a Customer/Supplier
- * that does not exist. A_BusinessPartner itself carries the resolved number
- * as a plain field, tried first; the to_Customer/to_Supplier navigation is
- * the fallback for a system that leaves that field blank. Returns null when
- * neither resolves anything, e.g. the role was never assigned (or, for a
- * create request, not posted yet in this same run).
- */
+// CVI does not guarantee Customer/Supplier == BusinessPartner, so posting under the BP number could
+// hit a record that does not exist. Plain field first, navigation as fallback, null if neither.
 async function resolveRelationNumber(s4, businessPartner, relationField) {
   const relation = RELATION_NAVIGATION[relationField];
   if (!relation) return businessPartner;
@@ -118,30 +105,21 @@ const APPROVAL_WORKFLOW_DEFINITION_ID =
 // here because RequestType is a String(10), so a bad value otherwise fails at the database instead.
 const SUPPORTED_REQUEST_TYPES = Object.freeze(['create', 'change']);
 
-/**
- * The statuses whose payload a requester may still change. `reworkRequired` joined `draft` on
- * 2026-08-19: a rejection hands the request back rather than ending it, so a reworkable request has
- * to be writable by the same code path a draft is.
- */
+// Payloads a requester may still change. `reworkRequired` joined `draft` because a rejection hands
+// the request back rather than ending it.
 const EDITABLE_STATUSES = Object.freeze(['draft', 'reworkRequired']);
 
-/**
- * The statuses `withdrawRequest` will delete. Deliberately the editable ones and nothing else:
- * anything further along either carries `postedBP` - the idempotency guard that stops an SPA retry
- * creating a second business partner - or is being decided on by somebody else right now.
- */
+// The editable ones and nothing else: anything further along carries `postedBP` (the guard against
+// an SPA retry creating a second BP) or is being decided on by someone else.
 const WITHDRAWABLE_STATUSES = EDITABLE_STATUSES;
 
-/**
- * What `resubmitRequest` sends to the parked SPA process. Arthur's definition branches on this input
- * value and routes the request back to the approver.
- *
- * **Capitalised, and that is his spelling, not a slip.** The approve and reject signals are
- * lowercase (`approved`/`rejected`); he specified `Resubmitted` for this one on 2026-08-19. Worth
- * confirming his trigger is case-sensitive before tidying these into one convention - a signal that
- * silently fails to match leaves a request parked forever.
- */
+// Arthur's trigger branches on this. Capitalised is his spelling; approve/reject are lowercase, so
+// confirm case-sensitivity before unifying them - an unmatched signal parks a request forever.
 const RESUBMITTED_SIGNAL = 'Resubmitted';
+
+// Same requester trigger. Follows Resubmitted's capitalisation, but he never specified this one -
+// confirm it, or the instance stays parked on a change request that no longer exists.
+const WITHDRAWN_SIGNAL = 'Withdrawn';
 
 // A finding also carries candidateName and reasons for the SPA payload; neither is a column, and
 // spreading them into the insert would fail. Whitelisted, so a new field cannot break a submit.
@@ -172,12 +150,8 @@ function parseJsonObject(text, label) {
   return value;
 }
 
-/**
- * Keeps only elements the staging entity actually has. The maintenance screen
- * carries S/4 fields we deliberately do not stage (derived names, ETag) plus
- * its own bookkeeping (__state, __keys); passing those through would fail the
- * insert on an unknown column.
- */
+// Only elements the staging entity has: the screen also carries unstaged S/4 fields and its own
+// __state/__keys, which would fail the insert on an unknown column.
 function stageable(entityName, source) {
   const elements = cds.model.definitions[entityName]?.elements || {};
   const row = {};
@@ -190,11 +164,8 @@ function stageable(entityName, source) {
   return row;
 }
 
-/**
- * 'new' -> create, 'modified' -> update, an entry in `deleted` -> delete.
- * Untouched rows get no action: a change request stages the whole partner so
- * the approver sees it in full, but only touched rows may be replayed to S/4.
- */
+// 'new' -> C, any other state -> U. Untouched rows get no action: the whole partner is staged so the
+// approver sees it in full, but only touched rows may be replayed to S/4.
 function rowAction(record) {
   if (record?.__state === 'new') return 'C';
   if (record?.__state) return 'U';
@@ -205,35 +176,19 @@ function requestingUserEmail(req) {
   return req.user?.attr?.email || req.user?.id || 'unknown';
 }
 
-/**
- * Deep link to this request's approve view. Sent to BPA as `bpurl` so the
- * workflow can route the approver to it. APPROUTER_URL is provided by
- * mta.yaml (the approuter module's own route, via MTA's provides/requires) -
- * unset in local/hybrid dev, where there is no approuter, so this degrades to
- * an empty string rather than a broken link.
- */
+/** Deep link to the approve view, sent to BPA as `bpurl` to route the approver there. */
 function approveUrl(changeRequest) {
   return requestUrl(changeRequest, 'approve');
 }
 
-/**
- * Deep link to this request's **rework** view, sent to BPA as `reworkurl` so the
- * notification the requester gets on a rejection can point straight at it.
- *
- * Sent with the initial workflow context rather than at rejection time, because
- * the rejection happens inside SPA and it has the context to hand there. Nothing
- * else reaches this screen: the change request list is steward-gated, so this URL
- * is the requester's only way in.
- */
+// Sent as `reworkurl` with the initial context, because SPA owns the rejection branch. The change
+// request list is steward-gated, so this link is the requester's only way to the rework screen.
 function reworkUrl(changeRequest) {
   return requestUrl(changeRequest, 'rework');
 }
 
-/**
- * APPROUTER_URL is provided by mta.yaml (the approuter module's own route, via
- * MTA's provides/requires) - unset in local/hybrid dev, where there is no
- * approuter, so this degrades to an empty string rather than a broken link.
- */
+// APPROUTER_URL comes from mta.yaml and is unset in local/hybrid dev, so this degrades to an empty
+// string rather than a broken link.
 function requestUrl(changeRequest, verb) {
   const approuterUrl = process.env.APPROUTER_URL;
   if (!approuterUrl) return '';
@@ -247,15 +202,8 @@ async function activeStagedRows(db, entity, changeRequest) {
   return rows.filter((row) => row.action !== 'D');
 }
 
-/**
- * Builds the same businesspartnerinput the approval workflow expects for a
- * direct create/edit (see business-partner-service.js), but sourced from
- * this request's staged rows instead of a live S/4 read - at submitRequest
- * time a `create` request has no S/4 record yet to read from. `businessPartner`
- * (known up front for change/block/delete, null for create) is backfilled
- * onto staged child rows that do not carry their own key so the approver's
- * preview still shows which BP each row belongs to.
- */
+// The workflow's businesspartnerinput, built from staged rows rather than a live S/4 read - a create
+// has no S/4 record yet. `businessPartner` is backfilled onto child rows carrying no key of their own.
 async function buildBusinessPartnerInput(db, s4, header) {
   const changeRequest = header.ID;
   const businessPartner = header.businessPartner || null;
@@ -288,11 +236,8 @@ class ChangeRequestService extends cds.ApplicationService {
     const db = await cds.connect.to('db');
     const s4 = await cds.connect.to('API_BUSINESS_PARTNER');
 
-    /**
-     * Replaces the staged nodes of a request wholesale. A save always carries
-     * the complete screen state, so rewriting is both simpler and safer than
-     * diffing - there is no way for a stale row to survive.
-     */
+    // Wholesale replace: a save always carries the complete screen state, so rewriting beats diffing
+    // and no stale row can survive.
     const writeStagedNodes = async (changeRequest, payload) => {
       const sections = payload.sections || {};
       const deleted = payload.deleted || {};
@@ -336,20 +281,11 @@ class ChangeRequestService extends cds.ApplicationService {
     };
 
     /** Upserts the header and rewrites the nodes. Status is left untouched. */
-    /**
-     * The BP context SPA gets about a request. **One builder for both paths**, because a resubmit
-     * has to hand the approver the same shape a first submit does - Arthur binds the same fields
-     * either way, and two copies of this object would drift the first time one grew a key.
-     *
-     * At submit it is the `startWorkflow` context; at resubmit it is spread flat into `inputs`
-     * alongside `result`. Rebuild it *after* `persist()` on a resubmit, or the approver is shown the
-     * data from before the rework - the whole point of the loop is that the requester changed it.
-     */
+    // One builder for submit (the startWorkflow context) and resubmit (spread flat into `inputs`), so
+    // the shapes cannot drift. On a resubmit build it AFTER persist(), or it carries pre-rework data.
     const workflowContext = async (req, changeRequest, header, findings) => {
-      // Best-effort, like every other piece of the workflow payload: a problem shaping the preview
-      // data must not block the submit, it should just leave the approver with a thinner (but still
-      // working) businesspartnerinput. Built after the duplicate gate, so an unconfirmed submit
-      // never pays for a payload it will not send.
+      // Best-effort: a shaping problem leaves the approver a thinner preview rather than blocking the
+      // submit. After the duplicate gate, so an unconfirmed submit never pays for a payload it discards.
       let businessPartnerInput = {};
       try {
         businessPartnerInput = await buildBusinessPartnerInput(db, s4, header);
@@ -362,9 +298,7 @@ class ChangeRequestService extends cds.ApplicationService {
         businesspartner: req.data.BusinessPartner || '',
         emailadressinitiator: requestingUserEmail(req),
         bpurl: approveUrl(changeRequest),
-        // Where to send the requester if the approver rejects. Sent with the context rather than at
-        // rejection time because SPA owns the rejection branch, and this is the requester's only
-        // route in.
+        // Where the requester goes if rejected. Sent now because SPA owns the rejection branch.
         reworkurl: reworkUrl(changeRequest),
         businesspartnerinput: businessPartnerInput,
         // One entry per matched partner, so the approver sees what was flagged and why. Empty when
@@ -390,9 +324,7 @@ class ChangeRequestService extends cds.ApplicationService {
           cds.ql.SELECT.one.from(HEADER).where({ ID: changeRequest })
         );
         if (!existing) return req.reject(404, `Change request ${changeRequest} was not found.`);
-        // `reworkRequired` is editable for the same reason `draft` is: nobody has accepted it. A
-        // rejection sends the request back to the requester, so this is the one guard that decides
-        // whether rework is possible at all - it used to be draft-only.
+        // The one guard that decides whether rework is possible at all; it used to be draft-only.
         if (!EDITABLE_STATUSES.includes(existing.status)) {
           return req.reject(409, `Change request ${changeRequest} is ${existing.status} and can no longer be changed.`);
         }
@@ -422,14 +354,8 @@ class ChangeRequestService extends cds.ApplicationService {
       return { ChangeRequest: changeRequest, Status: 'draft' };
     });
 
-    /**
-     * Runs the one duplicate check over the staged record and records what it found. A `Duplicate`
-     * verdict raises an `error` finding for the approver to clear; it deliberately does not block
-     * the submit, because the approver is the override and there is no other way past it.
-     *
-     * Best-effort on purpose: a duplicate check that cannot run must not strand a request in
-     * `draft` with an approval workflow already waiting for it.
-     */
+    // A `Duplicate` verdict raises an error finding for the approver to clear rather than blocking the
+    // submit - the approver is the override. Best-effort: a failed check must not strand the request.
     const recordDuplicateFindings = async (changeRequest, businessPartner) => {
       let findings = [];
       try {
@@ -483,12 +409,8 @@ class ChangeRequestService extends cds.ApplicationService {
       // Created per request: the pair shares one VIES/GLEIF lookup between the validation and the
       // derivation, and must not carry it over to the next press of the button.
       const registry = createRegistryStages();
-      // The steward's tables plus the registries, and configured first in both lists.
-      //
-      // Validations: these are deterministic and offline, so a request that fails one is reported
-      // without a VIES call being spent on it. Derivations: the pipeline never overwrites, so
-      // whichever stage fills a field first wins — and an explicitly configured rule is a decision
-      // somebody made about this field, where the registry is a lookup that happens to have one.
+      // Configured first in both lists: the validations are offline, so a failure costs no VIES call;
+      // and the pipeline never overwrites, so an explicit rule should win over a registry lookup.
       const configured = await configuredStages();
       return runChecks(
         { root: data.root || {}, sections: data.sections || {} },
@@ -547,10 +469,8 @@ class ChangeRequestService extends cds.ApplicationService {
       const changeRequest = await persist(req);
       if (!changeRequest) return;
 
-      // The same validations the Check button runs, over the payload being submitted.
-      // Derivations are deliberately NOT run here: a derivation changes the data, and the
-      // requester has to have seen what they are asking for. Check is the derivation
-      // trigger; when there are more triggers they get decided on their own merits.
+      // The Check button's validations, over the payload being submitted. Derivations deliberately do
+      // NOT run: they change the data, and the requester has to have seen what they are asking for.
       const data = parseJsonObject(req.data.DataJson, 'DataJson');
       const registry = createRegistryStages();
       const configured = await configuredStages();
@@ -618,17 +538,8 @@ class ChangeRequestService extends cds.ApplicationService {
       };
     });
 
-    /**
-     * Rework: back into approval.
-     *
-     * Everything a first submit gates on is gated on again - the validations and the duplicate
-     * check with its confirming second press - because a reworked request is one nobody has judged.
-     * The requester may well have changed the very fields the duplicate check reads.
-     *
-     * What differs is the last step, and only that: the SPA process instance is still parked
-     * waiting for this request, so it is **signalled rather than started**. One instance per change
-     * request means one audit thread on Arthur's side across however many rework rounds happen.
-     */
+    // Rework, back into approval. Every gate a first submit runs, runs again - a reworked request is
+    // one nobody has judged. Only the last step differs: the parked instance is signalled, not started.
     this.on('resubmitRequest', async (req) => {
       const requested = req.data.ChangeRequest;
       const before = await db.run(cds.ql.SELECT.one.from(HEADER).where({ ID: requested }));
@@ -638,9 +549,7 @@ class ChangeRequestService extends cds.ApplicationService {
           `Change request ${requested} is ${before.status}, not awaiting rework. Only a request the`
           + ' approver sent back can be resubmitted.');
       }
-      // The parked instance IS the resubmit target. Without it there is nothing to hand back to,
-      // and silently starting a fresh workflow would give one request two audit threads and
-      // possibly two approver tasks.
+      // The parked instance IS the target; starting a fresh workflow would give one request two threads.
       if (!before.processInstanceId) {
         return req.reject(409,
           `Change request ${requested} has no approval process to hand back to, so it cannot be`
@@ -687,13 +596,11 @@ class ChangeRequestService extends cds.ApplicationService {
       const header = await db.run(cds.ql.SELECT.one.from(HEADER).where({ ID: changeRequest }));
       const context = await workflowContext(req, changeRequest, header, findings);
 
-      // Left in `reworkRequired` if the signal fails, for the same reason a failed start leaves a
-      // submit in `draft`: a request in `inApproval` that no process is actually waiting on sits in
-      // nobody's inbox, and the requester would have no way to try again.
+      // Left in `reworkRequired` on failure: `inApproval` with no process waiting sits in nobody's inbox.
       try {
-        // The BP context goes flat inside `inputs`, next to `result` - Arthur's shape. `executionId`
-        // is the parked process instance, which is what he calls the CR id.
-        await triggerApprovalDecision(before.processInstanceId, RESUBMITTED_SIGNAL, context);
+        // The requester's own trigger, not the approver's. Context goes flat inside `inputs` next to
+        // `result`; `executionId` is the parked process instance, which Arthur calls the CR id.
+        await triggerRequesterCallback(before.processInstanceId, RESUBMITTED_SIGNAL, context);
       } catch (error) {
         return req.reject(502,
           `The reworked request was saved but the approval process could not be notified:`
@@ -719,14 +626,8 @@ class ChangeRequestService extends cds.ApplicationService {
       };
     });
 
-    /**
-     * Rework: out of existence.
-     *
-     * The children are deleted explicitly rather than left to the compositions' cascade. Every node
-     * here is linked by an explicit `request` backlink with its own ON condition (see
-     * db/staging.cds), and relying on cascade semantics through that would be trusting the one part
-     * of this model that already had to be spelled out by hand.
-     */
+    // Rework, out of existence. Children are deleted explicitly rather than by cascade: every node is
+    // linked by a hand-written `request` backlink with its own ON condition, so cascade is not trusted.
     this.on('withdrawRequest', async (req) => {
       const changeRequest = req.data.ChangeRequest;
       const header = await db.run(cds.ql.SELECT.one.from(HEADER).where({ ID: changeRequest }));
@@ -747,19 +648,15 @@ class ChangeRequestService extends cds.ApplicationService {
           + ' Only a draft or a request sent back for rework can be.');
       }
 
-      /**
-       * Signalled before the delete, and best-effort either way.
-       *
-       * There is no ordering here that cannot strand something: signal first and a failed delete
-       * leaves SPA thinking the request is gone while the row lives on; delete first and a failed
-       * signal leaves a process pointing at nothing. Both end as a stuck task a human clears, so
-       * this follows the rule every other workflow side effect here follows - the local record is
-       * what must be right, and a BPA outage must not stop a requester withdrawing their own
-       * request. The failure is surfaced rather than swallowed.
-       */
+      // Signalled before the delete, best-effort: no ordering avoids stranding something, so the local
+      // record is what must be right. A BPA outage must not stop a requester withdrawing their request.
       if (header.processInstanceId) {
         try {
-          await triggerApprovalDecision(header.processInstanceId, 'withdrawn');
+          await triggerRequesterCallback(header.processInstanceId, WITHDRAWN_SIGNAL, {
+            // The CR id, because by the time Arthur reads this the row is gone and `executionId`
+            // alone leaves him nothing to log it against.
+            changerequestid: changeRequest
+          });
         } catch (error) {
           console.error(`Could not tell the approval process that ${changeRequest} was withdrawn:`, error);
           req.info(200,
@@ -778,11 +675,7 @@ class ChangeRequestService extends cds.ApplicationService {
       return { ChangeRequest: changeRequest, Deleted: true };
     });
 
-    /**
-     * Rebuilds the maintenance screen's own payload shape from the staged rows,
-     * so the approve view renders through the existing code path rather than a
-     * second, parallel one.
-     */
+    // Staged rows back into the screen's own payload shape, so the approve view reuses one code path.
     this.on('getRequestPayload', async (req) => {
       const changeRequest = req.data.ChangeRequest;
       const header = await db.run(cds.ql.SELECT.one.from(HEADER).where({ ID: changeRequest }));
@@ -825,11 +718,7 @@ class ChangeRequestService extends cds.ApplicationService {
       };
     });
 
-    /**
-     * Posts a staged request to S/4 by replaying it through
-     * BusinessPartnerService, which owns the API_BUSINESS_PARTNER connection
-     * and all the payload sanitizing. Nothing here talks to S/4 directly.
-     */
+    // Replayed through BusinessPartnerService, which owns the S/4 connection and payload sanitizing.
     const postToS4 = async (req, header) => {
       const bp = await cds.connect.to('BusinessPartnerService');
       const isCreate = header.requestType === 'create';
@@ -852,9 +741,7 @@ class ChangeRequestService extends cds.ApplicationService {
         throw new Error('S/4HANA did not return a Business Partner number.');
       }
 
-      // Resolved lazily, once per relation field, on first use below - by the
-      // time a Customer/Supplier-related node is reached, an earlier node in
-      // this same run may have just posted the role that creates the record.
+      // Lazily, once per relation field: an earlier node in this run may have just created the record.
       const resolvedRelations = {};
 
       for (const [section, config] of Object.entries(NODES)) {
@@ -917,12 +804,8 @@ class ChangeRequestService extends cds.ApplicationService {
         return req.reject(409, `Change request ${changeRequest} is ${header.status}, not awaiting approval.`);
       }
 
-      // Resumes the paused BPA workflow with the human's decision. Best-effort
-      // and fired regardless of what happens to the S/4 post afterwards - the
-      // workflow is waiting on the approve/reject decision itself, not on
-      // whether posting later succeeds. A signalling failure must not stop us
-      // from recording the decision locally (same reasoning as every other
-      // workflow side effect in this app).
+      // Resumes the paused workflow with the decision. Best-effort and fired regardless of the S/4 post:
+      // the workflow waits on the decision, not on posting, and a signalling failure must not lose it.
       const notifyWorkflow = async (workflowResult) => {
         // The task form completes the task in My Inbox, which resumes the workflow on its
         // own; signalling from here too would deliver the decision twice.
@@ -935,19 +818,8 @@ class ChangeRequestService extends cds.ApplicationService {
         }
       };
 
-      /**
-       * A rejection is a loop, not an end (2026-08-19). The request goes to `reworkRequired` and
-       * back to the requester, who edits it and either resubmits or withdraws it. `rejected` is
-       * never written any more - it stays in the enum only because cds-deploy refuses to drop it.
-       *
-       * The approver's comment goes to `rejectionComment`, NOT over `reason`. Overwriting was
-       * harmless while a rejection was terminal; now the requester reopens this record, and they
-       * would find their own justification replaced by the verdict on it - and then resubmit the
-       * approver's words as their reason.
-       *
-       * The workflow is still signalled, and it must NOT be completed: the instance stays parked
-       * waiting for the requester, which is what `resubmitRequest` hands back to.
-       */
+      // A rejection is a loop, not an end: back to the requester, instance left parked for the resubmit.
+      // The comment goes to `rejectionComment`, never over the requester's own `reason`.
       if (decision === 'reject') {
         await db.run(cds.ql.UPDATE(HEADER).set({
           status: 'reworkRequired',
@@ -1017,6 +889,7 @@ ChangeRequestService._internals = {
   EDITABLE_STATUSES,
   WITHDRAWABLE_STATUSES,
   RESUBMITTED_SIGNAL,
+  WITHDRAWN_SIGNAL,
   FINDING_COLUMNS,
   stagedFinding,
   resolveRelationNumber,
