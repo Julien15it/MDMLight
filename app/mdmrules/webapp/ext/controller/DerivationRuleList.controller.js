@@ -158,6 +158,9 @@ sap.ui.define([
         });
         this.getView().addDependent(this._valueHelp);
       }
+      // Cleared on the way IN, never on the way out - see ValidationRuleList.controller.js.
+      var items = this._valueHelp.getBinding("items");
+      if (items) items.filter([]);
       this._valueHelp.open("");
     },
 
@@ -175,17 +178,18 @@ sap.ui.define([
       }) : []);
     },
 
+    /**
+     * Read off the selected item's binding context, before anything touches the list. Clearing the
+     * filter first re-templates the rows and re-binds the item to whatever now sits at its old
+     * position, which wrote the wrong field - see ValidationRuleList.controller.js.
+     */
     onFieldChosen: function (event) {
       var selected = event.getParameter("selectedItem");
-      this.onFieldSearchClosed(event);
-      if (!selected || !this._target) return;
-      this._target.context.setProperty(this._target.path, selected.getDescription());
+      var context = selected && selected.getBindingContext("opt");
+      var code = context && context.getProperty("code");
+      if (!code || !this._target) return;
+      this._target.context.setProperty(this._target.path, code);
       this._markDirty();
-    },
-
-    onFieldSearchClosed: function (event) {
-      var items = event.getSource().getBinding("items");
-      if (items) items.filter([]);
     },
 
     // -----------------------------------------------------------------------

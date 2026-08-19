@@ -45,7 +45,7 @@ const COMPARISONS = Object.freeze({
   ge:       { text: '>=  at least',                needsValue: true,  apply: (a, b) => compare(a, b) >= 0 },
   contains: { text: 'contains',                    needsValue: true,  apply: (a, b) => text(a).includes(text(b)) },
   empty:    { text: 'is empty',                    needsValue: false, apply: (a) => isEmptyValue(a) },
-  notEmpty: { text: 'has a value (required)',      needsValue: false, apply: (a) => !isEmptyValue(a) }
+  notEmpty: { text: 'is not empty',                needsValue: false, apply: (a) => !isEmptyValue(a) }
 });
 
 /** The two that answer a question *about* emptiness, so they still fire on an empty field. */

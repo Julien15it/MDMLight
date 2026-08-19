@@ -98,7 +98,7 @@
                 change=".onCellChange">
                 <core:Item key="{opt>code}" text="{opt>text}" />
               </ComboBox>
-              <!-- Disabled for `is empty` / `has a value`, which compare against nothing: a value
+              <!-- Disabled for `is empty` / `is not empty`, which compare against nothing: a value
                    that would be silently ignored is worse than no cell at all. A value that names a
                    catalog field compares the two fields instead. -->
               <Input

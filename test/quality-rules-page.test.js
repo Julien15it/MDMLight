@@ -70,8 +70,22 @@ test('the derivation page says when a Value was read as a field', () => {
   assert.match(source, /Copied from/u);
   assert.match(source, /\$\{view>\/fieldText\}\[\$\{dc>value\}\]/u);
   assert.match(controller('DerivationRuleList'), /fieldText\[entry\.code\] = entry\.text/u);
-  // And the rule itself is stated once, because it is the one thing the columns do not show.
-  assert.match(source, /never overwrites/u);
+});
+
+/**
+ * No standing banners on any of the three rule pages (asked for 2026-08-19). The strips that remain
+ * are all `Warning` and all conditionally bound, so a page carries a message only when something is
+ * actually wrong with it - an explanation of what a derivation is belongs in the docs, and the
+ * per-cell "Copied from" hint covers the one thing the columns cannot say.
+ */
+test('no rule page carries a permanent explanatory strip', () => {
+  for (const name of ['DuplicateRuleList', 'ValidationRuleList', 'DerivationRuleList']) {
+    const source = view(name);
+    assert.equal(/type="Information"/u.test(source), false, `${name} has no Information strip`);
+    for (const [, strip] of [...source.matchAll(/<MessageStrip([\s\S]*?)\/>/gu)]) {
+      assert.match(strip, /visible="\{/u, `every strip on ${name} is conditional`);
+    }
+  }
 });
 
 test('both tables are exposed by the steward service and validated on write', () => {

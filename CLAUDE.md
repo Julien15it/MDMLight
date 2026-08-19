@@ -508,6 +508,24 @@ first. The dialog searches with `contains` over the qualified code as well as th
 label, and the **qualified code is what is stored**: a label reworded later must
 not turn a saved rule into one that no longer resolves.
 
+**Reset the filter when the dialog opens, never when it closes, and read the
+selection off its binding context.** The first version cleared the filter in the
+confirm handler and then asked the selected item *control* for its value, which
+wrote the wrong field: resetting a JSONModel list binding re-templates the rows,
+so the item instance gets re-bound to whatever now sits at its old position.
+Searching "Country" left one match at position 0, and position 0 of the unfiltered
+catalog is a General name field — so that is what landed, reproducibly, and
+differently depending on what had been searched for.
+
+#### No standing banners on the rule pages
+
+Asked for 2026-08-19. The strips that remain on all three pages are `Warning` and
+conditionally bound, so a page carries a message only when something is actually
+wrong with it — rules that are saved but not running, or a duplicate table that has
+fallen back to the defaults. Explaining what a derivation *is* belongs here, not in
+a strip above the table; the per-cell "Copied from" hint stays, because it reports
+what the page actually read rather than restating the concept.
+
 Still open on these tables, and not built: a "Test Against Current Data" button
 like the duplicate page's, a custom message per validation row (a generated one is
 what ships), and rules for object types other than the Business Partner.

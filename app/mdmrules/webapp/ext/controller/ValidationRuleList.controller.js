@@ -176,6 +176,11 @@ sap.ui.define([
         });
         this.getView().addDependent(this._valueHelp);
       }
+      // Cleared on the way IN, never on the way out. The dialog is shared by every cell, so a
+      // filter left over from the last search would carry into the next one - and clearing it while
+      // a selection is still being read is what made the wrong field land (see onFieldChosen).
+      var items = this._valueHelp.getBinding("items");
+      if (items) items.filter([]);
       this._valueHelp.open("");
     },
 
@@ -193,20 +198,25 @@ sap.ui.define([
       }) : []);
     },
 
+    /**
+     * The code is read off the selected item's **binding context**, and read before anything else
+     * happens to the list.
+     *
+     * This used to clear the search filter first and then ask the item control for its value. That
+     * is a real bug and not a subtle one: resetting a JSONModel list binding re-templates the rows,
+     * so the item instance gets re-bound to whatever now sits at its old position. Searching
+     * "Country" left one match at position 0, and position 0 of the unfiltered catalog is a General
+     * name field - so that is what got written. The filter is reset on open instead.
+     */
     onFieldChosen: function (event) {
       var selected = event.getParameter("selectedItem");
-      this.onFieldSearchClosed(event);
-      if (!selected || !this._target) return;
+      var context = selected && selected.getBindingContext("opt");
       // The qualified code is what is stored - the label is for reading, and storing it would make
       // a rule that no longer resolves the moment a label is reworded.
-      this._target.context.setProperty(this._target.path, selected.getDescription());
+      var code = context && context.getProperty("code");
+      if (!code || !this._target) return;
+      this._target.context.setProperty(this._target.path, code);
       this._markDirty();
-    },
-
-    /** The filter is on the shared fragment, so leaving it set would carry into the next cell. */
-    onFieldSearchClosed: function (event) {
-      var items = event.getSource().getBinding("items");
-      if (items) items.filter([]);
     },
 
     // -----------------------------------------------------------------------

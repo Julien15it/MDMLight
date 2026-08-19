@@ -143,7 +143,32 @@ test('a field is chosen through a searchable value help, shared by both pages', 
     assert.match(controller, /FilterOperator\.Contains/u);
     // The stored value is the qualified code, never the label - a label reworded later must not
     // turn a saved rule into one that no longer resolves.
-    assert.match(controller, /setProperty\(this\._target\.path, selected\.getDescription\(\)\)/u);
+    assert.match(controller, /getProperty\("code"\)/u);
+    assert.match(controller, /setProperty\(this\._target\.path, code\)/u);
+  }
+});
+
+/**
+ * The wrong field used to land: the confirm handler cleared the search filter and *then* asked the
+ * selected item control for its value, but resetting a JSONModel list binding re-templates the rows,
+ * so the item was re-bound to whatever now sat at its old position. Searching "Country" left one
+ * match at position 0, and position 0 of the unfiltered catalog is a General name field.
+ *
+ * Two things fix it and both are pinned: the value is read off the binding context, and the filter is
+ * reset when the dialog OPENS rather than when it closes.
+ */
+test('the value help reads the selection before anything resets the list', () => {
+  for (const name of ['ValidationRuleList', 'DerivationRuleList']) {
+    const controller = read(path.join('controller', `${name}.controller.js`));
+    const chosen = controller.slice(controller.indexOf('onFieldChosen:'));
+    const body = chosen.slice(0, chosen.indexOf('\n    },'));
+    assert.equal(/filter\(\[\]\)/u.test(body), false, `${name} does not clear the filter while choosing`);
+    assert.equal(/getDescription/u.test(body), false, 'the label is not what gets stored');
+    // The code is read out before the property is written, not after a reset.
+    assert.ok(body.indexOf('getProperty("code")') < body.indexOf('setProperty('));
+    // And the reset happens on the way in, on the shared dialog.
+    const open = controller.slice(controller.indexOf('onFieldValueHelp:'));
+    assert.match(open.slice(0, open.indexOf('.open("")')), /getBinding\("items"\)[\s\S]{0,80}filter\(\[\]\)/u);
   }
 });
 

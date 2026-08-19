@@ -16,7 +16,6 @@
     search=".onFieldSearch"
     liveChange=".onFieldSearch"
     confirm=".onFieldChosen"
-    cancel=".onFieldSearchClosed"
     growing="true"
     growingThreshold="50"
     items="{ path: 'opt>/fields', templateShareable: false }">

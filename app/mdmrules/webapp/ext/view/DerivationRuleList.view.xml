@@ -19,13 +19,8 @@
         text="{view>/skippedText}"
         type="Warning"
         showIcon="true" />
-      <!-- Stated once here rather than per row, because it is the one thing about this table that
-           is not obvious from its columns. -->
-      <MessageStrip
-        class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
-        text="A derivation only ever fills an empty field — it never overwrites what a requester typed — and it is proposed to them rather than applied silently. In the Value column, a plain value is written as text, while a value that names a field (Country (Address)) copies that field instead."
-        type="Information"
-        showIcon="true" />
+      <!-- No standing explanation of what a derivation is: the "Copied from" hint under a Value cell
+           says the one thing the columns do not, and says it where it applies. -->
       <Table
         id="ruleTable"
         items="{ path: 'dc>/DerivationRules', parameters: { $orderby: 'sequence,createdAt', $$updateGroupId: 'ruleChanges' } }"
