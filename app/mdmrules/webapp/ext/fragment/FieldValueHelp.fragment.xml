@@ -1,0 +1,29 @@
+<core:FragmentDefinition
+  xmlns="sap.m"
+  xmlns:core="sap.ui.core">
+  <!--
+    One value help, used by both rule pages and by every cell that can name a field: the
+    conditions, the Field column, and the derivation's Value column.
+
+    A ComboBox was the obvious choice and the wrong one. The catalog is the whole staging model -
+    several hundred fields - and sap.m.ComboBox filters on the *start* of an item's text, so
+    someone looking for a Country would have had to know it lives on Address and type that first.
+    A SelectDialog searches with `contains` over the qualified name as well as the label.
+  -->
+  <SelectDialog
+    title="Choose a Field"
+    noDataText="No field matches that search."
+    search=".onFieldSearch"
+    liveChange=".onFieldSearch"
+    confirm=".onFieldChosen"
+    cancel=".onFieldSearchClosed"
+    growing="true"
+    growingThreshold="50"
+    items="{ path: 'opt>/fields', templateShareable: false }">
+    <StandardListItem
+      title="{opt>text}"
+      description="{opt>code}"
+      info="{opt>type}"
+      type="Active" />
+  </SelectDialog>
+</core:FragmentDefinition>

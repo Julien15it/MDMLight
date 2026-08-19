@@ -79,34 +79,71 @@ test('the hub offers exactly the three rule kinds, each wired to its page', () =
   }
 });
 
-// A table that looks live and silently stores nothing is worse than no table at all.
-test('the unimplemented rule pages say so, and cannot pretend to save', () => {
-  for (const name of ['ValidationRuleList', 'DerivationRuleList']) {
+/**
+ * These two were previews until 2026-08-19 - local rows, Save disabled, a Warning strip saying so.
+ * They store and run now, so the assertions are inverted: a page that still said "preview only"
+ * while writing to the database would be the lie the old strip existed to prevent.
+ */
+test('the rule pages store their rows and can save them', () => {
+  for (const [name, entity] of [['ValidationRuleList', 'ValidationRules'], ['DerivationRuleList', 'DerivationRules']]) {
     const view = read(path.join('view', `${name}.view.xml`));
-    assert.match(view, /Preview only/u);
-    assert.match(view, /type="Warning"/u);
-    assert.match(view, /text="Save"[\s\S]{0,80}enabled="false"/u, `${name} cannot save`);
+    assert.equal(/Preview only/u.test(view), false, `${name} no longer claims to be a preview`);
+    assert.match(view, new RegExp(`items="\\{ path: 'dc>/${entity}'`, 'u'), `${name} binds its own entity`);
+    assert.match(view, /text="Save"[\s\S]{0,120}press="\.onSave"/u, `${name} can save`);
+    // Each page binds its own table. Binding DuplicateRules would show duplicate rules under a
+    // Validation Rules heading and let someone edit them by accident.
+    assert.equal(/dc>\/DuplicateRules/u.test(view), false, `${name} does not bind the duplicate rules`);
   }
 });
 
-// Binding these to DuplicateRules to "make them work" would show duplicate rules under a
-// Validation Rules heading and let someone edit them by accident.
-test('the preview pages keep their rows local and never touch the duplicate rules', () => {
+// Rules the steward has to be able to abandon: same one update group and batch-on-save as the
+// duplicate page, so a half-typed row never reaches the table.
+test('the rule pages batch their changes and can discard them', () => {
   for (const name of ['ValidationRuleList', 'DerivationRuleList']) {
     const view = read(path.join('view', `${name}.view.xml`));
-    assert.match(view, /items="\{ path: 'rules>\/rules' \}"/u);
-    assert.equal(/dc>\/DuplicateRules/u.test(view), false, `${name} does not bind the real rules`);
+    const controller = read(path.join('controller', `${name}.controller.js`));
+    assert.match(view, /\$\$updateGroupId: 'ruleChanges'/u);
+    assert.match(controller, /submitBatch\(UPDATE_GROUP\)/u);
+    assert.match(controller, /resetChanges\(UPDATE_GROUP\)/u);
+    // A rejected row leaves its change pending rather than silently vanishing.
+    assert.match(controller, /hasPendingChanges\(UPDATE_GROUP\)/u);
   }
 });
 
-// The catalog is the real one: empty dropdowns would make the preview unreadable, and a second
-// hand-kept copy is what goes stale.
-test('the preview pages take their field list from ruleOptions', () => {
+/**
+ * The catalog is generated from the staging model server-side, so the dropdowns and the value help
+ * offer exactly the fields a request can hold. A hand-kept copy in the UI is what goes stale, and
+ * `ruleOptions()` is the duplicate check's catalog - a different one, of normalised value bags.
+ */
+test('the rule pages take their fields from qualityRuleOptions, not the duplicate catalog', () => {
   for (const name of ['ValidationRuleList', 'DerivationRuleList']) {
     const controller = read(path.join('controller', `${name}.controller.js`));
-    assert.match(controller, /bindContext\("\/ruleOptions\(\.\.\.\)"\)/u);
-    // Never interrupts: a preview with empty dropdowns is still a readable preview.
-    assert.match(controller, /catch \(error\)[\s\S]{0,160}console\.warn/u);
+    assert.match(controller, /bindContext\("\/" \+ name \+ "\(\.\.\.\)"\)/u);
+    assert.match(controller, /_callAction\("qualityRuleOptions", \{\}\)/u);
+    assert.equal(/ruleOptions\(\.\.\.\)/u.test(controller), false, 'not the duplicate catalog');
+  }
+});
+
+/**
+ * Several hundred fields, so the picker is a searchable dialog rather than a ComboBox: sap.m.ComboBox
+ * filters on the start of an item's text, which would have meant knowing a Country lives on Address
+ * and typing that first.
+ */
+test('a field is chosen through a searchable value help, shared by both pages', () => {
+  assert.ok(fs.existsSync(path.join(APP, 'ext', 'fragment', 'FieldValueHelp.fragment.xml')));
+  const fragment = read(path.join('fragment', 'FieldValueHelp.fragment.xml'));
+  assert.match(fragment, /<SelectDialog/u);
+  assert.match(fragment, /items="\{ path: 'opt>\/fields'/u);
+  for (const name of ['ValidationRuleList', 'DerivationRuleList']) {
+    const view = read(path.join('view', `${name}.view.xml`));
+    const controller = read(path.join('controller', `${name}.controller.js`));
+    assert.match(view, /valueHelpRequest="\.onFieldValueHelp"/u);
+    assert.match(controller, /ext\.fragment\.FieldValueHelp/u);
+    // `contains`, and over the qualified code as well as the label.
+    assert.match(controller, /FilterOperator\.Contains/u);
+    // The stored value is the qualified code, never the label - a label reworded later must not
+    // turn a saved rule into one that no longer resolves.
+    assert.match(controller, /setProperty\(this\._target\.path, selected\.getDescription\(\)\)/u);
   }
 });
 

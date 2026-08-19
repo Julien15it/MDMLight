@@ -167,9 +167,16 @@ candidate, because a derivation has to be able to say "the street of the first
 address" and the screen has to write it back to that field.
 
 `VALIDATIONS` and `DERIVATIONS` are the default registries and are empty; the
-stages actually in use are built per request by
-`srv/checks/registry-checks.js` — **VIES and GLEIF**, as one validation and one
-derivation sharing a single lookup (VIES throttles per member state).
+stages actually in use are built per request from two places and concatenated in
+`runRequestChecks`:
+
+- `srv/checks/rule-store.js` — the **steward-configured** validation and
+  derivation tables, deterministic and offline. See "The validation and derivation
+  tables" below.
+- `srv/checks/registry-checks.js` — **VIES and GLEIF**, as one validation and one
+  derivation sharing a single lookup (VIES throttles per member state).
+
+Configured stages come first in both lists; the reasoning is with the tables.
 
 - **Validation**: a VAT number VIES does not know blocks. A name or an address
   that disagrees with the register only **warns** — VIES returns the legal name
@@ -392,15 +399,118 @@ Bump `sap.app.applicationVersion.version` on every UI deploy. It sat at `1.9.0`
 across several deploys, which made `cf html5-list` useless for telling whether a
 UI change had actually landed.
 
-Validation and Derivation Rules are **UI previews only**. They copy the duplicate
-rule table's layout, because the shape of a rule is what is being agreed, but
-their rows live in a local JSON model, Save is disabled, and a Warning strip says
-so. They deliberately do **not** bind `dc>/DuplicateRules` — that would show
-duplicate rules under a Validation Rules heading and let someone edit them by
-accident. The field catalog does come from the real `ruleOptions()`, so the
-dropdowns are the true ones and there is no second copy to go stale. The
-validations and derivations that actually run are still the code-defined VIES and
-GLEIF stages in `srv/checks/registry-checks.js`.
+Validation and Derivation Rules were UI previews until 2026-08-19. **They are
+real now** — see "The validation and derivation tables" below. They still copy
+the duplicate rule table's layout, and each page still binds only its own entity:
+binding `dc>/DuplicateRules` would show duplicate rules under a Validation Rules
+heading and let someone edit them by accident.
+
+### The validation and derivation tables (2026-08-19)
+
+`db/quality-rules.cds` adds `ValidationRules` and `DerivationRules` alongside
+`DuplicateRules`, in the same `mdmlight.config` namespace and the same BRF+
+decision-table style: two optional condition pairs, then the columns that make
+that kind of rule what it is. Both are exposed by **`DuplicateConfigService`**,
+whose path keeps its old name (`/service/duplicateconfig`) on purpose — it is in
+`app/mdmrules/xs-app.json` and in the deployed approuter config, so renaming it
+would cost a route change and a redeploy to gain nothing.
+
+Read a row left to right as one sentence:
+
+- Validation — *where `Addresses.Country` = BE, `General.Language` must be `=` NL*
+- Derivation — *where `Addresses.Country` = BE, fill `General.Language` with NL*
+
+#### Fields are payload fields, not duplicate-catalog fields
+
+`srv/checks/payload-fields.js` is a **second, different catalog** and the
+distinction is the whole reason it exists. `srv/ai/duplicate-fields.js` describes
+bags of *normalised* values for comparing two partners — `Name` is a fingerprint,
+`TaxNumber` is country-padded. A rule that fills in a language or asserts a region
+has to read and write the request payload (`{ root, sections }`) with its real
+values, so it needs that shape's own field names.
+
+The catalog is **generated from the staging model** (`cds.model`), never listed:
+add a column to `db/staging.cds` and the value help has it. Names are qualified
+and always dotted — `General.Language`, `Addresses.Country`. `PAYLOAD_NODES` is
+the single source of truth for the section ids, and `NODES` in
+`srv/change-request-service.js` is now derived from it, so a rule can never name
+a section nothing stages.
+
+#### The Value column means two things, and nothing else says which
+
+A value that resolves to a qualified catalog field is a **reference** to that
+field; anything else is a literal. That is what Maarten asked for on the
+derivation table ("field A will be filled in with the same value as field B"), and
+it needs no third column to disambiguate, because **catalog names are always
+dotted and a literal never can be one**. `N.V.` is a literal; `General.Language`
+is a reference. The derivation page says which one it read, under the cell
+("Copied from …") — that hint is the only feedback that a reference was understood
+as one, so do not drop it. Validation values work the same way, which is how
+"CorrespondenceLanguage must equal Language" is written.
+
+A same-section reference reads **the same row**: "this address's Region from this
+address's Country" is about one address, not about the first one.
+
+#### Semantics worth not "simplifying"
+
+- **An empty field does not fail a comparison.** Validations run *before*
+  derivations, so a rule that failed on an empty field would block the very
+  derivation that was about to fill it. `notEmpty` is how a steward says a field
+  is required, and it is the one comparison (with `empty`) that still fires on an
+  empty field.
+- **Condition scoping is per row on the rule's own section.** "Where
+  `Addresses.Country` = BE, `Addresses.Region` is required" is about the Belgian
+  address rows — not about every address of a partner that happens to have one
+  Belgian address. A condition on any *other* section is a statement about the
+  partner, so it holds when any row of that section matches.
+- **A rule the engine cannot evaluate blocks**, the same way a validation that
+  throws does. Skipping it would let a request through on the strength of a check
+  that never ran.
+- **Severity is a column, and was added rather than asked for.** Without it every
+  validation would block, and a naming convention that stops a submit is how
+  people learn to ignore findings.
+- **A derivation still never overwrites and still never auto-applies.** The
+  non-overwrite rule stays in `pipeline.js` so these rules and the registry's
+  cannot disagree about it, and configured derivations reach the requester through
+  the same proposals dialog, ticked by hand.
+
+#### Where they run
+
+`srv/checks/rule-store.js` holds the rows in memory (60s TTL, dropped on any
+write) and `createConfiguredStages` turns them into **one stage per kind** — not
+one per rule, because the pipeline blocks on the first error a validation stage
+reports and a table of twenty rules has to report all twenty problems.
+
+`runRequestChecks` puts them **before** the registry stages in both lists:
+validations because these are offline and a request that fails one should not cost
+a VIES call; derivations because the pipeline never overwrites, so the stage that
+fills a field first wins, and an explicitly configured rule is a decision somebody
+made about that field where the registry is a lookup that happens to have one.
+Submit runs the configured validations and, as before, **no derivations**.
+
+Two failure modes are deliberate:
+
+- **An empty table contributes nothing, and does not fall back to defaults.** The
+  duplicate check falls back because an empty table would switch the control off;
+  there are no default validations, and inventing a rule nobody configured would
+  be worse than running none.
+- **An unreadable table reports itself.** A read failure with nothing cached
+  produces a stage that says so, rather than passing as "nothing to report" — the
+  same discipline the pipeline applies to a duplicate check that could not run.
+
+#### The field picker is a dialog, not a ComboBox
+
+`ext/fragment/FieldValueHelp.fragment.xml`, shared by both pages and used by every
+cell that can name a field. The catalog is the whole staging model — several
+hundred fields — and `sap.m.ComboBox` filters on the **start** of an item's text,
+so finding a Country would have meant knowing it lives on Address and typing that
+first. The dialog searches with `contains` over the qualified code as well as the
+label, and the **qualified code is what is stored**: a label reworded later must
+not turn a saved rule into one that no longer resolves.
+
+Still open on these tables, and not built: a "Test Against Current Data" button
+like the duplicate page's, a custom message per validation row (a generated one is
+what ships), and rules for object types other than the Business Partner.
 
 A `draft` opens editable via `ChangeRequestEdit`. **Anything further along is not
 navigable from here at all** (changed 2026-08-13): the approve screen is reached
