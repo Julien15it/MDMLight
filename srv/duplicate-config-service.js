@@ -4,8 +4,21 @@ const cds = require('@sap/cds');
 const { catalogFields, validateRule } = require('./ai/rule-config');
 const { ruleStore, refreshRules } = require('./ai/duplicate-check');
 const { INDICATORS } = require('./ai/duplicate-engine');
+const { payloadFields } = require('./checks/payload-fields');
+const {
+  COMPARISONS, SEVERITIES, validateValidationRule, validateDerivationRule
+} = require('./checks/rule-engine');
+const qualityRules = require('./checks/rule-store');
 
 const RULES = 'mdmlight.config.DuplicateRules';
+const VALIDATIONS = 'mdmlight.config.ValidationRules';
+const DERIVATIONS = 'mdmlight.config.DerivationRules';
+
+const SEVERITY_TEXT = Object.freeze({
+  error: 'Error — blocks the request',
+  warning: 'Warning — reports, but allows',
+  info: 'Information only'
+});
 
 // `raw_dice` is the unsmoothed scorer kept for comparison work; offering it to a steward would be
 // a fourth choice nobody can tell apart from `fuzzy`. It still evaluates if a stored row uses it.
@@ -47,6 +60,32 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
     // Any write drops the resident ruleset, the same way a partner write drops the name index.
     this.after(['CREATE', 'UPDATE', 'DELETE'], 'DuplicateRules', () => ruleStore.markStale());
 
+    /**
+     * The validation and derivation tables get the same treatment, and for the same reason: a rule
+     * the engine cannot evaluate is caught at the keyboard, because by check time the answer has
+     * already been given. The two differ only in which validator they hand the row to.
+     */
+    const guard = (entity, table, validate) => {
+      this.before(['CREATE', 'UPDATE'], entity, async (req) => {
+        // A patch carries only what changed, so it is validated against the stored row it lands on.
+        let stored = null;
+        if (req.event === 'UPDATE' && req.data.ID) {
+          try {
+            stored = await cds.run(cds.ql.SELECT.one.from(table).where({ ID: req.data.ID }));
+          } catch (error) {
+            console.warn(`[quality-rules] Could not read the stored ${entity} row to validate against:`, error.message);
+          }
+        }
+        const { errors, warnings } = validate({ ...(stored || {}), ...req.data });
+        for (const warning of warnings) req.info(200, warning.message, warning.field);
+        for (const error of errors) req.error(400, error.message, error.field);
+      });
+      this.after(['CREATE', 'UPDATE', 'DELETE'], entity, () => qualityRules.markStale());
+    };
+
+    guard('ValidationRules', VALIDATIONS, validateValidationRule);
+    guard('DerivationRules', DERIVATIONS, validateDerivationRule);
+
     // Straight from the code-defined catalog, never a copy the UI keeps in step by hand. It also
     // re-reads the ruleset, so the page can report honestly whether the configured rules are the
     // ones actually running or whether it has fallen back to the defaults.
@@ -62,6 +101,41 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
         indicators: INDICATORS.map((code) => ({ code, text: INDICATOR_TEXT[code] || code })),
         source: ruleStore.source(),
         ruleCount: ruleStore.rules().length
+      };
+    });
+
+    /**
+     * The validation and derivation grids' choices. Fields come from the staging model via
+     * `payloadFields`, comparisons and severities from the engine — so the dropdowns are the true
+     * ones and there is no second copy to go stale.
+     *
+     * The counts are of rules that **would actually run**: active, and passing the same validator
+     * the save uses. A steward who has saved eight rules and is told six are running has learned
+     * something an empty banner would never have told them.
+     */
+    this.on('qualityRuleOptions', async () => {
+      const runnable = async (table, validate) => {
+        try {
+          const stored = await cds.run(cds.ql.SELECT.from(table));
+          return (stored || [])
+            .filter((row) => row.isActive !== false)
+            .filter((row) => !validate(row).errors.length).length;
+        } catch (error) {
+          // A count is a nicety; the page still has to load and let someone fix the table.
+          console.warn(`[quality-rules] Could not count the runnable rules in ${table}:`, error.message);
+          return null;
+        }
+      };
+      return {
+        fields: payloadFields().map(({ field, text, section, type }) => ({
+          code: field, text, section, type
+        })),
+        comparisons: Object.entries(COMPARISONS).map(([code, comparison]) => ({
+          code, text: comparison.text.trim(), needsValue: comparison.needsValue
+        })),
+        severities: SEVERITIES.map((code) => ({ code, text: SEVERITY_TEXT[code] || code })),
+        validationCount: await runnable(VALIDATIONS, validateValidationRule),
+        derivationCount: await runnable(DERIVATIONS, validateDerivationRule)
       };
     });
 

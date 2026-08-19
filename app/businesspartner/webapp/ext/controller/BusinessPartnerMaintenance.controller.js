@@ -1830,10 +1830,14 @@ sap.ui.define([
         }
       },
 
+      // `info` is its own severity now that the configured validation table can report a rule it
+      // could not evaluate. Showing that as a Warning would put a rule's own problem in the same
+      // strip as the requester's, which is not their problem to fix.
       _validationMessages: function (validations) {
+        var TYPE = { error: "Error", warning: "Warning", info: "Information" };
         return validations.map(function (entry) {
           return {
-            type: entry.severity === "error" ? "Error" : "Warning",
+            type: TYPE[entry.severity] || "Warning",
             text: entry.message
           };
         });

@@ -1,15 +1,25 @@
 using { mdmlight.config as config } from '../db/duplicate-rules';
+using { mdmlight.config as quality } from '../db/quality-rules';
 
 /**
- * Data-steward configuration for the duplicate check. Separate from
+ * Data-steward configuration for the data quality controls - the duplicate check
+ * and, since 2026-08-19, the validation and derivation tables. Separate from
  * BusinessPartnerService because it is a control, maintained by different people
- * with a different scope, over a local table rather than the S/4 facade.
+ * with a different scope, over local tables rather than the S/4 facade.
+ *
+ * The three tables share this service, and the path keeps its original name on
+ * purpose: `/service/duplicateconfig` is in `app/mdmrules/xs-app.json` and in the
+ * deployed approuter config, so renaming it would cost a route change and a
+ * redeploy to gain nothing. One service also means one `@requires: 'Steward'`
+ * and no second destination.
  */
 @path: '/service/duplicateconfig'
 @requires: 'Steward'
 service DuplicateConfigService {
 
-  entity DuplicateRules as projection on config.DuplicateRules;
+  entity DuplicateRules  as projection on config.DuplicateRules;
+  entity ValidationRules as projection on quality.ValidationRules;
+  entity DerivationRules as projection on quality.DerivationRules;
 
   /** Every list is key/text so the grid binds them all the same way. Arrays of
    *  bare strings do not bind reliably in a table cell, which is what left the
@@ -51,4 +61,41 @@ service DuplicateConfigService {
     RulesJson  : LargeString,
     SampleSize : Integer
   ) returns LargeString;
+
+  /** A qualified payload field: `General.Language`, `Addresses.Country`. Wider
+   *  than `CatalogField.code` because it carries the section, and separate from it
+   *  because `indexed` is a duplicate-index concern that means nothing here. */
+  type PayloadField {
+    code    : String(60);
+    text    : String(120);
+    /** Section id, so the grid can group or filter the list without re-splitting
+     *  the code on the client. */
+    section : String(40);
+    /** CDS type of the element, e.g. String, Boolean, Date. What lets the grid
+     *  say a comparison like `<` is being asked of a Boolean. */
+    type    : String(20);
+  }
+
+  /** `needsValue` false means the Value cell is meaningless for that comparison,
+   *  which is what lets the grid disable it rather than accept a value it will
+   *  silently ignore. */
+  type ComparisonOption {
+    code       : String(20);
+    text       : String(60);
+    needsValue : Boolean;
+  }
+
+  type QualityRuleOptions {
+    fields          : array of PayloadField;
+    comparisons     : array of ComparisonOption;
+    severities      : array of Option;
+    validationCount : Integer;
+    derivationCount : Integer;
+  }
+
+  /** Everything the validation and derivation grids need, generated from the
+   *  staging model and the engine - never a hand-kept copy in the UI. The counts
+   *  are of rules that would actually run, so a page can say when a saved row is
+   *  being skipped. */
+  function qualityRuleOptions() returns QualityRuleOptions;
 }

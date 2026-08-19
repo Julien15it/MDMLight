@@ -73,6 +73,27 @@ node, mirroring the sections of the Maintain BP app.
 `ChangeRequests` is the header; `CheckFindings` holds duplicate and
 data-quality results.
 
+### Configuration, not master data
+
+`duplicate-rules.cds` and `quality-rules.cds` hold the data-steward rule tables —
+`DuplicateRules`, `ValidationRules`, `DerivationRules`, all in namespace
+`mdmlight.config`. They live in the same database but are a different kind of
+thing: staging is a request in flight, these are a control that outlives every
+request. All three are served by `DuplicateConfigService` under
+`/service/duplicateconfig`, behind the `Steward` scope.
+
+All three are **row-per-criterion decision tables**, and that is a deliberate
+choice against a column-per-criterion model: adding a criterion has to be an
+INSERT, because `cds-deploy` refuses to drop elements and every removed criterion
+would otherwise be a failed deployment from then on. `DuplicateRules` still
+carries four superseded `cond*` columns for exactly that reason — do not write to
+them.
+
+The validation and derivation tables address fields as **qualified payload
+fields** (`General.Language`, `Addresses.Country`), generated from `staging.cds`
+by `srv/checks/payload-fields.js`. So a column added here becomes a rule field for
+free — and a section id renamed here breaks every stored rule that names it.
+
 ### Decisions worth not undoing by accident
 
 **Types come from the S/4 metadata.** Every column length was read out of

@@ -8,7 +8,9 @@ const {
 const { candidateFromStagedRequest, duplicateSummary } = require('./ai/duplicate-check');
 const { runChecks, runValidations, BLOCKING } = require('./checks/pipeline');
 const { createRegistryStages } = require('./checks/registry-checks');
+const { configuredStages } = require('./checks/rule-store');
 const { proposeNormalisations } = require('./checks/normalise');
+const { PAYLOAD_NODES, ROOT_SECTION } = require('./checks/payload-fields');
 
 const STAGING = 'mdmlight.staging.';
 const FINDINGS = `${STAGING}CheckFindings`;
@@ -18,21 +20,14 @@ const FINDINGS = `${STAGING}CheckFindings`;
  * same ones app/businesspartner/scripts/generate-maintenance-metadata.js emits,
  * so the UI can post its own state without translating anything.
  */
-const NODES = {
-  Addresses:            { entity: `${STAGING}StagedAddresses`,       many: true },
-  BusinessPartnerRoles: { entity: `${STAGING}StagedRoles`,           many: true },
-  TaxNumbers:           { entity: `${STAGING}StagedTaxNumbers`,      many: true },
-  BankDetails:          { entity: `${STAGING}StagedBankDetails`,     many: true },
-  Identifications:      { entity: `${STAGING}StagedIdentifications`, many: true },
-  Industries:           { entity: `${STAGING}StagedIndustries`,      many: true },
-  Customers:            { entity: `${STAGING}StagedCustomer`,        many: false },
-  Suppliers:            { entity: `${STAGING}StagedSupplier`,        many: false },
-  CustomerCompany:      { entity: `${STAGING}StagedCustomerCompany`, many: true },
-  SupplierCompany:      { entity: `${STAGING}StagedSupplierCompany`, many: true },
-  CustomerSalesArea:      { entity: `${STAGING}StagedCustomerSalesArea`,      many: true },
-  CustomerTaxGrouping:    { entity: `${STAGING}StagedCustomerTaxGrouping`,    many: true },
-  SupplierPurchasingOrg:  { entity: `${STAGING}StagedSupplierPurchasingOrg`,  many: true }
-};
+// Derived from PAYLOAD_NODES rather than listed again: the validation and derivation tables address
+// fields by section id, so a section that exists here and not there (or vice versa) would be a rule
+// pointing at a node nothing stages. `General` is the payload root, not a node, so it drops out.
+const NODES = Object.fromEntries(
+  Object.entries(PAYLOAD_NODES)
+    .filter(([section]) => section !== ROOT_SECTION)
+    .map(([section, node]) => [section, { entity: node.entity, many: node.many }])
+);
 
 /** Business-partner-relation field per node, for postToS4. Anything not listed
  *  here relates via the plain BusinessPartner number. */
@@ -383,11 +378,18 @@ class ChangeRequestService extends cds.ApplicationService {
       // Created per request: the pair shares one VIES/GLEIF lookup between the validation and the
       // derivation, and must not carry it over to the next press of the button.
       const registry = createRegistryStages();
+      // The steward's tables plus the registries, and configured first in both lists.
+      //
+      // Validations: these are deterministic and offline, so a request that fails one is reported
+      // without a VIES call being spent on it. Derivations: the pipeline never overwrites, so
+      // whichever stage fills a field first wins — and an explicitly configured rule is a decision
+      // somebody made about this field, where the registry is a lookup that happens to have one.
+      const configured = await configuredStages();
       return runChecks(
         { root: data.root || {}, sections: data.sections || {} },
         {
-          validations: registry.validations,
-          derivations: registry.derivations,
+          validations: [...configured.validations, ...registry.validations],
+          derivations: [...configured.derivations, ...registry.derivations],
           // Check is where a human is looking, which is the only place a proposal to rewrite
           // what someone typed makes sense. The register never proposes: it validates and derives.
           propose: propose
@@ -446,9 +448,10 @@ class ChangeRequestService extends cds.ApplicationService {
       // trigger; when there are more triggers they get decided on their own merits.
       const data = parseJsonObject(req.data.DataJson, 'DataJson');
       const registry = createRegistryStages();
+      const configured = await configuredStages();
       const validations = await runValidations(
         { root: data.root || {}, sections: data.sections || {} },
-        registry.validations
+        [...configured.validations, ...registry.validations]
       );
       if (validations.some((message) => message.severity === BLOCKING)) {
         return {
