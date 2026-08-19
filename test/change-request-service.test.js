@@ -126,7 +126,7 @@ test('buildBusinessPartnerInput backfills the known BusinessPartner onto staged 
  * 404s since that module was removed. WORKZONE_URL replaced APPROUTER_URL so the stale value left
  * on the deployed app cannot resurrect the dead host.
  */
-const SITE = 'https://alluvion.launchpad.cfapps.eu10-004.hana.ondemand.com/site';
+const SITE = 'https://alluvion-dev-cf.launchpad.cfapps.eu10.hana.ondemand.com/site?siteId=988d11c0-0c6c-42f2-840d-f8875105417b';
 
 function withWorkzoneUrl(value, run) {
   const original = process.env.WORKZONE_URL;
@@ -173,6 +173,21 @@ test('the intent matches the app inbound', () => {
   withWorkzoneUrl(SITE, () => {
     assert.ok(approveUrl('x').includes(`#${inbound.semanticObject}-${inbound.action}&/`));
   });
+});
+
+/**
+ * Site Manager hands you the URL ending in `#Shell-home`, so that is what gets pasted into
+ * WORKZONE_URL. Keeping both hashes would resolve to the launchpad home instead of the request.
+ */
+test('a pasted #Shell-home URL still produces our intent, not two hashes', () => {
+  withWorkzoneUrl(SITE + '#Shell-home', () => {
+    const url = reworkUrl('cr-1');
+    assert.equal(url, `${SITE}#BusinessPartner-manage&/ChangeRequests/cr-1/rework`);
+    assert.equal(url.split('#').length, 2, 'exactly one hash');
+    assert.equal(/Shell-home/u.test(url), false);
+  });
+  // The siteId query string is part of the base and must survive.
+  withWorkzoneUrl(SITE, () => assert.ok(reworkUrl('cr-1').includes('?siteId=')));
 });
 
 test('a trailing slash on the site URL does not double up', () => {

@@ -204,7 +204,11 @@ function reworkUrl(changeRequest) {
 function requestUrl(changeRequest, verb) {
   const siteUrl = process.env.WORKZONE_URL;
   if (!siteUrl) return '';
-  return `${siteUrl.replace(/\/+$/, '')}#BusinessPartner-manage&/ChangeRequests/${changeRequest}/${verb}`;
+  // Any existing hash is dropped, because the URL Site Manager hands you ends in `#Shell-home` -
+  // the launchpad's own intent. Ours replaces it; keeping both would produce two hashes and resolve
+  // to the home page. The query string (`?siteId=...`) is part of the base and stays.
+  const base = siteUrl.split('#')[0].replace(/\/+$/, '');
+  return `${base}#BusinessPartner-manage&/ChangeRequests/${changeRequest}/${verb}`;
 }
 
 /** Staged rows for a many-cardinality node, deletions excluded - a request in
