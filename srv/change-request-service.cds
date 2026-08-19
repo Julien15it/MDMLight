@@ -33,7 +33,7 @@ service ChangeRequestService @(path: '/service/changerequest') {
     DataJson      : LargeString not null
   ) returns {
     ChangeRequest : UUID;
-    Status        : String(12);
+    Status        : String(20);
   };
 
   /**
@@ -54,7 +54,7 @@ service ChangeRequestService @(path: '/service/changerequest') {
     Confirm       : Boolean
   ) returns {
     ChangeRequest     : UUID;
-    Status            : String(12);
+    Status            : String(20);
     ProcessInstanceId : String(60);
     /** True when the check found something and the submit is waiting for a
      *  confirming second press. */
@@ -77,9 +77,11 @@ service ChangeRequestService @(path: '/service/changerequest') {
   ) returns {
     ChangeRequest   : UUID;
     RequestType     : String(10);
-    Status          : String(12);
+    Status          : String(20);
     BusinessPartner : String(10);
     Reason          : String(250);
+    /** Why the approver sent it back, so the rework screen can lead with it. */
+    RejectionComment : String(250);
     SubmittedBy     : String(120);
     SubmittedAt     : Timestamp;
     DataJson        : LargeString;
@@ -132,8 +134,13 @@ service ChangeRequestService @(path: '/service/changerequest') {
    * The SPA decision callback. Records the outcome only - it never writes to
    * S/4, however many approvers the process routed the request through.
    * `approve` moves the request to `approved`, meaning every approval SPA
-   * required is in and the request is waiting to be posted. `reject` is
-   * terminal. Staged rows are kept either way - retention is an open decision.
+   * required is in and the request is waiting to be posted.
+   *
+   * `reject` is **no longer terminal** (2026-08-19): it moves the request to
+   * `reworkRequired` and hands it back to the requester, who resubmits or
+   * withdraws it. The process instance stays parked, because `resubmitRequest`
+   * hands the request back to that same instance rather than starting a new one.
+   * The comment goes to `rejectionComment`, never over the requester's `reason`.
    */
   action decideRequest(
     ChangeRequest : UUID not null,
@@ -145,7 +152,7 @@ service ChangeRequestService @(path: '/service/changerequest') {
     SignalWorkflow : Boolean
   ) returns {
     ChangeRequest   : UUID;
-    Status          : String(12);
+    Status          : String(20);
     BusinessPartner : String(10);
   };
 
@@ -160,7 +167,56 @@ service ChangeRequestService @(path: '/service/changerequest') {
     ChangeRequest : UUID not null
   ) returns {
     ChangeRequest   : UUID;
-    Status          : String(12);
+    Status          : String(20);
     BusinessPartner : String(10);
+  };
+
+  /**
+   * Rework, 2026-08-19. A rejection sends the request back to the requester
+   * rather than ending it, so these two are the requester's way out of
+   * `reworkRequired` — one back into approval, one out of existence.
+   *
+   * Both are the requester's actions, not SPA's. SPA only ever sends the
+   * request back; what happens next is a human decision on the rework screen.
+   */
+
+  /**
+   * Saves the reworked payload and hands it back to the **existing** SPA process
+   * instance, which is still parked waiting for the requester. Runs exactly the
+   * gates a first submit runs — the validations and the duplicate check, with the
+   * same `Confirm` second press — because a reworked request is a request nobody
+   * has judged yet.
+   *
+   * Returns the submit shape so the maintenance screen can reuse one code path
+   * for submit and resubmit.
+   */
+  action resubmitRequest(
+    ChangeRequest : UUID not null,
+    RequestType   : String(10) not null,
+    BusinessPartner : String(10),
+    Reason        : String(250),
+    DataJson      : LargeString not null,
+    Confirm       : Boolean
+  ) returns {
+    ChangeRequest     : UUID;
+    Status            : String(20);
+    ProcessInstanceId : String(60);
+    NeedsConfirmation : Boolean;
+    Valid             : Boolean;
+    ValidationsJson   : LargeString;
+    MessagesJson      : LargeString;
+  };
+
+  /**
+   * Cancels the request and **deletes it**, staging rows and all — the
+   * compositions cascade. Only from `reworkRequired` or `draft`: anything that
+   * has posted carries the `postedBP` idempotency guard, and destroying that
+   * would let an SPA retry create a second business partner.
+   */
+  action withdrawRequest(
+    ChangeRequest : UUID not null
+  ) returns {
+    ChangeRequest : UUID;
+    Deleted       : Boolean;
   };
 }

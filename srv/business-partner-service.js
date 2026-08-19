@@ -498,12 +498,18 @@ function joinExpressions(expressions, operator) {
  */
 /**
  * A partner is locked while a change request over it is still in flight, so it
- * must not be edited from the list in the meantime. `posted` and `rejected` are
- * finished - S/4 holds the latest data again. `failed` counts as active on
- * purpose: the post is not atomic, so the partner may be half-written and needs
- * a human before anyone else touches it.
+ * must not be edited from the list in the meantime. `posted` is finished - S/4
+ * holds the latest data again. `failed` counts as active on purpose: the post is
+ * not atomic, so the partner may be half-written and needs a human before anyone
+ * else touches it.
+ *
+ * `reworkRequired` counts as active too, and that is the whole reason it is here
+ * (2026-08-19). It looks finished - the approver said no - but the requester is
+ * about to edit and resubmit it, so the partner is still claimed. Leaving it out
+ * would unlock the partner for a second editor mid-rework, which is precisely
+ * what this list exists to prevent. `rejected` is no longer written at all.
  */
-const ACTIVE_REQUEST_STATUSES = ['draft', 'inApproval', 'approved', 'failed'];
+const ACTIVE_REQUEST_STATUSES = ['draft', 'inApproval', 'approved', 'reworkRequired', 'failed'];
 
 /** Beyond this the `ne` chain makes the remote OData URL unreasonably long. */
 const MAX_EXCLUDED_PARTNERS = 200;

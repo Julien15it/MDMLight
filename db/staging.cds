@@ -24,9 +24,19 @@ type ChangeRequestType : String(10) enum { create; change; block; delete };
 /**
  * Mirrors the request lifecycle, not the approval steps. `inApproval` covers
  * the whole time SPA owns the request, however many steps that involves.
+ *
+ * `reworkRequired` is where a rejected request now lands (2026-08-19): the
+ * approver sends it back to the requester, who edits it and either resubmits or
+ * withdraws it. So a rejection is a **loop, not an end** — see "Rework" in
+ * CLAUDE.md. `rejected` is kept because cds-deploy refuses to drop anything, but
+ * nothing writes it any more.
+ *
+ * Widened from String(12) to hold `reworkRequired`. Widening a string is one of
+ * the few non-lossy changes cds-deploy will actually perform; renaming or
+ * dropping the old value would have failed the deploy.
  */
-type ChangeRequestStatus : String(12) enum {
-  draft; inApproval; approved; rejected; posted; failed
+type ChangeRequestStatus : String(20) enum {
+  draft; inApproval; approved; rejected; reworkRequired; posted; failed
 };
 
 /** Per-row intent for the collection nodes, as MDG's change indicator. */
@@ -39,7 +49,18 @@ type NodeAction : String(1) enum { create = 'C'; update = 'U'; delete = 'D' };
 entity ChangeRequests : cuid, managed {
   requestType       : ChangeRequestType   not null;
   status            : ChangeRequestStatus not null default 'draft';
+
+  /** The **requester's** reason for raising the request. A rejection no longer
+   *  overwrites it: the requester comes back to this screen to rework the
+   *  request, and finding their own reason replaced by the approver's verdict
+   *  would lose the one field they wrote and then resubmit the approver's words
+   *  as their justification. */
   reason            : String(250);
+
+  /** Why the approver sent it back, kept separate from `reason` for exactly that
+   *  reason. Shown on the rework screen, because "rejected" without the why is
+   *  not something a requester can act on. */
+  rejectionComment  : String(250);
 
   /** Null until a create is posted; set from the outset for change/block/delete. */
   businessPartner   : String(10);

@@ -100,6 +100,27 @@ const APPROVAL_WORKFLOW_DEFINITION_ID =
 // here because RequestType is a String(10), so a bad value otherwise fails at the database instead.
 const SUPPORTED_REQUEST_TYPES = Object.freeze(['create', 'change']);
 
+/**
+ * The statuses whose payload a requester may still change. `reworkRequired` joined `draft` on
+ * 2026-08-19: a rejection hands the request back rather than ending it, so a reworkable request has
+ * to be writable by the same code path a draft is.
+ */
+const EDITABLE_STATUSES = Object.freeze(['draft', 'reworkRequired']);
+
+/**
+ * The statuses `withdrawRequest` will delete. Deliberately the editable ones and nothing else:
+ * anything further along either carries `postedBP` - the idempotency guard that stops an SPA retry
+ * creating a second business partner - or is being decided on by somebody else right now.
+ */
+const WITHDRAWABLE_STATUSES = EDITABLE_STATUSES;
+
+/**
+ * What `resubmitRequest` sends to the parked SPA process. Arthur's definition has to branch on this
+ * input value and route the request back to the approver; `approved`/`rejected` are the two it
+ * already understands.
+ */
+const RESUBMITTED_SIGNAL = 'resubmitted';
+
 // A finding also carries candidateName and reasons for the SPA payload; neither is a column, and
 // spreading them into the insert would fail. Whitelisted, so a new field cannot break a submit.
 const FINDING_COLUMNS = Object.freeze([
@@ -170,9 +191,31 @@ function requestingUserEmail(req) {
  * an empty string rather than a broken link.
  */
 function approveUrl(changeRequest) {
+  return requestUrl(changeRequest, 'approve');
+}
+
+/**
+ * Deep link to this request's **rework** view, sent to BPA as `reworkurl` so the
+ * notification the requester gets on a rejection can point straight at it.
+ *
+ * Sent with the initial workflow context rather than at rejection time, because
+ * the rejection happens inside SPA and it has the context to hand there. Nothing
+ * else reaches this screen: the change request list is steward-gated, so this URL
+ * is the requester's only way in.
+ */
+function reworkUrl(changeRequest) {
+  return requestUrl(changeRequest, 'rework');
+}
+
+/**
+ * APPROUTER_URL is provided by mta.yaml (the approuter module's own route, via
+ * MTA's provides/requires) - unset in local/hybrid dev, where there is no
+ * approuter, so this degrades to an empty string rather than a broken link.
+ */
+function requestUrl(changeRequest, verb) {
   const approuterUrl = process.env.APPROUTER_URL;
   if (!approuterUrl) return '';
-  return `${approuterUrl.replace(/\/$/, '')}/mdmmdbusinesspartnermanage/index.html#ChangeRequests/${changeRequest}/approve`;
+  return `${approuterUrl.replace(/\/$/, '')}/mdmmdbusinesspartnermanage/index.html#ChangeRequests/${changeRequest}/${verb}`;
 }
 
 /** Staged rows for a many-cardinality node, deletions excluded - a request in
@@ -288,7 +331,10 @@ class ChangeRequestService extends cds.ApplicationService {
           cds.ql.SELECT.one.from(HEADER).where({ ID: changeRequest })
         );
         if (!existing) return req.reject(404, `Change request ${changeRequest} was not found.`);
-        if (existing.status !== 'draft') {
+        // `reworkRequired` is editable for the same reason `draft` is: nobody has accepted it. A
+        // rejection sends the request back to the requester, so this is the one guard that decides
+        // whether rework is possible at all - it used to be draft-only.
+        if (!EDITABLE_STATUSES.includes(existing.status)) {
           return req.reject(409, `Change request ${changeRequest} is ${existing.status} and can no longer be changed.`);
         }
         await db.run(cds.ql.UPDATE(HEADER).set({
@@ -501,6 +547,9 @@ class ChangeRequestService extends cds.ApplicationService {
           businesspartner: req.data.BusinessPartner || '',
           emailadressinitiator: requestingUserEmail(req),
           bpurl: approveUrl(changeRequest),
+          // Where to send the requester if the approver rejects. Sent now rather than at rejection
+          // time because SPA owns the rejection branch, and this is the requester's only route in.
+          reworkurl: reworkUrl(changeRequest),
           businesspartnerinput: businessPartnerInput,
           // One entry per matched partner, so the approver sees what was flagged and why. Empty
           // when nothing matched, never absent - SPA can then bind it without a null check.
@@ -532,6 +581,159 @@ class ChangeRequestService extends cds.ApplicationService {
         ValidationsJson: JSON.stringify(validations),
         MessagesJson: JSON.stringify(findings)
       };
+    });
+
+    /**
+     * Rework: back into approval.
+     *
+     * Everything a first submit gates on is gated on again - the validations and the duplicate
+     * check with its confirming second press - because a reworked request is one nobody has judged.
+     * The requester may well have changed the very fields the duplicate check reads.
+     *
+     * What differs is the last step, and only that: the SPA process instance is still parked
+     * waiting for this request, so it is **signalled rather than started**. One instance per change
+     * request means one audit thread on Arthur's side across however many rework rounds happen.
+     */
+    this.on('resubmitRequest', async (req) => {
+      const requested = req.data.ChangeRequest;
+      const before = await db.run(cds.ql.SELECT.one.from(HEADER).where({ ID: requested }));
+      if (!before) return req.reject(404, `Change request ${requested} was not found.`);
+      if (before.status !== 'reworkRequired') {
+        return req.reject(409,
+          `Change request ${requested} is ${before.status}, not awaiting rework. Only a request the`
+          + ' approver sent back can be resubmitted.');
+      }
+      // The parked instance IS the resubmit target. Without it there is nothing to hand back to,
+      // and silently starting a fresh workflow would give one request two audit threads and
+      // possibly two approver tasks.
+      if (!before.processInstanceId) {
+        return req.reject(409,
+          `Change request ${requested} has no approval process to hand back to, so it cannot be`
+          + ' resubmitted. Withdraw it and raise a new request.');
+      }
+
+      const changeRequest = await persist(req);
+      if (!changeRequest) return;
+
+      // The same gates as a submit, in the same order. Derivations still do not run here.
+      const data = parseJsonObject(req.data.DataJson, 'DataJson');
+      const registry = createRegistryStages();
+      const configured = await configuredStages();
+      const validations = await runValidations(
+        { root: data.root || {}, sections: data.sections || {} },
+        [...configured.validations, ...registry.validations]
+      );
+      if (validations.some((message) => message.severity === BLOCKING)) {
+        return {
+          ChangeRequest: changeRequest,
+          Status: 'reworkRequired',
+          NeedsConfirmation: false,
+          Valid: false,
+          ValidationsJson: JSON.stringify(validations),
+          MessagesJson: JSON.stringify([])
+        };
+      }
+
+      const findings = await recordDuplicateFindings(changeRequest, req.data.BusinessPartner);
+      const duplicates = findings.filter((finding) => finding.verdict);
+      if (duplicates.length && !req.data.Confirm) {
+        return {
+          ChangeRequest: changeRequest,
+          Status: 'reworkRequired',
+          NeedsConfirmation: true,
+          Valid: true,
+          ValidationsJson: JSON.stringify(validations),
+          MessagesJson: JSON.stringify(findings)
+        };
+      }
+
+      // Left in `reworkRequired` if the signal fails, for the same reason a failed start leaves a
+      // submit in `draft`: a request in `inApproval` that no process is actually waiting on sits in
+      // nobody's inbox, and the requester would have no way to try again.
+      try {
+        await triggerApprovalDecision(before.processInstanceId, RESUBMITTED_SIGNAL);
+      } catch (error) {
+        return req.reject(502,
+          `The reworked request was saved but the approval process could not be notified:`
+          + ` ${error.message}`);
+      }
+
+      await db.run(cds.ql.UPDATE(HEADER).set({
+        status: 'inApproval',
+        // Overwritten on purpose: the resubmit is the submission that matters now, and the original
+        // timestamp is of no use to anyone once the request has been round the loop.
+        submittedAt: new Date().toISOString(),
+        submittedBy: requestingUserEmail(req)
+      }).where({ ID: changeRequest }));
+
+      return {
+        ChangeRequest: changeRequest,
+        Status: 'inApproval',
+        ProcessInstanceId: before.processInstanceId,
+        NeedsConfirmation: false,
+        Valid: true,
+        ValidationsJson: JSON.stringify(validations),
+        MessagesJson: JSON.stringify(findings)
+      };
+    });
+
+    /**
+     * Rework: out of existence.
+     *
+     * The children are deleted explicitly rather than left to the compositions' cascade. Every node
+     * here is linked by an explicit `request` backlink with its own ON condition (see
+     * db/staging.cds), and relying on cascade semantics through that would be trusting the one part
+     * of this model that already had to be spelled out by hand.
+     */
+    this.on('withdrawRequest', async (req) => {
+      const changeRequest = req.data.ChangeRequest;
+      const header = await db.run(cds.ql.SELECT.one.from(HEADER).where({ ID: changeRequest }));
+      // Already gone. Idempotent rather than a 404, so a double-press or a retried call is not an
+      // error the requester has to interpret.
+      if (!header) return { ChangeRequest: changeRequest, Deleted: false };
+
+      // The guard that must never be relaxed: deleting a posted request destroys `postedBP`, and an
+      // SPA retry would then create a second business partner for the same request.
+      if (header.postedBP) {
+        return req.reject(409,
+          `Change request ${changeRequest} has already created business partner ${header.postedBP}`
+          + ' and cannot be withdrawn.');
+      }
+      if (!WITHDRAWABLE_STATUSES.includes(header.status)) {
+        return req.reject(409,
+          `Change request ${changeRequest} is ${header.status} and cannot be withdrawn.`
+          + ' Only a draft or a request sent back for rework can be.');
+      }
+
+      /**
+       * Signalled before the delete, and best-effort either way.
+       *
+       * There is no ordering here that cannot strand something: signal first and a failed delete
+       * leaves SPA thinking the request is gone while the row lives on; delete first and a failed
+       * signal leaves a process pointing at nothing. Both end as a stuck task a human clears, so
+       * this follows the rule every other workflow side effect here follows - the local record is
+       * what must be right, and a BPA outage must not stop a requester withdrawing their own
+       * request. The failure is surfaced rather than swallowed.
+       */
+      if (header.processInstanceId) {
+        try {
+          await triggerApprovalDecision(header.processInstanceId, 'withdrawn');
+        } catch (error) {
+          console.error(`Could not tell the approval process that ${changeRequest} was withdrawn:`, error);
+          req.info(200,
+            'The request was withdrawn, but the approval process could not be notified. Any open'
+            + ' approver task may need clearing by hand.');
+        }
+      }
+
+      for (const node of Object.values(NODES)) {
+        await db.run(cds.ql.DELETE.from(node.entity).where({ request_ID: changeRequest }));
+      }
+      await db.run(cds.ql.DELETE.from(GENERAL).where({ request_ID: changeRequest }));
+      await db.run(cds.ql.DELETE.from(FINDINGS).where({ request_ID: changeRequest }));
+      await db.run(cds.ql.DELETE.from(HEADER).where({ ID: changeRequest }));
+
+      return { ChangeRequest: changeRequest, Deleted: true };
     });
 
     /**
@@ -574,6 +776,7 @@ class ChangeRequestService extends cds.ApplicationService {
         Status: header.status,
         BusinessPartner: header.businessPartner,
         Reason: header.reason,
+        RejectionComment: header.rejectionComment,
         SubmittedBy: header.submittedBy,
         SubmittedAt: header.submittedAt,
         DataJson: JSON.stringify({ root, sections, deleted })
@@ -690,13 +893,26 @@ class ChangeRequestService extends cds.ApplicationService {
         }
       };
 
+      /**
+       * A rejection is a loop, not an end (2026-08-19). The request goes to `reworkRequired` and
+       * back to the requester, who edits it and either resubmits or withdraws it. `rejected` is
+       * never written any more - it stays in the enum only because cds-deploy refuses to drop it.
+       *
+       * The approver's comment goes to `rejectionComment`, NOT over `reason`. Overwriting was
+       * harmless while a rejection was terminal; now the requester reopens this record, and they
+       * would find their own justification replaced by the verdict on it - and then resubmit the
+       * approver's words as their reason.
+       *
+       * The workflow is still signalled, and it must NOT be completed: the instance stays parked
+       * waiting for the requester, which is what `resubmitRequest` hands back to.
+       */
       if (decision === 'reject') {
         await db.run(cds.ql.UPDATE(HEADER).set({
-          status: 'rejected',
-          reason: req.data.Comment || header.reason
+          status: 'reworkRequired',
+          rejectionComment: req.data.Comment || null
         }).where({ ID: changeRequest }));
         await notifyWorkflow('rejected');
-        return { ChangeRequest: changeRequest, Status: 'rejected', BusinessPartner: null };
+        return { ChangeRequest: changeRequest, Status: 'reworkRequired', BusinessPartner: null };
       }
 
       // Approved, not posted. SPA decides when its chain is finished and calls
@@ -752,9 +968,13 @@ class ChangeRequestService extends cds.ApplicationService {
 
 ChangeRequestService._internals = {
   approveUrl,
+  reworkUrl,
   buildBusinessPartnerInput,
   activeStagedRows,
   SUPPORTED_REQUEST_TYPES,
+  EDITABLE_STATUSES,
+  WITHDRAWABLE_STATUSES,
+  RESUBMITTED_SIGNAL,
   FINDING_COLUMNS,
   stagedFinding,
   resolveRelationNumber,

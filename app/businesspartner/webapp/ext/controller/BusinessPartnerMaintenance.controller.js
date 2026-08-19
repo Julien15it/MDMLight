@@ -341,6 +341,7 @@ sap.ui.define([
         this._router.getRoute("BusinessPartnerMaintain").attachPatternMatched(this._onEditRoute, this);
         this._router.getRoute("ChangeRequestApprove").attachPatternMatched(this._onApproveRoute, this);
         this._router.getRoute("ChangeRequestEdit").attachPatternMatched(this._onRequestEditRoute, this);
+        this._router.getRoute("ChangeRequestRework").attachPatternMatched(this._onReworkRoute, this);
 
         this.getView().setModel(new JSONModel(this._emptyState()), "maintenance");
       },
@@ -361,6 +362,10 @@ sap.ui.define([
           showSaveButton: true,
           showSaveRequestButton: true,
           showDecisionButtons: false,
+          // Resubmit and Withdraw, the requester's two ways out of a rejection.
+          showReworkButtons: false,
+          /** Why the approver sent it back. Empty except in rework mode. */
+          rejectionComment: "",
           showCancelButton: true,
           showFooter: true,
           saveButtonText: "Submit Request",
@@ -1404,7 +1409,71 @@ sap.ui.define([
         if (isCreate || state.mode === "edit") {
           return this._sendChangeRequest("submitRequest");
         }
+        // Rework is the draft view with a different primary action: the button says Resubmit and
+        // routes to resubmitRequest, which hands the request back to the parked approval process
+        // instead of starting a new one.
+        if (state.mode === "rework") {
+          return this._sendChangeRequest("resubmitRequest");
+        }
         MessageBox.error("This Business Partner is not open for editing.");
+      },
+
+      /**
+       * Withdraw: cancels the request and deletes it, staging rows and all.
+       *
+       * Confirmed first, and worded so the consequence is unambiguous - this is the one action in
+       * the screen that destroys data rather than moving it along, and there is no undo.
+       */
+      onWithdraw: function () {
+        var that = this;
+        var state = this.getView().getModel("maintenance").getData();
+        MessageBox.warning(
+          "Withdraw and delete change request " + state.changeRequest + "?\n\n"
+          + "The request and everything staged on it are deleted permanently. This cannot be undone.",
+          {
+            actions: [MessageBox.Action.DELETE, MessageBox.Action.CANCEL],
+            emphasizedAction: MessageBox.Action.CANCEL,
+            onClose: function (choice) {
+              if (choice === MessageBox.Action.DELETE) that._withdraw();
+            }
+          }
+        );
+      },
+
+      _withdraw: async function () {
+        var maintenanceModel = this.getView().getModel("maintenance");
+        var state = maintenanceModel.getData();
+        state.busy = true;
+        maintenanceModel.refresh(true);
+
+        try {
+          await this._executeAction(
+            "withdrawRequest", { ChangeRequest: state.changeRequest }, "cr"
+          );
+          // Nothing is left to show, so unlike every other outcome on this screen there is no
+          // staying put: the record this page was rendering no longer exists.
+          state.editing = false;
+          state.showReworkButtons = false;
+          state.showSaveButton = false;
+          state.showSaveRequestButton = false;
+          state.showCheckButton = false;
+          state.showCancelButton = false;
+          state.showFooter = false;
+          state.modeText = "Withdrawn";
+          state.title = "Request withdrawn";
+          state.duplicates = [];
+          state.duplicatesHeader = "";
+          state.messages = [{
+            type: "Success",
+            text: "Change request " + state.changeRequest + " was withdrawn and deleted."
+          }];
+        } catch (error) {
+          MessageBox.error(errorMessage(error, "The request could not be withdrawn."));
+        } finally {
+          state.busy = false;
+          maintenanceModel.refresh(true);
+          this._renderAll();
+        }
       },
 
       /**
@@ -1529,7 +1598,10 @@ sap.ui.define([
           };
           // Confirmation is tied to the exact payload that was warned about, not to a flag: edit
           // the record after a warning and the check has to be seen again before it counts.
-          if (action === "submitRequest") {
+          // A resubmit runs the same duplicate gate as a submit, so it needs the same confirming
+          // second press - and tied to the same payload, because the whole point of rework is that
+          // the requester changed the record.
+          if (action === "submitRequest" || action === "resubmitRequest") {
             parameters.Confirm = Boolean(state.awaitingConfirmationFor)
               && state.awaitingConfirmationFor === parameters.DataJson;
           }
@@ -1579,7 +1651,7 @@ sap.ui.define([
             this._setDuplicatePanel(state, this._findingsFrom(result), { RanDuplicateCheck: true });
             this._confirmDuplicates(this._findingsFrom(result), parameters.DataJson, {
               // `confirmed` stops a second dialog re-submitting, so no loop if the server asks twice.
-              confirmText: "Submit Request",
+              confirmText: action === "resubmitRequest" ? "Resubmit" : "Submit Request",
               onConfirm: confirmed ? null : function () {
                 this._sendChangeRequest(action, true);
               }.bind(this)
@@ -1596,11 +1668,16 @@ sap.ui.define([
           state.showSaveRequestButton = false;
           state.showCheckButton = false;
           state.showEditButton = false;
+          // The request is back with the approver, so Withdraw goes with the rest. It is only
+          // withdrawable while it is the requester's to act on.
+          state.showReworkButtons = false;
           // "Cancel" cancels nothing once the request is in approval, and with every other button
           // gone the toolbar would be an empty bar. Leaving the page is the shell's back arrow.
           state.showCancelButton = false;
           state.showFooter = false;
-          state.title = "Request submitted for approval";
+          state.title = action === "resubmitRequest"
+            ? "Request resubmitted for approval"
+            : "Request submitted for approval";
           state.messages = this._submitMessages(result);
           // The approver has these on CheckFindings; leaving the panel up invites editing a
           // request nobody can edit any more.
@@ -2012,32 +2089,61 @@ sap.ui.define([
 
       _onApproveRoute: function (event) {
         return this._loadStagedRequest(
-          decodeURIComponent(event.getParameter("arguments").changeRequest), false
+          decodeURIComponent(event.getParameter("arguments").changeRequest), "approve"
         );
       },
 
       /** Reopens a saved draft for further editing, same staged payload. */
       _onRequestEditRoute: function (event) {
         return this._loadStagedRequest(
-          decodeURIComponent(event.getParameter("arguments").changeRequest), true
+          decodeURIComponent(event.getParameter("arguments").changeRequest), "edit"
         );
       },
 
-      _loadStagedRequest: async function (changeRequest, editing) {
+      /**
+       * Rework: the requester's screen for a request the approver sent back.
+       *
+       * Reached only by the `reworkurl` deep link in the notification SPA sends on a rejection -
+       * the change request list is steward-gated, so there is no other way in. Every field is
+       * editable again, and the footer offers Resubmit and Withdraw instead of Submit Request.
+       */
+      _onReworkRoute: function (event) {
+        return this._loadStagedRequest(
+          decodeURIComponent(event.getParameter("arguments").changeRequest), "rework"
+        );
+      },
+
+      /**
+       * `mode` is one of "approve", "edit" or "rework". It was a boolean `editing` until rework
+       * arrived, which needs the editability of a draft and a different footer from either.
+       */
+      _loadStagedRequest: async function (changeRequest, mode) {
         var maintenanceModel = this.getView().getModel("maintenance");
+        var reworking = mode === "rework";
+        // Rework edits the payload, so it is an editing mode - it just does not save drafts.
+        var editing = mode === "edit" || reworking;
         var state = this._emptyState();
         state.busy = true;
-        state.mode = editing ? "edit" : "approve";
-        state.modeText = editing ? "Draft" : "Approval";
+        state.mode = reworking ? "rework" : (editing ? "edit" : "approve");
+        state.modeText = reworking ? "Rework" : (editing ? "Draft" : "Approval");
         state.editing = editing;
         state.changeRequest = changeRequest;
         state.showEditButton = false;
-        state.showCheckButton = false;
+        // Rework IS the draft view - same editable fields, same Check and Save Request - with one
+        // different primary action. So the buttons are the editing ones in both modes, and only the
+        // label and what onSave routes to change.
+        state.showCheckButton = reworking;
         state.showSaveButton = editing;
-        state.showSaveRequestButton = editing;
+        // No Save Request in rework, and not only because two buttons is what was asked for: Save
+        // Request drops the screen out of editing and offers Edit, which re-enters "edit" mode - and
+        // onSave would then route the primary button to submitRequest, starting a second workflow
+        // for a request whose own instance is still parked. Rework resubmits or it withdraws.
+        state.showSaveRequestButton = editing && !reworking;
         state.showDecisionButtons = !editing;
+        // Set properly once the status is known: a rework link outlives the state it was sent for.
+        state.showReworkButtons = false;
         state.showFooter = true;
-        state.saveButtonText = "Submit Request";
+        state.saveButtonText = reworking ? "Resubmit" : "Submit Request";
         state.cancelButtonText = "Back";
         maintenanceModel.setData(state);
 
@@ -2061,13 +2167,40 @@ sap.ui.define([
           state.requestType = (payload && payload.RequestType) || "";
           state.requestStatus = (payload && payload.Status) || "";
           state.businessPartner = (payload && payload.BusinessPartner) || "";
-          state.title = (editing ? "Change request " : "Approve request ") + changeRequest;
+          state.rejectionComment = (payload && payload.RejectionComment) || "";
+          state.title = (reworking ? "Rework request " : (editing ? "Change request " : "Approve request "))
+            + changeRequest;
           state.headerTitle = previewName(state.root) || "Requested Business Partner";
           // Only a request still awaiting a decision can be decided on. Opening
           // an already-decided task must not offer the buttons again.
           state.showDecisionButtons = !editing && state.requestStatus === "inApproval";
-          // A submitted request is owned by the approval process from here on.
-          if (editing && state.requestStatus !== "draft") {
+
+          if (reworking) {
+            // The link outlives the state it was sent for: a requester who already resubmitted, or
+            // whose request someone else withdrew, must not be offered the buttons again. Same rule
+            // the approve view follows for a task that has already been decided.
+            var awaitingRework = state.requestStatus === "reworkRequired";
+            state.showReworkButtons = awaitingRework;
+            state.editing = awaitingRework;
+            state.showCheckButton = awaitingRework;
+            state.showSaveButton = awaitingRework;
+            if (!awaitingRework) {
+              state.modeText = state.requestStatus;
+              state.messages = [{
+                type: "Information",
+                text: "This request is " + state.requestStatus + ", so there is nothing to rework."
+                  + " It has either been resubmitted already or withdrawn."
+              }];
+            } else if (state.rejectionComment) {
+              // Why it came back, at the top of the screen. "Rejected" with no reason is not
+              // something a requester can act on, and it is the first thing they will look for.
+              state.messages = [{
+                type: "Warning",
+                text: "Sent back by the approver: " + state.rejectionComment
+              }];
+            }
+          } else if (editing && state.requestStatus !== "draft") {
+            // A submitted request is owned by the approval process from here on.
             state.editing = false;
             state.showSaveButton = false;
             state.showSaveRequestButton = false;
