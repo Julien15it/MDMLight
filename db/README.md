@@ -114,6 +114,12 @@ intent, as MDG's change indicator does.
 UUID, ETag, created/changed by and on. S/4 owns them; staging them would invite
 writing stale values back.
 
+**A rejection is not an end.** `reject` moves a request to `reworkRequired`, not
+`rejected`, and the requester edits and resubmits or withdraws it. So
+`reworkRequired` is an *active* status - the partner stays locked - and `posted` is
+the only terminal one. A withdrawn request is deleted outright, header and staged
+rows, which is the one place this schema loses history on purpose.
+
 **No before-image tables.** Staging holds the requested state only, as MDG
 does. Concurrency is handled by `sourceETag` on the header, compared against
 S/4 immediately before posting. `postedBP` is the idempotency guard — a request

@@ -74,7 +74,17 @@ async function startWorkflow(definitionId, context) {
 // BPA which paused instance to resume, not which API call this is.
 const APPROVAL_DECISION_TRIGGER_ID = "eu10.alluvion-dev-cf.mdmlightapproval.zApproved_wf";
 
-async function triggerApprovalDecision(executionId, result) {
+/**
+ * `extraInputs` lands **flat inside `inputs`, alongside `result`** - that is the shape Arthur's
+ * trigger expects, agreed 2026-08-19, and it is why this is a spread rather than a nested key.
+ *
+ * `executionId` is the BPA process instance id. Arthur refers to it as the CR id; it is not the
+ * change request UUID, and the two must not be swapped - the trigger resolves the parked instance
+ * by this value.
+ *
+ * Approve, reject and withdraw pass nothing extra, so their payload is unchanged.
+ */
+async function triggerApprovalDecision(executionId, result, extraInputs = {}) {
     const sbpa = await cds.connect.to("SBPA_DESTINATION");
 
     const accessToken = await getAccessToken();
@@ -82,7 +92,7 @@ async function triggerApprovalDecision(executionId, result) {
 
     const payload = {
         executionId,
-        inputs: { result }
+        inputs: { result, ...extraInputs }
     };
 
     console.log("Sending approval decision to BPA");

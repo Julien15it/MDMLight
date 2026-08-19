@@ -245,6 +245,15 @@
           type="Emphasized"
           visible="{maintenance>/showSaveButton}"
           press=".onSave" />
+        <!-- Rework's second button. The primary one next to it is the draft view's, relabelled
+             "Resubmit" - see saveButtonText. Withdraw is the only action on this screen that
+             destroys data, hence Reject styling and a confirm. -->
+        <Button
+          text="Withdraw"
+          icon="sap-icon://delete"
+          type="Reject"
+          visible="{maintenance>/showReworkButtons}"
+          press=".onWithdraw" />
         <Button
           text="Approve"
           icon="sap-icon://accept"
