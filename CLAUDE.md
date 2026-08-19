@@ -788,8 +788,23 @@ and the loop does not close without them:**
 1. On reject, **notify the requester** with `reworkurl`, and **do not complete the
    instance** — park it waiting. `resubmitRequest` hands the request back to that
    same instance.
-2. Handle the approval-decision trigger input `result: 'resubmitted'` by routing
-   the request back to the approver, the way a first submit does.
+2. Handle the approval-decision trigger input `result: 'Resubmitted'` by routing
+   the request back to the approver, the way a first submit does. **Capitalised**,
+   unlike `approved`/`rejected` - his spelling, agreed 2026-08-19. The resubmit
+   payload is:
+
+   ```json
+   { "executionId": "<process instance>",
+     "inputs": { "result": "Resubmitted", "changerequestid": "...",
+                 "businesspartnerinput": {}, "bpduplicates": [], "...": "..." } }
+   ```
+
+   The BP context sits **flat inside `inputs`, next to `result`**, and is the same
+   object a first submit sends as its workflow context - `workflowContext()` builds
+   it for both, so the two cannot drift. It is rebuilt *after* `persist()`, or the
+   approver would be handed the version they had already rejected. `executionId` is
+   the BPA process instance; Arthur calls it the CR id, and it is **not** the change
+   request UUID.
 3. Handle `result: 'withdrawn'` by terminating the instance and clearing any open
    approver task. CAP has already deleted the request by the time this arrives.
 - Decision callback: `POST /service/changerequest/decideRequest` with

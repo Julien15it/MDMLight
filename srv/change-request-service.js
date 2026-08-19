@@ -115,11 +115,15 @@ const EDITABLE_STATUSES = Object.freeze(['draft', 'reworkRequired']);
 const WITHDRAWABLE_STATUSES = EDITABLE_STATUSES;
 
 /**
- * What `resubmitRequest` sends to the parked SPA process. Arthur's definition has to branch on this
- * input value and route the request back to the approver; `approved`/`rejected` are the two it
- * already understands.
+ * What `resubmitRequest` sends to the parked SPA process. Arthur's definition branches on this input
+ * value and routes the request back to the approver.
+ *
+ * **Capitalised, and that is his spelling, not a slip.** The approve and reject signals are
+ * lowercase (`approved`/`rejected`); he specified `Resubmitted` for this one on 2026-08-19. Worth
+ * confirming his trigger is case-sensitive before tidying these into one convention - a signal that
+ * silently fails to match leaves a request parked forever.
  */
-const RESUBMITTED_SIGNAL = 'resubmitted';
+const RESUBMITTED_SIGNAL = 'Resubmitted';
 
 // A finding also carries candidateName and reasons for the SPA payload; neither is a column, and
 // spreading them into the insert would fail. Whitelisted, so a new field cannot break a submit.
@@ -314,6 +318,43 @@ class ChangeRequestService extends cds.ApplicationService {
     };
 
     /** Upserts the header and rewrites the nodes. Status is left untouched. */
+    /**
+     * The BP context SPA gets about a request. **One builder for both paths**, because a resubmit
+     * has to hand the approver the same shape a first submit does - Arthur binds the same fields
+     * either way, and two copies of this object would drift the first time one grew a key.
+     *
+     * At submit it is the `startWorkflow` context; at resubmit it is spread flat into `inputs`
+     * alongside `result`. Rebuild it *after* `persist()` on a resubmit, or the approver is shown the
+     * data from before the rework - the whole point of the loop is that the requester changed it.
+     */
+    const workflowContext = async (req, changeRequest, header, findings) => {
+      // Best-effort, like every other piece of the workflow payload: a problem shaping the preview
+      // data must not block the submit, it should just leave the approver with a thinner (but still
+      // working) businesspartnerinput. Built after the duplicate gate, so an unconfirmed submit
+      // never pays for a payload it will not send.
+      let businessPartnerInput = {};
+      try {
+        businessPartnerInput = await buildBusinessPartnerInput(db, s4, header);
+      } catch (error) {
+        console.error(`Could not build businesspartnerinput for change request ${changeRequest}:`, error);
+      }
+      return {
+        changerequestid: changeRequest,
+        requesttype: req.data.RequestType,
+        businesspartner: req.data.BusinessPartner || '',
+        emailadressinitiator: requestingUserEmail(req),
+        bpurl: approveUrl(changeRequest),
+        // Where to send the requester if the approver rejects. Sent with the context rather than at
+        // rejection time because SPA owns the rejection branch, and this is the requester's only
+        // route in.
+        reworkurl: reworkUrl(changeRequest),
+        businesspartnerinput: businessPartnerInput,
+        // One entry per matched partner, so the approver sees what was flagged and why. Empty when
+        // nothing matched, never absent - SPA can then bind it without a null check.
+        bpduplicates: duplicateSummary(findings)
+      };
+    };
+
     const persist = async (req) => {
       const payload = parseJsonObject(req.data.DataJson, 'DataJson');
       const requestType = req.data.RequestType;
@@ -526,35 +567,11 @@ class ChangeRequestService extends cds.ApplicationService {
       }
 
       const header = await db.run(cds.ql.SELECT.one.from(HEADER).where({ ID: changeRequest }));
-
-      // Best-effort, like every other piece of the workflow payload: a
-      // problem shaping the preview data must not block submission, it
-      // should just leave the approver with a thinner (but still working)
-      // businesspartnerinput. Built after the duplicate gate, so an
-      // unconfirmed submit never pays for a payload it will not send.
-      let businessPartnerInput = {};
-      try {
-        businessPartnerInput = await buildBusinessPartnerInput(db, s4, header);
-      } catch (error) {
-        console.error(`Could not build businesspartnerinput for change request ${changeRequest}:`, error);
-      }
+      const context = await workflowContext(req, changeRequest, header, findings);
 
       let processInstanceId = null;
       try {
-        const result = await startWorkflow(APPROVAL_WORKFLOW_DEFINITION_ID, {
-          changerequestid: changeRequest,
-          requesttype: req.data.RequestType,
-          businesspartner: req.data.BusinessPartner || '',
-          emailadressinitiator: requestingUserEmail(req),
-          bpurl: approveUrl(changeRequest),
-          // Where to send the requester if the approver rejects. Sent now rather than at rejection
-          // time because SPA owns the rejection branch, and this is the requester's only route in.
-          reworkurl: reworkUrl(changeRequest),
-          businesspartnerinput: businessPartnerInput,
-          // One entry per matched partner, so the approver sees what was flagged and why. Empty
-          // when nothing matched, never absent - SPA can then bind it without a null check.
-          bpduplicates: duplicateSummary(findings)
-        });
+        const result = await startWorkflow(APPROVAL_WORKFLOW_DEFINITION_ID, context);
         processInstanceId = result?.id || result?.data?.id || null;
       } catch (error) {
         // Left in draft on purpose: a request in `inApproval` with no process
@@ -647,11 +664,18 @@ class ChangeRequestService extends cds.ApplicationService {
         };
       }
 
+      // Re-read and rebuilt AFTER persist, so what the approver is handed is the reworked data.
+      // Sending `before` here would show them exactly the version they had already rejected.
+      const header = await db.run(cds.ql.SELECT.one.from(HEADER).where({ ID: changeRequest }));
+      const context = await workflowContext(req, changeRequest, header, findings);
+
       // Left in `reworkRequired` if the signal fails, for the same reason a failed start leaves a
       // submit in `draft`: a request in `inApproval` that no process is actually waiting on sits in
       // nobody's inbox, and the requester would have no way to try again.
       try {
-        await triggerApprovalDecision(before.processInstanceId, RESUBMITTED_SIGNAL);
+        // The BP context goes flat inside `inputs`, next to `result` - Arthur's shape. `executionId`
+        // is the parked process instance, which is what he calls the CR id.
+        await triggerApprovalDecision(before.processInstanceId, RESUBMITTED_SIGNAL, context);
       } catch (error) {
         return req.reject(502,
           `The reworked request was saved but the approval process could not be notified:`

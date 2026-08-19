@@ -102,6 +102,72 @@ test('resubmit runs the same gates as a first submit', () => {
   assert.equal(/configured\.derivations|runDerivations/u.test(resubmit), false);
 });
 
+/**
+ * The payload shape Arthur specified on 2026-08-19:
+ *
+ *   { executionId: "<process instance>", inputs: { result: "Resubmitted", ...bp data } }
+ *
+ * The BP data is **flat inside `inputs`, next to `result`** - not nested under a key - which is why
+ * the trigger spreads its third argument.
+ */
+test('the resubmit signal carries the BP context flat inside inputs', () => {
+  const wf = read(ROOT, 'srv', 'wf', 'processAutomation.js');
+  assert.match(wf, /async function triggerApprovalDecision\(executionId, result, extraInputs = \{\}\)/u);
+  assert.match(wf, /inputs: \{ result, \.\.\.extraInputs \}/u);
+  // executionId is the process instance, not the change request UUID. Arthur calls it the CR id;
+  // swapping the two would leave the trigger unable to resolve the parked instance.
+  assert.match(wf, /executionId,/u);
+  const resubmit = serviceJs.slice(
+    serviceJs.indexOf("this.on('resubmitRequest'"),
+    serviceJs.indexOf("this.on('withdrawRequest'")
+  );
+  assert.match(resubmit, /triggerApprovalDecision\(before\.processInstanceId, RESUBMITTED_SIGNAL, context\)/u);
+  // His spelling, capitalised, unlike approved/rejected. A signal that does not match leaves the
+  // request parked forever, so this is pinned rather than tidied.
+  assert.equal(RESUBMITTED_SIGNAL, 'Resubmitted');
+});
+
+/**
+ * One builder for both paths. Two copies of this object would drift the first time one grew a key,
+ * and the approver would be shown a different shape depending on which route the request took.
+ */
+test('submit and resubmit send the same BP context, built once', () => {
+  assert.match(serviceJs, /const workflowContext = async \(req, changeRequest, header, findings\)/u);
+  assert.equal((serviceJs.match(/await workflowContext\(/gu) || []).length, 2, 'both paths use it');
+  // The context literal exists in exactly one place.
+  assert.equal((serviceJs.match(/changerequestid:/gu) || []).length, 1);
+  for (const key of ['businesspartnerinput', 'bpduplicates', 'bpurl', 'reworkurl', 'requesttype']) {
+    assert.match(serviceJs, new RegExp(`${key}:`, 'u'), `${key} is in the context`);
+  }
+});
+
+/**
+ * The reason the rebuild is ordered, not incidental: `before` is the pre-rework header, so sending
+ * its data would hand the approver exactly the version they had already rejected.
+ */
+test('the resubmit context is rebuilt after the edits, not before', () => {
+  const resubmit = serviceJs.slice(
+    serviceJs.indexOf("this.on('resubmitRequest'"),
+    serviceJs.indexOf("this.on('withdrawRequest'")
+  );
+  const persistAt = resubmit.indexOf('await persist(req)');
+  const contextAt = resubmit.indexOf('await workflowContext(');
+  const signalAt = resubmit.indexOf('triggerApprovalDecision');
+  assert.ok(persistAt < contextAt, 'the payload is saved before the context is built');
+  assert.ok(contextAt < signalAt, 'and the context is built before it is sent');
+  // Built from a fresh read, not from the header fetched before the guard.
+  assert.match(resubmit.slice(persistAt, contextAt), /SELECT\.one\.from\(HEADER\)/u);
+});
+
+// Approve, reject and withdraw were not part of the agreed change, so their payload is untouched.
+test('the other signals still send result alone', () => {
+  for (const call of ["notifyWorkflow('rejected')", "notifyWorkflow('approved')"]) {
+    assert.ok(serviceJs.includes(call), `${call} is unchanged`);
+  }
+  const withdraw = serviceJs.slice(serviceJs.indexOf("this.on('withdrawRequest'"));
+  assert.match(withdraw, /triggerApprovalDecision\(header\.processInstanceId, 'withdrawn'\)/u);
+});
+
 /** Resume, not restart: one instance per request means one audit thread on Arthur's side. */
 test('resubmit signals the parked instance and never starts a new one', () => {
   const resubmit = serviceJs.slice(
