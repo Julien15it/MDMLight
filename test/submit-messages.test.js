@@ -384,11 +384,19 @@ test('submit validates but does not derive', () => {
   const submitAt = service.indexOf("this.on('submitRequest'");
   const submitBody = service.slice(submitAt, service.indexOf("this.on('getRequestPayload'", submitAt));
   assert.match(submitBody, /runValidations\(/u);
-  assert.equal(/runDerivations|registry\.derivations/u.test(submitBody), false, 'no derivation on submit');
-  // Both buttons derive, through the one runner they share.
+  assert.equal(
+    /runDerivations|registry\.derivations|configured\.derivations/u.test(submitBody),
+    false,
+    'no derivation on submit, from the registry or the configured table'
+  );
+  // Both buttons derive, through the one runner they share — and since 2026-08-19 from both
+  // sources: the steward's derivation table as well as VIES/GLEIF.
   const runnerAt = service.indexOf('const runRequestChecks =');
   const runnerBody = service.slice(runnerAt, service.indexOf("this.on('checkRequest'", runnerAt));
-  assert.match(runnerBody, /derivations: registry\.derivations/u);
+  assert.match(runnerBody, /derivations: \[\.\.\.configured\.derivations, \.\.\.registry\.derivations\]/u);
+  // Submit does still run the configured validations, so the table gates a request as well as
+  // reporting on one.
+  assert.match(submitBody, /configured\.validations/u);
 });
 
 // Duplicate Check derives in memory so a rule conditioned on a field nobody typed still fires,
