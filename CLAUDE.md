@@ -813,7 +813,17 @@ Changing any of these breaks Arthur's process definition, so agree the change
 first rather than "fixing" it locally:
 
 - Approver task URL: `<app-url>#/ChangeRequests/{changeRequestId}/approve`
-- Requester rework URL: `<app-url>#/ChangeRequests/{changeRequestId}/rework`
+- Requester rework URL: `<site-url>#BusinessPartner-manage&/ChangeRequests/{id}/rework`
+
+**Both deep links are Work Zone intents, not approuter paths (fixed 2026-08-19).** They were built
+as `<approuter-host>/mdmmdbusinesspartnermanage/index.html#<route>`, which is the standalone
+approuter's shape - and that module was removed on 2026-08-13, so every link 404'd with
+"Requested route does not exist". The managed approuter serves the app through the Work Zone site,
+so a link is the **site URL plus a cross-navigation intent**, with the app's own route after `&/`.
+The base comes from **`WORKZONE_URL`** (a literal in `mta.yaml`, from Site Manager). `APPROUTER_URL`
+is deliberately no longer read: it was still set on the deployed app and kept producing the dead
+host, so the variable was renamed rather than reused - unset now yields `''`, and a missing link is
+diagnosable where a 404 is not. The intent must match the `BusinessPartner-manage` inbound.
 - Workflow context sent at submit:
   `{ changerequestid, requesttype, businesspartner, emailadressinitiator, bpurl, reworkurl }`
 

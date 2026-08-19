@@ -187,12 +187,24 @@ function reworkUrl(changeRequest) {
   return requestUrl(changeRequest, 'rework');
 }
 
-// APPROUTER_URL comes from mta.yaml and is unset in local/hybrid dev, so this degrades to an empty
-// string rather than a broken link.
+/**
+ * A deep link into the app as the **managed** approuter serves it: the Work Zone site URL plus a
+ * cross-navigation INTENT, then the app's own route after `&/`.
+ *
+ * The old `<approuter-host>/mdmmdbusinesspartnermanage/index.html#<route>` shape belonged to the
+ * standalone approuter, which was removed on 2026-08-13 - that host now 404s, which is what a
+ * requester got when they clicked a reworkurl. `APPROUTER_URL` is deliberately NOT read any more:
+ * it was left set on the deployed app and kept producing the dead host. `WORKZONE_URL` is a new
+ * name so a stale value cannot resurrect the bug, and an unset one degrades to an empty string -
+ * a missing link is diagnosable, a 404 is not.
+ *
+ * `BusinessPartner-manage` is the inbound in app/businesspartner/webapp/manifest.json. Renaming
+ * that inbound breaks these links.
+ */
 function requestUrl(changeRequest, verb) {
-  const approuterUrl = process.env.APPROUTER_URL;
-  if (!approuterUrl) return '';
-  return `${approuterUrl.replace(/\/$/, '')}/mdmmdbusinesspartnermanage/index.html#ChangeRequests/${changeRequest}/${verb}`;
+  const siteUrl = process.env.WORKZONE_URL;
+  if (!siteUrl) return '';
+  return `${siteUrl.replace(/\/+$/, '')}#BusinessPartner-manage&/ChangeRequests/${changeRequest}/${verb}`;
 }
 
 /** Staged rows for a many-cardinality node, deletions excluded - a request in
