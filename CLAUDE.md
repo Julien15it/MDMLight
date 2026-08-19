@@ -526,9 +526,18 @@ fallen back to the defaults. Explaining what a derivation *is* belongs here, not
 a strip above the table; the per-cell "Copied from" hint stays, because it reports
 what the page actually read rather than restating the concept.
 
-Still open on these tables, and not built: a "Test Against Current Data" button
-like the duplicate page's, a custom message per validation row (a generated one is
-what ships), and rules for object types other than the Business Partner.
+Still open on these tables, and not built:
+
+- **A "Test Against Current Data" button — on Validation Rules only** (scoped
+  2026-08-19). The duplicate page has one because a duplicate rule's effect is
+  invisible until you run it against the population. A validation is worth the same
+  treatment: a steward wants to know how many existing partners a new rule would
+  have blocked before switching it on. A derivation does **not** need it — it fills
+  empty fields on the request in front of you, and there is no population-wide
+  verdict to preview.
+- A custom message per validation row; a generated one is what ships.
+- Rules for object types other than the Business Partner. When MM arrives, **copy
+  the tables** rather than adding an object-type column.
 
 A `draft` opens editable via `ChangeRequestEdit`. **Anything further along is not
 navigable from here at all** (changed 2026-08-13): the approve screen is reached
