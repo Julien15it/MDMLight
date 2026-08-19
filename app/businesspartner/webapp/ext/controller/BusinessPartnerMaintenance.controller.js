@@ -520,6 +520,11 @@ sap.ui.define([
           state.sectionWarnings = sections
             .filter(function (result) { return Boolean(result.warning); })
             .map(function (result) { return { text: result.warning }; });
+
+          // Rendering is synchronous, so the code lists have to be in hand before it
+          // starts - otherwise every coded field would paint its bare code and only
+          // gain its description on some later redraw.
+          await this._loadCodeTexts(this._neededCodeTextPaths(state));
         } catch (error) {
           MessageBox.error(errorMessage(error, "The Business Partner could not be loaded."));
         } finally {
@@ -582,6 +587,83 @@ sap.ui.define([
           }
         }
         return { id: section.id, records: records };
+      },
+
+      /**
+       * Descriptions for the coded fields, keyed by value-help collection then by code.
+       * The value-help service already carries them - the F4 dialog has always shown
+       * them - they were simply never used outside it, so a screen read "0001" where the
+       * standard MDG screen reads "Vendor (int.number assgnmnt)".
+       *
+       * Fetched once per collection for the life of the controller: these are small
+       * static code lists, and re-reading them per Business Partner would add a round
+       * trip per field for data that does not change.
+       */
+      _loadCodeTexts: async function (collectionPaths) {
+        this._codeTexts = this._codeTexts || {};
+        this._codeTextRequests = this._codeTextRequests || {};
+        var model = this.getView().getModel();
+
+        await Promise.all(collectionPaths.map(function (path) {
+          if (this._codeTextRequests[path]) return this._codeTextRequests[path];
+
+          var config = null;
+          Object.keys(VALUE_HELP_FIELDS).some(function (name) {
+            if (VALUE_HELP_FIELDS[name].collectionPath === path) { config = VALUE_HELP_FIELDS[name]; return true; }
+            return false;
+          });
+          if (!config || !config.descriptionField) return null;
+
+          var binding = model.bindList("/" + path, null, null, null, {
+            $$groupId: "$direct",
+            $select: [config.keyField, config.descriptionField].join(",")
+          });
+          var request = binding.requestContexts(0, 2000).then(function (contexts) {
+            var map = {};
+            contexts.forEach(function (context) {
+              var row = context.getObject();
+              if (row && row[config.keyField]) map[row[config.keyField]] = row[config.descriptionField];
+            });
+            this._codeTexts[path] = map;
+          }.bind(this)).catch(function () {
+            // A code list that cannot be read must not take the screen down with it -
+            // the field then simply shows its bare code, as it did before.
+            this._codeTexts[path] = {};
+          }.bind(this)).finally(function () {
+            binding.destroy();
+          });
+
+          this._codeTextRequests[path] = request;
+          return request;
+        }, this).filter(Boolean));
+      },
+
+      /** Every value-help collection needed to describe the codes currently on screen. */
+      _neededCodeTextPaths: function (state) {
+        var paths = {};
+        var consider = function (record) {
+          Object.keys(record || {}).forEach(function (name) {
+            var config = VALUE_HELP_FIELDS[name];
+            if (!config || !config.descriptionField) return;
+            var value = record[name];
+            if (value === null || value === undefined || value === "") return;
+            paths[config.collectionPath] = true;
+          });
+        };
+        consider(state.root);
+        Object.keys(state.sections || {}).forEach(function (id) {
+          (state.sections[id] || []).forEach(consider);
+        });
+        return Object.keys(paths);
+      },
+
+      /** "0001 – Vendor (int.number assgnmnt)", or the bare code when no text is known. */
+      _describeCode: function (fieldName, value) {
+        var shown = displayValue(value);
+        var config = VALUE_HELP_FIELDS[fieldName];
+        if (!shown || !config || !config.descriptionField) return shown;
+        var text = (this._codeTexts && this._codeTexts[config.collectionPath] || {})[value];
+        return text ? shown + " – " + text : shown;
       },
 
       _renderAll: function () {
@@ -782,7 +864,7 @@ sap.ui.define([
           return new Text({
             text: field.name === "BusinessPartnerCategory"
               ? categoryText(record[field.name]) || "–"
-              : displayValue(record[field.name]) || "–",
+              : this._describeCode(field.name, record[field.name]) || "–",
             wrapping: true
           }).addStyleClass("bpDisplayValue");
         }
@@ -1057,8 +1139,8 @@ sap.ui.define([
 
         records.forEach(function (record, index) {
           var cells = summaryFields.map(function (field) {
-            return new Text({ text: displayValue(record[field.name]), wrapping: false });
-          });
+            return new Text({ text: this._describeCode(field.name, record[field.name]), wrapping: false });
+          }, this);
           var actions = [
             new Button({
               text: "Details",
