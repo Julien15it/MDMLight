@@ -557,6 +557,39 @@ is redirected today), populating `sourceETag` (never set, so a request approved
 days later overwrites concurrent S/4 changes), and reading number ranges so
 users can key their own BP number when the grouping is externally numbered.
 
+#### Human-readable change request numbers (asked 2026-08-19, not built)
+
+A request is identified by its `cuid` UUID today, which is what the list, the
+approve screen and the workflow all show. Maarten wants MDG-style numbers
+instead — `$1`, `$2`, `$243`, up to `$999999` — because a 36-character hex string
+is not something a person can read out, quote in a mail, or recognise twice.
+
+**Do not do this by changing the key.** Two things make that the expensive
+version, and both are documented above:
+
+- The UUID is in the **SPA contract**. `changerequestid` in the workflow context,
+  the `decideRequest`/`completeRequest` payloads and the `bpurl` deep link all
+  carry it, so re-keying breaks Arthur's process definition and every approver
+  task already sitting in an inbox.
+- `cds-deploy` **refuses to change a key**, the same way it refuses to drop an
+  element. It would need a hand-written migration against a database that now
+  holds real requests.
+
+So the shape to build is **additive**: keep the UUID as the technical key and add
+a `changeRequestNumber` the UI displays everywhere the id is shown now. The number
+is a label, not a foreign key — nothing should start joining on it.
+
+The part that needs a decision before anyone writes code is **where the number
+comes from**. It has to be gap-tolerant and concurrency-safe, and a
+`SELECT max(...) + 1` is neither: two submits in the same second would collide,
+and the 2026-08-12 ZODATACR retry storm is the standing evidence that this app
+does produce bursts of near-simultaneous requests. A Postgres sequence is the
+obvious answer, but sequences are not in the CDS model, so it is either a
+`cds.tx` on a counter table with a locked read or a native `CREATE SEQUENCE` in a
+migration. Also undecided: what happens at `$999999`, and whether a *draft* gets a
+number at all — assigning one on Save Request means abandoned drafts burn numbers,
+assigning it on Submit means a draft has nothing to quote.
+
 ### `srv/business-partner-service.js` — everything is one file, by design
 `BusinessPartnerService` (extends `cds.ApplicationService`) wires all handlers
 in `init()`, but the bulk of the file is pure helper functions above the class
