@@ -392,3 +392,302 @@ entity CheckFindings : cuid, managed {
   /** Set when a re-check supersedes this finding rather than deleting it. */
   isStale     : Boolean default false;
 }
+
+/**
+ * The rest of the MDG "ERP Customer" / "ERP Supplier" tree.
+ *
+ * Each row carries its parent's keys - CompanyCode for a dunning row, the four
+ * sales-area keys for a partner function - because that is what makes the record
+ * addressable on replay; postToS4 builds the parent URI out of them. The relation
+ * field itself (Customer / Supplier) stays unstaged like everywhere else: it is
+ * resolved from the business partner at posting time, not carried in the request.
+ */
+
+/** Customer Texts (A_CustomerText). */
+entity StagedCustomerText : cuid {
+  request    : Association to ChangeRequests;
+  action     : NodeAction not null default 'C';
+  Language   : String(2);
+  LongTextID : String(4);
+  LongText   : LargeString;
+}
+
+/** Customer Address External Identifiers (A_CustAddrDepdntExtIdentifier). */
+entity StagedCustomerAddressExtIdentifier : cuid {
+  request               : Association to ChangeRequests;
+  action                : NodeAction not null default 'C';
+  AddressID             : String(10);
+  CustomerExternalRefID : String(12);
+}
+
+/** Customer Address-Dependent Information (A_CustAddrDepdntInformation). */
+entity StagedCustomerAddressInfo : cuid {
+  request                 : Association to ChangeRequests;
+  action                  : NodeAction not null default 'C';
+  AddressID               : String(10);
+  ExpressTrainStationName : String(25);
+  TrainStationName        : String(25);
+  CityCode                : String(4);
+  County                  : String(3);
+}
+
+/** Customer Company Code Texts (A_CustomerCompanyText). */
+entity StagedCustomerCompanyText : cuid {
+  request     : Association to ChangeRequests;
+  action      : NodeAction not null default 'C';
+  CompanyCode : String(4);
+  Language    : String(2);
+  LongTextID  : String(4);
+  LongText    : LargeString;
+}
+
+/** Customer Dunning (A_CustomerDunning). */
+entity StagedCustomerDunning : cuid {
+  request               : Association to ChangeRequests;
+  action                : NodeAction not null default 'C';
+  CompanyCode           : String(4);
+  DunningArea           : String(2);
+  DunningProcedure      : String(4);
+  DunningLevel          : String(1);
+  DunningBlock          : String(1);
+  DunningRecipient      : String(10);
+  DunningClerk          : String(2);
+  LastDunnedOn          : Date;
+  LegDunningProcedureOn : Date;
+  AuthorizationGroup    : String(4);
+}
+
+/** Customer Withholding Tax (A_CustomerWithHoldingTax). */
+entity StagedCustomerWithholdingTax : cuid {
+  request                    : Association to ChangeRequests;
+  action                     : NodeAction not null default 'C';
+  CompanyCode                : String(4);
+  WithholdingTaxType         : String(2);
+  WithholdingTaxCode         : String(2);
+  WithholdingTaxAgent        : Boolean;
+  ObligationDateBegin        : Date;
+  ObligationDateEnd          : Date;
+  WithholdingTaxNumber       : String(16);
+  WithholdingTaxCertificate  : String(25);
+  WithholdingTaxExmptPercent : Decimal(5,2);
+  ExemptionDateBegin         : Date;
+  ExemptionDateEnd           : Date;
+  ExemptionReason            : String(2);
+  RecipientType              : String(2);
+  AuthorizationGroup         : String(4);
+}
+
+/** Customer Sales Area Texts (A_CustomerSalesAreaText). */
+entity StagedCustomerSalesAreaText : cuid {
+  request             : Association to ChangeRequests;
+  action              : NodeAction not null default 'C';
+  SalesOrganization   : String(4);
+  DistributionChannel : String(2);
+  Division            : String(2);
+  Language            : String(2);
+  LongTextID          : String(4);
+  LongText            : LargeString;
+}
+
+/** Customer Partner Functions (A_CustSalesPartnerFunc). */
+entity StagedCustomerSalesPartnerFunc : cuid {
+  request             : Association to ChangeRequests;
+  action              : NodeAction not null default 'C';
+  SalesOrganization   : String(4);
+  DistributionChannel : String(2);
+  Division            : String(2);
+  PartnerFunction     : String(2);
+  PartnerCounter      : String(3);
+  BPCustomerNumber    : String(10);
+  DefaultPartner      : Boolean;
+  Supplier            : String(10);
+  PersonnelNumber     : String(8);
+  ContactPerson       : String(10);
+  AddressID           : String(10);
+  AuthorizationGroup  : String(4);
+}
+
+/** Customer Sales Area Address-Dependent Information (A_CustSlsAreaAddrDepdntInfo). */
+entity StagedCustomerSalesAreaAddressInfo : cuid {
+  request                 : Association to ChangeRequests;
+  action                  : NodeAction not null default 'C';
+  SalesOrganization       : String(4);
+  DistributionChannel     : String(2);
+  Division                : String(2);
+  AddressID               : String(10);
+  IncotermsClassification : String(3);
+  IncotermsLocation1      : String(70);
+  IncotermsLocation2      : String(70);
+  IncotermsVersion        : String(4);
+  DeliveryIsBlocked       : String(2);
+  SalesOffice             : String(4);
+  SalesGroup              : String(3);
+  ShippingCondition       : String(2);
+  SupplyingPlant          : String(4);
+}
+
+/** Customer Unloading Points (A_CustomerUnloadingPoint). */
+entity StagedCustomerUnloadingPoint : cuid {
+  request                       : Association to ChangeRequests;
+  action                        : NodeAction not null default 'C';
+  UnloadingPointName            : String(25);
+  CustomerFactoryCalenderCode   : String(2);
+  BPGoodsReceivingHoursCode     : String(3);
+  IsDfltBPUnloadingPoint        : Boolean;
+  MondayMorningOpeningTime      : Time;
+  MondayMorningClosingTime      : Time;
+  MondayAfternoonOpeningTime    : Time;
+  MondayAfternoonClosingTime    : Time;
+  TuesdayMorningOpeningTime     : Time;
+  TuesdayMorningClosingTime     : Time;
+  TuesdayAfternoonOpeningTime   : Time;
+  TuesdayAfternoonClosingTime   : Time;
+  WednesdayMorningOpeningTime   : Time;
+  WednesdayMorningClosingTime   : Time;
+  WednesdayAfternoonOpeningTime : Time;
+  WednesdayAfternoonClosingTime : Time;
+  ThursdayMorningOpeningTime    : Time;
+  ThursdayMorningClosingTime    : Time;
+  ThursdayAfternoonOpeningTime  : Time;
+  ThursdayAfternoonClosingTime  : Time;
+  FridayMorningOpeningTime      : Time;
+  FridayMorningClosingTime      : Time;
+  FridayAfternoonOpeningTime    : Time;
+  FridayAfternoonClosingTime    : Time;
+  SaturdayMorningOpeningTime    : Time;
+  SaturdayMorningClosingTime    : Time;
+  SaturdayAfternoonOpeningTime  : Time;
+  SaturdayAfternoonClosingTime  : Time;
+  SundayMorningOpeningTime      : Time;
+  SundayMorningClosingTime      : Time;
+  SundayAfternoonOpeningTime    : Time;
+  SundayAfternoonClosingTime    : Time;
+}
+
+/** Customer Unloading Point Address-Dependent Information (A_CustUnldgPtAddrDepdntInfo). */
+entity StagedCustomerUnloadingPointAddressInfo : cuid {
+  request                       : Association to ChangeRequests;
+  action                        : NodeAction not null default 'C';
+  AddressID                     : String(10);
+  UnloadingPointName            : String(25);
+  CustomerFactoryCalenderCode   : String(2);
+  BPGoodsReceivingHoursCode     : String(3);
+  IsDfltBPUnloadingPoint        : Boolean;
+  MondayMorningOpeningTime      : Time;
+  MondayMorningClosingTime      : Time;
+  MondayAfternoonOpeningTime    : Time;
+  MondayAfternoonClosingTime    : Time;
+  TuesdayMorningOpeningTime     : Time;
+  TuesdayMorningClosingTime     : Time;
+  TuesdayAfternoonOpeningTime   : Time;
+  TuesdayAfternoonClosingTime   : Time;
+  WednesdayMorningOpeningTime   : Time;
+  WednesdayMorningClosingTime   : Time;
+  WednesdayAfternoonOpeningTime : Time;
+  WednesdayAfternoonClosingTime : Time;
+  ThursdayMorningOpeningTime    : Time;
+  ThursdayMorningClosingTime    : Time;
+  ThursdayAfternoonOpeningTime  : Time;
+  ThursdayAfternoonClosingTime  : Time;
+  FridayMorningOpeningTime      : Time;
+  FridayMorningClosingTime      : Time;
+  FridayAfternoonOpeningTime    : Time;
+  FridayAfternoonClosingTime    : Time;
+  SaturdayMorningOpeningTime    : Time;
+  SaturdayMorningClosingTime    : Time;
+  SaturdayAfternoonOpeningTime  : Time;
+  SaturdayAfternoonClosingTime  : Time;
+  SundayMorningOpeningTime      : Time;
+  SundayMorningClosingTime      : Time;
+  SundayAfternoonOpeningTime    : Time;
+  SundayAfternoonClosingTime    : Time;
+}
+
+/** Supplier Texts (A_SupplierText). */
+entity StagedSupplierText : cuid {
+  request    : Association to ChangeRequests;
+  action     : NodeAction not null default 'C';
+  Language   : String(2);
+  LongTextID : String(4);
+  LongText   : LargeString;
+}
+
+/** Supplier Company Code Texts (A_SupplierCompanyText). */
+entity StagedSupplierCompanyText : cuid {
+  request     : Association to ChangeRequests;
+  action      : NodeAction not null default 'C';
+  CompanyCode : String(4);
+  Language    : String(2);
+  LongTextID  : String(4);
+  LongText    : LargeString;
+}
+
+/** Supplier Dunning (A_SupplierDunning). */
+entity StagedSupplierDunning : cuid {
+  request               : Association to ChangeRequests;
+  action                : NodeAction not null default 'C';
+  CompanyCode           : String(4);
+  DunningArea           : String(2);
+  DunningProcedure      : String(4);
+  DunningLevel          : String(1);
+  DunningBlock          : String(1);
+  DunningRecipient      : String(10);
+  DunningClerk          : String(2);
+  LastDunnedOn          : Date;
+  LegDunningProcedureOn : Date;
+  AuthorizationGroup    : String(4);
+}
+
+/** Supplier Withholding Tax (A_SupplierWithHoldingTax). */
+entity StagedSupplierWithholdingTax : cuid {
+  request                    : Association to ChangeRequests;
+  action                     : NodeAction not null default 'C';
+  CompanyCode                : String(4);
+  WithholdingTaxType         : String(2);
+  WithholdingTaxCode         : String(2);
+  IsWithholdingTaxSubject    : Boolean;
+  WithholdingTaxNumber       : String(16);
+  WithholdingTaxCertificate  : String(25);
+  WithholdingTaxExmptPercent : Decimal(5,2);
+  ExemptionDateBegin         : Date;
+  ExemptionDateEnd           : Date;
+  ExemptionReason            : String(2);
+  RecipientType              : String(2);
+  AuthorizationGroup         : String(4);
+}
+
+/** Supplier Purchasing Organization Texts (A_SupplierPurchasingOrgText). */
+entity StagedSupplierPurchasingOrgText : cuid {
+  request                : Association to ChangeRequests;
+  action                 : NodeAction not null default 'C';
+  PurchasingOrganization : String(4);
+  Language               : String(2);
+  LongTextID             : String(4);
+  LongText               : LargeString;
+}
+
+/** Supplier Partner Functions (A_SupplierPartnerFunc). */
+entity StagedSupplierPartnerFunc : cuid {
+  request                : Association to ChangeRequests;
+  action                 : NodeAction not null default 'C';
+  PurchasingOrganization : String(4);
+  SupplierSubrange       : String(6);
+  Plant                  : String(4);
+  PartnerFunction        : String(2);
+  PartnerCounter         : String(3);
+  DefaultPartner         : Boolean;
+  ReferenceSupplier      : String(10);
+  AuthorizationGroup     : String(4);
+}
+
+/** Customer Tax Indicators (A_CustomerSalesAreaTax). */
+entity StagedCustomerTaxIndicators : cuid {
+  request                   : Association to ChangeRequests;
+  action                    : NodeAction not null default 'C';
+  SalesOrganization         : String(4);
+  DistributionChannel       : String(2);
+  Division                  : String(2);
+  DepartureCountry          : String(3);
+  CustomerTaxCategory       : String(4);
+  CustomerTaxClassification : String(1);
+}
