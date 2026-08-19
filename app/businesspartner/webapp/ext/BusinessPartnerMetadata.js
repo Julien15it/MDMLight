@@ -1233,7 +1233,8 @@ sap.ui.define([], function () {
         "childSections": [
           "CustomerTaxGrouping",
           "CustomerCompany",
-          "CustomerSalesArea"
+          "CustomerSalesArea",
+          "CustomerTaxIndicators"
         ],
         "fieldGroups": [
           {
@@ -2236,6 +2237,98 @@ sap.ui.define([], function () {
             "type": "cds.Date",
             "key": false,
             "nullable": true,
+            "creatable": true,
+            "updatable": true
+          }
+        ]
+      },
+      {
+        "id": "CustomerTaxIndicators",
+        "title": "Customer Tax Indicators",
+        "entitySet": "A_CustomerSalesAreaTax",
+        "remoteEntity": "A_CustomerSalesAreaTax",
+        "relationField": "Customer",
+        "typeName": "A_CustomerSalesAreaTaxType",
+        "kind": "collection",
+        "creatable": false,
+        "deletable": false,
+        "emptyText": "No tax indicators for this customer.",
+        "summaryFields": [
+          "DepartureCountry",
+          "CustomerTaxCategory",
+          "CustomerTaxClassification",
+          "SalesOrganization",
+          "DistributionChannel",
+          "Division"
+        ],
+        "fields": [
+          {
+            "name": "Customer",
+            "label": "Customer",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SalesOrganization",
+            "label": "Sales Organization",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "DistributionChannel",
+            "label": "RefDistCh-Cust/Mat.",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "Division",
+            "label": "Division",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "DepartureCountry",
+            "label": "Departure Ctry/Reg.",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 3,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CustomerTaxCategory",
+            "label": "Tax Condition Type",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "CustomerTaxClassification",
+            "label": "Tax Classification",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 1,
             "creatable": true,
             "updatable": true
           }

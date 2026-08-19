@@ -687,7 +687,11 @@ sap.ui.define([
       _createFieldTable: function (section, fields, record, isCreate, editing) {
         var COLUMNS = 4;
         var shown = fields.filter(function (field) {
-          if (field.name === section.relationField) return false;
+          // On a collection the relation field repeats the same value on every row, so it
+          // is noise. On a "single" section it is the record's own number - the ERP
+          // Customer / ERP Vendor number the MDG screen puts under Administrative Data -
+          // and belongs on screen. It stays read-only either way, via _isEditable.
+          if (field.name === section.relationField && section.kind !== "single") return false;
           return !(isCreate && field.key && field.creatable === false);
         });
 
@@ -725,7 +729,11 @@ sap.ui.define([
        */
       _createFieldGrid: function (section, fields, record, isCreate, editing) {
         var shown = fields.filter(function (field) {
-          if (field.name === section.relationField) return false;
+          // On a collection the relation field repeats the same value on every row, so it
+          // is noise. On a "single" section it is the record's own number - the ERP
+          // Customer / ERP Vendor number the MDG screen puts under Administrative Data -
+          // and belongs on screen. It stays read-only either way, via _isEditable.
+          if (field.name === section.relationField && section.kind !== "single") return false;
           return !(isCreate && field.key && field.creatable === false);
         });
 
@@ -1010,9 +1018,10 @@ sap.ui.define([
           inset: false,
           growing: true,
           growingThreshold: 20,
-          noDataText: section.creatable === false
-            ? "No " + section.title.toLowerCase() + " exists for this Business Partner. Add the corresponding role first."
-            : "No records yet. Choose Add to create one.",
+          noDataText: section.emptyText
+            || (section.creatable === false
+              ? "No " + section.title.toLowerCase() + " exists for this Business Partner. Add the corresponding role first."
+              : "No records yet. Choose Add to create one."),
           headerToolbar: new Toolbar({
             content: [
               new ToolbarSpacer(),

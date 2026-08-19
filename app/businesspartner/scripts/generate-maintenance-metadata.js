@@ -134,7 +134,9 @@ const sections = [
     // standard MDG ERP Customer screen does it.
     // Ordered as the MDG screen orders them: Tax Categories, then Company Codes, then
     // Sales Areas.
-    childSections: ['CustomerTaxGrouping', 'CustomerCompany', 'CustomerSalesArea'],
+    childSections: [
+      'CustomerTaxGrouping', 'CustomerCompany', 'CustomerSalesArea', 'CustomerTaxIndicators'
+    ],
     // Grouped rather than one flat wall of 50 inputs, mirroring how the standard MDG
     // "ERP Customer" screen splits the same data into Control Data / Tax Information /
     // Additional Data blocks. `fieldNames` is derived from these below, so a field added
@@ -275,6 +277,32 @@ const sections = [
       'CustTaxGroupExemptionRate'
     ],
     requiredCreateFields: ['CustomerTaxGroupingCode']
+  },
+  {
+    // The MDG screen's "ERP Customer: Tax Indicators" block. Read-only: its key includes
+    // the sales area, so creating one means posting under
+    // A_CustomerSalesArea(Customer=…,SalesOrganization=…,DistributionChannel=…,Division=…),
+    // and businessPartnerNavigationPath only builds single-key parent paths. Displaying
+    // it is the useful half and costs nothing; making it maintainable needs that builder
+    // to handle composite parent keys first.
+    id: 'CustomerTaxIndicators',
+    title: 'Customer Tax Indicators',
+    entitySet: 'A_CustomerSalesAreaTax',
+    remoteEntity: 'A_CustomerSalesAreaTax',
+    relationField: 'Customer',
+    typeName: 'A_CustomerSalesAreaTaxType',
+    kind: 'collection',
+    creatable: false,
+    deletable: false,
+    emptyText: 'No tax indicators for this customer.',
+    fieldNames: [
+      'Customer', 'SalesOrganization', 'DistributionChannel', 'Division',
+      'DepartureCountry', 'CustomerTaxCategory', 'CustomerTaxClassification'
+    ],
+    summaryFields: [
+      'DepartureCountry', 'CustomerTaxCategory', 'CustomerTaxClassification',
+      'SalesOrganization', 'DistributionChannel', 'Division'
+    ]
   },
   {
     id: 'Suppliers',
