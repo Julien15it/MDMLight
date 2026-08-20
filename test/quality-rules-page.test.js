@@ -32,8 +32,16 @@ test('the derivation table has the columns a rule needs, in order', () => {
     .map((match) => match[1]);
   assert.deepEqual(columns, [
     'Condition 1 Field', 'Condition 1 Value', 'Condition 2 Field', 'Condition 2 Value',
-    'Field', 'Value', 'Active'
+    'Field', 'Value', 'Add row', 'Active'
   ]);
+});
+
+// The column is the whole difference between filling a row and proposing one, and the header
+// has no space to say it, so the tooltip has to.
+test('the add-row column is bound and explains itself', () => {
+  const source = view('DerivationRuleList');
+  assert.match(source, /selected="\{dc>createsRow\}"/u);
+  assert.match(source, /tooltip="Off: the rule fills this field in a row that already exists\./u);
 });
 
 // Both pages carry the same two condition pairs as the duplicate table, and the same "any" meaning.

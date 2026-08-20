@@ -45,6 +45,15 @@
           <Column width="11%"><Text text="Condition 2 Value" /></Column>
           <Column width="20%"><Text text="Field" /></Column>
           <Column width="20%"><Text text="Value" /></Column>
+          <!-- Narrow header, long tooltip: the difference between filling a row and adding
+               one is the whole point of the column, and will not fit in it. -->
+          <Column width="5rem" hAlign="Center">
+            <Text text="Add row">
+              <layoutData>
+                <FlexItemData growFactor="0" />
+              </layoutData>
+            </Text>
+          </Column>
           <Column width="4rem" hAlign="Center"><Text text="Active" /></Column>
         </columns>
         <items>
@@ -100,6 +109,10 @@
                   text="{= 'Copied from ' + ${view>/fieldText}[${dc>value}] }"
                   wrapping="true" />
               </VBox>
+              <CheckBox
+                selected="{dc>createsRow}"
+                select=".onCellChange"
+                tooltip="Off: the rule fills this field in a row that already exists. On: it proposes the row itself, so the requester does not have to add the line first." />
               <CheckBox selected="{dc>isActive}" select=".onCellChange" />
             </cells>
           </ColumnListItem>

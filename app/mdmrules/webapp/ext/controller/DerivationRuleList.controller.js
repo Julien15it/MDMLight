@@ -100,7 +100,9 @@ sap.ui.define([
       if (!binding) return;
       // No field and no value on purpose: a row that arrived pointing at a field would be a rule
       // nobody wrote, and a derivation with a default value would fill data nobody asked for.
-      binding.create({ sequence: 10, isActive: true });
+      // createsRow false: a new rule fills a gap until someone says otherwise, which is the
+      // behaviour every existing rule has and the one that cannot surprise anyone.
+      binding.create({ sequence: 10, isActive: true, createsRow: false });
       this._markDirty();
     },
 

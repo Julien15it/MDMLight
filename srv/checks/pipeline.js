@@ -72,6 +72,24 @@ async function runDerivations(payload, derivations = DERIVATIONS) {
         applied.push({ check: derivation.name, severity: 'info', message: entry.message });
         continue;
       }
+      // The one case where a row *is* invented, and only because a rule asked for it in so
+      // many words. Everything below still holds for every other entry: a value with nowhere
+      // to go is reported, never written somewhere it was not meant to be.
+      if (entry.createsRow && entry.target && entry.target !== ROOT) {
+        const rows = derived.sections[entry.target] || (derived.sections[entry.target] = []);
+        rows.push({ [entry.field]: entry.value });
+        applied.push({
+          check: derivation.name,
+          target: entry.target,
+          index: rows.length - 1,
+          field: entry.field,
+          value: entry.value,
+          createsRow: true,
+          severity: 'info',
+          message: entry.message || `A ${entry.target} row was added with ${entry.field} ${entry.value}.`
+        });
+        continue;
+      }
       const record = targetRecord(derived, entry);
       // A missing row is never invented, but the value is still reported without a `field`: a registry
       // answer nobody is told about is the same as not having looked it up.

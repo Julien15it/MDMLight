@@ -311,10 +311,16 @@ test('a derivation onto a section fills each matching row and says which', () =>
 });
 
 // A row that is not there is not invented - filling a region into an address nobody added would
-// create data no requester asked for.
-test('a derivation onto a section with no rows fills nothing', () => {
+// create data no requester asked for. Unless the rule says createsRow; see
+// test/derivation-adds-row.test.js.
+test('a derivation onto a section with no rows fills nothing, but says so', () => {
   const entries = runDerivationRule({ field: 'Addresses.Region', value: 'VAN' }, payload({}), model);
-  assert.deepEqual(entries, []);
+
+  // No `field`, so the pipeline reports it and writes nothing. Silence here is what made a
+  // rule that cannot fire look broken rather than misconfigured.
+  assert.deepEqual(entries.map((entry) => entry.field), [undefined]);
+  assert.match(entries[0].message, /no Addresses row to hold it/u);
+  assert.match(entries[0].message, /Add row/u);
 });
 
 // Same row, not the first row: "this address's Region from this address's Country" is about one

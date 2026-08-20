@@ -1,7 +1,7 @@
 'use strict';
 
 const {
-  resolvePayloadField, sectionRows, targetFor, isEmptyValue, humanise
+  resolvePayloadField, sectionRows, targetFor, isEmptyValue, humanise, ROOT_TARGET
 } = require('./payload-fields');
 
 /**
@@ -202,6 +202,35 @@ function runValidationRule(rule, payload, model) {
 
 // One row -> its pipeline entries. Not-overwriting stays in pipeline.js so these and the registry's
 // derivations cannot disagree about it, and a row that does not exist is never invented.
+/**
+ * A `createsRow` rule proposes the row rather than filling one. Conditions are evaluated
+ * with no row, which is why validateDerivationRule refuses a condition on the rule's own
+ * section: there is no row for it to be about yet.
+ *
+ * Returns nothing when the section already holds a row carrying this value. That is what
+ * makes pressing Check twice add one row rather than two, and what leaves a row the
+ * requester added by hand alone.
+ */
+function createdRowEntry(rule, resolved, conditions, spec, payload, model) {
+  if (!conditionsHold(conditions, payload, resolved.section, null, model)) return [];
+
+  const value = resolveValue(spec, payload, resolved.section, model);
+  if (isEmptyValue(value)) return [];
+
+  const already = sectionRows(payload, resolved.section)
+    .some(({ record }) => compare(record[resolved.element], value) === 0);
+  if (already) return [];
+
+  return [{
+    target: targetFor(resolved.section),
+    createsRow: true,
+    field: resolved.element,
+    value,
+    message: `A ${resolved.section} row was added with ${humanise(resolved.element)} `
+      + `“${value}”${describeCondition(conditions)}.`
+  }];
+}
+
 function runDerivationRule(rule, payload, model) {
   const resolved = resolvePayloadField(rule.field, model);
   if (!resolved) {
@@ -215,7 +244,25 @@ function runDerivationRule(rule, payload, model) {
   const spec = readValueSpec(rule.value, model);
   const entries = [];
 
-  for (const row of sectionRows(payload, resolved.section)) {
+  if (rule.createsRow) return createdRowEntry(rule, resolved, conditions, spec, payload, model);
+
+  const rows = sectionRows(payload, resolved.section);
+  // A gap-filler over a section with no rows used to loop zero times and say nothing, which
+  // reads as a broken rule: the conditions hold, the value is known, and nothing happens or
+  // is reported. Said out loud instead, because the fix is a checkbox on the rule.
+  if (!rows.length && targetFor(resolved.section) !== ROOT_TARGET
+    && conditionsHold(conditions, payload, resolved.section, null, model)) {
+    const value = resolveValue(spec, payload, resolved.section, model);
+    if (!isEmptyValue(value)) {
+      return [{
+        message: `${label(resolved)} would be “${value}”${describeCondition(conditions)}, but this`
+          + ` request has no ${resolved.section} row to hold it. Tick “Add row” on that`
+          + ' derivation rule to have it propose the row as well.'
+      }];
+    }
+  }
+
+  for (const row of rows) {
     if (!conditionsHold(conditions, payload, resolved.section, row, model)) continue;
     // Already filled: the pipeline would refuse to overwrite it anyway, and proposing a value for
     // a field that has one is a normalisation, which is a different stage and a different consent.
@@ -293,6 +340,39 @@ function validateValidationRule(rule = {}, model) {
   return { errors, warnings };
 }
 
+/**
+ * What a row-adding rule may not say. Each of these would be accepted and then behave in a
+ * way nobody reading the row would predict, so they are refused at save time instead.
+ */
+function createsRowProblems(rule, resolved, model) {
+  const errors = [];
+  if (!resolved) return errors;
+  if (targetFor(resolved.section) === ROOT_TARGET) {
+    errors.push({
+      field: 'createsRow',
+      message: `“${resolved.section}” is the request itself, not a list, so there is no row to add.`
+    });
+  }
+  for (const condition of readConditions(rule, model)) {
+    if (condition.resolved && condition.resolved.section === resolved.section) {
+      errors.push({
+        field: condition.names.field,
+        message: `A rule that adds the row cannot also have a condition on ${resolved.section}:`
+          + ' the row it would be about does not exist yet.'
+      });
+    }
+  }
+  const spec = readValueSpec(rule.value, model);
+  if (spec.kind === 'reference' && spec.reference.section === resolved.section) {
+    errors.push({
+      field: 'value',
+      message: `A rule that adds the row cannot copy from ${resolved.section}: the row it`
+        + ' would copy from is the one being added.'
+    });
+  }
+  return errors;
+}
+
 function validateDerivationRule(rule = {}, model) {
   const errors = conditionProblems(rule, model);
   const warnings = [];
@@ -320,6 +400,7 @@ function validateDerivationRule(rule = {}, model) {
       message: `This copies the value of ${spec.reference.field} rather than writing the text “${value}”.`
     });
   }
+  if (rule.createsRow) errors.push(...createsRowProblems(rule, resolved, model));
   return { errors, warnings };
 }
 
@@ -346,10 +427,28 @@ function createConfiguredStages({ validations = [], derivations = [], model } = 
       run: async (payload) => validationRows.flatMap((rule) => runValidationRule(rule, payload, model))
     });
   }
-  if (derivationRows.length) {
+  // Two stages, and the row-adding one first. Every rule in a single stage sees the same
+  // payload - the pipeline applies a stage's entries only after it returns - so a gap-filler
+  // sharing a stage with the rule that adds its row would run against a payload where that
+  // row does not exist yet, and fill nothing. Splitting them is what lets "role FLVN01 in BE
+  // means purchasing organisation 1710" be followed by "and its currency is EUR".
+  //
+  // So `sequence` orders rules within each kind, not across them: adding always precedes
+  // filling. Ordering them the other way round would only ever fill rows nobody added.
+  const [creating, filling] = [
+    derivationRows.filter((rule) => rule.createsRow),
+    derivationRows.filter((rule) => !rule.createsRow)
+  ];
+  if (creating.length) {
+    stages.derivations.push({
+      name: 'configured_derivation_rows',
+      run: async (payload) => creating.flatMap((rule) => runDerivationRule(rule, payload, model))
+    });
+  }
+  if (filling.length) {
     stages.derivations.push({
       name: 'configured_derivation',
-      run: async (payload) => derivationRows.flatMap((rule) => runDerivationRule(rule, payload, model))
+      run: async (payload) => filling.flatMap((rule) => runDerivationRule(rule, payload, model))
     });
   }
   return stages;
