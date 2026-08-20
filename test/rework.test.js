@@ -366,7 +366,9 @@ test('rework is reachable by its own route and by nothing else', () => {
   assert.ok(route, 'the route exists');
   assert.equal(route.pattern, 'ChangeRequests/{changeRequest}/rework');
   assert.equal(route.target, 'BusinessPartnerMaintenance');
-  assert.match(controller, /getRoute\("ChangeRequestRework"\)\.attachPatternMatched\(this\._onReworkRoute/u);
+  // Attached from the route table in onInit, which skips a route its host does not declare - the
+  // task app routes two of the six, the partner app all of them.
+  assert.match(controller, /\["ChangeRequestRework", this\._onReworkRoute\]/u);
   // Sent with the initial context, because SPA owns the rejection branch.
   assert.match(serviceJs, /reworkurl: reworkUrl\(changeRequest\)/u);
   assert.match(reworkUrl('abc'), /^$|#ChangeRequests\/abc\/rework$/u);
