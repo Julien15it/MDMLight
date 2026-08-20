@@ -146,7 +146,16 @@ test('the switch is enforced on the server, not only drawn in the UI', () => {
   }
 
   // And the flag reaches them from the service layer rather than defaulting to true there.
-  assert.match(source('srv/business-partner-service.js'), /await aiAssistanceEnabled\(\)/u);
+  // Asserted on the call, not just the import: aiEnabled defaults to true inside
+  // askSapAiCore, so a merge that drops the argument leaves AI quietly on with no
+  // other symptom.
+  const bpService = source('srv/business-partner-service.js');
+  assert.match(bpService, /const aiEnabled = await aiAssistanceEnabled\(\);/u);
+  assert.match(
+    bpService, /await askSapAiCore\(\{[\s\S]*?aiEnabled\s*\}\);/u,
+    'the assistant call does not pass aiEnabled'
+  );
+  assert.match(bpService, /aiAssistanceEnabled: await aiAssistanceEnabled\(\)/u);
   assert.match(source('srv/change-request-service.js'), /aiEnabled: await aiAssistanceEnabled\(\)/u);
 
   // Writing it needs the Steward scope the config service requires; the main service
