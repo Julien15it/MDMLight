@@ -209,7 +209,11 @@ test('with AI off the assistant is withdrawn, not quietly answered without a mod
       .options.settings.content.header.actions.BusinessPartnerAssistantHeader
   ];
   for (const action of actions) {
-    assert.equal(action.visible, '{= ${perm>/aiAssistanceEnabled} }');
+    // A plain property binding, not an expression binding: `visible` on a Fiori Elements
+    // custom action does not reliably evaluate `{= ... }`, which is why the button stayed
+    // on screen the first time. The Change Requests action in this same manifest has been
+    // using the plain form against this very model all along.
+    assert.equal(action.visible, '{perm>/aiAssistanceEnabled}');
   }
 
   // And both launchers ask before opening, for a binding that never evaluated.
@@ -226,13 +230,19 @@ test('with AI off the assistant is withdrawn, not quietly answered without a mod
     /if \(!await aiAssistanceEnabled\(\)\) \{\s*\n\s*return req\.reject\(403/u
   );
 
-  // Both apps default the flag to true, so neither flashes "AI is off" before the real
-  // value arrives.
+  // Both apps start the flag false, so no load ever briefly offers an assistant the
+  // installation may not use. It appears a moment later where AI is on, which is the
+  // harmless direction - the same call isDataSteward already makes for its own button.
   for (const app of ['businesspartner', 'mdmrules']) {
     const component = fs.readFileSync(
       path.join(__dirname, '..', 'app', app, 'webapp', 'Component.js'), 'utf8'
     );
-    assert.match(component, /aiAssistanceEnabled: true/u, `${app} defaults the flag to off`);
+    assert.match(
+      component, /isDataSteward: false, aiAssistanceEnabled: false/u,
+      `${app} offers the assistant before it knows whether it may`
+    );
+    // But only an explicit false from the service keeps it off, so a service too old to
+    // report the flag does not disable the assistant everywhere.
     assert.match(component, /result\.aiAssistanceEnabled !== false/u);
   }
 });

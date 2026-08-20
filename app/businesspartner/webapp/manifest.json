@@ -224,7 +224,7 @@
                     },
                     "BusinessPartnerAssistant": {
                       "press": "mdm.md.businesspartner.manage.ext.CustomActions.openAssistant",
-                      "visible": "{= ${perm>/aiAssistanceEnabled} }",
+                      "visible": "{perm>/aiAssistanceEnabled}",
                       "enabled": true,
                       "requiresSelection": false,
                       "text": "Business Partner Assistant"
@@ -273,7 +273,7 @@
                     },
                     "BusinessPartnerAssistantHeader": {
                       "press": "mdm.md.businesspartner.manage.ext.CustomActions.openAssistant",
-                      "visible": "{= ${perm>/aiAssistanceEnabled} }",
+                      "visible": "{perm>/aiAssistanceEnabled}",
                       "enabled": true,
                       "text": "Ask Assistant"
                     },

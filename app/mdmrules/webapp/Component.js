@@ -14,11 +14,12 @@ sap.ui.define(
             init: function () {
                 UIComponent.prototype.init.apply(this, arguments);
                 // isDataSteward starts false so a steward-only hint is never briefly wrong.
-                // aiAssistanceEnabled starts true because that is the server's own default -
-                // starting false would flash "AI is off" on every load before the real value
-                // lands, which reads as a setting nobody made.
+                // Both start false, matching the partner app: the switch is disabled until
+                // the steward check answers anyway, and briefly reading "off" is the safer
+                // of the two wrong states to show for a moment - claiming AI is on when it
+                // may not be is the one that misleads.
                 this.setModel(
-                    new JSONModel({ isDataSteward: false, aiAssistanceEnabled: true }),
+                    new JSONModel({ isDataSteward: false, aiAssistanceEnabled: false }),
                     "perm"
                 );
                 this._loadPermissions();

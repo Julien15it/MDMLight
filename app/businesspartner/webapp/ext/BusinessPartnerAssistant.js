@@ -70,9 +70,12 @@ sap.ui.define([
      * assistance off: the assistant is the one feature that exists only to reach a
      * language model, so it is withdrawn rather than quietly answered without one.
      *
-     * Defaults to true when the flag cannot be read - a view without the perm model,
-     * or a service too old to report it - matching srv/ai/availability.js. Courtesy
-     * either way: askBusinessPartnerAssistant refuses on the server.
+     * Defaults to true only when there is no perm model at all - a view outside the
+     * component, or a service too old to report the flag - matching
+     * srv/ai/availability.js. Where the model exists it starts false and is corrected
+     * once currentUserPermissions answers, so nothing is offered before it is known to
+     * be allowed. Courtesy either way: askBusinessPartnerAssistant refuses on the
+     * server.
      */
     isAvailable: function (view) {
       var permissions = view && view.getModel && view.getModel("perm");
