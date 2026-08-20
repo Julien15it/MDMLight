@@ -146,7 +146,11 @@ test('the duplicate dialog offers Submit Request only where there is something t
   // Submit gets both buttons, Check gets Continue Editing alone - there is nothing to cancel.
   assert.match(controllerSource, /actions: confirmText \? \[confirmText, keepEditing\] : \[keepEditing\]/u);
   assert.match(controllerSource, /var keepEditing = "Continue Editing";/u);
-  assert.match(controllerSource, /confirmText: "Submit Request"/u);
+  // The button names the action it will actually take: a rework resubmits rather than submits.
+  assert.match(
+    controllerSource,
+    /confirmText: action === "resubmitRequest" \? "Resubmit" : "Submit Request"/u
+  );
   // No Cancel on this dialog. The delete confirmation keeps its own, so the check is scoped.
   const dialog = controllerSource.slice(
     controllerSource.indexOf('_confirmDuplicates: function'),
@@ -440,16 +444,28 @@ test('validation errors render as message strips, not a popup', () => {
   assert.match(branch, /type: entry\.severity === "error" \? "Error" : "Warning"/u);
 });
 
-// Every exit from submitRequest has to carry the new fields, or the client reads undefined
-// and treats a perfectly good submit as invalid.
+/**
+ * Every exit from a submit has to carry the new fields, or the client reads undefined and treats a
+ * perfectly good submit as invalid. Checked per handler rather than over one slice: `resubmitRequest`
+ * now sits between `submitRequest` and `getRequestPayload`, and counting across both would pass on
+ * six-of-any-shape while one handler was missing a field.
+ */
 test('every submit outcome reports Valid and ValidationsJson', () => {
   const service = fs.readFileSync(
     path.join(__dirname, '..', 'srv', 'change-request-service.js'), 'utf8'
   );
-  const submitAt = service.indexOf("this.on('submitRequest'");
-  const submitBody = service.slice(submitAt, service.indexOf("this.on('getRequestPayload'", submitAt));
-  assert.equal((submitBody.match(/Valid:/gu) || []).length, 3, 'blocked, unconfirmed and submitted');
-  assert.equal((submitBody.match(/ValidationsJson:/gu) || []).length, 3);
+  const bodyOf = (name, endsAt) => service.slice(
+    service.indexOf(`this.on('${name}'`), service.indexOf(`this.on('${endsAt}'`)
+  );
+  // Both share the same three exits: a blocking validation, an unconfirmed duplicate, and success.
+  for (const [name, endsAt] of [
+    ['submitRequest', 'resubmitRequest'],
+    ['resubmitRequest', 'withdrawRequest']
+  ]) {
+    const body = bodyOf(name, endsAt);
+    assert.equal((body.match(/Valid:/gu) || []).length, 3, `${name}: blocked, unconfirmed and submitted`);
+    assert.equal((body.match(/ValidationsJson:/gu) || []).length, 3, `${name}: every exit reports why`);
+  }
 });
 
 // Numbers alone made several distinct partners look like one repeated entry.

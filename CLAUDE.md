@@ -544,7 +544,9 @@ navigable from here at all** (changed 2026-08-13): the approve screen is reached
 from the approver's inbox and nowhere else, so a decision is always taken against
 a real task rather than by finding the request in a list. The
 `ChangeRequestApprove` route still exists — the inbox and `bpurl` use it — but
-nothing in this list points at it.
+nothing in this list points at it. The same is true of `ChangeRequestRework`
+(2026-08-19): it is reached by the `reworkurl` in the notification SPA sends on a
+rejection, and by nothing in this list either.
 
 Consequence, accepted while only the dev team files requests: with the list
 steward-gated, **a requester cannot reach their own saved draft**. Revisit when
@@ -556,6 +558,39 @@ against SPA retries), routing edit/change requests through staging (only create
 is redirected today), populating `sourceETag` (never set, so a request approved
 days later overwrites concurrent S/4 changes), and reading number ranges so
 users can key their own BP number when the grouping is externally numbered.
+
+#### Human-readable change request numbers (asked 2026-08-19, not built)
+
+A request is identified by its `cuid` UUID today, which is what the list, the
+approve screen and the workflow all show. Maarten wants MDG-style numbers
+instead — `$1`, `$2`, `$243`, up to `$999999` — because a 36-character hex string
+is not something a person can read out, quote in a mail, or recognise twice.
+
+**Do not do this by changing the key.** Two things make that the expensive
+version, and both are documented above:
+
+- The UUID is in the **SPA contract**. `changerequestid` in the workflow context,
+  the `decideRequest`/`completeRequest` payloads and the `bpurl` deep link all
+  carry it, so re-keying breaks Arthur's process definition and every approver
+  task already sitting in an inbox.
+- `cds-deploy` **refuses to change a key**, the same way it refuses to drop an
+  element. It would need a hand-written migration against a database that now
+  holds real requests.
+
+So the shape to build is **additive**: keep the UUID as the technical key and add
+a `changeRequestNumber` the UI displays everywhere the id is shown now. The number
+is a label, not a foreign key — nothing should start joining on it.
+
+The part that needs a decision before anyone writes code is **where the number
+comes from**. It has to be gap-tolerant and concurrency-safe, and a
+`SELECT max(...) + 1` is neither: two submits in the same second would collide,
+and the 2026-08-12 ZODATACR retry storm is the standing evidence that this app
+does produce bursts of near-simultaneous requests. A Postgres sequence is the
+obvious answer, but sequences are not in the CDS model, so it is either a
+`cds.tx` on a counter table with a locked read or a native `CREATE SEQUENCE` in a
+migration. Also undecided: what happens at `$999999`, and whether a *draft* gets a
+number at all — assigning one on Save Request means abandoned drafts burn numbers,
+assigning it on Submit means a draft has nothing to quote.
 
 ### `srv/business-partner-service.js` — everything is one file, by design
 `BusinessPartnerService` (extends `cds.ApplicationService`) wires all handlers
@@ -625,13 +660,74 @@ which criteria pick them. CAP deliberately knows none of that:
 
 - `decideRequest` records an outcome and **never writes to S/4**. `approve`
   moves the request to `approved`, meaning every approval SPA wanted is in.
-  `reject` is terminal.
+  `reject` sends it to `reworkRequired` and back to the requester — see "Rework"
+  below. It is **not** terminal any more.
 - `completeRequest` is the "post it now" signal and the only thing that writes
   to S/4. SPA calls it after its chain finishes.
 
-So `approved` means *waiting to be posted*, not finished. Only `posted` and
-`rejected` are terminal. Individual approvals are not stored anywhere in CAP,
-by decision — the UI cannot show "2 of 3 approved" without a new table.
+So `approved` means *waiting to be posted*, not finished. **`posted` is the only
+terminal status**; a withdrawn request is deleted rather than parked in one.
+Individual approvals are not stored anywhere in CAP, by decision — the UI cannot
+show "2 of 3 approved" without a new table.
+
+#### Rework — the requester's screen (2026-08-19)
+
+A rejection is a **loop, not an end**. The approver rejects, SPA notifies the
+requester, and they reopen the request, edit every field, and either resubmit it or
+withdraw it. `rejected` stays in the status enum because cds-deploy refuses to drop
+anything, but nothing writes it any more.
+
+`ChangeRequests/{changeRequest}/rework` renders the **same maintenance screen** in
+mode `rework`, which is deliberately the draft view with one different primary
+action: the emphasized button says **Resubmit** and routes to `resubmitRequest`.
+Withdraw sits beside it. `state.mode` is what `onSave` routes on, so the label and
+the route change together.
+
+Decisions behind it, each of which has a cheaper wrong version:
+
+- **The entry point is the deep link and nothing else.** `reworkurl` goes to SPA
+  with the *initial* workflow context (alongside `bpurl`), because SPA owns the
+  rejection branch and has it to hand there. The change request list is
+  steward-gated, so a requester has no other route in — which is also why the
+  screen has to cope with a link opened twice.
+- **Resubmit resumes, it does not restart.** The process instance stays parked
+  through the rejection, and `resubmitRequest` signals it with
+  `RESUBMITTED_SIGNAL` (`'resubmitted'`). One instance per change request means one
+  audit thread on Arthur's side however many rework rounds happen. A request with
+  no `processInstanceId` is refused rather than quietly given a fresh workflow,
+  which would hand it two audit threads and possibly two approver tasks.
+- **Resubmit runs every gate a first submit runs** — validations and the duplicate
+  check with its confirming second press. The requester may have changed the very
+  fields the duplicate check reads. Derivations still do not run on a submit path.
+- **A failed signal leaves it `reworkRequired`**, exactly as a failed start leaves
+  a submit in `draft`: a request in `inApproval` that no process is waiting on sits
+  in nobody's inbox and could never be retried.
+- **The approver's comment goes to `rejectionComment`, never over `reason`.**
+  Overwriting was harmless while a rejection was terminal; now the requester
+  reopens this record and would find their own justification replaced by the
+  verdict on it — and then resubmit the approver's words as their reason. The
+  comment leads the screen as a Warning strip, because "rejected" with no why is
+  not something anyone can act on.
+- **`reworkRequired` is an ACTIVE_REQUEST_STATUS.** It looks finished, but the
+  requester is about to edit and resubmit, so the partner stays locked. Leaving it
+  out would unlock the partner for a second editor mid-rework.
+- **No Save Request in rework**, and not only because two buttons is what was
+  asked for: Save Request drops the screen out of editing and offers Edit, which
+  re-enters `edit` mode — and `onSave` would then route to `submitRequest`,
+  starting a second workflow for a request whose own instance is still parked.
+
+**Withdraw deletes.** `withdrawRequest` removes the staged children explicitly and
+then the header, rather than trusting the compositions' cascade through the
+hand-written `ON` backlinks. Two guards are load-bearing: a request carrying
+`postedBP` can never be withdrawn (destroying that guard would let an SPA retry
+create a second business partner), and only `draft`/`reworkRequired` are
+withdrawable at all. It is **idempotent** — a missing request returns
+`Deleted: false` rather than a 404, so a double press is not an error to interpret.
+The workflow is told (`'withdrawn'`) before the delete, best-effort: no ordering
+avoids stranding something, so this follows the rule every other workflow side
+effect here follows — the local record is what must be right, a BPA outage must not
+stop a requester withdrawing their own request, and the failure is surfaced via
+`req.info` rather than swallowed.
 
 Open TODOs on this, agreed and deliberately deferred:
 
@@ -682,8 +778,35 @@ Changing any of these breaks Arthur's process definition, so agree the change
 first rather than "fixing" it locally:
 
 - Approver task URL: `<app-url>#/ChangeRequests/{changeRequestId}/approve`
+- Requester rework URL: `<app-url>#/ChangeRequests/{changeRequestId}/rework`
 - Workflow context sent at submit:
-  `{ changerequestid, requesttype, businesspartner, emailadressinitiator }`
+  `{ changerequestid, requesttype, businesspartner, emailadressinitiator, bpurl, reworkurl }`
+
+**Not built on Arthur's side yet — rework needs three things from his definition,
+and the loop does not close without them:**
+
+1. On reject, **notify the requester** with `reworkurl`, and **do not complete the
+   instance** — park it waiting. `resubmitRequest` hands the request back to that
+   same instance.
+2. Handle the approval-decision trigger input `result: 'Resubmitted'` by routing
+   the request back to the approver, the way a first submit does. **Capitalised**,
+   unlike `approved`/`rejected` - his spelling, agreed 2026-08-19. The resubmit
+   payload is:
+
+   ```json
+   { "executionId": "<process instance>",
+     "inputs": { "result": "Resubmitted", "changerequestid": "...",
+                 "businesspartnerinput": {}, "bpduplicates": [], "...": "..." } }
+   ```
+
+   The BP context sits **flat inside `inputs`, next to `result`**, and is the same
+   object a first submit sends as its workflow context - `workflowContext()` builds
+   it for both, so the two cannot drift. It is rebuilt *after* `persist()`, or the
+   approver would be handed the version they had already rejected. `executionId` is
+   the BPA process instance; Arthur calls it the CR id, and it is **not** the change
+   request UUID.
+3. Handle `result: 'withdrawn'` by terminating the instance and clearing any open
+   approver task. CAP has already deleted the request by the time this arrives.
 - Decision callback: `POST /service/changerequest/decideRequest` with
   `{ ChangeRequest, Decision: 'approve'|'reject', Comment }`
 - Post trigger, once every approval is in:

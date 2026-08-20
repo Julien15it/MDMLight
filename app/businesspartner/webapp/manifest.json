@@ -5,7 +5,7 @@
     "type": "application",
     "i18n": "i18n/i18n.properties",
     "applicationVersion": {
-      "version": "1.12.0"
+      "version": "1.13.0"
     },
     "title": "{{appTitle}}",
     "description": "{{appDescription}}",
@@ -167,6 +167,11 @@
         {
           "pattern": "ChangeRequests/{changeRequest}/edit",
           "name": "ChangeRequestEdit",
+          "target": "BusinessPartnerMaintenance"
+        },
+        {
+          "pattern": "ChangeRequests/{changeRequest}/rework",
+          "name": "ChangeRequestRework",
           "target": "BusinessPartnerMaintenance"
         },
         {
