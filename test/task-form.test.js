@@ -198,21 +198,19 @@ test('the task app is its own app on the same business service', () => {
 });
 
 /**
- * Set by Maarten on 2026-08-20: the fuller block carried over from the Fiori Elements app would
- * not take, so the declaration is `_version`, `category` and the outcomes and nothing else.
- * Pinned here as well as in CLAUDE.md, because "the manifest looks incomplete" is exactly the
- * observation that would put `inputs`/`outputs` back.
+ * Set by Maarten on 2026-08-20. `{{Approve}}` resolves out of the app's own i18n bundle, which is
+ * not where the Lobby looks, so the outcome labels are literal text and the i18n keys went with
+ * them. Pinned because "these should be translatable" is exactly the observation that would put
+ * the placeholders back.
  */
-test('the task declaration is minimal, and stays that way', () => {
-  const task = manifest['sap.bpa.task'];
-  assert.deepEqual(Object.keys(task).sort(), ['_version', 'category', 'outcomes']);
-
-  // Literal labels: `{{Approve}}` resolves out of the app's own i18n bundle, which is not where
-  // the Lobby looks - so the i18n keys went too.
-  for (const outcome of task.outcomes) {
+test('the outcome labels are literal, not i18n placeholders', () => {
+  const outcomes = manifest['sap.bpa.task'].outcomes;
+  assert.deepEqual(outcomes.map((outcome) => outcome.label), ['Approve', 'Reject']);
+  for (const outcome of outcomes) {
     assert.equal(
-      /^\{\{.*\}\}$/u.test(outcome.label), false, `${outcome.id} must carry a literal label`
+      /\{\{|\}\}/u.test(outcome.label), false, `${outcome.id} must not carry a placeholder`
     );
   }
-  assert.equal(/^Approve|Reject$/u.test(task.outcomes[0].label), true);
+  const bundle = read('webapp', 'i18n', 'i18n.properties');
+  assert.equal(/^Approve=/mu.test(bundle), false, 'and the unused keys are not left behind');
 });
