@@ -2098,6 +2098,12 @@ sap.ui.define([
           state.showDecisionButtons = !editing && state.requestStatus === "inApproval";
 
           if (reworking) {
+            // Still inApproval means SPA notified the requester without calling decideRequest, so CAP
+            // never learned the request came back. Arriving here is the evidence - this link is only
+            // sent on a rejection. Drop this once Arthur's rejection branch calls decideRequest.
+            if (state.requestStatus === "inApproval") {
+              state.requestStatus = await this._claimRework(changeRequest, state.requestStatus);
+            }
             // The link outlives the state it was sent for, so an already-resubmitted or withdrawn request
             // must not offer the buttons again - the rule the approve view follows for a decided task.
             var awaitingRework = state.requestStatus === "reworkRequired";
@@ -2119,6 +2125,13 @@ sap.ui.define([
                 type: "Warning",
                 text: "Sent back by the approver: " + state.rejectionComment
               }];
+            } else {
+              // No comment because the rejection never came through decideRequest. Say that, rather
+              // than leave the screen silent about why the requester is looking at it.
+              state.messages = [{
+                type: "Information",
+                text: "The approver sent this request back. No reason was recorded with it."
+              }];
             }
           } else if (editing && state.requestStatus !== "draft") {
             // A submitted request is owned by the approval process from here on.
@@ -2134,6 +2147,18 @@ sap.ui.define([
           this._updatePreview(state);
           maintenanceModel.refresh(true);
           this._renderAll();
+        }
+      },
+
+      // Moves a sent-back request out of inApproval, and reports the status it settled on. A failure
+      // is not fatal: the screen then shows the unchanged status and offers nothing, which is what it
+      // did before this existed.
+      _claimRework: async function (changeRequest, currentStatus) {
+        try {
+          var result = await this._executeAction("claimRework", { ChangeRequest: changeRequest }, "cr");
+          return (result && result.Status) || currentStatus;
+        } catch (error) {
+          return currentStatus;
         }
       },
 

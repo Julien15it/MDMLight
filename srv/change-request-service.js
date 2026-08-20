@@ -642,6 +642,30 @@ class ChangeRequestService extends cds.ApplicationService {
       };
     });
 
+    // The rework screen's way of learning what SPA never told us. Arthur's rejection branch notifies
+    // the requester with the `reworkurl` but does not call `decideRequest`, so the request is still
+    // `inApproval` when they arrive - and every gate downstream reads the status. Opening that link is
+    // taken as the evidence: it is only ever sent on a rejection.
+    //
+    // Cost of the shortcut, accepted 2026-08-20: the link is in the requester's mailbox for good, so
+    // clicking it again after a resubmit pulls a live approval back into rework. Remove this handler
+    // once the reject callback exists - `decideRequest` is the real transition.
+    this.on('claimRework', async (req) => {
+      const changeRequest = req.data.ChangeRequest;
+      const header = await db.run(cds.ql.SELECT.one.from(HEADER).where({ ID: changeRequest }));
+      if (!header) return req.reject(404, `Change request ${changeRequest} was not found.`);
+
+      // A posted request has a business partner behind it, whatever its status says.
+      if (header.postedBP || header.status !== 'inApproval') {
+        return { ChangeRequest: changeRequest, Status: header.status, Claimed: false };
+      }
+
+      // No workflow signal: the process already branched on the approver's rejection, and a second
+      // decision on the parked instance is not one it is waiting for.
+      await db.run(cds.ql.UPDATE(HEADER).set({ status: 'reworkRequired' }).where({ ID: changeRequest }));
+      return { ChangeRequest: changeRequest, Status: 'reworkRequired', Claimed: true };
+    });
+
     // Rework, out of existence. Children are deleted explicitly rather than by cascade: every node is
     // linked by a hand-written `request` backlink with its own ON condition, so cascade is not trusted.
     this.on('withdrawRequest', async (req) => {

@@ -165,6 +165,22 @@ service ChangeRequestService @(path: '/service/changerequest') {
   };
 
   /**
+   * Takes a request the approver sent back out of `inApproval` and into `reworkRequired`, so the
+   * rework screen can offer Resubmit/Withdraw. A stopgap for the missing SPA reject callback: the
+   * `reworkurl` is only ever sent by the rejection branch, so arriving on that screen is the only
+   * evidence CAP gets that the request came back. No-op on any other status, and the workflow is
+   * deliberately NOT signalled - the process already took its rejection branch.
+   */
+  action claimRework(
+    ChangeRequest : UUID not null
+  ) returns {
+    ChangeRequest : UUID;
+    Status        : String(20);
+    /** True only when this call moved the status. False means it was already there, or elsewhere. */
+    Claimed       : Boolean;
+  };
+
+  /**
    * Cancels the request and **deletes it**, staging rows and all — the
    * compositions cascade. Only from `reworkRequired` or `draft`: anything that
    * has posted carries the `postedBP` idempotency guard, and destroying that

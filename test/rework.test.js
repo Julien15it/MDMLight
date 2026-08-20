@@ -217,6 +217,53 @@ test('a failed signal leaves the request reworkable rather than stranded', () =>
   assert.match(resubmit.slice(signalAt, statusAt), /req\.reject\(502/u);
 });
 
+// --- The missing reject callback --------------------------------------------------------
+
+/**
+ * Arthur's rejection branch notifies the requester but does not call `decideRequest`, so the request
+ * is still `inApproval` when the rework screen opens it and every gate downstream refuses. The
+ * screen claims it instead, on the grounds that the `reworkurl` is only ever sent on a rejection.
+ * Temporary by construction: delete this and the handler once the callback exists.
+ */
+test('a request the approver sent back is claimed out of inApproval', () => {
+  assert.match(serviceCds, /action claimRework\(/u);
+  const claim = serviceJs.slice(
+    serviceJs.indexOf("this.on('claimRework'"), serviceJs.indexOf("this.on('withdrawRequest'")
+  );
+  assert.match(claim, /header\.status !== 'inApproval'/u);
+  assert.match(claim, /status: 'reworkRequired'/u);
+  // The process already took its rejection branch; a second decision is not one it waits for.
+  assert.equal(/trigger(ApprovalDecision|RequesterCallback)/u.test(claim), false, 'no workflow signal');
+});
+
+/** Same guard as withdraw: a posted request has a business partner behind it, whatever the status. */
+test('claiming never touches a request that has posted, or one already decided', () => {
+  const claim = serviceJs.slice(
+    serviceJs.indexOf("this.on('claimRework'"), serviceJs.indexOf("this.on('withdrawRequest'")
+  );
+  assert.match(claim, /if \(header\.postedBP \|\| header\.status !== 'inApproval'\)/u);
+  const guardAt = claim.indexOf('header.postedBP');
+  assert.ok(guardAt < claim.indexOf('UPDATE(HEADER)'), 'the guard comes before the update');
+  assert.match(claim, /Claimed: false/u);
+});
+
+/** Only the rework route claims, and only when the status has not moved on its own. */
+test('the screen claims on the rework route and nowhere else', () => {
+  assert.equal((controller.match(/this\._claimRework\(/gu) || []).length, 1, 'claimed in one place');
+  const load = controller.slice(controller.indexOf('_loadStagedRequest: async function'));
+  assert.match(load, /if \(state\.requestStatus === "inApproval"\)/u);
+  assert.match(load, /state\.requestStatus = await this\._claimRework\(changeRequest, state\.requestStatus\)/u);
+  // A failed claim leaves the status alone, which is the pre-existing "nothing to rework" screen.
+  const helper = controller.slice(controller.indexOf('_claimRework: async function'));
+  assert.match(helper.slice(0, helper.indexOf('_decide:')), /return currentStatus/u);
+});
+
+/** A rejection with no reason recorded is the normal case until the callback lands. */
+test('the screen says so when no rejection reason came through', () => {
+  const load = controller.slice(controller.indexOf('_loadStagedRequest: async function'));
+  assert.match(load, /No reason was recorded with it/u);
+});
+
 // --- Withdraw --------------------------------------------------------------------------
 
 test('withdraw deletes the request and everything staged on it', () => {

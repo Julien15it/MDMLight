@@ -743,6 +743,22 @@ Decisions behind it, each of which has a cheaper wrong version:
   verdict on it — and then resubmit the approver's words as their reason. The
   comment leads the screen as a Warning strip, because "rejected" with no why is
   not something anyone can act on.
+- **`claimRework` is a stopgap for the missing reject callback (2026-08-20).** The
+  approver presses Reject in My Inbox, SPA notifies the requester with the
+  `reworkurl` — and never calls `decideRequest`, so the request is still
+  `inApproval` when the rework screen opens it. Every gate downstream reads the
+  status, so the screen offered no buttons, refused to edit, and `resubmitRequest`
+  would have 409'd. `claimRework` moves `inApproval` → `reworkRequired` on the
+  rework route only, treating arrival on that link as the evidence of a rejection —
+  the link is only ever sent by the rejection branch. It is a no-op on any other
+  status, refuses a request carrying `postedBP`, and deliberately does **not**
+  signal the workflow: the process already took its rejection branch.
+  **The accepted cost:** the link stays in the requester's mailbox, so clicking it
+  again *after* a resubmit pulls a live approval back into rework. Maarten chose
+  this over an explicit "take back" press, with the hazard on the table. **Delete
+  the handler, the controller call and their tests once Arthur's rejection branch
+  calls `decideRequest`** — that is the real transition, and it carries the comment
+  this path cannot (the screen says "No reason was recorded with it" instead).
 - **`reworkRequired` is an ACTIVE_REQUEST_STATUS.** It looks finished, but the
   requester is about to edit and resubmit, so the partner stays locked. Leaving it
   out would unlock the partner for a second editor mid-rework.
@@ -830,9 +846,11 @@ diagnosable where a 404 is not. The intent must match the `BusinessPartner-manag
 **Not built on Arthur's side yet — rework needs three things from his definition,
 and the loop does not close without them:**
 
-1. On reject, **notify the requester** with `reworkurl`, and **do not complete the
-   instance** — park it waiting. `resubmitRequest` hands the request back to that
-   same instance.
+1. On reject, **call `decideRequest` with `Decision: 'reject'` and the approver's
+   comment**, then **notify the requester** with `reworkurl`, and **do not complete
+   the instance** — park it waiting. `resubmitRequest` hands the request back to
+   that same instance. As of 2026-08-20 the notification arrives but the callback
+   does not, which is why `claimRework` exists — see the Rework section.
 2. Handle the approval-decision trigger input `result: 'Resubmitted'` by routing
    the request back to the approver, the way a first submit does. **Capitalised**,
    unlike `approved`/`rejected` - his spelling, agreed 2026-08-19. The resubmit
