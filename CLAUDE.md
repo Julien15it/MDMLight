@@ -619,13 +619,78 @@ Decisions worth keeping:
   row just added has no id to hang them on; the page offers the save rather than
   refusing, because pressing Modify on a new row is the obvious thing to do.
 
-**Nothing reads these profiles yet** — the maintenance screen does not apply them,
-and the page says so in an Information strip. `profileMatches()` is the matching
-rule (`*` or exact, both conditions ANDed) and is unit-tested, but no caller exists.
-Applying them is the next piece: it needs a precedence rule for two matching
-profiles (`sequence`, lowest first, was modelled for it and is not yet used) and a
-decision about whether `hidden` on the approve view is acceptable at all — an
-approver who cannot see a field is approving something they have not read.
+#### Applying them (2026-08-20)
+
+**Where two profiles match, the broadest result wins.** Maarten's rule, and it is a
+**join over three axes** (visible / editable / required) rather than a ranking,
+because `mandatory` and `readOnly` are not comparable — one says what you must
+fill, the other what you may touch. Visible or editable if **any** matching profile
+allows it; required only if **every** profile that speaks demands it. His two
+examples fall out of that rather than being special-cased:
+
+| Profile 1 | Profile 2 | Result |
+| --- | --- | --- |
+| hidden | readOnly | readOnly |
+| mandatory | readOnly | **optional** |
+| mandatory | optional | optional |
+| hidden | mandatory | optional |
+
+`PROPERTY_STATE` in `srv/checks/field-properties.js` is the whole rule, and the
+join is closed over the four names — every combination lands back on one of them,
+which `test/field-property-apply.test.js` proves exhaustively. **`sequence` is
+therefore not a precedence**: the merge is order-independent, and the column stays
+as grid order only.
+
+**Silence is not `optional`.** A profile that says nothing about a target is left
+out of the join entirely. Counting it as `optional` would let one global profile
+neuter every narrower one, which is the opposite of what a global base profile is
+for.
+
+**Only `hidden` and `readOnly` cascade from an entity to its fields**, because they
+describe the container: nothing shows inside a hidden section and nothing is
+editable inside a frozen one. An entity's `mandatory` is about whether it needs a
+**row** at all — cascading it would silently make every field of Tax Numbers
+required, which is not what ticking Mandatory on the entity means.
+
+Two halves, and they are not the same code path for a reason:
+
+- **Rendering** — `effectiveFieldProperties(RequestType, Role)` on
+  `ChangeRequestService` returns the merged answer, and the maintenance controller
+  loads it **before the first render** (rendering is synchronous; a field painted
+  and then taken away is worse than one never drawn). `hidden` drops the field from
+  both layouts entirely — a disabled input still shows the value — and a hidden
+  entity hides its whole `ObjectPageSection`, not just the container, or a heading
+  is left pointing at nothing. `readOnly` takes editability away and can never
+  grant it: a field S/4 will not accept on create stays uneditable however broad a
+  profile is. `mandatory`/`optional` have the last word on the star, which is what
+  `optional` is for.
+- **Enforcement** — `createFieldPropertyStages` adds a `field_properties`
+  validation to the Check button, the Duplicate Check button, submit and resubmit.
+  A mandatory field left empty blocks, naming the row; a mandatory entity with no
+  rows blocks. Without it a profile is a star on a label that a direct service call
+  walks straight past. It reads the cascade back first: a field marked mandatory
+  inside an entity a broader profile hid or froze is not something anyone can fill.
+
+**The role a submit is judged under is never the client's to name.**
+`requesterContext(req)` hardcodes `Requester` on every write path — whoever submits
+is the requester — while the *screen* asks for whatever role it is rendering
+(`approve` → `Approver`, draft/rework → `Requester`). Otherwise a requester could
+claim `Approver` and submit past every mandatory field set for them. When the role
+model lands — a requester role, one approver role per function, a steward role —
+this becomes a scope read off `req.user` and the two converge.
+
+**`hidden` is deliberately honoured on the approve view.** Confirmed 2026-08-20:
+once approvals are split by function, a sales approver has no business reading the
+bank details, and that is the point of the feature rather than a risk to it.
+
+`srv/checks/field-property-store.js` caches the profiles for 60s and drops them on
+any write, like `rule-store.js`. Its failure mode is the **opposite** one on
+purpose: an unreadable rule table reports itself, because a validation nobody ran
+must not read as "nothing to report"; an unreadable *profile* table resolves to
+nothing, because a read failure that hid every field or blocked every submit would
+take the maintenance screen down over a control that is not a verdict on the data.
+
+
 
 A `draft` opens editable via `ChangeRequestEdit`. **Anything further along is not
 navigable from here at all** (changed 2026-08-13): the approve screen is reached

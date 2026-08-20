@@ -70,6 +70,22 @@ service ChangeRequestService @(path: '/service/changerequest') {
     DataJson        : LargeString;
   };
 
+  /**
+   * The field property profiles that apply, merged, as
+   * `{ entities: { Addresses: 'readOnly' }, fields: { 'Addresses.Country': 'mandatory' }, profiles: 2 }`.
+   * A target no profile mentions is absent, which is not the same as `optional`.
+   *
+   * `Role` is what the **screen** is being rendered for - approve, rework or draft - and is a
+   * rendering answer only. Nothing is gated on it: the mandatory check runs inside the submit on
+   * the requester's own context, so a client naming a different role cannot submit past it.
+   */
+  function effectiveFieldProperties(
+    /** The request type being maintained. Null matches only the `*` profiles. */
+    RequestType : String(10),
+    /** Requester, Approver or DataSteward. Null matches only the `*` profiles. */
+    Role        : String(40)
+  ) returns LargeString;
+
   /** The Check button: validate, derive, propose reformatting, stage nothing. Everything comes back
    *  as a proposal for the requester to apply. Duplicates are deliberately absent. */
   action checkRequest(

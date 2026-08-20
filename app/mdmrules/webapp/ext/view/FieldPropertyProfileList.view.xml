@@ -14,11 +14,6 @@
         the properties behind Modify - putting several hundred fields in this table would bury the
         two dropdowns that decide whether any of them apply.
       -->
-      <MessageStrip
-        class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
-        text="Nothing reads these profiles yet: they are configuration, and the maintenance screen does not apply them."
-        type="Information"
-        showIcon="true" />
       <Table
         id="profileTable"
         items="{ path: 'dc>/FieldPropertyProfiles', parameters: { $orderby: 'sequence,createdAt', $$updateGroupId: 'ruleChanges' } }"

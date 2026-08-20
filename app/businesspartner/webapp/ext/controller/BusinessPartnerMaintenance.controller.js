@@ -314,6 +314,8 @@ sap.ui.define([
     {
       onInit: function () {
         this._metadata = Metadata.sections;
+        // Empty until a route loads them, so a render that beats the call renders as it always did.
+        this._fieldProperties = { entities: {}, fields: {} };
         this._rootSection = this._metadata.find(function (section) {
           return section.kind === "root";
         });
@@ -378,7 +380,7 @@ sap.ui.define([
         };
       },
 
-      _onCreateRoute: function (event) {
+      _onCreateRoute: async function (event) {
         var state = this._emptyState();
         var routeArguments = event && event.getParameter("arguments") || {};
         var query = routeArguments["?query"] || {};
@@ -403,6 +405,9 @@ sap.ui.define([
         }
         this.getView().getModel("maintenance").refresh(true);
         this._updatePreview(state);
+        // Before the first render: rendering is synchronous, and a field the profiles hide must never
+        // be painted and then taken away.
+        await this._loadFieldProperties("create", "Requester");
         this._renderAll();
       },
 
@@ -493,8 +498,10 @@ sap.ui.define([
             .map(function (result) { return { text: result.warning }; });
 
           // Rendering is synchronous, so the code lists must be in hand first - otherwise every coded
-          // field paints its bare code and gains its description only on a later redraw.
+          // field paints its bare code and gains its description only on a later redraw. The field
+          // properties are in hand for the same reason.
           await this._loadCodeTexts(this._neededCodeTextPaths(state));
+          await this._loadFieldProperties(state.requestType || "change", "Requester");
         } catch (error) {
           MessageBox.error(errorMessage(error, "The Business Partner could not be loaded."));
         } finally {
@@ -624,6 +631,68 @@ sap.ui.define([
         return text ? shown + " – " + text : shown;
       },
 
+      // --- Field property profiles -------------------------------------------
+
+      /**
+       * What the steward's profiles say about this screen, for this request type and this role.
+       * Held outside the maintenance model because rendering reads it synchronously, field by field,
+       * and a binding would buy nothing. Always replaced, never merged: a screen opened for a
+       * different role must not inherit the last one's answer.
+       *
+       * A failure resolves to "no profile says anything", which renders exactly as before. The
+       * mandatory half is enforced server-side on submit regardless, so a screen that quietly lost
+       * its profiles cannot submit past one.
+       */
+      _loadFieldProperties: async function (requestType, role) {
+        this._fieldProperties = { entities: {}, fields: {} };
+        try {
+          var result = await this._executeAction("effectiveFieldProperties", {
+            RequestType: requestType || null,
+            Role: role || null
+          }, "cr");
+          var raw = result && result.value !== undefined ? result.value : result;
+          var parsed = typeof raw === "string" ? JSON.parse(raw || "{}") : (raw || {});
+          this._fieldProperties = {
+            entities: parsed.entities || {},
+            fields: parsed.fields || {}
+          };
+        } catch (error) {
+          // Nothing to tell the user: they asked to maintain a partner, not to hear about a
+          // configuration table. The console is where this belongs.
+          console.warn("[field-properties] Could not load the profiles:", error);
+        }
+      },
+
+      // The metadata calls the root section `BusinessPartners`; the payload catalog the profiles are
+      // written against calls it `General`. This is the only place the two names have to meet.
+      _sectionKey: function (section) {
+        return section.kind === "root" ? "General" : section.id;
+      },
+
+      _entityProperty: function (section) {
+        return (this._fieldProperties && this._fieldProperties.entities || {})[this._sectionKey(section)] || null;
+      },
+
+      /**
+       * Mirrors `effectiveProperty` in srv/checks/field-properties.js: only `hidden` and `readOnly`
+       * cascade from the entity, because they describe the container. An entity's
+       * `mandatory`/`optional` is about whether it needs a row at all and says nothing about the
+       * fields inside it.
+       */
+      _fieldProperty: function (section, field) {
+        var own = (this._fieldProperties && this._fieldProperties.fields || {})[
+          this._sectionKey(section) + "." + field.name
+        ] || null;
+        var entity = this._entityProperty(section);
+        if (entity === "hidden") return "hidden";
+        if (entity === "readOnly") return own === "hidden" ? "hidden" : "readOnly";
+        return own;
+      },
+
+      _isHiddenField: function (section, field) {
+        return this._fieldProperty(section, field) === "hidden";
+      },
+
       _renderAll: function () {
         this._renderRootForm();
         this._metadata
@@ -722,8 +791,11 @@ sap.ui.define([
           // Noise on a collection, where it repeats per row; on a "single" section it is the record's
           // own ERP Customer/Vendor number and belongs on screen. Read-only either way, via _isEditable.
           if (field.name === section.relationField && section.kind !== "single") return false;
+          // A hidden field is not rendered at all, in display mode as much as in edit: hiding is
+          // about who may see it, and a disabled input still shows the value.
+          if (this._isHiddenField(section, field)) return false;
           return !(isCreate && field.key && field.creatable === false);
-        });
+        }, this);
 
         var container = new VBox();
         for (var start = 0; start < shown.length; start += COLUMNS) {
@@ -759,8 +831,11 @@ sap.ui.define([
           // Noise on a collection, where it repeats per row; on a "single" section it is the record's
           // own ERP Customer/Vendor number and belongs on screen. Read-only either way, via _isEditable.
           if (field.name === section.relationField && section.kind !== "single") return false;
+          // A hidden field is not rendered at all, in display mode as much as in edit: hiding is
+          // about who may see it, and a disabled input still shows the value.
+          if (this._isHiddenField(section, field)) return false;
           return !(isCreate && field.key && field.creatable === false);
-        });
+        }, this);
 
         var content = shown.map(function (field) {
           var control = this._createFieldControl(section, field, record, isCreate, editing);
@@ -785,6 +860,10 @@ sap.ui.define([
 
       _isEditable: function (section, field, isCreate, editing) {
         if (!editing) return false;
+        // The profile can only ever take editability away: a field S/4 will not accept on create
+        // stays uneditable however broad a profile is.
+        var property = this._fieldProperty(section, field);
+        if (property === "hidden" || property === "readOnly") return false;
         if (section.kind !== "root" && field.name === section.relationField) return false;
         if (isCreate) return field.creatable !== false;
         return field.updatable !== false && !field.key;
@@ -792,6 +871,11 @@ sap.ui.define([
 
       _isRequired: function (section, field, isCreate, editing) {
         if (!this._isEditable(section, field, isCreate, editing)) return false;
+        // The profile has the last word in both directions here - `optional` exists precisely so a
+        // narrow profile can hand back a field the model or a broader profile made mandatory.
+        var property = this._fieldProperty(section, field);
+        if (property === "mandatory") return true;
+        if (property === "optional") return false;
         if (section.kind === "root" && isCreate) {
           return ["BusinessPartnerCategory", "BusinessPartnerGrouping"].includes(field.name);
         }
@@ -1021,12 +1105,35 @@ sap.ui.define([
         return this.byId(section.id + "Content");
       },
 
+      /**
+       * Hides the Object Page section a container sits in, not the container: hiding the VBox alone
+       * leaves the section's title and its anchor-bar button behind, which is a heading pointing at
+       * nothing. A hosted container (a child section rendered inside a record dialog) has no
+       * ObjectPageSection above it, so it hides itself.
+       */
+      _setSectionVisible: function (container, visible) {
+        var control = container;
+        while (control && !(control.isA && control.isA("sap.uxap.ObjectPageSection"))) {
+          control = control.getParent && control.getParent();
+        }
+        (control || container).setVisible(visible);
+      },
+
       _renderSection: function (section) {
         var container = this._sectionContainer(section);
         if (!container) return;
         container.removeAllItems();
 
+        // A hidden entity takes its whole Object Page section with it - heading, table and all.
+        // Emptying the container would leave a heading over nothing, which reads as a load failure.
+        var entityProperty = this._entityProperty(section);
+        this._setSectionVisible(container, entityProperty !== "hidden");
+        if (entityProperty === "hidden") return;
+
         var state = this.getView().getModel("maintenance").getData();
+        // Read-only freezes the rows: no Add, no Delete, and the detail dialog opens in display mode
+        // (_openRecordDialog reads the same property). The section is still there to be read.
+        var editing = state.editing && entityProperty !== "readOnly";
         var records = state.sections[section.id] || [];
         var summaryFields = this._summaryFields(section);
         var searchField = new SearchField({
@@ -1051,7 +1158,7 @@ sap.ui.define([
                 icon: "sap-icon://add",
                 // A "single" section is 1:1 with the partner, so once it has its record Add must disappear
                 // rather than invite a row the remote key cannot hold.
-                visible: state.editing && section.creatable !== false
+                visible: editing && section.creatable !== false
                   && (section.kind !== "single" || records.length === 0),
                 press: this._openNewRecord.bind(this, section)
               })
@@ -1062,7 +1169,7 @@ sap.ui.define([
         summaryFields.forEach(function (field) {
           table.addColumn(new Column({ header: new Text({ text: field.label }) }));
         });
-        var showDelete = state.editing && section.deletable !== false;
+        var showDelete = editing && section.deletable !== false;
         // Always present: pressing the row already opened the record but nothing said so, and on a
         // non-deletable section this is the only affordance there is.
         table.addColumn(new Column({
@@ -1080,7 +1187,7 @@ sap.ui.define([
               text: "Details",
               icon: "sap-icon://detail-view",
               type: "Transparent",
-              tooltip: state.editing ? "Open to view or edit every field" : "Open to view every field",
+              tooltip: editing ? "Open to view or edit every field" : "Open to view every field",
               press: this._openExistingRecord.bind(this, section, index)
             })
           ];
@@ -1184,7 +1291,8 @@ sap.ui.define([
 
       _openRecordDialog: function (section, record, isCreate, index) {
         var state = this.getView().getModel("maintenance").getData();
-        var editing = Boolean(state.editing);
+        // A read-only entity opens for reading, whatever the screen's own mode is.
+        var editing = Boolean(state.editing) && this._entityProperty(section) !== "readOnly";
         // Only a grouped section switches to the table layout, because only there do field blocks sit
         // above child tables and need to match them.
         var grouped = Boolean(section.fieldGroups && section.fieldGroups.length);
@@ -2088,6 +2196,10 @@ sap.ui.define([
 
           state.requestType = (payload && payload.RequestType) || "";
           state.requestStatus = (payload && payload.Status) || "";
+          // The approve view is the approver's, the draft and rework views are the requester's own.
+          // `hidden` is deliberately honoured on the approve view too: once approvals are split by
+          // function, a sales approver has no business reading the bank details.
+          await this._loadFieldProperties(state.requestType, mode === "approve" ? "Approver" : "Requester");
           state.businessPartner = (payload && payload.BusinessPartner) || "";
           state.rejectionComment = (payload && payload.RejectionComment) || "";
           state.title = (reworking ? "Rework request " : (editing ? "Change request " : "Approve request "))

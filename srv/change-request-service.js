@@ -11,6 +11,7 @@ const { candidateFromStagedRequest, duplicateSummary } = require('./ai/duplicate
 const { runChecks, runValidations, BLOCKING } = require('./checks/pipeline');
 const { createRegistryStages } = require('./checks/registry-checks');
 const { configuredStages } = require('./checks/rule-store');
+const { fieldPropertyStages, resolvedProperties } = require('./checks/field-property-store');
 const { proposeNormalisations } = require('./checks/normalise');
 const { PAYLOAD_NODES, ROOT_SECTION } = require('./checks/payload-fields');
 
@@ -171,6 +172,18 @@ function rowAction(record) {
   if (record?.__state) return 'U';
   return null;
 }
+
+/**
+ * The context the field property profiles are matched against on any write path. The role is
+ * **always** `Requester` and is never taken from the client: whoever submits a request is its
+ * requester, and a role the client could name is one it could name its way out of a mandatory
+ * field with. The approve and rework screens ask for their own view through
+ * `effectiveFieldProperties`, which renders but never gates.
+ *
+ * When the role model lands (an approver role per function, a steward role, a requester role), this
+ * becomes a scope read off `req.user` and the two paths converge.
+ */
+const requesterContext = (req) => ({ requestType: req.data.RequestType, role: 'Requester' });
 
 function requestingUserEmail(req) {
   return req.user?.attr?.email || req.user?.id || 'unknown';
@@ -428,10 +441,13 @@ class ChangeRequestService extends cds.ApplicationService {
       // Configured first in both lists: the validations are offline, so a failure costs no VIES call;
       // and the pipeline never overwrites, so an explicit rule should win over a registry lookup.
       const configured = await configuredStages();
+      // The requester is who is pressing the button, always. A role the client could name would be
+      // one it could also name its way out of - see `requesterProperties`.
+      const properties = await fieldPropertyStages(requesterContext(req));
       return runChecks(
         { root: data.root || {}, sections: data.sections || {} },
         {
-          validations: [...configured.validations, ...registry.validations],
+          validations: [...properties.validations, ...configured.validations, ...registry.validations],
           derivations: [...configured.derivations, ...registry.derivations],
           // Check is where a human is looking, which is the only place a proposal to rewrite
           // what someone typed makes sense. The register never proposes: it validates and derives.
@@ -456,6 +472,19 @@ class ChangeRequestService extends cds.ApplicationService {
         }
       );
     };
+
+    /**
+     * What the screen has to show, hide, freeze and star, for one request type and one role. Purely
+     * a rendering answer: the gate is `field_properties` in the validation list, which runs on the
+     * requester's own context whatever a screen was told.
+     */
+    this.on('effectiveFieldProperties', async (req) => {
+      const resolved = await resolvedProperties({
+        requestType: req.data.RequestType || null,
+        role: req.data.Role || null
+      });
+      return JSON.stringify(resolved);
+    });
 
     this.on('checkRequest', async (req) => {
       const result = await runRequestChecks(req, {
@@ -490,9 +519,10 @@ class ChangeRequestService extends cds.ApplicationService {
       const data = parseJsonObject(req.data.DataJson, 'DataJson');
       const registry = createRegistryStages();
       const configured = await configuredStages();
+      const properties = await fieldPropertyStages(requesterContext(req));
       const validations = await runValidations(
         { root: data.root || {}, sections: data.sections || {} },
-        [...configured.validations, ...registry.validations]
+        [...properties.validations, ...configured.validations, ...registry.validations]
       );
       if (validations.some((message) => message.severity === BLOCKING)) {
         return {
@@ -579,9 +609,10 @@ class ChangeRequestService extends cds.ApplicationService {
       const data = parseJsonObject(req.data.DataJson, 'DataJson');
       const registry = createRegistryStages();
       const configured = await configuredStages();
+      const properties = await fieldPropertyStages(requesterContext(req));
       const validations = await runValidations(
         { root: data.root || {}, sections: data.sections || {} },
-        [...configured.validations, ...registry.validations]
+        [...properties.validations, ...configured.validations, ...registry.validations]
       );
       if (validations.some((message) => message.severity === BLOCKING)) {
         return {

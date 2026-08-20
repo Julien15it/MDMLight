@@ -216,9 +216,10 @@ test('modify saves the profile first rather than failing on a missing id', () =>
 });
 
 /**
- * Nothing applies these profiles yet. A page that looked like it was driving the maintenance screen
- * while driving nothing is the lie the duplicate pages' old preview strip existed to prevent.
+ * The profiles drive the maintenance screen as of 2026-08-20, so the strip that said otherwise had
+ * to go with the same discipline it was added under - and the rule pages carry no standing banners.
  */
-test('the page says that nothing reads the profiles yet', () => {
-  assert.match(view, /Nothing reads these profiles yet/u);
+test('the page makes no claim about whether the profiles are applied', () => {
+  assert.equal(/Nothing reads these profiles yet/u.test(view), false);
+  assert.equal(/<MessageStrip/u.test(view), false, 'no standing banner');
 });

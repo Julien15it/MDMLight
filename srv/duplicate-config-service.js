@@ -13,6 +13,7 @@ const {
   PROPERTIES, PROPERTY_TEXT, REQUEST_TYPES, REQUEST_TYPE_TEXT, ROLES, ROLE_TEXT,
   fieldPropertyTree, normaliseSettings
 } = require('./checks/field-properties');
+const fieldPropertyStore = require('./checks/field-property-store');
 
 const RULES = 'mdmlight.config.DuplicateRules';
 const VALIDATIONS = 'mdmlight.config.ValidationRules';
@@ -134,6 +135,11 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
       };
     });
 
+    // Any write drops the resident profiles, the same way a rule write drops the rule store.
+    for (const entity of ['FieldPropertyProfiles', 'FieldPropertySettings']) {
+      this.after(['CREATE', 'UPDATE', 'DELETE'], entity, () => fieldPropertyStore.markStale());
+    }
+
     // The condition pair is the whole of a profile's matching, so a value outside the closed list
     // makes a profile that can never fire - and looks configured while doing nothing.
     this.before(['CREATE', 'UPDATE'], 'FieldPropertyProfiles', (req) => {
@@ -190,6 +196,7 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
           settings.map((setting) => ({ ...setting, profile_ID: profile }))
         ));
       }
+      fieldPropertyStore.markStale();
       return { Profile: profile, Saved: settings.length };
     });
 
