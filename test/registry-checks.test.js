@@ -128,7 +128,25 @@ test('only the first address is enriched, never a second deliberate one', () => 
 
 test('nothing is derived when the registry returned no address', () => {
   assert.deepEqual(addressDerivations([], [{ StreetName: '' }], 'VIES'), []);
-  assert.deepEqual(addressDerivations([{ StreetName: 'x' }], [], 'VIES'), []);
+  assert.deepEqual(addressDerivations([], [], 'VIES'), []);
+});
+
+// The case that started the row-adding change (2026-08-20): a tax number is typed, VIES answers with
+// an address, and there is nowhere to put it because the requester has not pressed Add. It refused
+// to invent the row until then, which is precisely when the lookup is most useful.
+test('the registry proposes the first address when there is no row to hold it', () => {
+  const entries = addressDerivations([{ StreetName: 'Kerkstraat', CityName: 'Gent' }], [], 'VIES');
+
+  assert.equal(entries.length, 2);
+  assert.ok(entries.every((entry) => entry.createsRow === true), 'the row has to be created too');
+  assert.ok(entries.every((entry) => entry.index === 0));
+  // The requester has to be able to tell a row they did not build from a field they left blank.
+  assert.match(entries[0].message, /a new address/u);
+
+  // A row that already exists is filled, and is never flagged as a new one.
+  const filled = addressDerivations([{ StreetName: 'Kerkstraat' }], [{ StreetName: '' }], 'VIES');
+  assert.equal(filled[0].createsRow, undefined);
+  assert.doesNotMatch(filled[0].message, /a new address/u);
 });
 
 // One press of Check is one lookup: VIES throttles per member state and GLEIF is a public API.
@@ -166,13 +184,20 @@ test('a single confident GLEIF hit is described, two hits say nothing', async ()
     }
   });
   const entries = await one.derivations[0].run(payload({}, { TaxNumbers: [] }));
-  assert.equal(entries.length, 1);
+
+  // The description is a statement, not a value - it carries no field and nothing can apply it.
+  const described = entries.filter((entry) => !entry.field);
+  assert.equal(described.length, 1);
   // The name leads and nothing is written: a company number alone told nobody whether GLEIF had
   // found the right company.
-  assert.equal(entries[0].field, undefined);
-  assert.match(entries[0].message, /GLEIF found “ALLUVION BV”/u);
-  assert.match(entries[0].message, /Koedreef 12, 2000 Antwerpen, BE/u);
-  assert.match(entries[0].message, /company number 0448207405/u);
+  assert.match(described[0].message, /GLEIF found “ALLUVION BV”/u);
+  assert.match(described[0].message, /Koedreef 12, 2000 Antwerpen, BE/u);
+  assert.match(described[0].message, /company number 0448207405/u);
+
+  // The address it found is proposed as a new row, because the payload holds none (2026-08-20).
+  const address = entries.filter((entry) => entry.field);
+  assert.equal(address.length, 5, 'one per address field GLEIF answered with');
+  assert.ok(address.every((entry) => entry.target === 'Addresses' && entry.createsRow === true));
 
   const two = stages({
     ...empty,
