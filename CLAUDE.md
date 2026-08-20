@@ -1067,6 +1067,15 @@ task context for the Lobby, while the runtime reads none of it — `Component.js
 fetches `/task-instances/{id}/context` itself and PATCHes the whole context back.
 `test/task-form.test.js` pins the labels.
 
+**Verified end to end on 2026-08-20**: the partner app opens from the Work Zone
+tile (so `resourceRoots` resolves the shared screen at runtime), and Arthur
+re-pointed the SBPA user task at `mdm.md.businesspartner.task`, which rendered.
+The `inputs`/`outputs` schemas above are the ones that worked — Arthur emptied
+them on the old app in `1f5988f`; that is not needed and was not carried over.
+**Re-pointing the user task in the Lobby is a manual step**: the app id changed,
+so the process definition had to be edited and released. A future task UI rename
+costs the same step.
+
 - **Never put a comment key in `app/businesspartner/xs-app.json`.** It ships into
   the HTML5 apps repository with the app and is schema-validated there; an
   unknown property in a route makes the whole app version unservable and every
