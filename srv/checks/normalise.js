@@ -261,12 +261,14 @@ function mergeProposals(deterministic, modelled) {
 }
 
 /** Falls back to the deterministic proposals alone whenever the model cannot be reached or trusted. */
-async function proposeNormalisations({ payload, scope = null, env = process.env, Client } = {}) {
+async function proposeNormalisations({
+  payload, scope = null, aiEnabled = true, env = process.env, Client
+} = {}) {
   // Scoped too, or a section trigger would report Country casing from a section nobody touched.
   const deterministic = deterministicProposals(payload)
     .filter((proposal) => !scope || proposal.target === scope);
   const fields = normalisableFields(payload, scope);
-  if (!fields.length || !hasAiCoreBinding(env)) return deterministic;
+  if (!fields.length || !aiEnabled || !hasAiCoreBinding(env)) return deterministic;
 
   try {
     const OrchestrationClient = Client

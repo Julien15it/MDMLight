@@ -1,0 +1,219 @@
+'use strict';
+
+/**
+ * The AI switch. Two things have to hold for it to be worth anything.
+ *
+ * It has to be enforced where the model is called, not only where the button is
+ * drawn - so each of the three call sites is asserted to reach no client at all
+ * when the switch is off, using the same injected-client seam the AI Core tests
+ * use.
+ *
+ * And it has to fail towards "on". A missing settings row, an unreachable
+ * database or a service too old to return the flag must all leave assistance
+ * working: the alternative silently disables the assistant on every landscape
+ * the moment this ships, which looks exactly like a bug and not like a setting.
+ */
+
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const test = require('node:test');
+
+const {
+  aiAssistanceEnabled, forgetCachedSettings, CACHE_TTL_MS, SINGLETON_ID
+} = require('../srv/ai/availability');
+const { askSapAiCore } = require('../srv/ai/business-partner-assistant');
+const { parseIntent } = require('../srv/ai/intent');
+const { proposeNormalisations } = require('../srv/checks/normalise');
+
+/** A client whose use is a test failure: the switch is meant to stop us reaching it. */
+const forbiddenClient = function () {
+  throw new Error('a language model was contacted while AI assistance was off');
+};
+
+const withBinding = { AICORE_SERVICE_KEY: '{}' };
+
+test('the settings row decides, and only an explicit false switches AI off', async (t) => {
+  t.afterEach(forgetCachedSettings);
+
+  forgetCachedSettings();
+  assert.equal(await aiAssistanceEnabled({ read: async () => ({ aiAssistanceEnabled: false }) }), false);
+
+  forgetCachedSettings();
+  assert.equal(await aiAssistanceEnabled({ read: async () => ({ aiAssistanceEnabled: true }) }), true);
+
+  // No row at all: an installation that never opened the settings page.
+  forgetCachedSettings();
+  assert.equal(await aiAssistanceEnabled({ read: async () => null }), true);
+
+  // A row written before the column existed reads as undefined, not as off.
+  forgetCachedSettings();
+  assert.equal(await aiAssistanceEnabled({ read: async () => ({}) }), true);
+});
+
+test('an unreadable setting leaves AI on, and is retried rather than cached', async () => {
+  forgetCachedSettings();
+  let reads = 0;
+  const failing = async () => {
+    reads += 1;
+    throw new Error('database is down');
+  };
+
+  assert.equal(await aiAssistanceEnabled({ read: failing }), true);
+  assert.equal(await aiAssistanceEnabled({ read: failing }), true);
+  // Cached, and the outage would look to the user like AI had been switched off.
+  assert.equal(reads, 2, 'a failed read must not be remembered');
+  forgetCachedSettings();
+});
+
+test('the setting is cached, and a write is visible immediately', async () => {
+  forgetCachedSettings();
+  let reads = 0;
+  const read = async () => {
+    reads += 1;
+    return { aiAssistanceEnabled: false };
+  };
+
+  const start = 1_000_000;
+  assert.equal(await aiAssistanceEnabled({ read, now: start }), false);
+  assert.equal(await aiAssistanceEnabled({ read, now: start + CACHE_TTL_MS - 1 }), false);
+  assert.equal(reads, 1, 'the hot path re-read a setting that changes a few times a year');
+
+  // Past the TTL it is read again, so a change made elsewhere lands without a restart.
+  assert.equal(await aiAssistanceEnabled({ read, now: start + CACHE_TTL_MS + 1 }), false);
+  assert.equal(reads, 2);
+
+  // And dropping the cache is what makes the steward's own next request see the change.
+  forgetCachedSettings();
+  assert.equal(await aiAssistanceEnabled({ read, now: start + CACHE_TTL_MS + 2 }), false);
+  assert.equal(reads, 3);
+  forgetCachedSettings();
+});
+
+test('with AI off the assistant answers from S/4 and contacts no model', async () => {
+  const answer = await askSapAiCore({
+    question: 'How many partners are in Belgium?',
+    partners: [],
+    addresses: [],
+    fallbackAnswer: 'Two Business Partners are in Belgium.',
+    externalResearch: null,
+    duplicateCandidates: [],
+    conversationHistory: [],
+    totalBusinessPartners: 2,
+    aiEnabled: false,
+    // The binding exists: it is the switch that has to stop this, not a missing service.
+    env: withBinding,
+    Client: forbiddenClient
+  });
+
+  assert.equal(answer.Answer, 'Two Business Partners are in Belgium.');
+  assert.equal(answer.Provider, 'S/4HANA search');
+});
+
+test('with AI off intent parsing falls back to the pattern parser', async () => {
+  // Null is the caller's signal to keep its own parser - see business-partner-service.js.
+  assert.equal(await parseIntent({
+    question: 'is Acme already a customer?',
+    aiEnabled: false,
+    env: withBinding,
+    Client: forbiddenClient
+  }), null);
+});
+
+test('with AI off normalisation keeps its deterministic proposals', async () => {
+  const payload = { root: { OrganizationBPName1: 'acme nv' }, sections: {} };
+
+  const withAi = await proposeNormalisations({ payload, aiEnabled: true, env: {} });
+  const withoutAi = await proposeNormalisations({
+    payload, aiEnabled: false, env: withBinding, Client: forbiddenClient
+  });
+
+  // Switching AI off must not cost the rule-based proposals, only the modelled ones.
+  assert.deepEqual(withoutAi, withAi);
+});
+
+test('the switch is enforced on the server, not only drawn in the UI', () => {
+  const source = (file) => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+
+  // Each model call site consults the flag alongside the binding check.
+  for (const file of [
+    'srv/ai/business-partner-assistant.js', 'srv/ai/intent.js', 'srv/checks/normalise.js'
+  ]) {
+    assert.match(
+      source(file), /!aiEnabled \|\| !hasAiCoreBinding\(env\)/u,
+      `${file} calls a model without consulting the switch`
+    );
+  }
+
+  // And the flag reaches them from the service layer rather than defaulting to true there.
+  assert.match(source('srv/business-partner-service.js'), /await aiAssistanceEnabled\(\)/u);
+  assert.match(source('srv/change-request-service.js'), /aiEnabled: await aiAssistanceEnabled\(\)/u);
+
+  // Writing it needs the Steward scope the config service requires; the main service
+  // only reports it.
+  const configService = source('srv/duplicate-config-service.cds');
+  assert.match(configService, /action setAiAssistanceEnabled/u);
+  assert.doesNotMatch(
+    source('srv/business-partner-service.cds'), /setAiAssistanceEnabled/u,
+    'the unrestricted service must not be able to flip the switch'
+  );
+});
+
+test('the hub offers the switch to stewards only, and says what it covers', () => {
+  const app = path.join(__dirname, '..', 'app', 'mdmrules', 'webapp');
+  const hub = fs.readFileSync(path.join(app, 'ext', 'view', 'MDMRuleHub.view.xml'), 'utf8');
+  const controller = fs.readFileSync(
+    path.join(app, 'ext', 'controller', 'MDMRuleHub.controller.js'), 'utf8'
+  );
+
+  assert.match(hub, /state="\{perm>\/aiAssistanceEnabled\}"/u);
+  // Courtesy still, but a switch a non-steward can move only to see it snap back is worse
+  // than one that is plainly disabled.
+  assert.match(hub, /enabled="\{perm>\/isDataSteward\}"/u);
+  // The three LLM users are named, and the non-LLM features are called out as staying on -
+  // "AI off" means different things to different customers.
+  assert.match(hub, /duplicate check/iu);
+  assert.match(hub, /VIES and GLEIF/u);
+
+  // Saved through the config service, and put back when the server refuses.
+  assert.match(controller, /setAiAssistanceEnabled/u);
+  assert.match(controller, /getModel\("dc"\)/u);
+  assert.match(controller, /setProperty\("\/aiAssistanceEnabled", !enabled\)/u);
+});
+
+test('the assistant does not promise a model it may not call', () => {
+  const assistant = fs.readFileSync(
+    path.join(__dirname, '..', 'app', 'businesspartner', 'webapp', 'ext',
+      'BusinessPartnerAssistant.js'),
+    'utf8'
+  );
+  assert.match(assistant, /aiEnabled\s*\n?\s*\?/u, 'the greeting is not conditional');
+  assert.match(assistant, /AI assistance is switched off/u);
+
+  // Both apps default the flag to true, so neither flashes "AI is off" before the real
+  // value arrives.
+  for (const app of ['businesspartner', 'mdmrules']) {
+    const component = fs.readFileSync(
+      path.join(__dirname, '..', 'app', app, 'webapp', 'Component.js'), 'utf8'
+    );
+    assert.match(component, /aiAssistanceEnabled: true/u, `${app} defaults the flag to off`);
+    assert.match(component, /result\.aiAssistanceEnabled !== false/u);
+  }
+});
+
+test('the settings row is a singleton', async () => {
+  const cds = require('@sap/cds');
+  const model = cds.linked(await cds.load(path.join(__dirname, '..', 'db')));
+  const entity = model.definitions['mdmlight.config.FeatureSettings'];
+
+  assert.ok(entity, 'FeatureSettings is not in the model');
+  const keys = Object.entries(entity.elements)
+    .filter(([, element]) => element.key)
+    .map(([name]) => name);
+  assert.deepEqual(keys, ['ID']);
+  assert.equal(entity.elements.aiAssistanceEnabled.type, 'cds.Boolean');
+  // The default has to be permissive on the column too: a row inserted by anything
+  // other than the action must not read as "AI off".
+  assert.equal(entity.elements.aiAssistanceEnabled.default.val, true);
+  assert.equal(SINGLETON_ID, 'SINGLETON');
+});

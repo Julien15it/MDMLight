@@ -1,5 +1,6 @@
 using { mdmlight.config as config } from '../db/duplicate-rules';
 using { mdmlight.config as quality } from '../db/quality-rules';
+using { mdmlight.config as features } from '../db/feature-settings';
 
 /**
  * Data-steward configuration for the data quality controls - the duplicate check
@@ -98,4 +99,21 @@ service DuplicateConfigService {
    *  are of rules that would actually run, so a page can say when a saved row is
    *  being skipped. */
   function qualityRuleOptions() returns QualityRuleOptions;
+
+  type FeatureSwitches {
+    /** False means no call reaches a language model anywhere in the app. */
+    aiAssistanceEnabled : Boolean;
+  }
+
+  /** The installation's feature switches. Reports the effective values, so an
+   *  installation that has never saved a setting reads as everything on rather
+   *  than as an empty response the page would have to interpret. */
+  function featureSettings() returns FeatureSwitches;
+
+  /** Turns AI assistance on or off for the whole installation. An action rather
+   *  than a writable entity because the settings row is a singleton: a PATCH
+   *  needs it to exist already, and nothing should have to create it first. */
+  action setAiAssistanceEnabled(
+    Enabled : Boolean not null
+  ) returns FeatureSwitches;
 }

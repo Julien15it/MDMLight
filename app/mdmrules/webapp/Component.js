@@ -13,8 +13,14 @@ sap.ui.define(
 
             init: function () {
                 UIComponent.prototype.init.apply(this, arguments);
-                // Starts false so a steward-only hint is never briefly wrong.
-                this.setModel(new JSONModel({ isDataSteward: false }), "perm");
+                // isDataSteward starts false so a steward-only hint is never briefly wrong.
+                // aiAssistanceEnabled starts true because that is the server's own default -
+                // starting false would flash "AI is off" on every load before the real value
+                // lands, which reads as a setting nobody made.
+                this.setModel(
+                    new JSONModel({ isDataSteward: false, aiAssistanceEnabled: true }),
+                    "perm"
+                );
                 this._loadPermissions();
                 this.getRouter().initialize();
             },
@@ -30,9 +36,16 @@ sap.ui.define(
                 binding.execute("$direct").then(function () {
                     var context = binding.getBoundContext();
                     var result = context ? context.getObject() : null;
-                    this.getModel("perm").setProperty(
+                    var permissions = this.getModel("perm");
+                    permissions.setProperty(
                         "/isDataSteward",
                         Boolean(result && result.isDataSteward)
+                    );
+                    // Only an explicit false is "off", matching srv/ai/availability.js: a
+                    // service too old to return the flag must not read as AI switched off.
+                    permissions.setProperty(
+                        "/aiAssistanceEnabled",
+                        !result || result.aiAssistanceEnabled !== false
                     );
                     binding.destroy();
                 }.bind(this)).catch(function () {

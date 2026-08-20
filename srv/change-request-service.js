@@ -10,6 +10,7 @@ const { runChecks, runValidations, BLOCKING } = require('./checks/pipeline');
 const { createRegistryStages } = require('./checks/registry-checks');
 const { configuredStages } = require('./checks/rule-store');
 const { proposeNormalisations } = require('./checks/normalise');
+const { aiAssistanceEnabled } = require('./ai/availability');
 const { PAYLOAD_NODES, ROOT_SECTION } = require('./checks/payload-fields');
 
 const STAGING = 'mdmlight.staging.';
@@ -411,7 +412,11 @@ class ChangeRequestService extends cds.ApplicationService {
           // Check is where a human is looking, which is the only place a proposal to rewrite
           // what someone typed makes sense. The register never proposes: it validates and derives.
           propose: propose
-            ? (derived) => proposeNormalisations({ payload: derived, scope: scope || null })
+            ? async (derived) => proposeNormalisations({
+              payload: derived,
+              scope: scope || null,
+              aiEnabled: await aiAssistanceEnabled()
+            })
             : undefined,
           checkDuplicates: duplicates ? async (payload) => {
             const bp = await cds.connect.to('BusinessPartnerService');

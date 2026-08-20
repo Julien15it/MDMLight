@@ -120,7 +120,13 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
    *  it does not grant them, and every protected service still checks its own
    *  scope. Hiding a button is courtesy, never the control. */
   function currentUserPermissions() returns {
-    isDataSteward : Boolean;
+    isDataSteward       : Boolean;
+    /** False when a steward has switched AI assistance off for this
+     *  installation. The assistant still answers - from the S/4 search, with no
+     *  model involved - so this is what lets the screen stop calling it AI
+     *  rather than have to hide it. Courtesy again: the switch is enforced on
+     *  the server, in srv/ai/availability.js. */
+    aiAssistanceEnabled : Boolean;
   };
 
   /** Read-only assistant grounded in the Business Partners currently present

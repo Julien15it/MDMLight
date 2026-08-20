@@ -47,6 +47,30 @@
           </GenericTile>
         </HBox>
       </VBox>
+
+      <!-- One installation-wide switch, not a per-user preference: a customer who
+           decided against AI should not depend on every user leaving it alone. -->
+      <Panel class="sapUiSmallMargin" headerText="AI assistance" expandable="true" expanded="true">
+        <VBox class="sapUiSmallMargin">
+          <HBox alignItems="Center" class="sapUiSmallMarginBottom">
+            <Switch
+              id="aiAssistanceSwitch"
+              state="{perm>/aiAssistanceEnabled}"
+              enabled="{perm>/isDataSteward}"
+              customTextOn="On"
+              customTextOff="Off"
+              change=".onToggleAiAssistance" />
+            <Text
+              class="sapUiSmallMarginBegin"
+              text="{= ${perm>/aiAssistanceEnabled}
+                ? 'The assistant answers with a language model, and normalisation proposals are offered.'
+                : 'No request reaches a language model. The assistant still answers from the S/4HANA search.' }" />
+          </HBox>
+          <Text
+            class="sapUiTinyMarginTop"
+            text="Covers the three places a language model is used: the assistant's answer, intent recognition and normalisation proposals. The duplicate check, fuzzy name matching and the VIES and GLEIF look-ups are not language models and stay on." />
+        </VBox>
+      </Panel>
     </content>
   </Page>
 </mvc:View>

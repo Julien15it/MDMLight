@@ -118,9 +118,13 @@ function sanitizeIntent(raw) {
 }
 
 // Returns null whenever the model cannot be used, which is the caller's signal to keep the pattern parser.
-async function parseIntent({ question, conversationHistory = [], env = process.env, Client } = {}) {
+async function parseIntent({
+  question, conversationHistory = [], aiEnabled = true, env = process.env, Client
+} = {}) {
   if (!String(question || '').trim()) return null;
-  if (!hasAiCoreBinding(env)) return null;
+  // Null is the caller's signal to keep the pattern parser, which is exactly what
+  // switching AI off should leave it doing.
+  if (!aiEnabled || !hasAiCoreBinding(env)) return null;
 
   try {
     const OrchestrationClient = Client

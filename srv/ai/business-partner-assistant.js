@@ -312,10 +312,14 @@ async function askSapAiCore({
   duplicateCandidates,
   conversationHistory,
   totalBusinessPartners,
+  // False when a steward has switched AI assistance off for this installation.
+  // Takes the same road as a missing AI Core binding rather than a branch of its
+  // own: the deterministic answer below is already the tested path.
+  aiEnabled = true,
   env = process.env,
   Client
 }) {
-  if (!hasAiCoreBinding(env)) {
+  if (!aiEnabled || !hasAiCoreBinding(env)) {
     return {
       Answer: fallbackAnswer,
       Provider: externalResearch

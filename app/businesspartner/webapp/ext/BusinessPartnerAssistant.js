@@ -70,9 +70,19 @@ sap.ui.define([
         return;
       }
 
-      var transcript = "Assistant: Ask me a free-form question about Business Partners. "
-        + "I use the configured SAP AI Core model with live S/4HANA data, check possible duplicates, "
-        + "and can prepare a reviewed creation proposal when a company is not yet present.";
+      // What the assistant claims about itself has to follow the switch. With AI
+      // assistance off it still answers - from the S/4HANA search, which is the same
+      // path taken when no AI Core binding exists - so the greeting says that instead
+      // of promising a model that will never be called.
+      var permissions = view && view.getModel && view.getModel("perm");
+      var aiEnabled = !permissions || permissions.getProperty("/aiAssistanceEnabled") !== false;
+      var transcript = aiEnabled
+        ? "Assistant: Ask me a free-form question about Business Partners. "
+          + "I use the configured SAP AI Core model with live S/4HANA data, check possible duplicates, "
+          + "and can prepare a reviewed creation proposal when a company is not yet present."
+        : "Assistant: Ask me a question about Business Partners. AI assistance is switched off "
+          + "for this system, so I answer from the S/4HANA search itself - no language model is "
+          + "involved. Duplicate checks still run.";
       var conversationHistory = [];
       var conversation = new TextArea({
         value: transcript,

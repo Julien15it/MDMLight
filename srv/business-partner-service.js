@@ -3,6 +3,7 @@
 const cds = require('@sap/cds');
 const { askSapAiCore } = require('./ai/business-partner-assistant');
 const { parseIntent, useModelIntent } = require('./ai/intent');
+const { aiAssistanceEnabled } = require('./ai/availability');
 const { researchCompany } = require('./ai/company-research');
 const { startWorkflow } = require("./wf/processAutomation");
 const { createCache } = require('./ai/cache');
@@ -1970,8 +1971,9 @@ class BusinessPartnerService extends cds.ApplicationService {
       return JSON.stringify({ findings: duplicateFindings(kept) });
     });
 
-    this.on('currentUserPermissions', (req) => ({
-      isDataSteward: Boolean(req.user?.is?.('Steward'))
+    this.on('currentUserPermissions', async (req) => ({
+      isDataSteward: Boolean(req.user?.is?.('Steward')),
+      aiAssistanceEnabled: await aiAssistanceEnabled()
     }));
 
     // Unsaved rules on purpose: a test that can only run the saved ruleset cannot show anyone the
@@ -2004,8 +2006,11 @@ class BusinessPartnerService extends cds.ApplicationService {
         const normalized = question.toLocaleLowerCase();
         // A digit after "BP" is not something a model improves on, so this stays a pattern.
         const numberMatch = normalized.match(/\b(?:bp|business partner|partner)\s*#?\s*(\d{1,10})\b/u);
+        // Read once per question rather than per model call, so the intent parse and
+        // the answer below cannot disagree about whether AI is on mid-request.
+        const aiEnabled = await aiAssistanceEnabled();
         const modelIntent = useModelIntent()
-          ? await parseIntent({ question, conversationHistory })
+          ? await parseIntent({ question, conversationHistory, aiEnabled })
           : null;
         // Aggregate questions need the broad set; a name search must be pushed
         // down to S/4 so it is not limited to the first rows returned.
@@ -2067,7 +2072,8 @@ class BusinessPartnerService extends cds.ApplicationService {
             PendingChangeRequest: partner.ChangeRequest || null
           })),
           conversationHistory,
-          totalBusinessPartners: needsPartnerData ? partners.length : null
+          totalBusinessPartners: needsPartnerData ? partners.length : null,
+          aiEnabled
         });
         return { ...assistantResult, ...(suggestion || {}) };
       } catch (error) {

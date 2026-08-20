@@ -55,7 +55,11 @@ test('the action declares Propose and Scope, and the runner threads both', () =>
 
   const js = fs.readFileSync(path.join(__dirname, '..', 'srv', 'change-request-service.js'), 'utf8');
   assert.match(js, /runRequestChecks = async \(req, \{ propose, duplicates, scope = null \}\)/u);
-  assert.match(js, /proposeNormalisations\(\{ payload: derived, scope: scope \|\| null \}\)/u);
+  // Matched loosely on purpose: what matters is that the payload and the scope reach
+  // proposeNormalisations, not how the call is wrapped - it also carries the AI switch now.
+  const proposeCall = js.slice(js.indexOf('proposeNormalisations({'));
+  assert.match(proposeCall, /payload: derived/u);
+  assert.match(proposeCall, /scope: scope \|\| null/u);
   // Omitting Propose must keep the button's behaviour: propose everything.
   assert.match(js, /propose: req\.data\.Propose !== false/u);
   // The duplicate check never proposes, trigger or not.

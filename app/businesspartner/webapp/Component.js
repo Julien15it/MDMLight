@@ -18,9 +18,14 @@ sap.ui.define(
                 // Manifest actions without a selection do not receive a binding
                 // context. Keep the application OData model available for them.
                 CustomActions.setEnvironment(this.getModel(), null);
-                // Starts false so a steward-only button is never briefly visible
-                // to someone who cannot use it.
-                this.setModel(new JSONModel({ isDataSteward: false }), "perm");
+                // isDataSteward starts false so a steward-only button is never briefly
+                // visible to someone who cannot use it. aiAssistanceEnabled starts true
+                // because that is the server's default - starting false would have the
+                // assistant briefly deny using a model it is about to use.
+                this.setModel(
+                    new JSONModel({ isDataSteward: false, aiAssistanceEnabled: true }),
+                    "perm"
+                );
                 this._loadPermissions();
                 // Always set, so the view can bind on it whether or not BPA embedded us.
                 this.setModel(new JSONModel({ embedded: false }), "env");
@@ -44,9 +49,15 @@ sap.ui.define(
                 binding.execute("$direct").then(function () {
                     var context = binding.getBoundContext();
                     var result = context ? context.getObject() : null;
-                    this.getModel("perm").setProperty(
+                    var permissions = this.getModel("perm");
+                    permissions.setProperty(
                         "/isDataSteward",
                         Boolean(result && result.isDataSteward)
+                    );
+                    // Only an explicit false is "off", matching srv/ai/availability.js.
+                    permissions.setProperty(
+                        "/aiAssistanceEnabled",
+                        !result || result.aiAssistanceEnabled !== false
                     );
                     binding.destroy();
                 }.bind(this)).catch(function () {

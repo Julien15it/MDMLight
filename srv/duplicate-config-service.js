@@ -9,6 +9,9 @@ const {
   COMPARISONS, SEVERITIES, validateValidationRule, validateDerivationRule
 } = require('./checks/rule-engine');
 const qualityRules = require('./checks/rule-store');
+const {
+  ENTITY: FEATURES, SINGLETON_ID, forgetCachedSettings
+} = require('./ai/availability');
 
 const RULES = 'mdmlight.config.DuplicateRules';
 const VALIDATIONS = 'mdmlight.config.ValidationRules';
@@ -144,6 +147,32 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
      * name index. Standing up a second index here would be a second duplicate check by the back
      * door — exactly what the one-engine requirement forbids.
      */
+    /**
+     * Reports the effective switches, not the stored row. An installation that
+     * has never saved a setting has no row at all, and the page must read that
+     * as "on" rather than as a blank it has to guess about - the same default
+     * srv/ai/availability.js applies on the enforcing side.
+     */
+    this.on('featureSettings', async () => {
+      const row = await cds.run(cds.ql.SELECT.one.from(FEATURES).where({ ID: SINGLETON_ID }));
+      return { aiAssistanceEnabled: row?.aiAssistanceEnabled !== false };
+    });
+
+    this.on('setAiAssistanceEnabled', async (req) => {
+      const enabled = req.data.Enabled === true;
+      // UPSERT rather than an UPDATE guarded by a SELECT: two stewards saving at
+      // once would otherwise both find no row and both insert one.
+      await cds.run(cds.ql.UPSERT.into(FEATURES).entries({
+        ID: SINGLETON_ID,
+        aiAssistanceEnabled: enabled
+      }));
+      // Otherwise the enforcing side keeps its cached answer for up to the TTL and
+      // the steward's own next request still sees the old setting.
+      forgetCachedSettings();
+      console.log(`[features] AI assistance switched ${enabled ? 'on' : 'off'}.`);
+      return { aiAssistanceEnabled: enabled };
+    });
+
     this.on('testRuleset', async (req) => {
       const bp = await cds.connect.to('BusinessPartnerService');
       return bp.send('testDuplicateRuleset', {
