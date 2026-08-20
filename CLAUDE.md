@@ -1059,6 +1059,17 @@ See "The shared maintenance screen" below for how the screen is shared rather
 than copied. The contract itself is unchanged, and still comes from SAP Help,
 *Technical Information for Adapting the SAPUI5 Application*.
 
+**`sap.bpa.task` is deliberately minimal — `_version`, `category` and the two
+outcomes, and nothing else. Do not add `inputs` or `outputs` back, and do not
+turn the outcome labels into `{{...}}` keys.** Maarten set it this way on
+2026-08-20 after the fuller block, carried over from the Fiori Elements app,
+would not take. The declaration costs nothing to lose: the schemas were there
+for the Lobby's benefit, and the runtime does not read them — `Component.js`
+fetches `/task-instances/{id}/context` itself and PATCHes the whole context back,
+so `changerequestid` and `comment` flow exactly as before. Literal labels for the
+same reason: `{{Approve}}` resolves out of the app's own i18n bundle, which is
+not where the Lobby looks.
+
 - **Never put a comment key in `app/businesspartner/xs-app.json`.** It ships into
   the HTML5 apps repository with the app and is schema-validated there; an
   unknown property in a route makes the whole app version unservable and every

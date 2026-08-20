@@ -196,3 +196,23 @@ test('the task app is its own app on the same business service', () => {
   // one-inbound-per-app limit in Work Zone standard edition never applies to it.
   assert.equal(Object.hasOwn(manifest['sap.app'], 'crossNavigation'), false);
 });
+
+/**
+ * Set by Maarten on 2026-08-20: the fuller block carried over from the Fiori Elements app would
+ * not take, so the declaration is `_version`, `category` and the outcomes and nothing else.
+ * Pinned here as well as in CLAUDE.md, because "the manifest looks incomplete" is exactly the
+ * observation that would put `inputs`/`outputs` back.
+ */
+test('the task declaration is minimal, and stays that way', () => {
+  const task = manifest['sap.bpa.task'];
+  assert.deepEqual(Object.keys(task).sort(), ['_version', 'category', 'outcomes']);
+
+  // Literal labels: `{{Approve}}` resolves out of the app's own i18n bundle, which is not where
+  // the Lobby looks - so the i18n keys went too.
+  for (const outcome of task.outcomes) {
+    assert.equal(
+      /^\{\{.*\}\}$/u.test(outcome.label), false, `${outcome.id} must carry a literal label`
+    );
+  }
+  assert.equal(/^Approve|Reject$/u.test(task.outcomes[0].label), true);
+});
