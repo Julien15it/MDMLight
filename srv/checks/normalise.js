@@ -181,10 +181,24 @@ function clean(value, maxLength) {
 
 // The prompt names fields "Addresses[0].StreetName", so the model echoes the row index back inside
 // target. Both sides key through here, or every proposal reads as one for a field never offered.
+/**
+ * One key per offered field, from whichever shape the model used to name it. It answers with
+ * `Addresses`, `Addresses[0]`, `Addresses[0].StreetName` and `Addresses.StreetName` for the same
+ * thing; only the first two parsed, so every proposal on an address row was dropped as invented
+ * (fixed 2026-08-20 - the `[normalise] every proposal was dropped` line is what showed it).
+ *
+ * Tolerant parsing does not weaken the guard: the key still has to be one that was actually
+ * offered, so a hallucinated field or row cannot match. A target that names a field CONTRADICTING
+ * `field` deliberately yields a key nothing can match - a disagreement is not something to settle
+ * by picking one of the two.
+ */
 function proposalKey(target, index, field) {
-  const bracketed = /^(.+?)\[(\d+)\]$/u.exec(String(target ?? '').trim());
-  const section = bracketed ? bracketed[1] : String(target ?? '').trim();
-  return `${section}|${bracketed ? Number(bracketed[2]) : Number(index)}|${field}`;
+  const text = String(target ?? '').trim();
+  const parsed = /^([^.[\]]+)(?:\[(\d+)\])?(?:\.(.+))?$/u.exec(text);
+  if (!parsed) return `${text}|${Number(index)}|${field}`;
+  const [, section, row, qualifiedField] = parsed;
+  return `${section}|${row === undefined ? Number(index) : Number(row)}|`
+    + `${qualifiedField === undefined || qualifiedField === field ? field : `${qualifiedField}/${field}`}`;
 }
 
 // Checked against what was actually sent rather than trusted: a proposal for a field that was not
