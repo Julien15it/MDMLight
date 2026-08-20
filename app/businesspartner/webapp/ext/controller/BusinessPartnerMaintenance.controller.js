@@ -2275,6 +2275,9 @@ sap.ui.define([
       },
 
       onOpenAssistant: function () {
+        // The button is hidden when assistance is off; this is the second lock, for a
+        // binding that failed to evaluate rather than for a user who got past it.
+        if (!BusinessPartnerAssistant.isAvailable(this.getView())) return;
         BusinessPartnerAssistant.open(this.getView().getModel(), this.getView());
       },
 

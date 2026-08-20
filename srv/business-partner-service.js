@@ -1998,6 +1998,14 @@ class BusinessPartnerService extends cds.ApplicationService {
     });
 
     this.on('askBusinessPartnerAssistant', async (req) => {
+      // The one feature that exists solely to reach a language model, so an installation
+      // with AI assistance switched off does not get a quieter version of it - it does not
+      // get it at all. The UI hides every way in; this is the lock behind that, because the
+      // action stays callable by anything holding the service URL.
+      if (!await aiAssistanceEnabled()) {
+        return req.reject(403, 'AI assistance is switched off for this system.');
+      }
+
       const question = String(req.data.Question || '').trim();
       if (!question) req.reject(400, 'Enter a question.', 'Question');
       let conversationHistory;
@@ -2012,8 +2020,9 @@ class BusinessPartnerService extends cds.ApplicationService {
         const normalized = question.toLocaleLowerCase();
         // A digit after "BP" is not something a model improves on, so this stays a pattern.
         const numberMatch = normalized.match(/\b(?:bp|business partner|partner)\s*#?\s*(\d{1,10})\b/u);
-        // Read once per question rather than per model call, so the intent parse and
-        // the answer below cannot disagree about whether AI is on mid-request.
+        // True by now - the guard above returned otherwise. Still threaded through, because
+        // parseIntent and askSapAiCore are exported and must refuse on their own account
+        // rather than trust every future caller to have checked first.
         const aiEnabled = await aiAssistanceEnabled();
         const modelIntent = useModelIntent()
           ? await parseIntent({ question, conversationHistory, aiEnabled })

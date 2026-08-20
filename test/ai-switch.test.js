@@ -190,14 +190,41 @@ test('the hub offers the switch to stewards only, and says what it covers', () =
   assert.match(controller, /setProperty\("\/aiAssistanceEnabled", !enabled\)/u);
 });
 
-test('the assistant does not promise a model it may not call', () => {
-  const assistant = fs.readFileSync(
-    path.join(__dirname, '..', 'app', 'businesspartner', 'webapp', 'ext',
-      'BusinessPartnerAssistant.js'),
-    'utf8'
+test('with AI off the assistant is withdrawn, not quietly answered without a model', () => {
+  const bpApp = path.join(__dirname, '..', 'app', 'businesspartner', 'webapp');
+  const readApp = (...parts) => fs.readFileSync(path.join(bpApp, ...parts), 'utf8');
+
+  // Every way in is bound to the flag: the object page button and both Fiori Elements
+  // actions. One left hardcoded visible is a button an installation may not use.
+  assert.match(
+    readApp('ext', 'view', 'BusinessPartnerMaintenance.view.xml'),
+    /text="Ask Assistant"[\s\S]*?visible="\{perm>\/aiAssistanceEnabled\}"/u
   );
-  assert.match(assistant, /aiEnabled\s*\n?\s*\?/u, 'the greeting is not conditional');
-  assert.match(assistant, /AI assistance is switched off/u);
+  const manifest = JSON.parse(readApp('manifest.json'));
+  const actions = [
+    manifest['sap.ui5'].routing.targets.BusinessPartnersList
+      .options.settings.controlConfiguration['@com.sap.vocabularies.UI.v1.LineItem']
+      .actions.BusinessPartnerAssistant,
+    manifest['sap.ui5'].routing.targets.BusinessPartnersObjectPage
+      .options.settings.content.header.actions.BusinessPartnerAssistantHeader
+  ];
+  for (const action of actions) {
+    assert.equal(action.visible, '{= ${perm>/aiAssistanceEnabled} }');
+  }
+
+  // And both launchers ask before opening, for a binding that never evaluated.
+  assert.match(readApp('ext', 'BusinessPartnerAssistant.js'), /isAvailable: function \(view\)/u);
+  assert.match(readApp('ext', 'CustomActions.js'), /if \(!BusinessPartnerAssistant\.isAvailable\(/u);
+  assert.match(
+    readApp('ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),
+    /if \(!BusinessPartnerAssistant\.isAvailable\(this\.getView\(\)\)\) return;/u
+  );
+
+  // The lock behind all of that: the action is callable by anything holding the URL.
+  assert.match(
+    fs.readFileSync(path.join(__dirname, '..', 'srv', 'business-partner-service.js'), 'utf8'),
+    /if \(!await aiAssistanceEnabled\(\)\) \{\s*\n\s*return req\.reject\(403/u
+  );
 
   // Both apps default the flag to true, so neither flashes "AI is off" before the real
   // value arrives.

@@ -22,16 +22,21 @@ entity FeatureSettings : managed {
   key ID                  : String(12);
 
       /**
-       * False turns off every call to a language model: the assistant's model
-       * answer, model-based intent parsing and the normalisation proposals.
+       * False turns off every call to a language model: the assistant, model-based
+       * intent parsing and the normalisation proposals.
        *
-       * Nothing breaks when it is off. Each of those three already has a
-       * deterministic path for the case where no AI Core binding exists - the
-       * assistant answers from the S/4 search and reports
-       * `Provider: 'S/4HANA search'`, intent falls back to pattern matching,
-       * normalisation to its rule-based proposals. This switch takes the same
-       * road on purpose, so turning AI off exercises code that is already used
-       * and tested rather than a second, unproven branch.
+       * The assistant is withdrawn rather than degraded. It is the one feature that
+       * exists only to reach a model, so an installation that may not use AI is not
+       * offered a quieter version of it: every way in is hidden and
+       * `askBusinessPartnerAssistant` refuses with 403.
+       *
+       * The other two degrade instead, because they are enrichments of work the user
+       * came to do rather than features in their own right - submitting a change
+       * request has to keep working. Both already had a deterministic path for the
+       * case where no AI Core binding exists: intent falls back to pattern matching,
+       * normalisation to its rule-based proposals. This switch takes that same road,
+       * so turning AI off exercises code that is already used and tested rather than
+       * a second, unproven branch.
        *
        * Explicitly NOT covered, because they reach no model: the duplicate check
        * and fuzzy name matching (local scoring), and the VIES and GLEIF

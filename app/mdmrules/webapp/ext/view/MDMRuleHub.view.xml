@@ -64,7 +64,7 @@
               class="sapUiSmallMarginBegin"
               text="{= ${perm>/aiAssistanceEnabled}
                 ? 'The assistant answers with a language model, and normalisation proposals are offered.'
-                : 'No request reaches a language model. The assistant still answers from the S/4HANA search.' }" />
+                : 'No request reaches a language model. The assistant is withdrawn from the Business Partner app.' }" />
           </HBox>
           <Text
             class="sapUiTinyMarginTop"
