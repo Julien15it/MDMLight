@@ -108,7 +108,6 @@ sap.ui.define([
         name: "",
         requestType: "*",
         role: "*",
-        sequence: 10,
         isActive: true
       });
       this._markDirty();

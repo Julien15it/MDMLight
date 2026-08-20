@@ -22,10 +22,9 @@ entity FieldPropertyProfiles : managed {
       /** `Requester`, `Approver`, `DataSteward` or `*` for every role. */
       role        : String(40) default '*';
 
-      /** Which profile wins where two match. Lower first, so a global `*` profile can be laid down
-       *  as a base and a narrower one placed after it. */
-      sequence    : Integer default 10;
-
+      // No precedence column, deliberately: where two profiles match, the result is the BROADEST of
+      // what they say (see srv/checks/field-properties.js), which is a join and therefore
+      // order-independent. A `sequence` here would be a column implying an ordering nothing reads.
       isActive    : Boolean default true;
 
       settings    : Composition of many FieldPropertySettings on settings.profile = $self;

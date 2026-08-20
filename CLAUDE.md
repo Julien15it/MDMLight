@@ -637,9 +637,10 @@ examples fall out of that rather than being special-cased:
 
 `PROPERTY_STATE` in `srv/checks/field-properties.js` is the whole rule, and the
 join is closed over the four names — every combination lands back on one of them,
-which `test/field-property-apply.test.js` proves exhaustively. **`sequence` is
-therefore not a precedence**: the merge is order-independent, and the column stays
-as grid order only.
+which `test/field-property-apply.test.js` proves exhaustively. **There is therefore
+no precedence column.** A `sequence` was modelled for one and dropped on 2026-08-20,
+before the table had ever been deployed: the merge is a join, so no profile is ever
+"first", and a column implying an order nothing reads is worse than no column.
 
 **Silence is not `optional`.** A profile that says nothing about a target is left
 out of the join entirely. Counting it as `optional` would let one global profile
