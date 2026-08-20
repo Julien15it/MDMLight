@@ -67,9 +67,25 @@ test('the validation Value cell switches itself off where a value is meaningless
  */
 test('the derivation page says when a Value was read as a field', () => {
   const source = view('DerivationRuleList');
-  assert.match(source, /Copied from/u);
-  assert.match(source, /\$\{view>\/fieldText\}\[\$\{dc>value\}\]/u);
-  assert.match(controller('DerivationRuleList'), /fieldText\[entry\.code\] = entry\.text/u);
+  const ctrl = controller('DerivationRuleList');
+  assert.match(source, /formatter: '\.formatValueHint'/u);
+  assert.match(source, /formatter: '\.isFieldReference'/u);
+  assert.match(ctrl, /Copied from/u);
+  assert.match(ctrl, /fieldText\[entry\.code\] = entry\.text/u);
+});
+
+/**
+ * A literal is the other half of the Value column, and it gets NO hint. It used to get
+ * "Copied from undefined": the text was concatenated from a catalog lookup that misses for a
+ * free-form value, and the `visible` guard beside it did not stop the text being rendered. The
+ * lookup now decides the string itself, so there is nothing to hide.
+ */
+test('a free-form value gets no hint rather than an undefined one', () => {
+  const source = view('DerivationRuleList');
+  assert.equal(/'Copied from ' \+/u.test(source), false, 'no concatenation left in the view');
+  const ctrl = controller('DerivationRuleList');
+  const hint = ctrl.slice(ctrl.indexOf('formatValueHint: function'));
+  assert.match(hint.slice(0, hint.indexOf('isFieldReference:')), /label \? "Copied from " \+ label : ""/u);
 });
 
 /**
