@@ -1,0 +1,308 @@
+<mvc:View controllerName="mdm.md.businesspartner.manage.controller.App"
+    xmlns:html="http://www.w3.org/1999/xhtml"
+    xmlns:mvc="sap.ui.core.mvc" displayBlock="true"
+    xmlns:l="sap.ui.layout"
+    xmlns:f="sap.ui.layout.form"
+    xmlns:core="sap.ui.core"
+    xmlns:form="sap.ui.layout.form"
+    xmlns:uxap="sap.uxap"
+    xmlns:smartForm="sap.ui.comp.smartform"
+    xmlns:smartField="sap.ui.comp.smartfield"
+    xmlns="sap.m">
+   <App id="app">
+    <Page id="scroll">
+        <dependents>
+            <Dialog id="generalAdditionalFieldsDialog" title="Additional General Information Fields" contentWidth="40rem" contentHeight="24rem" resizable="true" draggable="true">
+                <content>
+                    <FlexBox id="GeneralInformationAdditionalFieldGroup" class="bpFieldGroup bpDialogFieldGroup" wrap="Wrap">
+                        <VBox id="CreationDateField" class="bpField">
+                            <Label id="creation-date-label" text="Created On" class="bpFieldLabel"/>
+                            <Text id="creation-date-value" class="bpFieldValue" text="{= ${context>/CreationDate} || '–' }"/>
+                        </VBox>
+                    </FlexBox>
+                </content>
+                <buttons>
+                    <Button id="generalAdditionalFieldsDialogCloseButton" text="Close" press=".onCloseGeneralAdditionalFields"/>
+                </buttons>
+            </Dialog>
+            <Dialog id="namesAdditionalFieldsDialog" title="Additional Name Fields" contentWidth="40rem" contentHeight="24rem" resizable="true" draggable="true">
+                <content>
+                    <FlexBox id="NamesAdditionalFieldGroup" class="bpFieldGroup bpDialogFieldGroup" wrap="Wrap">
+                        <!-- Category 1: Person - additional -->
+                        <VBox id="MiddleNameField" class="bpField" visible="{= ${context>/BusinessPartnerCategory} === '1' }">
+                            <Label id="middle-name-label" text="Middle Name" class="bpFieldLabel"/>
+                            <Text id="middle-name-value" class="bpFieldValue" text="{= ${context>/MiddleName} || '–' }"/>
+                        </VBox>
+                        <VBox id="AdditionalLastNameField" class="bpField" visible="{= ${context>/BusinessPartnerCategory} === '1' }">
+                            <Label id="additional-last-name-label" text="Other Last Name" class="bpFieldLabel"/>
+                            <Text id="additional-last-name-value" class="bpFieldValue" text="{= ${context>/AdditionalLastName} || '–' }"/>
+                        </VBox>
+                        <VBox id="InitialsField" class="bpField" visible="{= ${context>/BusinessPartnerCategory} === '1' }">
+                            <Label id="initials-label" text="Initials" class="bpFieldLabel"/>
+                            <Text id="initials-value" class="bpFieldValue" text="{= ${context>/Initials} || '–' }"/>
+                        </VBox>
+
+                        <!-- Category 2: Organization - additional -->
+                        <VBox id="OrganizationName3Field" class="bpField" visible="{= ${context>/BusinessPartnerCategory} === '2' }">
+                            <Label id="organization-name-3-label" text="Organization Name 3" class="bpFieldLabel"/>
+                            <Text id="organization-name-3-value" class="bpFieldValue" text="{= ${context>/OrganizationBPName3} || '–' }"/>
+                        </VBox>
+                        <VBox id="OrganizationName4Field" class="bpField" visible="{= ${context>/BusinessPartnerCategory} === '2' }">
+                            <Label id="organization-name-4-label" text="Organization Name 4" class="bpFieldLabel"/>
+                            <Text id="organization-name-4-value" class="bpFieldValue" text="{= ${context>/OrganizationBPName4} || '–' }"/>
+                        </VBox>
+
+                        <!-- Category 3: Group - additional -->
+                        <VBox id="GroupName1Field" class="bpField" visible="{= ${context>/BusinessPartnerCategory} === '3' }">
+                            <Label id="group-name-1-label" text="Group Name 1" class="bpFieldLabel"/>
+                            <Text id="group-name-1-value" class="bpFieldValue" text="{= ${context>/GroupBusinessPartnerName1} || '–' }"/>
+                        </VBox>
+                        <VBox id="GroupName2Field" class="bpField" visible="{= ${context>/BusinessPartnerCategory} === '3' }">
+                            <Label id="group-name-2-label" text="Group Name 2" class="bpFieldLabel"/>
+                            <Text id="group-name-2-value" class="bpFieldValue" text="{= ${context>/GroupBusinessPartnerName2} || '–' }"/>
+                        </VBox>
+                    </FlexBox>
+                </content>
+                <buttons>
+                    <Button id="namesAdditionalFieldsDialogCloseButton" text="Close" press=".onCloseNamesAdditionalFields"/>
+                </buttons>
+            </Dialog>
+        </dependents>
+        <content>
+        <Panel id="duplicateWarningsPanel" class="bpDuplicateWarnings" expandable="true" expanded="true"
+            visible="{= !!${context>/bpduplicates} &amp;&amp; ${context>/bpduplicates}.length > 0 }">
+            <headerToolbar>
+                <OverflowToolbar id="duplicateWarningsToolbar" class="bpDuplicateWarningsToolbar">
+                    <core:Icon id="duplicateWarningsHeaderIcon" src="sap-icon://message-warning" class="bpDuplicateWarningIcon"/>
+                    <Title id="duplicateWarningsHeaderTitle" level="H4"
+                        text="{= (${context>/bpduplicates} ? ${context>/bpduplicates}.length : 0) + ' possible duplicate(s) found' }"/>
+                    <ToolbarSpacer id="duplicateWarningsToolbarSpacer"/>
+                </OverflowToolbar>
+            </headerToolbar>
+            <content>
+                <VBox id="duplicateWarningsList" class="bpDuplicateWarningsList" items="{context>/bpduplicates}">
+                    <HBox id="duplicateWarningRow" class="bpDuplicateWarningRow" alignItems="Center">
+                        <Link id="duplicateWarningLink"
+                            visible="{ path: 'context>', formatter: '.formatDuplicateIsLinkable' }"
+                            text="{ path: 'context>', formatter: '.formatDuplicateNumber' }"
+                            href="{ path: 'context>', formatter: '.formatDuplicateUrl' }"
+                            target="_blank"
+                            class="bpDuplicateWarningLink"/>
+                        <Text id="duplicateWarningNumberText"
+                            visible="{ path: 'context>', formatter: '.formatDuplicateIsNotLinkable' }"
+                            text="{ path: 'context>', formatter: '.formatDuplicateNumber' }"
+                            class="bpDuplicateWarningLink"/>
+                        <Text id="duplicateWarningText" text="{ path: 'context>', formatter: '.formatDuplicateRest' }" class="bpDuplicateWarningText"/>
+                    </HBox>
+                </VBox>
+            </content>
+        </Panel>
+        <uxap:ObjectPageLayout id="businessPartnerObjectPage"
+            showAnchorBar="true"
+            upperCaseAnchorBar="false"
+            useIconTabBar="false"
+            showHeaderContent="false"
+            enableLazyLoading="false">
+            <uxap:headerTitle>
+                <uxap:ObjectPageDynamicHeaderTitle id="businessPartnerHeaderTitle">
+                    <uxap:expandedHeading>
+                        <VBox id="businessPartnerExpandedHeading">
+                            <Title id="businessPartnerExpandedTitle" text="{context>/BusinessPartnerName}" level="H1" wrapping="true"/>
+                            <HBox id="businessPartnerExpandedSubHeading" alignItems="Center">
+                                <ObjectNumber id="businessPartnerExpandedNumber" number="{context>/BusinessPartner}"/>
+                                <ObjectStatus id="businessPartnerExpandedStatus"
+                                    class="sapUiTinyMarginBegin"
+                                    text="{= ${context>/RequestType} === 'create' ? 'Create' : ${context>/RequestType} === 'change' ? 'Change' : ${context>/RequestType} === 'delete' ? 'Delete' : ${context>/RequestType} || '–' }"
+                                    state="{= ${context>/RequestType} === 'create' ? 'Success' : ${context>/RequestType} === 'change' ? 'Warning' : ${context>/RequestType} === 'delete' ? 'Error' : 'None' }"/>
+                            </HBox>
+                        </VBox>
+                    </uxap:expandedHeading>
+                    <uxap:snappedHeading>
+                        <HBox id="businessPartnerSnappedHeading" alignItems="Center">
+                            <Title id="businessPartnerSnappedTitle" text="{context>/BusinessPartnerName}" level="H2"/>
+                            <ObjectNumber id="businessPartnerSnappedNumber" number="{context>/BusinessPartner}" class="sapUiSmallMarginBegin"/>
+                            <ObjectStatus id="businessPartnerSnappedStatus"
+                                class="sapUiTinyMarginBegin"
+                                text="{= ${context>/RequestType} === 'CREATE' ? 'Create' : ${context>/RequestType} === 'CHANGE' ? 'Change' : ${context>/RequestType} === 'DELETE' ? 'Delete' : ${context>/RequestType} || '–' }"
+                                state="{= ${context>/RequestType} === 'CREATE' ? 'Success' : ${context>/RequestType} === 'CHANGE' ? 'Warning' : ${context>/RequestType} === 'DELETE' ? 'Error' : 'None' }"/>
+                        </HBox>
+                    </uxap:snappedHeading>
+                </uxap:ObjectPageDynamicHeaderTitle>
+            </uxap:headerTitle>
+            <uxap:sections>
+                <uxap:ObjectPageSection id="GeneralInformationSection" title="General Information" titleUppercase="false">
+                    <uxap:subSections>
+                        <uxap:ObjectPageSubSection id="GeneralInformationSubSection">
+                            <uxap:blocks>
+                                <VBox id="GeneralInformationCard" class="bpCard">
+                                    <OverflowToolbar id="GeneralInformationToolbar" style="Clear" class="bpCardToolbar">
+                                        <ToolbarSpacer id="GeneralInformationToolbarSpacer"/>
+                                        <Button id="GeneralInformationAdditionalFieldsButton"
+                                            icon="sap-icon://list"
+                                            text="Additional Fields"
+                                            type="Transparent"
+                                            press=".onOpenGeneralAdditionalFields"/>
+                                    </OverflowToolbar>
+                                    <FlexBox id="GeneralInformationFieldGroup" class="bpFieldGroup" wrap="Wrap">
+                                        <VBox id="CategoryField" class="bpField">
+                                            <Label id="category-label" text="Category" class="bpFieldLabel"/>
+                                            <Text id="category-value" class="bpFieldValue"
+                                                text="{= ${context>/BusinessPartnerCategory} === '1' ? 'Person (1)' : ${context>/BusinessPartnerCategory} === '2' ? 'Organization (2)' : ${context>/BusinessPartnerCategory} === '3' ? 'Group (3)' : '–' }"/>
+                                        </VBox>
+                                        <VBox id="GroupingField" class="bpField">
+                                            <Label id="grouping-label" text="Grouping" class="bpFieldLabel"/>
+                                            <Text id="grouping-value" class="bpFieldValue" text="{= ${context>/BusinessPartnerGrouping} || '–' }"/>
+                                        </VBox>
+                                        <VBox id="SearchTerm1Field" class="bpField">
+                                            <Label id="search-term-1-label" text="Search Term 1" class="bpFieldLabel"/>
+                                            <Text id="search-term-1-value" class="bpFieldValue" text="{= ${context>/SearchTerm1} || '–' }"/>
+                                        </VBox>
+                                        <VBox id="SearchTerm2Field" class="bpField">
+                                            <Label id="search-term-2-label" text="Search Term 2" class="bpFieldLabel"/>
+                                            <Text id="search-term-2-value" class="bpFieldValue" text="{= ${context>/SearchTerm2} || '–' }"/>
+                                        </VBox>
+                                        <VBox id="CorrespondenceLanguageField" class="bpField">
+                                            <Label id="correspondence-language-label" text="Correspondence Language" class="bpFieldLabel"/>
+                                            <Text id="correspondence-language-value" class="bpFieldValue" text="{= ${context>/CorrespondenceLanguage} || '–' }"/>
+                                        </VBox>
+                                        <VBox id="BlockedField" class="bpField">
+                                            <Label id="blocked-label" text="Blocked" class="bpFieldLabel"/>
+                                            <Text id="blocked-value" class="bpFieldValue" text="{= ${context>/BusinessPartnerIsBlocked} ? 'Yes' : '–' }"/>
+                                        </VBox>
+                                        <VBox id="MarkedForArchivingField" class="bpField">
+                                            <Label id="marked-for-archiving-label" text="Marked for Archiving" class="bpFieldLabel"/>
+                                            <Text id="marked-for-archiving-value" class="bpFieldValue" text="{= ${context>/IsMarkedForArchiving} ? 'Yes' : '–' }"/>
+                                        </VBox>
+                                    </FlexBox>
+                                </VBox>
+                            </uxap:blocks>
+                        </uxap:ObjectPageSubSection>
+                    </uxap:subSections>
+                </uxap:ObjectPageSection>
+                <uxap:ObjectPageSection id="NamesSection" title="Names" titleUppercase="false">
+                    <uxap:subSections>
+                        <uxap:ObjectPageSubSection id="NamesSubSection">
+                            <uxap:blocks>
+                                <VBox id="NamesCard" class="bpCard">
+                                    <OverflowToolbar id="NamesToolbar" style="Clear" class="bpCardToolbar">
+                                        <ToolbarSpacer id="NamesToolbarSpacer"/>
+                                        <Button id="NamesAdditionalFieldsButton"
+                                            icon="sap-icon://list"
+                                            text="Additional Fields"
+                                            type="Transparent"
+                                            press=".onOpenNamesAdditionalFields"/>
+                                    </OverflowToolbar>
+                                    <FlexBox id="NamesFieldGroup" class="bpFieldGroup" wrap="Wrap">
+                                        <!-- Common to every category -->
+                                        <VBox id="BusinessPartnerFullNameField" class="bpField">
+                                            <Label id="business-partner-full-name-label" text="Business Partner Full Name" class="bpFieldLabel"/>
+                                            <Text id="business-partner-full-name-value" class="bpFieldValue" text="{= ${context>/BusinessPartnerFullName} || '–' }"/>
+                                        </VBox>
+
+                                        <!-- Category 1: Person -->
+                                        <VBox id="FormOfAddressField" class="bpField" visible="{= ${context>/BusinessPartnerCategory} === '1' }">
+                                            <Label id="form-of-address-label" text="Title" class="bpFieldLabel"/>
+                                            <Text id="form-of-address-value" class="bpFieldValue" text="{= ${context>/FormOfAddress} || '–' }"/>
+                                        </VBox>
+                                        <VBox id="FirstNameField" class="bpField" visible="{= ${context>/BusinessPartnerCategory} === '1' }">
+                                            <Label id="first-name-label" text="First Name" class="bpFieldLabel"/>
+                                            <Text id="first-name-value" class="bpFieldValue" text="{= ${context>/FirstName} || '–' }"/>
+                                        </VBox>
+                                        <VBox id="LastNameField" class="bpField" visible="{= ${context>/BusinessPartnerCategory} === '1' }">
+                                            <Label id="last-name-label" text="Last Name" class="bpFieldLabel"/>
+                                            <Text id="last-name-value" class="bpFieldValue" text="{= ${context>/LastName} || '–' }"/>
+                                        </VBox>
+
+                                        <!-- Category 2: Organization -->
+                                        <VBox id="OrganizationName1Field" class="bpField" visible="{= ${context>/BusinessPartnerCategory} === '2' }">
+                                            <Label id="organization-name-1-label" text="Organization Name 1" class="bpFieldLabel"/>
+                                            <Text id="organization-name-1-value" class="bpFieldValue" text="{= ${context>/OrganizationBPName1} || '–' }"/>
+                                        </VBox>
+                                        <VBox id="OrganizationName2Field" class="bpField" visible="{= ${context>/BusinessPartnerCategory} === '2' }">
+                                            <Label id="organization-name-2-label" text="Organization Name 2" class="bpFieldLabel"/>
+                                            <Text id="organization-name-2-value" class="bpFieldValue" text="{= ${context>/OrganizationBPName2} || '–' }"/>
+                                        </VBox>
+                                    </FlexBox>
+                                </VBox>
+                            </uxap:blocks>
+                        </uxap:ObjectPageSubSection>
+                    </uxap:subSections>
+                </uxap:ObjectPageSection>
+                <uxap:ObjectPageSection id="AddressesSection" title="Addresses" titleUppercase="false">
+                    <uxap:subSections>
+                        <uxap:ObjectPageSubSection id="AddressesSubSection">
+                            <uxap:blocks>
+                                <Table id="AddressesTable" class="bpTableCard" items="{context>/Addresses}" noDataText="No records yet.">
+                                    <headerToolbar>
+                                        <OverflowToolbar id="AddressesToolbar">
+                                            <ToolbarSpacer id="AddressesToolbarSpacer"/>
+                                            <SearchField id="AddressesSearchField" width="14rem" search=".onFilterAddresses"/>
+                                            <Text id="AddressesCount" class="sapUiTinyMarginBegin"
+                                                text="{= (${context>/Addresses} ? ${context>/Addresses}.length : 0) + ' record(s)' }"/>
+                                        </OverflowToolbar>
+                                    </headerToolbar>
+                                    <columns>
+                                        <Column id="AddressesStreetColumn"><Text id="AddressesStreetColumnText" text="Street"/></Column>
+                                        <Column id="AddressesHouseNumberColumn"><Text id="AddressesHouseNumberColumnText" text="House Number"/></Column>
+                                        <Column id="AddressesPostalCodeColumn"><Text id="AddressesPostalCodeColumnText" text="Postal Code"/></Column>
+                                        <Column id="AddressesCityColumn"><Text id="AddressesCityColumnText" text="City"/></Column>
+                                        <Column id="AddressesCountryColumn"><Text id="AddressesCountryColumnText" text="Country/Region Key"/></Column>
+                                        <Column id="AddressesRegionColumn"><Text id="AddressesRegionColumnText" text="Region"/></Column>
+                                        <Column id="AddressesPOBoxColumn"><Text id="AddressesPOBoxColumnText" text="PO Box"/></Column>
+                                    </columns>
+                                    <items>
+                                        <ColumnListItem id="AddressesItem">
+                                            <cells>
+                                                <Text id="AddressesStreetText" text="{context>StreetName}"/>
+                                                <Text id="AddressesHouseNumberText" text="{context>HouseNumber}"/>
+                                                <Text id="AddressesPostalCodeText" text="{context>PostalCode}"/>
+                                                <Text id="AddressesCityText" text="{context>CityName}"/>
+                                                <Text id="AddressesCountryText" text="{context>Country}"/>
+                                                <Text id="AddressesRegionText" text="{context>Region}"/>
+                                                <Text id="AddressesPOBoxText" text="{context>POBox}"/>
+                                            </cells>
+                                        </ColumnListItem>
+                                    </items>
+                                </Table>
+                            </uxap:blocks>
+                        </uxap:ObjectPageSubSection>
+                    </uxap:subSections>
+                </uxap:ObjectPageSection>
+                <uxap:ObjectPageSection id="RolesSection" title="Roles" titleUppercase="false">
+                    <uxap:subSections>
+                        <uxap:ObjectPageSubSection id="RolesSubSection">
+                            <uxap:blocks>
+                                <Table id="RolesTable" class="bpTableCard" items="{context>/Roles}" noDataText="No records yet.">
+                                    <headerToolbar>
+                                        <OverflowToolbar id="RolesToolbar">
+                                            <ToolbarSpacer id="RolesToolbarSpacer"/>
+                                            <SearchField id="RolesSearchField" width="14rem" search=".onFilterRoles"/>
+                                            <Text id="RolesCount" class="sapUiTinyMarginBegin"
+                                                text="{= (${context>/Roles} ? ${context>/Roles}.length : 0) + ' record(s)' }"/>
+                                        </OverflowToolbar>
+                                    </headerToolbar>
+                                    <columns>
+                                        <Column id="RolesRoleColumn"><Text id="RolesRoleColumnText" text="Role"/></Column>
+                                        <Column id="RolesValidFromColumn"><Text id="RolesValidFromColumnText" text="Valid From"/></Column>
+                                        <Column id="RolesValidToColumn"><Text id="RolesValidToColumnText" text="Valid To"/></Column>
+                                    </columns>
+                                    <items>
+                                        <ColumnListItem id="RolesItem">
+                                            <cells>
+                                                <Text id="RolesRoleText" text="{context>BusinessPartnerRole}"/>
+                                                <Text id="RolesValidFromText" text="{context>ValidFrom}"/>
+                                                <Text id="RolesValidToText" text="{context>ValidTo}"/>
+                                            </cells>
+                                        </ColumnListItem>
+                                    </items>
+                                </Table>
+                            </uxap:blocks>
+                        </uxap:ObjectPageSubSection>
+                    </uxap:subSections>
+                </uxap:ObjectPageSection>
+            </uxap:sections>
+        </uxap:ObjectPageLayout>
+        </content>
+    </Page>
+</App>
+</mvc:View>
