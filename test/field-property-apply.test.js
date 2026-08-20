@@ -178,15 +178,18 @@ test('a mandatory entity with no rows blocks the submit', async () => {
   assert.deepEqual(filled, []);
 });
 
-/** Nobody can fill in a field they cannot see or edit, so the cascade is read before blocking. */
+/**
+ * Nobody can fill in a field they cannot see, so the cascade is read before anything blocks - and
+ * with nothing left to enforce there is no stage at all, not a stage that runs and finds nothing.
+ */
 test('a mandatory field inside a hidden entity does not block anything', async () => {
   const resolved = resolveProfiles([profile('a', '*', '*'), profile('b', '*', '*')], [
     setting('a', 'Addresses', null, 'hidden'),
     setting('b', 'Addresses', 'Country', 'mandatory')
   ], {});
-  const stages = createFieldPropertyStages(resolved, csn);
-  const findings = await stages.validations[0].run({ root: {}, sections: { Addresses: [{}] } });
-  assert.deepEqual(findings, []);
+  // The merge itself is the cascade's input: hidden + (nothing) on the entity stays hidden.
+  assert.equal(effectiveProperty(resolved, 'Addresses', 'Country'), 'hidden');
+  assert.deepEqual(createFieldPropertyStages(resolved, csn).validations, []);
 });
 
 test('no profile means no stage at all, not an empty one that runs per request', () => {
