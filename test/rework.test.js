@@ -19,7 +19,8 @@ const view = read(APP, 'ext', 'view', 'BusinessPartnerMaintenance.view.xml');
 const manifest = JSON.parse(read(APP, 'manifest.json'));
 
 const {
-  EDITABLE_STATUSES, WITHDRAWABLE_STATUSES, RESUBMITTED_SIGNAL, WITHDRAWN_SIGNAL, reworkUrl
+  EDITABLE_STATUSES, WITHDRAWABLE_STATUSES, RESUBMITTED_SIGNAL, WITHDRAWN_SIGNAL, reworkUrl,
+  rowAction, stateOfAction, UNTOUCHED
 } =
   require('../srv/change-request-service')._internals;
 const { ACTIVE_REQUEST_STATUSES } = require('../srv/business-partner-service')._internals;
@@ -262,6 +263,55 @@ test('the screen claims on the rework route and nowhere else', () => {
 test('the screen says so when no rejection reason came through', () => {
   const load = controller.slice(controller.indexOf('_loadStagedRequest: async function'));
   assert.match(load, /No reason was recorded with it/u);
+});
+
+/**
+ * The 500 a resubmit threw on 2026-08-20, and it was never about the workflow: `action` is
+ * `not null` on every staged node, and `rowAction` returned **null** for a row nobody had touched.
+ * A first submit never noticed - every row carries `__state: 'new'` - but a resubmit reloads the
+ * request from staging, where nothing carries `__state` at all, so the insert hit the constraint
+ * before anything reached BPA. The same trap was waiting for a change request over untouched rows.
+ */
+test('a row nobody touched is staged as N, never as null', () => {
+  assert.equal(rowAction({ __state: 'new' }), 'C');
+  assert.equal(rowAction({ __state: 'dirty' }), 'U');
+  assert.equal(rowAction({}), UNTOUCHED);
+  assert.equal(rowAction(undefined), UNTOUCHED);
+  assert.equal(UNTOUCHED, 'N');
+  // The column the null was violating, and the enum value that replaced it.
+  assert.match(staging, /action\s+: NodeAction not null default 'C'/u);
+  assert.match(staging, /enum \{ create = 'C'; update = 'U'; delete = 'D'; none = 'N' \}/u);
+});
+
+/**
+ * The half that the null was hiding. A resubmit reloads the request from staging, so without the
+ * stored action coming back as `__state` every untouched row would restage as `N` - and an approved
+ * resubmit would post a partner with no addresses, silently. `N` made the 500 go away; this is what
+ * makes the round trip correct.
+ */
+test('a reloaded row remembers whether it was a create or an update', () => {
+  assert.deepEqual(stateOfAction('C'), { __state: 'new' });
+  assert.deepEqual(stateOfAction('U'), { __state: 'modified' });
+  // Untouched and deleted rows need no state: N restages as N, and D is handed back through
+  // `deleted` and restaged as D whatever it carries.
+  assert.deepEqual(stateOfAction('N'), {});
+  assert.deepEqual(stateOfAction(null), {});
+  assert.deepEqual(stateOfAction('D'), {});
+  // And the round trip is closed: what comes back out stages as what went in.
+  for (const action of ['C', 'U']) {
+    assert.equal(rowAction(stateOfAction(action)), action, `${action} survives a reload`);
+  }
+  assert.equal(rowAction(stateOfAction('N')), UNTOUCHED);
+  const payload = serviceJs.slice(serviceJs.indexOf("this.on('getRequestPayload'"));
+  assert.match(payload, /\.\.\.rest, \.\.\.stateOfAction\(action\)/u);
+});
+
+/** N means the same as the old null: staged so the approver sees the whole partner, never replayed. */
+test('an untouched row is still not posted to S/4', () => {
+  const post = serviceJs.slice(serviceJs.indexOf('const postToS4'));
+  assert.match(post, /if \(!action \|\| action === UNTOUCHED\) continue;/u);
+  // Rows staged before N existed carry null and must go on meaning the same thing.
+  assert.match(post, /!action \|\|/u);
 });
 
 // --- Withdraw --------------------------------------------------------------------------

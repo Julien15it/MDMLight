@@ -166,12 +166,29 @@ function stageable(entityName, source) {
   return row;
 }
 
-// 'new' -> C, any other state -> U. Untouched rows get no action: the whole partner is staged so the
-// approver sees it in full, but only touched rows may be replayed to S/4.
+/** A row staged for context only. Never replayed to S/4 - see postToS4. */
+const UNTOUCHED = 'N';
+
+// 'new' -> C, any other state -> U, nothing -> N: the whole partner is staged so the approver sees it
+// in full, but only touched rows may be replayed to S/4.
+//
+// `N` rather than null, fixed 2026-08-20: `action` is `not null` on every staged node, so a null was
+// a 500 the moment a payload carried a row nobody had touched. A first submit never did - every row
+// is new - but a resubmit reloads the request from staging, where nothing carries `__state`.
+/**
+ * The inverse of `rowAction`, for the payload the screen is served. `D` rows are handed back through
+ * `deleted` and re-staged as `D` whatever they carry, so they need no state of their own.
+ */
+function stateOfAction(action) {
+  if (action === 'C') return { __state: 'new' };
+  if (action === 'U') return { __state: 'modified' };
+  return {};
+}
+
 function rowAction(record) {
   if (record?.__state === 'new') return 'C';
   if (record?.__state) return 'U';
-  return null;
+  return UNTOUCHED;
 }
 
 /**
@@ -769,7 +786,11 @@ class ChangeRequestService extends cds.ApplicationService {
         );
         const clean = rows.map((row) => {
           const { ID, request_ID, action, ...rest } = row;
-          return rest;
+          // The stored action comes back as the screen's own `__state`, or a resubmit would stage
+          // every untouched row as `N` and the approved request would post a partner without its
+          // addresses. The screen keeps `new` through further edits (it only ever promotes to
+          // `modified`), so a round trip cannot turn a create into an update either.
+          return { ...rest, ...stateOfAction(action) };
         });
         if (config.many) {
           sections[section] = clean.filter((_, index) => rows[index].action !== 'D');
@@ -826,8 +847,9 @@ class ChangeRequestService extends cds.ApplicationService {
         );
         for (const row of rows) {
           const { ID, request_ID: parent, action, ...data } = row;
-          // Staged for context only - the user never touched it.
-          if (!action) continue;
+          // Staged for context only - the user never touched it. Null covers rows staged before
+          // `N` existed; both mean the same thing and neither may reach S/4.
+          if (!action || action === UNTOUCHED) continue;
           const relationField = RELATION_FIELDS[section] || 'BusinessPartner';
 
           if (!(relationField in resolvedRelations)) {
@@ -958,6 +980,9 @@ class ChangeRequestService extends cds.ApplicationService {
 
 ChangeRequestService._internals = {
   approveUrl,
+  rowAction,
+  stateOfAction,
+  UNTOUCHED,
   reworkUrl,
   buildBusinessPartnerInput,
   activeStagedRows,
