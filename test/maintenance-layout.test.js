@@ -7,10 +7,11 @@ const path = require('node:path');
 const test = require('node:test');
 
 const webapp = path.join(__dirname, '..', 'app', 'businesspartner', 'webapp');
+const REUSE = path.join(__dirname, '..', 'app', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse');
 
 test('maintenance uses one Object Page layout for create, preview and edit', () => {
   const view = fs.readFileSync(
-    path.join(webapp, 'ext', 'view', 'BusinessPartnerMaintenance.view.xml'),
+    path.join(REUSE, 'view', 'BusinessPartnerMaintenance.view.xml'),
     'utf8'
   );
 
@@ -28,7 +29,7 @@ test('maintenance uses one Object Page layout for create, preview and edit', () 
 
 test('primary cards stay concise while every root field remains accessible', () => {
   const controller = fs.readFileSync(
-    path.join(webapp, 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),
+    path.join(REUSE, 'controller', 'BusinessPartnerMaintenance.controller.js'),
     'utf8'
   );
 
@@ -65,7 +66,7 @@ test('facade excludes fields missing in the target S/4 release', async () => {
   }
 
   const metadata = fs.readFileSync(
-    path.join(webapp, 'ext', 'BusinessPartnerMetadata.js'),
+    path.join(REUSE, 'BusinessPartnerMetadata.js'),
     'utf8'
   );
   assert.doesNotMatch(metadata, /BR_ICMSTaxPayerType/);
@@ -76,7 +77,7 @@ test('facade excludes fields missing in the target S/4 release', async () => {
 
 test('maintenance page opens the assistant with its own OData model', () => {
   const controller = fs.readFileSync(
-    path.join(webapp, 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),
+    path.join(REUSE, 'controller', 'BusinessPartnerMaintenance.controller.js'),
     'utf8'
   );
 
@@ -86,7 +87,7 @@ test('maintenance page opens the assistant with its own OData model', () => {
 
 test('assistant sends bounded conversation history for follow-up reasoning', () => {
   const assistant = fs.readFileSync(
-    path.join(webapp, 'ext', 'BusinessPartnerAssistant.js'),
+    path.join(REUSE, 'BusinessPartnerAssistant.js'),
     'utf8'
   );
 
@@ -99,7 +100,7 @@ test('assistant sends bounded conversation history for follow-up reasoning', () 
 
 // Loads the UI5 module with stubbed dependencies so its logic can be exercised outside a browser.
 function loadAssistantModule() {
-  const source = fs.readFileSync(path.join(webapp, 'ext', 'BusinessPartnerAssistant.js'), 'utf8');
+  const source = fs.readFileSync(path.join(REUSE, 'BusinessPartnerAssistant.js'), 'utf8');
   let loaded;
   const sap = {
     ui: {
@@ -129,7 +130,7 @@ test('an expired session is recognised however the 401 is reported', () => {
 
 test('the assistant offers a reload instead of a dead dialog when the session expires', () => {
   const assistant = fs.readFileSync(
-    path.join(webapp, 'ext', 'BusinessPartnerAssistant.js'),
+    path.join(REUSE, 'BusinessPartnerAssistant.js'),
     'utf8'
   );
 
@@ -143,11 +144,11 @@ test('the assistant offers a reload instead of a dead dialog when the session ex
 // the approver sees it in full, and postToS4 replays it. Nothing is diffed on the client any more.
 test('maintenance stages the whole payload and shows concise entity fields', () => {
   const controller = fs.readFileSync(
-    path.join(webapp, 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),
+    path.join(REUSE, 'controller', 'BusinessPartnerMaintenance.controller.js'),
     'utf8'
   );
   const metadata = fs.readFileSync(
-    path.join(webapp, 'ext', 'BusinessPartnerMetadata.js'),
+    path.join(REUSE, 'BusinessPartnerMetadata.js'),
     'utf8'
   );
 
@@ -160,11 +161,11 @@ test('maintenance stages the whole payload and shows concise entity fields', () 
 
 test('related entity forms validate required and alternative create fields', () => {
   const controller = fs.readFileSync(
-    path.join(webapp, 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),
+    path.join(REUSE, 'controller', 'BusinessPartnerMaintenance.controller.js'),
     'utf8'
   );
   const metadata = fs.readFileSync(
-    path.join(webapp, 'ext', 'BusinessPartnerMetadata.js'),
+    path.join(REUSE, 'BusinessPartnerMetadata.js'),
     'utf8'
   );
 
@@ -180,7 +181,7 @@ test('related entity forms validate required and alternative create fields', () 
 // postToS4 calls the action, so a deletion now waits for approval like everything else.
 test('deletable related entities expose a confirmed delete action', async () => {
   const controller = fs.readFileSync(
-    path.join(webapp, 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),
+    path.join(REUSE, 'controller', 'BusinessPartnerMaintenance.controller.js'),
     'utf8'
   );
   const changeRequestService = fs.readFileSync(
@@ -202,11 +203,11 @@ test('deletable related entities expose a confirmed delete action', async () => 
 
 test('date pickers write back a full datetime, not a bare date, and roles stay deletable', () => {
   const controller = fs.readFileSync(
-    path.join(webapp, 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),
+    path.join(REUSE, 'controller', 'BusinessPartnerMaintenance.controller.js'),
     'utf8'
   );
   const metadata = fs.readFileSync(
-    path.join(webapp, 'ext', 'BusinessPartnerMetadata.js'),
+    path.join(REUSE, 'BusinessPartnerMetadata.js'),
     'utf8'
   );
 
@@ -237,7 +238,7 @@ test('application component initializes list actions with the main OData model',
 
 test('a failed related section does not block root editing', () => {
   const controller = fs.readFileSync(
-    path.join(webapp, 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),
+    path.join(REUSE, 'controller', 'BusinessPartnerMaintenance.controller.js'),
     'utf8'
   );
 
@@ -259,7 +260,7 @@ test('list row navigation uses the supported Fiori binding context', () => {
 
 /** Evaluates the generated UI5 metadata module without a UI5 runtime. */
 function loadMaintenanceMetadata() {
-  const source = fs.readFileSync(path.join(webapp, 'ext', 'BusinessPartnerMetadata.js'), 'utf8');
+  const source = fs.readFileSync(path.join(REUSE, 'BusinessPartnerMetadata.js'), 'utf8');
   let exported;
   const sap = { ui: { define: (_dependencies, factory) => { exported = factory(); } } };
   new Function('sap', source)(sap);
@@ -290,7 +291,7 @@ test('Customer and Supplier carry their whole entity, grouped, behind a Details 
   assert.equal(addresses.fieldGroups, undefined);
 
   const controller = fs.readFileSync(
-    path.join(webapp, 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),
+    path.join(REUSE, 'controller', 'BusinessPartnerMaintenance.controller.js'),
     'utf8'
   );
   assert.match(controller, /section\.fieldGroups/);
@@ -312,7 +313,7 @@ test('Customer and Supplier carry their whole entity, grouped, behind a Details 
 test('company code, sales area and purchasing org live inside their role Details dialog', () => {
   const metadata = loadMaintenanceMetadata();
   const view = fs.readFileSync(
-    path.join(webapp, 'ext', 'view', 'BusinessPartnerMaintenance.view.xml'),
+    path.join(REUSE, 'view', 'BusinessPartnerMaintenance.view.xml'),
     'utf8'
   );
 
@@ -360,7 +361,7 @@ test('company code, sales area and purchasing org live inside their role Details
   assert.match(view, /id="SuppliersContent"/);
 
   const controller = fs.readFileSync(
-    path.join(webapp, 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),
+    path.join(REUSE, 'controller', 'BusinessPartnerMaintenance.controller.js'),
     'utf8'
   );
   // The dialog registers a container per child so the ordinary re-render paths reach it.

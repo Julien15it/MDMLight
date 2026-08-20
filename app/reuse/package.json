@@ -1,0 +1,12 @@
+{
+  "name": "mdm.md.businesspartner.reuse",
+  "version": "1.0.0",
+  "description": "Shared Business Partner maintenance screen: the view, its controller, the generated maintenance metadata and the assistant panel. Consumed by the Manage BP app and by the task UI.",
+  "private": true,
+  "scripts": {
+    "build": "ui5 build --clean-dest --dest dist"
+  },
+  "devDependencies": {
+    "@ui5/cli": "^4.0.60"
+  }
+}

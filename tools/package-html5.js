@@ -11,7 +11,8 @@ const resourcesDir = path.join(projectRoot, 'resources');
 // One entry per app: the folder to zip, and the name the HTML5 repo deployer sees.
 const APPS = [
   { dist: 'app/businesspartner/dist', zip: 'mdmmdbusinesspartnermanage.zip' },
-  { dist: 'app/mdmrules/dist', zip: 'mdmmdmrulesmanage.zip' }
+  { dist: 'app/mdmrules/dist', zip: 'mdmmdmrulesmanage.zip' },
+  { dist: 'app/bptask/dist', zip: 'mdmmdbusinesspartnertask.zip' }
 ];
 
 function zipApp(app) {

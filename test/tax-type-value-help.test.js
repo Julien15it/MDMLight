@@ -70,7 +70,7 @@ test('every consumer points BPTaxType at the full catalogue', () => {
   assert.match(annotations, /ValueListProperty: 'TaxTypeName'/u);
 
   const controller = read(
-    'app', 'businesspartner', 'webapp', 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'
+    'app', 'businesspartner', '..', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse', 'controller', 'BusinessPartnerMaintenance.controller.js'
   );
   assert.match(controller, /BPTaxType: \{\s*collectionPath: "TaxTypes", keyField: "BPTaxType",\s*descriptionField: "TaxTypeName"/u);
 });
@@ -86,7 +86,7 @@ test('the language-keyed list gets its own handler instead of the passthrough lo
 // S/4 assigns the address number; asking for it and then stripping it from the payload was the
 // worst of both. Not '$' — that is the MDG staging convention and this path posts to the BP API.
 test('the address number is not asked for on create', () => {
-  const metadata = read('app', 'businesspartner', 'webapp', 'ext', 'BusinessPartnerMetadata.js');
+  const metadata = read('app', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse', 'BusinessPartnerMetadata.js');
   const addressId = /"name": "AddressID",[\s\S]*?\}/u.exec(metadata)[0];
   assert.match(addressId, /"key": true/u);
   assert.match(addressId, /"creatable": false/u);
@@ -97,7 +97,7 @@ test('the address number is not asked for on create', () => {
 
   // The flag only hides anything because _createForm already keys off it.
   const controller = read(
-    'app', 'businesspartner', 'webapp', 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'
+    'app', 'businesspartner', '..', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse', 'controller', 'BusinessPartnerMaintenance.controller.js'
   );
   assert.match(controller, /isCreate && field\.key && field\.creatable === false/u);
 });

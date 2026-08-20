@@ -21,7 +21,7 @@ const { PAYLOAD_NODES, ROOT_SECTION } = require('../srv/checks/payload-fields');
 
 function screenSections() {
   const file = path.join(
-    __dirname, '..', 'app', 'businesspartner', 'webapp', 'ext', 'BusinessPartnerMetadata.js'
+    __dirname, '..', 'app', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse', 'BusinessPartnerMetadata.js'
   );
   let loaded;
   const define = (dependencies, factory) => { loaded = factory(); };

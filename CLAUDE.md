@@ -51,6 +51,13 @@ npm install
 npm run build:cf         # ui5 build preload for Cloud Foundry
 ```
 
+UI (`app/bptask`, the My Inbox approval task UI — freestyle UI5, third npm project):
+```bash
+cd app/bptask
+npm install
+npm run build:cf         # syncs app/reuse, then ui5 build preload for Cloud Foundry
+```
+
 Deployment (multi-target app):
 ```bash
 mbt build
@@ -485,6 +492,87 @@ real now** — see "The validation and derivation tables" below. They still copy
 the duplicate rule table's layout, and each page still binds only its own entity:
 binding `dc>/DuplicateRules` would show duplicate rules under a Validation Rules
 heading and let someone edit them by accident.
+
+### The shared maintenance screen (`app/reuse`, 2026-08-20)
+
+The Business Partner maintenance screen — the object page used for create, edit,
+approve and rework — lives in **`app/reuse`**, not in either app that renders it:
+
+```
+app/reuse/src/mdm/md/businesspartner/reuse/
+  controller/BusinessPartnerMaintenance.controller.js
+  view/BusinessPartnerMaintenance.view.xml
+  BusinessPartnerMetadata.js      (generated)
+  BusinessPartnerAssistant.js
+  css/maintenance.css
+```
+
+Two apps render it: `app/businesspartner` (the Work Zone tile) and `app/bptask`
+(the My Inbox task UI). It moved there rather than being copied, because a second
+copy of a 2,400-line controller drifts and nobody notices until the two screens
+disagree about what a request contains.
+
+**The screen was already freestyle** — a plain `sap/ui/core/mvc/Controller`, and a
+view over `sap.m`/`sap.uxap` — which is what made the extraction cheap. It has no
+`sap.fe` dependency and must not gain one: `test/task-form.test.js` fails if it
+does, because the task app has no Fiori Elements libraries to satisfy it.
+
+#### It is copied at build time, not deployed as a library
+
+`tools/sync-reuse.js` copies the folder into each consumer's `webapp/reuse`
+(gitignored, never edited), and each manifest maps the namespace onto it:
+
+```json
+"resourceRoots": { "mdm.md.businesspartner.reuse": "./reuse" }
+```
+
+So the module names are identical in both apps — `mdm.md.businesspartner.reuse.*`
+— and there is exactly one copy in git.
+
+**A deployed UI5 library would have been the textbook answer and is the wrong one
+here.** An HTML5-repository library is addressed by its version-stamped URL, and a
+stale version reference is precisely what made the task UI 404 on 2026-08-20
+(`…manage-1.15.0/Component.js`). Copying at build time leaves nothing to resolve
+at runtime. `app/reuse` is still shaped as a real UI5 library project (`ui5.yaml`
+`type: library`, `.library`, `library.js`) so that decision can be revisited
+without moving a file — but nothing loads `library.js` today.
+
+Consequences worth knowing:
+
+- **`npm run generate:metadata` writes into the library**, not into an app. Both
+  consumers pick the new `BusinessPartnerMetadata.js` up on their next build.
+- **Every build runs `sync:reuse` first.** `build` and `build:cf` in both apps
+  chain it, and `mta.yaml` calls those. Editing `webapp/reuse` directly is
+  pointless — the next build deletes it.
+- **The controller attaches only to routes its host declares.** The partner app
+  routes all six (create, display, maintain, approve, edit, rework); the task app
+  declares only approve and rework. `onInit` skips a missing route rather than
+  throwing, which would take the whole screen down instead of one entry point.
+- **`ui5 build preload` bundles `webapp/reuse/**` under the consuming app's own
+  namespace**, which is not the name the runtime asks for, so the shared modules
+  load as individual files from `dist/reuse/…` and the bundle carries unused
+  copies. It works and it is not free; excluding them from the bundle is a
+  worthwhile follow-up, not a correctness fix.
+
+#### The task app (`app/bptask`)
+
+Third HTML5 app, same pattern as `app/mdmrules`: unique `sap.app.id`
+(`mdm.md.businesspartner.task`), **shared `sap.cloud.service`**
+(`mdm.md.businesspartner`), its own `xs-app.json` reusing the
+`mdm-businesspartner-srv-api` destination, and one more entry in
+`tools/package-html5.js` and in the app-content module's build commands.
+
+**It declares no `crossNavigation` inbound**, deliberately: My Inbox resolves a
+task UI by `sap.cloud.service` + `sap.app.id`, not by intent, so the
+one-inbound-per-app limit in Work Zone standard edition never applies to it — and
+it needs no tile, no catalog and no role assignment.
+
+What stayed behind in `app/businesspartner`: the List Report, the object page, the
+`CustomActions` toolbar wiring, and the `bpurl` **query-parameter** deep link
+(`?changerequestid=`). What left: `sap.bpa.task`, the `inboxAPI` actions, the task
+context load and the `PATCH task-instances/{id}` completion. The `env>/embedded`
+model stays set — to `false`, always — because the shared view binds it to decide
+whether to draw its own decision buttons, and in the task app it is sometimes true.
 
 ### The validation and derivation tables (2026-08-19)
 
@@ -961,9 +1049,15 @@ Open TODOs on this, agreed and deliberately deferred:
 
 #### The approve screen as a BPA UI5 Task Form
 
-The same app serves the Work Zone tile and the My Inbox task form. `sap.bpa.task`
-in `manifest.json` declares it; `Component.js` implements the contract from SAP
-Help, *Technical Information for Adapting the SAPUI5 Application*.
+**The task form is its own app since 2026-08-20: `app/bptask`
+(`mdm.md.businesspartner.task`), freestyle UI5.** It used to be this Fiori
+Elements app — `sap.bpa.task` in its manifest, `Component.js` implementing the
+inbox contract on top of `sap.fe.core.AppComponent`. SAP documents UI5 task UIs
+for **freestyle** apps; FE as a task host is not a combination they bless, and
+"we embedded a Fiori Elements app as a task form" is where an incident stalls.
+See "The shared maintenance screen" below for how the screen is shared rather
+than copied. The contract itself is unchanged, and still comes from SAP Help,
+*Technical Information for Adapting the SAPUI5 Application*.
 
 - **Never put a comment key in `app/businesspartner/xs-app.json`.** It ships into
   the HTML5 apps repository with the app and is schema-validated there; an
@@ -1086,17 +1180,18 @@ by `@sap/ux-ui5-tooling`/`@ui5/cli`, not by the root CAP project. It is a
 standard List Report / Object Page Fiori Elements app
 (`webapp/manifest.json`) with custom extensions layered on top rather than a
 hand-rolled UI5 app:
-- `webapp/ext/controller/BusinessPartnerMaintenance.controller.js` and
-  `ListReportExtension.controller.js` — controller extensions for the
-  full-screen create/edit flow and list-report behavior.
-- `webapp/ext/BusinessPartnerAssistant.js` / `CustomActions.js` — the chatbot
-  panel and custom toolbar actions, calling the `askBusinessPartnerAssistant`
-  and `saveBusinessPartner*` actions on the CAP service.
-- `webapp/ext/BusinessPartnerMetadata.js` plus
-  `scripts/generate-maintenance-metadata.js` — generates the metadata driving
-  the full-screen maintenance UI; re-run `npm run generate:metadata` (also
-  part of `build`/`build:cf`) after changing `MAINTENANCE_ENTITIES` on the
+- The **maintenance screen itself is not here any more** — the controller, its
+  view, `BusinessPartnerMetadata.js` and `BusinessPartnerAssistant.js` moved to
+  `app/reuse` on 2026-08-20 so the task UI can render the same screen. See "The
+  shared maintenance screen". `scripts/generate-maintenance-metadata.js` still
+  lives here but writes into the library; re-run `npm run generate:metadata`
+  (also part of `build`/`build:cf`) after changing `MAINTENANCE_ENTITIES` on the
   service side or the maintained entities won't line up.
+- `webapp/ext/controller/ListReportExtension.controller.js` — controller
+  extension for list-report behaviour.
+- `webapp/ext/CustomActions.js` — custom toolbar actions, calling the
+  `askBusinessPartnerAssistant` and `saveBusinessPartner*` actions on the CAP
+  service.
 - `ui5.yaml` (real backend) vs `ui5-mock.yaml` (local mock data) are separate
   UI5 tooling configs — pick the matching npm script (`start` vs
   `start-mock`) rather than editing one to behave like the other.

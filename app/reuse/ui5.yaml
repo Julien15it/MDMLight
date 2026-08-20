@@ -1,0 +1,4 @@
+specVersion: "3.1"
+metadata:
+  name: mdm.md.businesspartner.reuse
+type: library

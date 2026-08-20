@@ -9,8 +9,9 @@ const vm = require('node:vm');
 // Editing used to write straight to S/4: onEdit set `editing` but not `mode`, which onSave routes on.
 
 const APP = path.join(__dirname, '..', 'app', 'businesspartner', 'webapp');
+const REUSE = path.join(__dirname, '..', 'app', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse');
 const controllerSource = fs.readFileSync(
-  path.join(APP, 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),
+  path.join(REUSE, 'controller', 'BusinessPartnerMaintenance.controller.js'),
   'utf8'
 );
 
