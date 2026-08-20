@@ -64,25 +64,32 @@ sap.ui.define([
   return {
     // Exposed so the session-expiry branch can be tested without a browser.
     _isSessionExpired: isSessionExpired,
+
+    /**
+     * Whether the assistant may be offered. False once a steward switches AI
+     * assistance off: the assistant is the one feature that exists only to reach a
+     * language model, so it is withdrawn rather than quietly answered without one.
+     *
+     * Defaults to true only when there is no perm model at all - a view outside the
+     * component, or a service too old to report the flag - matching
+     * srv/ai/availability.js. Where the model exists it starts false and is corrected
+     * once currentUserPermissions answers, so nothing is offered before it is known to
+     * be allowed. Courtesy either way: askBusinessPartnerAssistant refuses on the
+     * server.
+     */
+    isAvailable: function (view) {
+      var permissions = view && view.getModel && view.getModel("perm");
+      return !permissions || permissions.getProperty("/aiAssistanceEnabled") !== false;
+    },
     open: function (model, view) {
       if (!model) {
         MessageBox.error("The Business Partner service is not available.");
         return;
       }
 
-      // What the assistant claims about itself has to follow the switch. With AI
-      // assistance off it still answers - from the S/4HANA search, which is the same
-      // path taken when no AI Core binding exists - so the greeting says that instead
-      // of promising a model that will never be called.
-      var permissions = view && view.getModel && view.getModel("perm");
-      var aiEnabled = !permissions || permissions.getProperty("/aiAssistanceEnabled") !== false;
-      var transcript = aiEnabled
-        ? "Assistant: Ask me a free-form question about Business Partners. "
-          + "I use the configured SAP AI Core model with live S/4HANA data, check possible duplicates, "
-          + "and can prepare a reviewed creation proposal when a company is not yet present."
-        : "Assistant: Ask me a question about Business Partners. AI assistance is switched off "
-          + "for this system, so I answer from the S/4HANA search itself - no language model is "
-          + "involved. Duplicate checks still run.";
+      var transcript = "Assistant: Ask me a free-form question about Business Partners. "
+        + "I use the configured SAP AI Core model with live S/4HANA data, check possible duplicates, "
+        + "and can prepare a reviewed creation proposal when a company is not yet present.";
       var conversationHistory = [];
       var conversation = new TextArea({
         value: transcript,

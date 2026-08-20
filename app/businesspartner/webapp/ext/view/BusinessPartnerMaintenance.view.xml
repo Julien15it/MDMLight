@@ -108,10 +108,14 @@
                 type="Transparent"
                 visible="{= !${env>/embedded} }"
                 press=".onBackToList" />
+              <!-- Gone, not degraded, when a steward has switched AI assistance off: an
+                   installation that may not use AI should not be offered it. The server
+                   refuses the action too - see srv/business-partner-service.js. -->
               <Button
                 text="Ask Assistant"
                 icon="sap-icon://discussion-2"
                 type="Transparent"
+                visible="{perm>/aiAssistanceEnabled}"
                 press=".onOpenAssistant" />
               <Button
                 text="Edit Business Partner"

@@ -100,6 +100,8 @@ sap.ui.define([
       if (!binding) return;
       // No field and no value on purpose: a row that arrived pointing at a field would be a rule
       // nobody wrote, and a derivation with a default value would fill data nobody asked for.
+      // A rule carries no "adds the row" answer either: the payload decides. A rule whose section
+      // holds no rows proposes the row, one whose section has rows fills its gaps.
       binding.create({ sequence: 10, isActive: true });
       this._markDirty();
     },

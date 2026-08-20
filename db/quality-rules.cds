@@ -57,4 +57,5 @@ entity DerivationRules : managed, ruleConditions {
       /** A value resolving to a payload field copies that field; catalog names are always dotted,
        *  so a literal can never be mistaken for one. */
       value : String(120) not null;
+
 }

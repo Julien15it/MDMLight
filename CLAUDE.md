@@ -199,27 +199,43 @@ Configured stages come first in both lists; the reasoning is with the tables.
 A derivation used to refuse to invent a row: with no address on the screen, a VIES
 answer was reported with no `field` ("there is no Addresses row to hold it") and
 written nowhere — so the requester had to press **Add** before the register could
-fill anything, which is precisely the case where the lookup is most useful. Maarten
-asked for the opposite: conditions met should be enough.
+fill anything, which is precisely the case where the lookup is most useful.
 
-An entry may now carry **`createRow: true`**, and `createTargetRecord` in
-`pipeline.js` honours it. Three constraints hold it in place:
+**Built twice, on the same afternoon, and merged into one.** Maarten and Julien both
+implemented it within four minutes of each other (`b50a8a1` and `6a45554`). The
+merged design takes the trigger, the scope and the registry path from the first and
+the idempotency and the stage ordering from the second — Maarten's call.
 
-- **Only an empty section, and only index 0.** Appending to a section that already
-  has rows would put the registered seat onto a second address somebody added
-  deliberately; filling index 3 of a one-row section would invent the two rows in
-  between. Both are still reported as statements, exactly as before.
+- **The payload is the trigger, not a flag on the rule.** A rule whose target section
+  holds no rows proposes the row; one whose section has rows fills its gaps. There is
+  no `createsRow` column and no "Add row" checkbox: conditions met are enough, and a
+  steward should not have to tick a second box to get the obvious behaviour. (Julien's
+  version made it opt-in per rule, with save-time refusals guarding the checkbox;
+  those refusals went with it — a condition on the section being added is evaluated
+  against an empty row and cannot hold, and a value copied out of that section
+  resolves to nothing, so both simply do not fire.)
+- **Only an EMPTY section, and only its first row.** A section the requester has
+  already put a row in is theirs: the rule falls back to filling gaps and never
+  appends beside it. This is narrower than Julien's version, which appended — so
+  "role FLVN01 in BE means purchasing organisation 1710" fires on a partner with no
+  purchasing org, but will not add a *second* one.
+- **Two stages, adders before fillers.** Every rule in one stage sees the same payload
+  — the pipeline applies a stage's entries only after it returns — so a filler sharing
+  a stage with the rule that adds its row would fill nothing. Both stages run every
+  rule and `mode` (`'create'` / `'fill'`) decides what each may emit, because which
+  rule adds and which fills is not known until the payload is in hand. `sequence`
+  therefore orders rules *within* each kind, not across them.
+- **Idempotent.** A section already holding a row with that value is left alone, and
+  `_applyProposals` refuses to add a second row carrying the value it is accepting —
+  so pressing Check twice adds one row, and a row the requester added by hand is kept.
 - **The requester still ticks it.** The row is created in the pipeline's own copy
-  (which is what the duplicate check reads) and on the screen only when the
-  proposal is accepted — `_applyProposals` creates it with `__state: "new"` so it
-  stages as a `C`. The dialog labels it **Added** rather than *Filled in*, because
-  accepting it creates a record rather than filling a blank. Nothing is written
-  unasked, which is the rule every proposal has followed since 2026-08-14.
-- **A rule cannot create a row out of its own emptiness.** `runDerivationRule`
-  evaluates an empty section against one synthetic row, so a condition on the
-  rule's *own* section (`where Addresses.Country = BE`) can never hold — only
-  conditions met elsewhere (`where General.BusinessPartnerCategory = 2`) bring a
-  row into existence.
+  (which is what the duplicate check reads) and on the screen only when the proposal
+  is accepted — with `__state: "new"`, so it stages as a `C` rather than an update to
+  a row S/4 does not have. The dialog says **Row added** rather than *Filled in*.
+- **The registry creates the first address too** (`registry-checks.js`): VIES/GLEIF
+  set `createsRow` when there is no address row at all, which is the case that started
+  this. Only the first of the four address entries carries the flag — the pipeline
+  fills the rest into the row it just made.
 
 Three behaviours worth not "simplifying" away: a validation that throws blocks
 (a rule that silently skipped would defeat the ordering); a derivation that

@@ -40,7 +40,7 @@ function addressDerivations(addresses, rows, source) {
   const entries = [];
   const [official] = addresses;
   if (!official) return entries;
-  const createRow = !rows.length || undefined;
+  const createsRow = !rows.length || undefined;
   (rows.length ? rows : [{}]).forEach((row, index) => {
     // Only the first address gets registry data: a partner's second address is deliberately a
     // different place, and filling it from the registered seat would be wrong, not incomplete.
@@ -50,11 +50,11 @@ function addressDerivations(addresses, rows, source) {
       entries.push({
         target: 'Addresses',
         index,
-        createRow,
+        createsRow,
         field,
         value: official[field],
         message: `${field} was filled in as “${official[field]}” from ${source}`
-          + `${createRow ? ' (a new address)' : ''}.`
+          + `${createsRow ? ' (a new address)' : ''}.`
       });
     }
   });

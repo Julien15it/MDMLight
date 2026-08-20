@@ -2001,12 +2001,12 @@ sap.ui.define([
         derivations.filter(function (entry) { return entry.field; }).forEach(function (entry) {
           seen[keyOf(entry)] = rows.length;
           rows.push({
-            // "Added" is its own answer: accepting it creates a record the requester never added,
-            // which is a bigger thing than filling a field they left empty.
-            change: entry.createRow ? "Added" : "Filled in",
+            // Said differently because it is a different thing to accept: not a value in a row
+            // the requester built, but a row they did not.
+            change: entry.createsRow ? "Row added" : "Filled in",
             target: entry.target || "root",
             index: entry.index || 0,
-            createRow: Boolean(entry.createRow),
+            createsRow: Boolean(entry.createsRow),
             field: entry.field,
             current: "",
             proposed: entry.value,
@@ -2100,20 +2100,30 @@ sap.ui.define([
         var applied = 0;
         var state = this.getView().getModel("maintenance").getData();
         accepted.forEach(function (proposal) {
-          var isRoot = !proposal.target || proposal.target === "root";
-          var rows = isRoot ? null : (state.sections[proposal.target] = state.sections[proposal.target] || []);
-          var record = isRoot ? state.root : rows[proposal.index || 0];
-          // The section had no row when the derivation ran, so accepting the proposal is what
-          // creates it. `new` rather than `changed`: it stages as a C, and several accepted
-          // proposals for the same section land on this one row rather than one row each.
-          if (!record && proposal.createRow && !rows.length) {
-            record = { __state: "new" };
-            rows.push(record);
-          }
-          if (!record) return;
           // An emptied field is a decline, not an instruction to blank what is there.
           var value = String(proposal.proposed === undefined ? "" : proposal.proposed).trim();
           if (!value || value === proposal.current) return;
+
+          // A row-adding proposal has no record to find yet - accepting it is what creates
+          // one. Marked "new" rather than "changed", or postToS4 would replay it as an
+          // update to a row S/4 does not have.
+          if (proposal.createsRow && proposal.target && proposal.target !== "root") {
+            var rows = state.sections[proposal.target] || (state.sections[proposal.target] = []);
+            var duplicate = rows.some(function (existing) {
+              return String(existing[proposal.field] || "").trim() === value;
+            });
+            if (duplicate) return;
+            var added = { __state: "new" };
+            added[proposal.field] = value;
+            rows.push(added);
+            applied += 1;
+            return;
+          }
+
+          var record = (!proposal.target || proposal.target === "root")
+            ? state.root
+            : (state.sections[proposal.target] || [])[proposal.index || 0];
+          if (!record) return;
           record[proposal.field] = value;
           // Or the accepted value never reaches staging.
           if (record !== state.root && !record.__state) record.__state = "changed";
@@ -2343,6 +2353,9 @@ sap.ui.define([
       },
 
       onOpenAssistant: function () {
+        // The button is hidden when assistance is off; this is the second lock, for a
+        // binding that failed to evaluate rather than for a user who got past it.
+        if (!BusinessPartnerAssistant.isAvailable(this.getView())) return;
         BusinessPartnerAssistant.open(this.getView().getModel(), this.getView());
       },
 

@@ -85,6 +85,13 @@ sap.ui.define([
       if (view) environment.view = view;
     },
 
+    /** Whether the AI assistant may be offered at all. The Fiori Elements actions bind
+     *  their `visible` to the same flag; this is what keeps a press from opening the
+     *  dialog if that binding never evaluated. */
+    isAssistantAvailable: function () {
+      return BusinessPartnerAssistant.isAvailable(environment.view);
+    },
+
     clearEnvironment: function () {
       environment.model = null;
       environment.view = null;
@@ -109,6 +116,7 @@ sap.ui.define([
     openAssistant: function () {
       var values = Array.prototype.slice.call(arguments);
       var model = values.map(modelFrom).find(Boolean) || environment.model;
+      if (!BusinessPartnerAssistant.isAvailable(environment.view)) return;
       // The assistant dialog owns and destroys itself; no page dependency is
       // required, which also keeps it working after returning to the list.
       BusinessPartnerAssistant.open(model, null);

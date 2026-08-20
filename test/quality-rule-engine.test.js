@@ -320,7 +320,7 @@ test('a derivation onto a section with no rows proposes the first row', () => {
   assert.equal(entries.length, 1);
   assert.equal(entries[0].target, 'Addresses');
   assert.equal(entries[0].index, 0);
-  assert.equal(entries[0].createRow, true);
+  assert.equal(entries[0].createsRow, true);
   assert.equal(entries[0].value, 'VAN');
 });
 
@@ -342,7 +342,7 @@ test('a condition on the empty section itself cannot create the row', () => {
   };
   const entries = runDerivationRule(elsewhere, payload({ BusinessPartnerCategory: '2' }), model);
   assert.equal(entries.length, 1);
-  assert.equal(entries[0].createRow, true);
+  assert.equal(entries[0].createsRow, true);
 });
 
 // Same row, not the first row: "this address's Region from this address's Country" is about one

@@ -5,7 +5,7 @@
     "type": "application",
     "i18n": "i18n/i18n.properties",
     "applicationVersion": {
-      "version": "1.16.0"
+      "version": "1.17.0"
     },
     "title": "{{appTitle}}",
     "description": "{{appDescription}}",
@@ -224,7 +224,7 @@
                     },
                     "BusinessPartnerAssistant": {
                       "press": "mdm.md.businesspartner.manage.ext.CustomActions.openAssistant",
-                      "visible": true,
+                      "visible": "{perm>/aiAssistanceEnabled}",
                       "enabled": true,
                       "requiresSelection": false,
                       "text": "Business Partner Assistant"
@@ -273,7 +273,7 @@
                     },
                     "BusinessPartnerAssistantHeader": {
                       "press": "mdm.md.businesspartner.manage.ext.CustomActions.openAssistant",
-                      "visible": true,
+                      "visible": "{perm>/aiAssistanceEnabled}",
                       "enabled": true,
                       "text": "Ask Assistant"
                     },

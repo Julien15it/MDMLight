@@ -1,7 +1,7 @@
 'use strict';
 
 const {
-  resolvePayloadField, sectionRows, targetFor, isEmptyValue, humanise
+  resolvePayloadField, sectionRows, targetFor, isEmptyValue, humanise, ROOT_TARGET
 } = require('./payload-fields');
 
 /**
@@ -202,7 +202,41 @@ function runValidationRule(rule, payload, model) {
 
 // One row -> its pipeline entries. Not-overwriting stays in pipeline.js so these and the registry's
 // derivations cannot disagree about it, and a row that does not exist is never invented.
-function runDerivationRule(rule, payload, model) {
+/**
+ * A rule whose target section holds no rows proposes the row rather than filling one. There is no
+ * flag on the rule: an empty section is the trigger, so conditions met are all it takes.
+ *
+ * Returns nothing when the section already holds a row carrying this value. That is what
+ * makes pressing Check twice add one row rather than two, and what leaves a row the
+ * requester added by hand alone.
+ */
+function createdRowEntry(rule, resolved, conditions, spec, payload, model) {
+  // An EMPTY synthetic row, not null: a condition on the rule's own section is then evaluated
+  // against a row where every field is empty, so it cannot hold. That is what stops a rule
+  // inventing a row out of its own emptiness, and it is why no save-time refusal is needed for it.
+  if (!conditionsHold(conditions, payload, resolved.section, { index: 0, record: {} }, model)) return [];
+
+  const value = resolveValue(spec, payload, resolved.section, model);
+  if (isEmptyValue(value)) return [];
+
+  const already = sectionRows(payload, resolved.section)
+    .some(({ record }) => compare(record[resolved.element], value) === 0);
+  if (already) return [];
+
+  return [{
+    target: targetFor(resolved.section),
+    // Always the first row: only an empty section gets here, and the pipeline restates it from
+    // where the row actually landed.
+    index: 0,
+    createsRow: true,
+    field: resolved.element,
+    value,
+    message: `A ${resolved.section} row was added with ${humanise(resolved.element)} `
+      + `“${value}”${describeCondition(conditions)}.`
+  }];
+}
+
+function runDerivationRule(rule, payload, model, mode = 'both') {
   const resolved = resolvePayloadField(rule.field, model);
   if (!resolved) {
     return [{
@@ -215,14 +249,21 @@ function runDerivationRule(rule, payload, model) {
   const spec = readValueSpec(rule.value, model);
   const entries = [];
 
-  // An empty section still gets one synthetic row, so a rule can propose the section's first value
-  // instead of waiting for the requester to press Add (2026-08-20). A condition on the rule's OWN
-  // section cannot hold against an empty row, which is what stops a rule inventing a row out of its
-  // own emptiness - only conditions met elsewhere can create one.
+  // Whether this rule adds the row or fills one is decided by the PAYLOAD, not by a flag on the
+  // rule: a section with no rows gets the row proposed, a section with rows gets its gaps filled
+  // (2026-08-20). Conditions met are enough - the requester should not have to press Add first, and
+  // should not have to tick a second box either.
+  //
+  // `mode` is how the two stages are kept apart: the adders all run before the fillers, so a filler
+  // finds the row another rule just proposed. See createConfiguredStages.
   const rows = sectionRows(payload, resolved.section);
-  const targets = rows.length ? rows : [{ index: 0, record: {}, createRow: true }];
+  const addsRow = !rows.length && targetFor(resolved.section) !== ROOT_TARGET;
+  if (addsRow) {
+    return mode === 'fill' ? [] : createdRowEntry(rule, resolved, conditions, spec, payload, model);
+  }
+  if (mode === 'create') return [];
 
-  for (const row of targets) {
+  for (const row of rows) {
     if (!conditionsHold(conditions, payload, resolved.section, row, model)) continue;
     // Already filled: the pipeline would refuse to overwrite it anyway, and proposing a value for
     // a field that has one is a normalisation, which is a different stage and a different consent.
@@ -328,6 +369,9 @@ function validateDerivationRule(rule = {}, model) {
       message: `This copies the value of ${spec.reference.field} rather than writing the text “${value}”.`
     });
   }
+  // No refusals for the row-adding case: with no checkbox there is nothing to misconfigure. A
+  // condition on the rule's own section cannot hold against the empty row, and a value copied out
+  // of the section being added resolves empty and proposes nothing - both simply do not fire.
   return { errors, warnings };
 }
 
@@ -354,10 +398,25 @@ function createConfiguredStages({ validations = [], derivations = [], model } = 
       run: async (payload) => validationRows.flatMap((rule) => runValidationRule(rule, payload, model))
     });
   }
+  // Two stages, and the row-adding one first. Every rule in a single stage sees the same
+  // payload - the pipeline applies a stage's entries only after it returns - so a gap-filler
+  // sharing a stage with the rule that adds its row would run against a payload where that
+  // row does not exist yet, and fill nothing. Splitting them is what lets "role FLVN01 in BE
+  // means purchasing organisation 1710" be followed by "and its currency is EUR".
+  //
+  // So `sequence` orders rules within each kind, not across them: adding always precedes
+  // filling. Ordering them the other way round would only ever fill rows nobody added.
+  //
+  // Which rule adds and which fills is not known until the payload is in hand, so both stages run
+  // every rule and `mode` decides what each may emit.
   if (derivationRows.length) {
     stages.derivations.push({
+      name: 'configured_derivation_rows',
+      run: async (payload) => derivationRows.flatMap((rule) => runDerivationRule(rule, payload, model, 'create'))
+    });
+    stages.derivations.push({
       name: 'configured_derivation',
-      run: async (payload) => derivationRows.flatMap((rule) => runDerivationRule(rule, payload, model))
+      run: async (payload) => derivationRows.flatMap((rule) => runDerivationRule(rule, payload, model, 'fill'))
     });
   }
   return stages;

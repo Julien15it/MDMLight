@@ -18,12 +18,12 @@ sap.ui.define(
                 // Manifest actions without a selection do not receive a binding
                 // context. Keep the application OData model available for them.
                 CustomActions.setEnvironment(this.getModel(), null);
-                // isDataSteward starts false so a steward-only button is never briefly
-                // visible to someone who cannot use it. aiAssistanceEnabled starts true
-                // because that is the server's default - starting false would have the
-                // assistant briefly deny using a model it is about to use.
+                // Both start false so a control is never briefly offered to someone who
+                // may not use it: a steward-only button, or an AI assistant on an
+                // installation that switched AI off. The cost is that both appear a moment
+                // after load where they are allowed, which is the harmless direction.
                 this.setModel(
-                    new JSONModel({ isDataSteward: false, aiAssistanceEnabled: true }),
+                    new JSONModel({ isDataSteward: false, aiAssistanceEnabled: false }),
                     "perm"
                 );
                 this._loadPermissions();

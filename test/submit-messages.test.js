@@ -372,13 +372,16 @@ test('an applied proposal can land on an address row, not only on the root', () 
  */
 test('accepting a proposal can create the row it needs', () => {
   // Its own label: adding a record nobody added is a bigger thing than filling an empty field.
-  assert.match(controllerSource, /change: entry\.createRow \? "Added" : "Filled in"/u);
-  assert.match(controllerSource, /createRow: Boolean\(entry\.createRow\)/u);
-  // Created only for an empty section, and staged as a create.
-  assert.match(controllerSource, /if \(!record && proposal\.createRow && !rows\.length\)/u);
-  assert.match(controllerSource, /record = \{ __state: "new" \}/u);
-  // Two accepted proposals for the same section share the row the first one created.
-  assert.match(controllerSource, /state\.sections\[proposal\.target\] = state\.sections\[proposal\.target\] \|\| \[\]/u);
+  assert.match(controllerSource, /change: entry\.createsRow \? "Row added" : "Filled in"/u);
+  assert.match(controllerSource, /createsRow: Boolean\(entry\.createsRow\)/u);
+  // Accepting is what creates it, and it stages as a C - an update to a row S/4 does not have
+  // would be replayed as one by postToS4.
+  assert.match(controllerSource, /if \(proposal\.createsRow && proposal\.target && proposal\.target !== "root"\)/u);
+  assert.match(controllerSource, /added = \{ __state: "new" \}/u);
+  // Accepting the same proposal twice, or accepting one the requester already added by hand,
+  // must not produce a second row.
+  assert.match(controllerSource, /duplicate = rows\.some\(/u);
+  assert.match(controllerSource, /if \(duplicate\) return;/u);
 });
 
 // "Cancel" cancels nothing once the request is in approval, and every other footer button is

@@ -6,7 +6,7 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
-function loadActions(initialHash = '') {
+function loadActions(initialHash = '', { assistantAvailable = true } = {}) {
   let actions;
   let hash = initialHash;
   const errors = [];
@@ -27,7 +27,13 @@ function loadActions(initialHash = '') {
           actions = factory(
             { getInstance: () => hashChanger },
             { error: (message) => errors.push(message) },
-            { open: (model, view) => assistantCalls.push({ model, view }) }
+            {
+              open: (model, view) => assistantCalls.push({ model, view }),
+              // Part of the module's interface, not an extra: openAssistant asks before it
+              // opens, so an installation with AI assistance switched off is never offered
+              // the assistant at all.
+              isAvailable: () => assistantAvailable
+            }
           );
         }
       }
@@ -89,6 +95,17 @@ test('a late page initialization cannot erase the component OData model', () => 
   runtime.actions.setEnvironment(null, { name: 'late-list-view' });
   runtime.actions.openAssistant();
   assert.deepEqual(runtime.assistantCalls, [{ model, view: null }]);
+});
+
+// The Fiori Elements actions bind their `visible` to the same flag, so with assistance off
+// there is normally no button to press. This is the lock behind that binding: a press that
+// arrives anyway must not open a dialog the installation is not allowed to use.
+test('with AI assistance off the assistant does not open at all', () => {
+  const runtime = loadActions('', { assistantAvailable: false });
+  runtime.actions.setEnvironment({ name: 'main-service' }, { name: 'list-view' });
+  runtime.actions.openAssistant();
+  assert.deepEqual(runtime.assistantCalls, []);
+  assert.equal(runtime.actions.isAssistantAvailable(), false);
 });
 
 test('list edit action accepts the selected Fiori Elements context', () => {

@@ -190,22 +190,59 @@ test('the hub offers the switch to stewards only, and says what it covers', () =
   assert.match(controller, /setProperty\("\/aiAssistanceEnabled", !enabled\)/u);
 });
 
-test('the assistant does not promise a model it may not call', () => {
-  const assistant = fs.readFileSync(
-    path.join(__dirname, '..', 'app', 'businesspartner', 'webapp', 'ext',
-      'BusinessPartnerAssistant.js'),
-    'utf8'
-  );
-  assert.match(assistant, /aiEnabled\s*\n?\s*\?/u, 'the greeting is not conditional');
-  assert.match(assistant, /AI assistance is switched off/u);
+test('with AI off the assistant is withdrawn, not quietly answered without a model', () => {
+  const bpApp = path.join(__dirname, '..', 'app', 'businesspartner', 'webapp');
+  const readApp = (...parts) => fs.readFileSync(path.join(bpApp, ...parts), 'utf8');
 
-  // Both apps default the flag to true, so neither flashes "AI is off" before the real
-  // value arrives.
+  // Every way in is bound to the flag: the object page button and both Fiori Elements
+  // actions. One left hardcoded visible is a button an installation may not use.
+  assert.match(
+    readApp('ext', 'view', 'BusinessPartnerMaintenance.view.xml'),
+    /text="Ask Assistant"[\s\S]*?visible="\{perm>\/aiAssistanceEnabled\}"/u
+  );
+  const manifest = JSON.parse(readApp('manifest.json'));
+  const actions = [
+    manifest['sap.ui5'].routing.targets.BusinessPartnersList
+      .options.settings.controlConfiguration['@com.sap.vocabularies.UI.v1.LineItem']
+      .actions.BusinessPartnerAssistant,
+    manifest['sap.ui5'].routing.targets.BusinessPartnersObjectPage
+      .options.settings.content.header.actions.BusinessPartnerAssistantHeader
+  ];
+  for (const action of actions) {
+    // A plain property binding, not an expression binding: `visible` on a Fiori Elements
+    // custom action does not reliably evaluate `{= ... }`, which is why the button stayed
+    // on screen the first time. The Change Requests action in this same manifest has been
+    // using the plain form against this very model all along.
+    assert.equal(action.visible, '{perm>/aiAssistanceEnabled}');
+  }
+
+  // And both launchers ask before opening, for a binding that never evaluated.
+  assert.match(readApp('ext', 'BusinessPartnerAssistant.js'), /isAvailable: function \(view\)/u);
+  assert.match(readApp('ext', 'CustomActions.js'), /if \(!BusinessPartnerAssistant\.isAvailable\(/u);
+  assert.match(
+    readApp('ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),
+    /if \(!BusinessPartnerAssistant\.isAvailable\(this\.getView\(\)\)\) return;/u
+  );
+
+  // The lock behind all of that: the action is callable by anything holding the URL.
+  assert.match(
+    fs.readFileSync(path.join(__dirname, '..', 'srv', 'business-partner-service.js'), 'utf8'),
+    /if \(!await aiAssistanceEnabled\(\)\) \{\s*\n\s*return req\.reject\(403/u
+  );
+
+  // Both apps start the flag false, so no load ever briefly offers an assistant the
+  // installation may not use. It appears a moment later where AI is on, which is the
+  // harmless direction - the same call isDataSteward already makes for its own button.
   for (const app of ['businesspartner', 'mdmrules']) {
     const component = fs.readFileSync(
       path.join(__dirname, '..', 'app', app, 'webapp', 'Component.js'), 'utf8'
     );
-    assert.match(component, /aiAssistanceEnabled: true/u, `${app} defaults the flag to off`);
+    assert.match(
+      component, /isDataSteward: false, aiAssistanceEnabled: false/u,
+      `${app} offers the assistant before it knows whether it may`
+    );
+    // But only an explicit false from the service keeps it off, so a service too old to
+    // report the flag does not disable the assistant everywhere.
     assert.match(component, /result\.aiAssistanceEnabled !== false/u);
   }
 });

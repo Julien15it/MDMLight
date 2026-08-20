@@ -22,7 +22,7 @@ const fillCountry = {
 const createsStreet = {
   name: 'registry',
   run: async () => [{
-    target: 'Addresses', index: 0, createRow: true, field: 'StreetName', value: 'Kerkstraat',
+    target: 'Addresses', index: 0, createsRow: true, field: 'StreetName', value: 'Kerkstraat',
     message: 'StreetName was filled in as “Kerkstraat” from VIES (a new address).'
   }]
 };
@@ -111,7 +111,7 @@ test('a derivation may create the first row of an empty section, when it asks to
   assert.equal(derived.sections.Addresses[0].StreetName, 'Kerkstraat');
   assert.equal(applied.length, 1);
   assert.equal(applied[0].field, 'StreetName');
-  assert.equal(applied[0].createRow, true, 'the screen has to add the row too');
+  assert.equal(applied[0].createsRow, true, 'the screen has to add the row too');
 });
 
 /** A section with no rows is the only case. Everything else is still never invented. */
@@ -119,7 +119,7 @@ test('a derivation still never invents a row beside one that exists', async () =
   const { derived, applied } = await runDerivations(
     payload({}, { Addresses: [{ StreetName: 'Dorpsstraat' }] }),
     [{ name: 'registry', run: async () => [{
-      target: 'Addresses', index: 1, createRow: true, field: 'StreetName', value: 'Kerkstraat',
+      target: 'Addresses', index: 1, createsRow: true, field: 'StreetName', value: 'Kerkstraat',
       message: 'StreetName is available but there is no second Addresses row.'
     }] }]
   );
