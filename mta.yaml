@@ -1,6 +1,6 @@
 _schema-version: "3.2"
 ID: mdm-md-businesspartner-manage
-version: 1.37.2
+version: 1.38.0
 description: "Manage Business Partner (F3163) - CAP + Fiori Elements"
 parameters:
   enable-parallel-deployments: true
@@ -98,6 +98,8 @@ modules:
         - npm --prefix app/businesspartner run build:cf
         - npm --prefix app/mdmrules install
         - npm --prefix app/mdmrules run build:cf
+        - npm --prefix app/bptask install
+        - npm --prefix app/bptask run build:cf
         - node tools/package-html5.js
       build-result: resources
 

@@ -14,7 +14,7 @@ const serviceCds = read('srv', 'business-partner-service.cds');
 const annotations = read('srv', 'annotations.cds');
 const importedModel = read('srv', 'external', 'ZSRVB_MDMLIGHT_VH.cds');
 const maintenanceController = read(
-  'app', 'businesspartner', 'webapp', 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'
+  'app', 'businesspartner', '..', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse', 'controller', 'BusinessPartnerMaintenance.controller.js'
 );
 
 // Adding a lookup means touching four files, and until now the only thing holding them together

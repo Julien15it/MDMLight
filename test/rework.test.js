@@ -7,6 +7,7 @@ const test = require('node:test');
 
 const ROOT = path.join(__dirname, '..');
 const APP = path.join(ROOT, 'app', 'businesspartner', 'webapp');
+const REUSE = path.join(__dirname, '..', 'app', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse');
 
 const read = (...parts) => fs.readFileSync(path.join(...parts), 'utf8');
 
@@ -14,8 +15,8 @@ const staging = read(ROOT, 'db', 'staging.cds');
 const serviceCds = read(ROOT, 'srv', 'change-request-service.cds');
 const serviceJs = read(ROOT, 'srv', 'change-request-service.js');
 const partnerJs = read(ROOT, 'srv', 'business-partner-service.js');
-const controller = read(APP, 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js');
-const view = read(APP, 'ext', 'view', 'BusinessPartnerMaintenance.view.xml');
+const controller = read(REUSE, 'controller', 'BusinessPartnerMaintenance.controller.js');
+const view = read(REUSE, 'view', 'BusinessPartnerMaintenance.view.xml');
 const manifest = JSON.parse(read(APP, 'manifest.json'));
 
 const {
@@ -365,7 +366,9 @@ test('rework is reachable by its own route and by nothing else', () => {
   assert.ok(route, 'the route exists');
   assert.equal(route.pattern, 'ChangeRequests/{changeRequest}/rework');
   assert.equal(route.target, 'BusinessPartnerMaintenance');
-  assert.match(controller, /getRoute\("ChangeRequestRework"\)\.attachPatternMatched\(this\._onReworkRoute/u);
+  // Attached from the route table in onInit, which skips a route its host does not declare - the
+  // task app routes two of the six, the partner app all of them.
+  assert.match(controller, /\["ChangeRequestRework", this\._onReworkRoute\]/u);
   // Sent with the initial context, because SPA owns the rejection branch.
   assert.match(serviceJs, /reworkurl: reworkUrl\(changeRequest\)/u);
   assert.match(reworkUrl('abc'), /^$|#ChangeRequests\/abc\/rework$/u);

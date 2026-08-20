@@ -7,11 +7,12 @@ const test = require('node:test');
 const vm = require('node:vm');
 
 const APP = path.join(__dirname, '..', 'app', 'businesspartner', 'webapp');
+const REUSE = path.join(__dirname, '..', 'app', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse');
 const controllerSource = fs.readFileSync(
-  path.join(APP, 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),
+  path.join(REUSE, 'controller', 'BusinessPartnerMaintenance.controller.js'),
   'utf8'
 );
-const view = fs.readFileSync(path.join(APP, 'ext', 'view', 'BusinessPartnerMaintenance.view.xml'), 'utf8');
+const view = fs.readFileSync(path.join(REUSE, 'view', 'BusinessPartnerMaintenance.view.xml'), 'utf8');
 
 // The controller is a UI5 module; only the pure message helpers are exercised here.
 function loadController() {

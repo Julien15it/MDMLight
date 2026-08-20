@@ -1,7 +1,7 @@
 sap.ui.define([
   "sap/ui/core/routing/HashChanger",
   "sap/m/MessageBox",
-  "mdm/md/businesspartner/manage/ext/BusinessPartnerAssistant"
+  "mdm/md/businesspartner/reuse/BusinessPartnerAssistant"
 ], function (HashChanger, MessageBox, BusinessPartnerAssistant) {
   "use strict";
 

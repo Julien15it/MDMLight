@@ -191,16 +191,19 @@ test('the hub offers the switch to stewards only, and says what it covers', () =
 });
 
 test('with AI off the assistant is withdrawn, not quietly answered without a model', () => {
+  const reuse = path.join(__dirname, '..', 'app', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse');
+  const readApp = (...parts) => fs.readFileSync(path.join(reuse, ...parts), 'utf8');
+  // The manifest and the Fiori Elements actions stayed in the app; only the screen moved.
   const bpApp = path.join(__dirname, '..', 'app', 'businesspartner', 'webapp');
-  const readApp = (...parts) => fs.readFileSync(path.join(bpApp, ...parts), 'utf8');
+  const readBp = (...parts) => fs.readFileSync(path.join(bpApp, ...parts), 'utf8');
 
   // Every way in is bound to the flag: the object page button and both Fiori Elements
   // actions. One left hardcoded visible is a button an installation may not use.
   assert.match(
-    readApp('ext', 'view', 'BusinessPartnerMaintenance.view.xml'),
+    readApp('view', 'BusinessPartnerMaintenance.view.xml'),
     /text="Ask Assistant"[\s\S]*?visible="\{perm>\/aiAssistanceEnabled\}"/u
   );
-  const manifest = JSON.parse(readApp('manifest.json'));
+  const manifest = JSON.parse(readBp('manifest.json'));
   const actions = [
     manifest['sap.ui5'].routing.targets.BusinessPartnersList
       .options.settings.controlConfiguration['@com.sap.vocabularies.UI.v1.LineItem']
@@ -217,10 +220,10 @@ test('with AI off the assistant is withdrawn, not quietly answered without a mod
   }
 
   // And both launchers ask before opening, for a binding that never evaluated.
-  assert.match(readApp('ext', 'BusinessPartnerAssistant.js'), /isAvailable: function \(view\)/u);
-  assert.match(readApp('ext', 'CustomActions.js'), /if \(!BusinessPartnerAssistant\.isAvailable\(/u);
+  assert.match(readApp('BusinessPartnerAssistant.js'), /isAvailable: function \(view\)/u);
+  assert.match(readBp('ext', 'CustomActions.js'), /if \(!BusinessPartnerAssistant\.isAvailable\(/u);
   assert.match(
-    readApp('ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),
+    readApp('controller', 'BusinessPartnerMaintenance.controller.js'),
     /if \(!BusinessPartnerAssistant\.isAvailable\(this\.getView\(\)\)\) return;/u
   );
 

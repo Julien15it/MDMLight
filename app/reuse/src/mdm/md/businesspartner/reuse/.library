@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<library xmlns="http://www.sap.com/sap.ui.library.xsd">
+  <name>mdm.md.businesspartner.reuse</name>
+  <vendor>Alluvion</vendor>
+  <copyright>Alluvion</copyright>
+  <version>1.0.0</version>
+  <documentation>Business Partner maintenance screen, shared by the Manage BP app and the approval task UI.</documentation>
+  <dependencies>
+    <dependency><libraryName>sap.ui.core</libraryName></dependency>
+    <dependency><libraryName>sap.m</libraryName></dependency>
+    <dependency><libraryName>sap.uxap</libraryName></dependency>
+    <dependency><libraryName>sap.ui.layout</libraryName></dependency>
+  </dependencies>
+</library>

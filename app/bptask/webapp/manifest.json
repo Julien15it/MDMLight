@@ -1,0 +1,193 @@
+{
+  "_version": "1.65.0",
+  "sap.app": {
+    "id": "mdm.md.businesspartner.task",
+    "type": "application",
+    "i18n": "i18n/i18n.properties",
+    "applicationVersion": {
+      "version": "1.0.0"
+    },
+    "title": "{{appTitle}}",
+    "description": "{{appDescription}}",
+    "dataSources": {
+      "mainService": {
+        "uri": "service/businesspartner/",
+        "type": "OData",
+        "settings": {
+          "annotations": [],
+          "odataVersion": "4.0"
+        }
+      },
+      "changeRequestService": {
+        "uri": "service/changerequest/",
+        "type": "OData",
+        "settings": {
+          "annotations": [],
+          "odataVersion": "4.0"
+        }
+      }
+    }
+  },
+  "sap.ui": {
+    "technology": "UI5",
+    "deviceTypes": {
+      "desktop": true,
+      "tablet": true,
+      "phone": true
+    }
+  },
+  "sap.ui5": {
+    "flexEnabled": false,
+    "dependencies": {
+      "minUI5Version": "1.120.0",
+      "libs": {
+        "sap.m": {},
+        "sap.ui.core": {},
+        "sap.ui.layout": {},
+        "sap.uxap": {}
+      }
+    },
+    "resourceRoots": {
+      "mdm.md.businesspartner.reuse": "./reuse"
+    },
+    "contentDensities": {
+      "compact": true,
+      "cozy": true
+    },
+    "models": {
+      "i18n": {
+        "type": "sap.ui.model.resource.ResourceModel",
+        "settings": {
+          "bundleName": "mdm.md.businesspartner.task.i18n.i18n"
+        }
+      },
+      "": {
+        "dataSource": "mainService",
+        "preload": true,
+        "settings": {
+          "synchronizationMode": "None",
+          "operationMode": "Server",
+          "autoExpandSelect": true,
+          "earlyRequests": true
+        }
+      },
+      "cr": {
+        "dataSource": "changeRequestService",
+        "preload": true,
+        "settings": {
+          "synchronizationMode": "None",
+          "operationMode": "Server",
+          "autoExpandSelect": true,
+          "earlyRequests": false
+        }
+      }
+    },
+    "resources": {
+      "css": [
+        {
+          "uri": "reuse/css/maintenance.css"
+        }
+      ]
+    },
+    "routing": {
+      "config": {
+        "routerClass": "sap.m.routing.Router",
+        "viewType": "XML",
+        "controlId": "taskApp",
+        "controlAggregation": "pages",
+        "async": true
+      },
+      "routes": [
+        {
+          "pattern": "ChangeRequests/{changeRequest}/approve",
+          "name": "ChangeRequestApprove",
+          "target": "BusinessPartnerMaintenance"
+        },
+        {
+          "pattern": "ChangeRequests/{changeRequest}/rework",
+          "name": "ChangeRequestRework",
+          "target": "BusinessPartnerMaintenance"
+        }
+      ],
+      "targets": {
+        "BusinessPartnerMaintenance": {
+          "type": "View",
+          "id": "BusinessPartnerMaintenance",
+          "name": "mdm.md.businesspartner.reuse.view.BusinessPartnerMaintenance",
+          "viewType": "XML"
+        }
+      }
+    },
+    "rootView": {
+      "viewName": "mdm.md.businesspartner.task.view.App",
+      "type": "XML",
+      "id": "taskAppRootView"
+    }
+  },
+  "sap.bpa.task": {
+    "_version": "1.1.0",
+    "category": "approval",
+    "outcomes": [
+      {
+        "id": "approve",
+        "label": "Approve",
+        "type": "positive"
+      },
+      {
+        "id": "reject",
+        "label": "Reject",
+        "type": "negative"
+      }
+    ],
+    "inputs": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "input",
+      "type": "object",
+      "required": [
+        "changerequestid"
+      ],
+      "properties": {
+        "changerequestid": {
+          "type": "string",
+          "title": "Change Request"
+        },
+        "requesttype": {
+          "type": "string",
+          "title": "Request Type"
+        },
+        "businesspartner": {
+          "type": "string",
+          "title": "Business Partner"
+        },
+        "emailadressinitiator": {
+          "type": "string",
+          "title": "Initiator"
+        },
+        "bpurl": {
+          "type": "string",
+          "title": "Approve URL"
+        },
+        "businesspartnerinput": {
+          "type": "object",
+          "title": "Business Partner Data"
+        }
+      }
+    },
+    "outputs": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "output",
+      "type": "object",
+      "required": [],
+      "properties": {
+        "comment": {
+          "type": "string",
+          "title": "Comment"
+        }
+      }
+    }
+  },
+  "sap.cloud": {
+    "public": true,
+    "service": "mdm.md.businesspartner"
+  }
+}

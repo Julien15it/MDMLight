@@ -880,12 +880,17 @@ const output = [
   ''
 ].join('\n');
 
+// Written into the reuse library, not into an app: both the Manage BP app and the task UI render
+// the maintenance screen, and tools/sync-reuse.js copies this into each of them at build time.
 const target = path.join(
   projectRoot,
   'app',
+  'reuse',
+  'src',
+  'mdm',
+  'md',
   'businesspartner',
-  'webapp',
-  'ext',
+  'reuse',
   'BusinessPartnerMetadata.js'
 );
 fs.writeFileSync(target, output, 'utf8');

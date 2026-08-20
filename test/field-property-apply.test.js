@@ -11,7 +11,7 @@ const read = (...parts) => fs.readFileSync(path.join(...parts), 'utf8');
 const serviceCds = read(ROOT, 'srv', 'change-request-service.cds');
 const serviceJs = read(ROOT, 'srv', 'change-request-service.js');
 const controller = read(
-  ROOT, 'app', 'businesspartner', 'webapp', 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'
+  ROOT, 'app', 'businesspartner', '..', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse', 'controller', 'BusinessPartnerMaintenance.controller.js'
 );
 
 const {
