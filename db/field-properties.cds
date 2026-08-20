@@ -22,9 +22,18 @@ entity FieldPropertyProfiles : managed {
       /** `Requester`, `Approver`, `DataSteward` or `*` for every role. */
       role        : String(40) default '*';
 
-      // No precedence column, deliberately: where two profiles match, the result is the BROADEST of
-      // what they say (see srv/checks/field-properties.js), which is a join and therefore
-      // order-independent. A `sequence` here would be a column implying an ordering nothing reads.
+      /**
+       * Superseded, and kept only because `cds-deploy` refuses to drop an element - the same reason
+       * `DerivationRules` still carries `createsRow` and `DuplicateRules` its four `cond*` columns.
+       * **Nothing reads it. Do not write to it.**
+       *
+       * There is no precedence, deliberately: where two profiles match, the result is the BROADEST
+       * of what they say (see srv/checks/field-properties.js), which is a join and therefore
+       * order-independent. Removing the column on 2026-08-20 failed `deploy_to_postgresql` four
+       * times over - it had already reached the deployed model.
+       */
+      sequence    : Integer default 10;
+
       isActive    : Boolean default true;
 
       settings    : Composition of many FieldPropertySettings on settings.profile = $self;

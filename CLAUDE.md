@@ -683,10 +683,15 @@ examples fall out of that rather than being special-cased:
 
 `PROPERTY_STATE` in `srv/checks/field-properties.js` is the whole rule, and the
 join is closed over the four names — every combination lands back on one of them,
-which `test/field-property-apply.test.js` proves exhaustively. **There is therefore
-no precedence column.** A `sequence` was modelled for one and dropped on 2026-08-20,
-before the table had ever been deployed: the merge is a join, so no profile is ever
-"first", and a column implying an order nothing reads is worse than no column.
+which `test/field-property-apply.test.js` proves exhaustively. **Nothing therefore
+reads a precedence.** A `sequence` was modelled for one, removed on 2026-08-20 when
+Maarten asked what the Order column was for — and **put straight back the same day
+as dead weight**, because removing it failed `deploy_to_postgresql` four times over:
+it had already reached the deployed model, and `cds-deploy` cannot drop an element.
+So the column stands in `db/field-properties.cds` and nothing reads it, the same way
+nothing reads `createsRow` on `DerivationRules` or the four `cond*` columns on
+`DuplicateRules`. The merge is a join, so no profile is ever "first"; the grid shows
+no Order cell and the resolver never sorts.
 
 **Silence is not `optional`.** A profile that says nothing about a target is left
 out of the join entirely. Counting it as `optional` would let one global profile

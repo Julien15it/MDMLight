@@ -75,18 +75,25 @@ test('the join is closed over the four properties', () => {
 });
 
 /**
- * A precedence column was modelled and dropped on 2026-08-20: the merge is a join, so no matching
- * profile is ever "first" and nothing could read an order. The model is pinned here because the
- * column would have to come back through a migration once the table is deployed - and because a
- * `sequence` sitting unread in the grid is what prompted the question.
+ * A precedence column was modelled, dropped on 2026-08-20 and then put back the same day: removing
+ * it failed `deploy_to_postgresql` four times over, because it had already reached the deployed
+ * model and `cds-deploy` cannot drop an element. So the column stands and **nothing reads it** -
+ * the merge is a join, so no matching profile is ever "first" and there is no order to read.
  */
-test('there is no precedence column, because the merge is order-independent', () => {
+test('the precedence column is dead weight, because the merge is order-independent', () => {
   const model = read(ROOT, 'db', 'field-properties.cds');
-  assert.equal(/sequence/u.test(model), false, 'the profile carries no sequence');
+  assert.match(model, /sequence\s*:\s*Integer/u, 'the column is kept; cds-deploy cannot drop it');
+  assert.match(model, /Nothing reads it/u, 'and it says so, or someone will start writing to it');
+
+  for (const file of ['field-properties.js', 'field-property-store.js']) {
+    const source = read(ROOT, 'srv', 'checks', file);
+    assert.equal(/sequence/u.test(source), false, `${file} must not read it`);
+  }
   const view = read(
     ROOT, 'app', 'mdmrules', 'webapp', 'ext', 'view', 'FieldPropertyProfileList.view.xml'
   );
   assert.equal(/Order/u.test(view), false, 'and the grid offers no Order cell');
+
   // The property that makes the column pointless, stated directly.
   assert.equal(broadestProperty(['hidden', 'mandatory']), broadestProperty(['mandatory', 'hidden']));
   assert.equal(broadestProperty(['readOnly', 'optional']), broadestProperty(['optional', 'readOnly']));
