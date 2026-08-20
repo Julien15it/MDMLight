@@ -71,6 +71,37 @@ test('a target carrying its own row index still matches the field it was offered
   assert.deepEqual(proposals.map((entry) => entry.index), [0, 0, 1]);
 });
 
+/**
+ * The shape the model actually answered with on 2026-08-20: the target carries the row index AND
+ * the field name. Every address proposal was being dropped as invented, so the requester saw no
+ * normalisation at all and the log said `every proposal was dropped`.
+ */
+test('a target that also names its field still matches what was offered', () => {
+  const fields = normalisableFields(payload(
+    { OrganizationBPName1: 'test nv' },
+    { Addresses: [{ StreetName: 'test', CityName: 'gent' }] }
+  ));
+  const proposals = sanitizeProposals({
+    proposals: [
+      { target: 'Addresses[0].StreetName', index: 0, field: 'StreetName', proposed: 'Test', reason: 'street name capitalisation' },
+      { target: 'Addresses[0].CityName', index: 0, field: 'CityName', proposed: 'Gent', reason: 'city name capitalisation' },
+      { target: 'root.OrganizationBPName1', index: 0, field: 'OrganizationBPName1', proposed: 'Test NV', reason: 'legal form' }
+    ]
+  }, fields);
+  assert.deepEqual(proposals.map((entry) => entry.proposed), ['Test', 'Gent', 'Test NV']);
+  // Still stored as the section alone, because the screen writes back through it.
+  assert.deepEqual(proposals.map((entry) => entry.target), ['Addresses', 'Addresses', 'root']);
+  assert.deepEqual(proposals.map((entry) => entry.index), [0, 0, 0]);
+});
+
+/** Tolerating the qualified form must not tolerate a target and a field that disagree. */
+test('a target naming a different field than it claims is dropped', () => {
+  const fields = normalisableFields(payload({}, { Addresses: [{ StreetName: 'test', CityName: 'gent' }] }));
+  assert.deepEqual(sanitizeProposals({
+    proposals: [{ target: 'Addresses[0].CityName', index: 0, field: 'StreetName', proposed: 'Test', reason: 'mixed up' }]
+  }, fields), []);
+});
+
 // A bracketed row index must not let a proposal land on a row it was not offered for.
 test('a target index that disagrees with the offered row is still dropped', () => {
   const fields = normalisableFields(payload({}, { Addresses: [{ CityName: 'gent' }] }));

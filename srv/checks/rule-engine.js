@@ -215,7 +215,14 @@ function runDerivationRule(rule, payload, model) {
   const spec = readValueSpec(rule.value, model);
   const entries = [];
 
-  for (const row of sectionRows(payload, resolved.section)) {
+  // An empty section still gets one synthetic row, so a rule can propose the section's first value
+  // instead of waiting for the requester to press Add (2026-08-20). A condition on the rule's OWN
+  // section cannot hold against an empty row, which is what stops a rule inventing a row out of its
+  // own emptiness - only conditions met elsewhere can create one.
+  const rows = sectionRows(payload, resolved.section);
+  const targets = rows.length ? rows : [{ index: 0, record: {}, createRow: true }];
+
+  for (const row of targets) {
     if (!conditionsHold(conditions, payload, resolved.section, row, model)) continue;
     // Already filled: the pipeline would refuse to overwrite it anyway, and proposing a value for
     // a field that has one is a normalisation, which is a different stage and a different consent.
@@ -228,6 +235,7 @@ function runDerivationRule(rule, payload, model) {
     entries.push({
       target: targetFor(resolved.section),
       index: row.index,
+      createRow: row.createRow || undefined,
       field: resolved.element,
       value,
       message: spec.kind === 'reference'

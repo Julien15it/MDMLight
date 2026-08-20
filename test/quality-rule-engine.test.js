@@ -310,11 +310,39 @@ test('a derivation onto a section fills each matching row and says which', () =>
   assert.equal(entries[0].target, 'Addresses');
 });
 
-// A row that is not there is not invented - filling a region into an address nobody added would
-// create data no requester asked for.
-test('a derivation onto a section with no rows fills nothing', () => {
+/**
+ * Changed 2026-08-20: an empty section gets one synthetic row so the rule can propose the section's
+ * first value, instead of the requester having to press Add before a rule could fire at all. The
+ * entry asks for the row; `pipeline.js` is what creates it, and the requester still ticks it.
+ */
+test('a derivation onto a section with no rows proposes the first row', () => {
   const entries = runDerivationRule({ field: 'Addresses.Region', value: 'VAN' }, payload({}), model);
-  assert.deepEqual(entries, []);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].target, 'Addresses');
+  assert.equal(entries[0].index, 0);
+  assert.equal(entries[0].createRow, true);
+  assert.equal(entries[0].value, 'VAN');
+});
+
+/**
+ * The guard that stops a rule inventing a row out of its own emptiness: a condition on the rule's
+ * OWN section is evaluated against the synthetic row, where every field is empty, so it cannot
+ * hold. Only conditions met somewhere else can bring a row into existence.
+ */
+test('a condition on the empty section itself cannot create the row', () => {
+  const rule = {
+    field: 'Addresses.Region', value: 'VAN',
+    conditionField: 'Addresses.Country', conditionValue: 'BE'
+  };
+  assert.deepEqual(runDerivationRule(rule, payload({}), model), []);
+  // The same rule conditioned elsewhere does fire, and asks for the row.
+  const elsewhere = {
+    field: 'Addresses.Region', value: 'VAN',
+    conditionField: 'General.BusinessPartnerCategory', conditionValue: '2'
+  };
+  const entries = runDerivationRule(elsewhere, payload({ BusinessPartnerCategory: '2' }), model);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].createRow, true);
 });
 
 // Same row, not the first row: "this address's Region from this address's Country" is about one

@@ -121,6 +121,21 @@ sap.ui.define([
       });
     },
 
+    /**
+     * The Value column means two things and this hint is the only thing that says which one was
+     * read. A literal gets no hint at all - a free-form `BE` used to render "Copied from undefined",
+     * because the text was concatenated whether or not the catalog lookup found anything.
+     */
+    formatValueHint: function (value, fieldText) {
+      var label = (fieldText || {})[value];
+      return label ? "Copied from " + label : "";
+    },
+
+    /** Same lookup, as the visibility: no hint at all for a literal. */
+    isFieldReference: function (value, fieldText) {
+      return Boolean((fieldText || {})[value]);
+    },
+
     onCellChange: function () {
       this._markDirty();
     },

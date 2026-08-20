@@ -48,6 +48,26 @@ async function runValidations(payload, validations = VALIDATIONS) {
   return messages;
 }
 
+/**
+ * The row a derivation targets, created when the section is empty and the derivation asked for it.
+ * Changed 2026-08-20: a derivation used to report "there is no Addresses row to hold it" and write
+ * nothing, so a VIES address could not be proposed until the requester had pressed Add first.
+ *
+ * Only an EMPTY section and only index 0. Appending to a section that already has rows would put
+ * the registered seat onto a second address somebody added deliberately, and filling index 3 of a
+ * one-row section would invent the two rows in between.
+ */
+function createTargetRecord(payload, entry) {
+  if (!entry.createRow || !entry.target || entry.target === ROOT) return null;
+  if ((entry.index || 0) !== 0) return null;
+  if (!payload.sections) payload.sections = {};
+  const rows = payload.sections[entry.target];
+  if (Array.isArray(rows) && rows.length) return null;
+  const record = {};
+  payload.sections[entry.target] = [record];
+  return record;
+}
+
 async function runDerivations(payload, derivations = DERIVATIONS) {
   const derived = clone(payload);
   const applied = [];
@@ -72,9 +92,15 @@ async function runDerivations(payload, derivations = DERIVATIONS) {
         applied.push({ check: derivation.name, severity: 'info', message: entry.message });
         continue;
       }
-      const record = targetRecord(derived, entry);
-      // A missing row is never invented, but the value is still reported without a `field`: a registry
+      let record = targetRecord(derived, entry);
+      // A derivation that asked to may create the first row of an empty section; anything else is
+      // still never invented, and the value is reported without a `field` instead - a registry
       // answer nobody is told about is the same as not having looked it up.
+      let createdRow = false;
+      if (!record) {
+        record = createTargetRecord(derived, entry);
+        createdRow = Boolean(record);
+      }
       if (!record) {
         applied.push({
           check: derivation.name,
@@ -92,6 +118,8 @@ async function runDerivations(payload, derivations = DERIVATIONS) {
         index: entry.index || 0,
         field: entry.field,
         value: entry.value,
+        // The screen has to add the row as well, or an accepted value has nowhere to land.
+        createRow: createdRow || undefined,
         severity: 'info',
         message: entry.message || `${entry.field} was derived as ${entry.value}.`
       });

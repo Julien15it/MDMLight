@@ -359,9 +359,26 @@ test('a submit that found duplicates refreshes the panel', () => {
 });
 
 test('an applied proposal can land on an address row, not only on the root', () => {
-  assert.match(controllerSource, /proposal\.target === "root"[\s\S]{0,140}state\.sections\[proposal\.target\]/u);
+  assert.match(controllerSource, /proposal\.target === "root"[\s\S]{0,200}state\.sections\[proposal\.target\]/u);
   // Without marking the row changed, an accepted field never reaches staging.
   assert.match(controllerSource, /record\.__state = "changed"/u);
+});
+
+/**
+ * Asked for 2026-08-20: a derivation whose conditions are met should not wait for the requester to
+ * press Add before it can propose anything. The server creates the row in its own copy and flags
+ * the proposal; accepting it is what creates the row on the screen - so nothing is added without a
+ * tick, which is the rule every proposal has followed since 2026-08-14.
+ */
+test('accepting a proposal can create the row it needs', () => {
+  // Its own label: adding a record nobody added is a bigger thing than filling an empty field.
+  assert.match(controllerSource, /change: entry\.createRow \? "Added" : "Filled in"/u);
+  assert.match(controllerSource, /createRow: Boolean\(entry\.createRow\)/u);
+  // Created only for an empty section, and staged as a create.
+  assert.match(controllerSource, /if \(!record && proposal\.createRow && !rows\.length\)/u);
+  assert.match(controllerSource, /record = \{ __state: "new" \}/u);
+  // Two accepted proposals for the same section share the row the first one created.
+  assert.match(controllerSource, /state\.sections\[proposal\.target\] = state\.sections\[proposal\.target\] \|\| \[\]/u);
 });
 
 // "Cancel" cancels nothing once the request is in approval, and every other footer button is

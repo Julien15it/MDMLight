@@ -96,8 +96,8 @@
                   change=".onCellChange" />
                 <Text
                   class="sapUiTinyMarginTop"
-                  visible="{= !!${view>/fieldText}[${dc>value}] }"
-                  text="{= 'Copied from ' + ${view>/fieldText}[${dc>value}] }"
+                  visible="{ parts: [{ path: 'dc>value' }, { path: 'view>/fieldText' }], formatter: '.isFieldReference' }"
+                  text="{ parts: [{ path: 'dc>value' }, { path: 'view>/fieldText' }], formatter: '.formatValueHint' }"
                   wrapping="true" />
               </VBox>
               <CheckBox selected="{dc>isActive}" select=".onCellChange" />

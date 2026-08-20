@@ -33,13 +33,15 @@ function candidateOf(payload) {
   return candidateFromStagedRequest(payload.root || {}, payload.sections || {});
 }
 
-// The registry answers a postal address; the screen holds it on an address row. Only rows that
-// already exist are filled — see the pipeline, which refuses to invent one.
+// The registry answers a postal address; the screen holds it on an address row. With no address
+// row yet, the FIRST one is proposed rather than the answer being reported as homeless - the
+// pipeline creates it and the requester still has to tick it (2026-08-20).
 function addressDerivations(addresses, rows, source) {
   const entries = [];
   const [official] = addresses;
-  if (!official || !rows.length) return entries;
-  rows.forEach((row, index) => {
+  if (!official) return entries;
+  const createRow = !rows.length || undefined;
+  (rows.length ? rows : [{}]).forEach((row, index) => {
     // Only the first address gets registry data: a partner's second address is deliberately a
     // different place, and filling it from the registered seat would be wrong, not incomplete.
     if (index > 0) return;
@@ -48,9 +50,11 @@ function addressDerivations(addresses, rows, source) {
       entries.push({
         target: 'Addresses',
         index,
+        createRow,
         field,
         value: official[field],
-        message: `${field} was filled in as “${official[field]}” from ${source}.`
+        message: `${field} was filled in as “${official[field]}” from ${source}`
+          + `${createRow ? ' (a new address)' : ''}.`
       });
     }
   });
