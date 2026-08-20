@@ -379,9 +379,9 @@ tile it is the last steward-gated action on the list report.
 ### The MDM Rules tile — its own app (`app/mdmrules`, 2026-08-17)
 
 Rule configuration left the Maintain BP app's toolbar and became its own tile.
-`app/mdmrules/webapp/ext/view/MDMRuleHub.view.xml` is the landing page: three
-`GenericTile`s for **Duplicate Check Rules**, **Validation Rules** and
-**Derivation Rules**.
+`app/mdmrules/webapp/ext/view/MDMRuleHub.view.xml` is the landing page: four
+`GenericTile`s for **Duplicate Check Rules**, **Validation Rules**,
+**Field Properties** and **Derivation Rules**.
 
 **It is a second HTML5 app, not a second inbound.** The first attempt declared
 `MDMRules-manage` alongside `BusinessPartner-manage` in one manifest and told
@@ -573,6 +573,59 @@ Still open on these tables, and not built:
 - A custom message per validation row; a generated one is what ships.
 - Rules for object types other than the Business Partner. When MM arrives, **copy
   the tables** rather than adding an object-type column.
+
+### Field property profiles (2026-08-20)
+
+`db/field-properties.cds` adds `FieldPropertyProfiles` and its
+`FieldPropertySettings`, exposed by the same `DuplicateConfigService`. A profile
+says what a request may, must and must not show: **mandatory, read-only, hidden or
+optional**, per entity and per field.
+
+A profile is **conditions plus content**, and they are maintained separately
+because they are different sizes. The conditions are two dropdowns on the profile
+row — **CR type** and **role** — and both take `*` for "all", which is how a global
+profile is written. The content is several hundred fields, so it lives behind
+**Modify**: a dialog listing every entity, each opening up with its arrow to the
+fields underneath it, four checkboxes on both levels. Setting a property on the
+entity row is what lets a steward hide or require a whole section without naming
+every field in it.
+
+Decisions worth keeping:
+
+- **One state per target, not four flags.** The boxes are drawn as checkboxes
+  because that is what was asked for, but they behave as a radio group: ticking one
+  clears the other three. `hidden` + `mandatory` is a request nobody can submit,
+  and `readOnly` + `mandatory` is one only a derivation could satisfy. The stored
+  row carries a single `property`, so nothing downstream has to resolve a
+  contradiction that should never have been storable.
+- **Absent is not `optional`.** A field with no row is not mentioned by the profile
+  at all; `optional` is an explicit override, which is what makes a narrow profile
+  able to hand a field back after a broader one made it mandatory.
+- **The dialog replaces the whole profile.** `saveFieldProperties` deletes the
+  profile's rows and writes what was sent, the same wholesale-replace reasoning as
+  the staged nodes: the dialog always holds the complete state, so no unticked row
+  can survive as a setting nobody can see any more. An unknown entity, field or
+  property is **refused**, not filtered — storing the valid remainder leaves a
+  profile quietly missing what someone thought they set.
+- **The entity/field tree is generated** by `srv/checks/field-properties.js` from
+  `payloadFields()`, so a new node in `db/staging.cds` appears in the dialog with no
+  UI change. The condition lists are closed and served from the same module: a typed
+  value outside them makes a profile that looks configured and never fires.
+- **The roles are not the xsappname scopes.** `Approver` is a workflow role that no
+  scope carries, so `ROLES` is a hand-kept list next to `REQUEST_TYPES`, which is
+  the set of types a request can actually carry (`block`/`delete` are in the enum
+  and nothing produces them).
+- **Modify saves the profile first.** The settings hang off a saved profile, so a
+  row just added has no id to hang them on; the page offers the save rather than
+  refusing, because pressing Modify on a new row is the obvious thing to do.
+
+**Nothing reads these profiles yet** — the maintenance screen does not apply them,
+and the page says so in an Information strip. `profileMatches()` is the matching
+rule (`*` or exact, both conditions ANDed) and is unit-tested, but no caller exists.
+Applying them is the next piece: it needs a precedence rule for two matching
+profiles (`sequence`, lowest first, was modelled for it and is not yet used) and a
+decision about whether `hidden` on the approve view is acceptable at all — an
+approver who cannot see a field is approving something they have not read.
 
 A `draft` opens editable via `ChangeRequestEdit`. **Anything further along is not
 navigable from here at all** (changed 2026-08-13): the approve screen is reached

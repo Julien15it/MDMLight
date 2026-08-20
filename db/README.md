@@ -75,19 +75,26 @@ data-quality results.
 
 ### Configuration, not master data
 
-`duplicate-rules.cds` and `quality-rules.cds` hold the data-steward rule tables —
-`DuplicateRules`, `ValidationRules`, `DerivationRules`, all in namespace
+`duplicate-rules.cds`, `quality-rules.cds` and `field-properties.cds` hold the
+data-steward rule tables — `DuplicateRules`, `ValidationRules`, `DerivationRules`
+and `FieldPropertyProfiles` with its `FieldPropertySettings`, all in namespace
 `mdmlight.config`. They live in the same database but are a different kind of
 thing: staging is a request in flight, these are a control that outlives every
-request. All three are served by `DuplicateConfigService` under
+request. All of them are served by `DuplicateConfigService` under
 `/service/duplicateconfig`, behind the `Steward` scope.
 
-All three are **row-per-criterion decision tables**, and that is a deliberate
+The three rule tables are **row-per-criterion decision tables**, and that is a deliberate
 choice against a column-per-criterion model: adding a criterion has to be an
 INSERT, because `cds-deploy` refuses to drop elements and every removed criterion
 would otherwise be a failed deployment from then on. `DuplicateRules` still
 carries four superseded `cond*` columns for exactly that reason — do not write to
 them.
+
+`FieldPropertySettings` follows the same rule for the same reason: one row per
+entity or field the profile says something about, carrying a single `property`
+(`mandatory`/`readOnly`/`hidden`/`optional`). A **null `element` means the whole
+entity**, and a field with no row at all is not mentioned by the profile — which
+is deliberately different from a row saying `optional`.
 
 The validation and derivation tables address fields as **qualified payload
 fields** (`General.Language`, `Addresses.Country`), generated from `staging.cds`

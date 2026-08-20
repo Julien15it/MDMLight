@@ -1,0 +1,90 @@
+<mvc:View
+  controllerName="mdm.md.mdmrules.manage.ext.controller.FieldPropertyProfileList"
+  xmlns:mvc="sap.ui.core.mvc"
+  xmlns:core="sap.ui.core"
+  xmlns="sap.m"
+  height="100%">
+  <Page
+    title="Field Properties"
+    showNavButton="true"
+    navButtonPress=".onBackToHub">
+    <content>
+      <!--
+        A profile is its conditions plus what it says about the fields. The conditions live here,
+        the properties behind Modify - putting several hundred fields in this table would bury the
+        two dropdowns that decide whether any of them apply.
+      -->
+      <MessageStrip
+        class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
+        text="Nothing reads these profiles yet: they are configuration, and the maintenance screen does not apply them."
+        type="Information"
+        showIcon="true" />
+      <Table
+        id="profileTable"
+        items="{ path: 'dc>/FieldPropertyProfiles', parameters: { $orderby: 'sequence,createdAt', $$updateGroupId: 'ruleChanges' } }"
+        mode="SingleSelectMaster"
+        busy="{view>/busy}"
+        growing="true"
+        growingThreshold="100">
+        <headerToolbar>
+          <OverflowToolbar>
+            <Title text="Profiles" level="H2" />
+            <ToolbarSpacer />
+            <Button text="Add Profile" icon="sap-icon://add" type="Transparent" press=".onAddProfile" />
+            <Button text="Delete" icon="sap-icon://delete" type="Transparent" press=".onDeleteProfile" />
+            <Button text="Save" icon="sap-icon://save" type="Emphasized" press=".onSave" enabled="{view>/dirty}" />
+            <Button text="Discard" icon="sap-icon://undo" type="Transparent" press=".onDiscard" enabled="{view>/dirty}" />
+          </OverflowToolbar>
+        </headerToolbar>
+        <columns>
+          <Column width="24%"><Text text="Profile" /></Column>
+          <Column width="18%"><Text text="Request Type" /></Column>
+          <Column width="18%"><Text text="Role" /></Column>
+          <Column width="8%" hAlign="End"><Text text="Order" /></Column>
+          <Column width="5rem" hAlign="Center"><Text text="Active" /></Column>
+          <Column width="12%"><Text text="Properties" /></Column>
+          <Column width="8rem" hAlign="End"><Text text="" /></Column>
+        </columns>
+        <items>
+          <ColumnListItem>
+            <cells>
+              <Input
+                width="100%"
+                value="{dc>name}"
+                placeholder="name this profile"
+                change=".onCellChange" />
+              <!-- Both conditions default to `*`. A closed list, because a typed value that matches
+                   nothing makes a profile that looks configured and never fires. -->
+              <ComboBox
+                width="100%"
+                selectedKey="{dc>requestType}"
+                items="{ path: 'opt>/requestTypes', templateShareable: false }"
+                change=".onCellChange">
+                <core:Item key="{opt>code}" text="{opt>text}" />
+              </ComboBox>
+              <ComboBox
+                width="100%"
+                selectedKey="{dc>role}"
+                items="{ path: 'opt>/roles', templateShareable: false }"
+                change=".onCellChange">
+                <core:Item key="{opt>code}" text="{opt>text}" />
+              </ComboBox>
+              <Input
+                width="100%"
+                type="Number"
+                value="{dc>sequence}"
+                change=".onCellChange" />
+              <CheckBox selected="{dc>isActive}" select=".onCellChange" />
+              <Text text="{ parts: [{ path: 'dc>ID' }, { path: 'view>/counts' }], formatter: '.formatPropertyCount' }" />
+              <Button
+                text="Modify"
+                icon="sap-icon://edit"
+                type="Transparent"
+                press=".onModify" />
+            </cells>
+          </ColumnListItem>
+        </items>
+      </Table>
+    </content>
+  </Page>
+</mvc:View>

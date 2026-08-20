@@ -30,6 +30,10 @@ sap.ui.define([
 
     onDerivationRules: function () {
       this._router.navTo("DerivationRuleList");
+    },
+
+    onFieldProperties: function () {
+      this._router.navTo("FieldPropertyProfileList");
     }
 
   });

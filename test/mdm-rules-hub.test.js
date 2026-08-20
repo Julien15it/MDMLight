@@ -55,7 +55,10 @@ test('the hub is the landing page and starts the router itself', () => {
 });
 
 test('each rule screen has a route, a target and a view that exists', () => {
-  for (const name of ['MDMRuleHub', 'DuplicateRuleList', 'ValidationRuleList', 'DerivationRuleList']) {
+  for (const name of [
+    'MDMRuleHub', 'DuplicateRuleList', 'ValidationRuleList', 'DerivationRuleList',
+    'FieldPropertyProfileList'
+  ]) {
     const route = routing.routes.find((entry) => entry.name === name);
     assert.ok(route, `${name} has a route`);
     assert.equal(route.target, name);
@@ -68,13 +71,17 @@ test('each rule screen has a route, a target and a view that exists', () => {
   }
 });
 
-test('the hub offers exactly the three rule kinds, each wired to its page', () => {
-  for (const header of ['Duplicate Check Rules', 'Validation Rules', 'Derivation Rules']) {
+test('the hub offers exactly the four rule kinds, each wired to its page', () => {
+  for (const header of [
+    'Duplicate Check Rules', 'Validation Rules', 'Derivation Rules', 'Field Properties'
+  ]) {
     assert.ok(hub.includes(`header="${header}"`), `${header} is offered`);
   }
-  assert.equal((hub.match(/<GenericTile/gu) || []).length, 3);
+  assert.equal((hub.match(/<GenericTile/gu) || []).length, 4);
   const controller = read(path.join('controller', 'MDMRuleHub.controller.js'));
-  for (const target of ['DuplicateRuleList', 'ValidationRuleList', 'DerivationRuleList']) {
+  for (const target of [
+    'DuplicateRuleList', 'ValidationRuleList', 'DerivationRuleList', 'FieldPropertyProfileList'
+  ]) {
     assert.match(controller, new RegExp(`navTo\\("${target}"\\)`, 'u'));
   }
 });

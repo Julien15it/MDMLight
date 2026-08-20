@@ -1,5 +1,6 @@
 using { mdmlight.config as config } from '../db/duplicate-rules';
 using { mdmlight.config as quality } from '../db/quality-rules';
+using { mdmlight.config as fieldprops } from '../db/field-properties';
 
 /**
  * Data-steward configuration for all three quality controls. Separate from BusinessPartnerService
@@ -14,6 +15,13 @@ service DuplicateConfigService {
   entity DuplicateRules  as projection on config.DuplicateRules;
   entity ValidationRules as projection on quality.ValidationRules;
   entity DerivationRules as projection on quality.DerivationRules;
+
+  /** The profile header. Its settings are written through `saveFieldProperties`, not by binding the
+   *  composition: the dialog replaces the whole set in one call. */
+  entity FieldPropertyProfiles as projection on fieldprops.FieldPropertyProfiles;
+
+  /** Read-mostly here - the list reads it to say how many properties a profile carries. */
+  entity FieldPropertySettings as projection on fieldprops.FieldPropertySettings;
 
   /** Key/text, not bare strings: those do not bind reliably in a cell, which emptied the dropdowns. */
   // `code`/`text`, not `key`/`text`: `key` is a CDS keyword and prefixes a key
@@ -81,4 +89,54 @@ service DuplicateConfigService {
   /** Generated from the staging model and the engine, never a hand-kept UI copy. The counts are of
    *  rules that would actually run, so a page can say when a saved row is being skipped. */
   function qualityRuleOptions() returns QualityRuleOptions;
+
+  /** One field of an entity, as the property dialog lists it under its parent. */
+  type FieldPropertyField {
+    /** Qualified, e.g. `Addresses.Country` - what a setting is stored against. */
+    field   : String(60);
+    element : String(60);
+    text    : String(120);
+  }
+
+  /** An entity and the fields the dialog opens up underneath it. */
+  type FieldPropertyEntity {
+    section : String(40);
+    text    : String(120);
+    fields  : array of FieldPropertyField;
+  }
+
+  type FieldPropertyOptions {
+    /** The whole payload model, entity by entity - the dialog renders this and nothing else. */
+    entities     : array of FieldPropertyEntity;
+    /** mandatory / readOnly / hidden / optional, in the order the columns are drawn. */
+    properties   : array of Option;
+    /** Both condition dropdowns, `*` included as the first entry. */
+    requestTypes : array of Option;
+    roles        : array of Option;
+  }
+
+  /** Everything the field property page needs: the entity/field tree from the staging model, and
+   *  the closed lists behind the two condition dropdowns. Never a hand-kept copy in the UI. */
+  function fieldPropertyOptions() returns FieldPropertyOptions;
+
+  /** A profile's settings as `[{ section, element, property }]`. `element` is null for a setting
+   *  that applies to the whole entity. One call, because the dialog needs them all at once. */
+  function fieldPropertiesOf(
+    Profile : UUID not null
+  ) returns LargeString;
+
+  /**
+   * Replaces a profile's settings wholesale with `SettingsJson` - the dialog always sends the
+   * complete state, so rewriting beats diffing and no stale row can survive. An unknown entity,
+   * field or property is refused rather than stored: a setting that resolves to nothing looks
+   * configured and does nothing.
+   */
+  action saveFieldProperties(
+    Profile      : UUID not null,
+    SettingsJson : LargeString not null
+  ) returns {
+    Profile : UUID;
+    /** How many rows the profile now carries. */
+    Saved   : Integer;
+  };
 }

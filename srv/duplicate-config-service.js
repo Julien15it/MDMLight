@@ -9,10 +9,16 @@ const {
   COMPARISONS, SEVERITIES, validateValidationRule, validateDerivationRule
 } = require('./checks/rule-engine');
 const qualityRules = require('./checks/rule-store');
+const {
+  PROPERTIES, PROPERTY_TEXT, REQUEST_TYPES, REQUEST_TYPE_TEXT, ROLES, ROLE_TEXT,
+  fieldPropertyTree, normaliseSettings
+} = require('./checks/field-properties');
 
 const RULES = 'mdmlight.config.DuplicateRules';
 const VALIDATIONS = 'mdmlight.config.ValidationRules';
 const DERIVATIONS = 'mdmlight.config.DerivationRules';
+const PROFILES = 'mdmlight.config.FieldPropertyProfiles';
+const SETTINGS = 'mdmlight.config.FieldPropertySettings';
 
 const SEVERITY_TEXT = Object.freeze({
   error: 'Error — blocks the request',
@@ -126,6 +132,65 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
         validationCount: await runnable(VALIDATIONS, validateValidationRule),
         derivationCount: await runnable(DERIVATIONS, validateDerivationRule)
       };
+    });
+
+    // The condition pair is the whole of a profile's matching, so a value outside the closed list
+    // makes a profile that can never fire - and looks configured while doing nothing.
+    this.before(['CREATE', 'UPDATE'], 'FieldPropertyProfiles', (req) => {
+      const { requestType, role } = req.data;
+      if (requestType !== undefined && requestType !== null && !REQUEST_TYPES.includes(requestType)) {
+        req.error(400, `“${requestType}” is not a request type. Use * for every type.`, 'requestType');
+      }
+      if (role !== undefined && role !== null && !ROLES.includes(role)) {
+        req.error(400, `“${role}” is not a role. Use * for every role.`, 'role');
+      }
+    });
+
+    // The entity/field tree and the two closed lists, generated from the staging model so a new node
+    // shows up in the dialog without anyone editing the UI.
+    this.on('fieldPropertyOptions', () => ({
+      entities: fieldPropertyTree(),
+      properties: PROPERTIES.map((code) => ({ code, text: PROPERTY_TEXT[code] || code })),
+      requestTypes: REQUEST_TYPES.map((code) => ({ code, text: REQUEST_TYPE_TEXT[code] || code })),
+      roles: ROLES.map((code) => ({ code, text: ROLE_TEXT[code] || code }))
+    }));
+
+    this.on('fieldPropertiesOf', async (req) => {
+      const rows = await cds.run(
+        cds.ql.SELECT.from(SETTINGS)
+          .columns('section', 'element', 'property')
+          .where({ profile_ID: req.data.Profile })
+      );
+      return JSON.stringify(rows || []);
+    });
+
+    // Wholesale replace: the dialog always sends the complete state of the profile, so rewriting
+    // beats diffing and no stale row can survive a field being unticked.
+    this.on('saveFieldProperties', async (req) => {
+      const profile = req.data.Profile;
+      const stored = await cds.run(cds.ql.SELECT.one.from(PROFILES).where({ ID: profile }));
+      if (!stored) return req.reject(404, `Profile ${profile} was not found. Save it before setting its fields.`);
+
+      let parsed;
+      try {
+        parsed = JSON.parse(req.data.SettingsJson || '[]');
+      } catch (error) {
+        return req.reject(400, `SettingsJson is not valid JSON: ${error.message}`);
+      }
+      if (!Array.isArray(parsed)) return req.reject(400, 'SettingsJson must be an array of settings.');
+
+      const { settings, errors } = normaliseSettings(parsed);
+      // Refused, not filtered: a dialog sending an unknown field is a bug, and storing the rest
+      // would leave a profile that is quietly missing what someone thought they set.
+      if (errors.length) return req.reject(400, errors.join(' '));
+
+      await cds.run(cds.ql.DELETE.from(SETTINGS).where({ profile_ID: profile }));
+      if (settings.length) {
+        await cds.run(cds.ql.INSERT.into(SETTINGS).entries(
+          settings.map((setting) => ({ ...setting, profile_ID: profile }))
+        ));
+      }
+      return { Profile: profile, Saved: settings.length };
     });
 
     // Delegated to BusinessPartnerService, which owns the S/4 connection and the one name index: a
