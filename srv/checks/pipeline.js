@@ -1,33 +1,18 @@
 'use strict';
 
 /**
- * The order is the whole design, and it is not arbitrary:
- *
- *   validate -> derive -> duplicate check
- *
- * Data that fails validation cannot be a duplicate of anything, because it is not a partner yet —
- * so validation runs first and stops the rest. Data that is merely incomplete may be missing the
- * very fields a duplicate rule needs (a country, a tax number), so derivation runs before the
- * duplicate check rather than after it: checking first and deriving second would ask the rules a
- * question about a record that does not exist yet.
- *
- * Stages run over the **request payload** — `{ root, sections }`, the maintenance screen's own
- * shape — not over a flattened candidate, because a derivation has to be able to say "the street
- * of the first address" and the screen has to be able to write it back to that field.
+ * **validate -> derive -> duplicate check**, and the order is the design. Data that fails validation
+ * cannot be a duplicate of anything; data that is merely incomplete may be missing the very fields a
+ * duplicate rule needs, so derivation runs first. Stages run over the request payload
+ * (`{ root, sections }`), not a flattened candidate, so a derivation can name a row and be written back.
  */
 
-/**
- * Each entry: { name, async run(payload) -> [{ check, severity, message, target?, field? }] }
- * `severity: 'error'` stops the pipeline; 'warning' and 'info' do not.
- */
+// { name, async run(payload) -> [{ check, severity, message, target?, field? }] }.
+// `severity: 'error'` stops the pipeline; 'warning' and 'info' do not.
 const VALIDATIONS = [];
 
-/**
- * Each entry: { name, async run(payload) -> [{ target, index, field, value, message }] }
- * `target` is 'root' or a section id ('Addresses'); `index` is the row. Values are applied to a
- * copy and reported back, so the user sees what was filled in for them rather than finding it
- * after approval.
- */
+// { name, async run(payload) -> [{ target, index, field, value, message }] }, `target` being 'root'
+// or a section id. Applied to a copy and reported back, so nothing is discovered after approval.
 const DERIVATIONS = [];
 
 const BLOCKING = 'error';
@@ -88,10 +73,8 @@ async function runDerivations(payload, derivations = DERIVATIONS) {
         continue;
       }
       const record = targetRecord(derived, entry);
-      // A row that is not there is not invented — filling a street into an address the user never
-      // added would create data nobody asked for. But it is still said out loud, without a
-      // `field`, so the screen reports it and writes nothing: a registry value nobody is told
-      // about is the same as not having looked it up.
+      // A missing row is never invented, but the value is still reported without a `field`: a registry
+      // answer nobody is told about is the same as not having looked it up.
       if (!record) {
         applied.push({
           check: derivation.name,
@@ -117,11 +100,8 @@ async function runDerivations(payload, derivations = DERIVATIONS) {
   return { derived, applied };
 }
 
-/**
- * `checkDuplicates(payload)` is injected rather than imported so this module stays free of the S/4
- * connection and the resident index, and so the caller decides what the candidate is compared
- * against — the submit path excludes the request's own staged copy, a bare check does not.
- */
+// `checkDuplicates` is injected, not imported: this module stays free of the S/4 connection, and the
+// caller decides what to compare against - submit excludes the request's own staged copy, a check does not.
 async function runChecks(payload, { checkDuplicates, validations, derivations, propose } = {}) {
   const validationMessages = await runValidations(payload, validations);
   if (validationMessages.some((message) => message.severity === BLOCKING)) {

@@ -1,13 +1,9 @@
 using { mdmlight.staging as staging } from '../db/staging';
 
 /**
- * Change request lifecycle. Deliberately small: it stores a request in the
- * staging tables, hands it to SAP Build Process Automation, serves it back to
- * the approve view, and posts it to S/4 once approved.
- *
- * It never talks to S/4 directly - posting is delegated to
- * BusinessPartnerService, which already owns the API_BUSINESS_PARTNER
- * connection, payload sanitizing and the per-entity maintenance config.
+ * Change request lifecycle: stage a request, hand it to SPA, serve it back to the approve view, post
+ * it once approved. It never talks to S/4 directly - posting is delegated to BusinessPartnerService,
+ * which owns the connection, the payload sanitizing and the maintenance config.
  */
 service ChangeRequestService @(path: '/service/changerequest') {
 
@@ -20,11 +16,8 @@ service ChangeRequestService @(path: '/service/changerequest') {
     select from staging.CheckFindings
     where isStale is null or isStale = false;
 
-  /**
-   * Creates or updates a request and its staged nodes. `DataJson` is the
-   * maintenance screen's own shape: { root: {...}, sections: { Addresses: [...] } }.
-   * Leaves the request in `draft` - no workflow is started.
-   */
+  /** Creates or updates a request and its staged nodes from the screen's own `{ root, sections }`
+   *  shape, and leaves it in `draft` - no workflow starts. */
   action saveRequest(
     ChangeRequest : UUID,
     RequestType   : String(10) not null,
@@ -36,21 +29,15 @@ service ChangeRequestService @(path: '/service/changerequest') {
     Status        : String(20);
   };
 
-  /**
-   * Saves as above, then moves the request to `inApproval` and starts the SPA
-   * workflow. A workflow that fails to start leaves the request in `draft` so
-   * it can be resubmitted - a request sitting in `inApproval` with no process
-   * behind it would be invisible to everyone.
-   */
+  /** Saves, then moves to `inApproval` and starts the SPA workflow. A failed start stays `draft`:
+   *  `inApproval` with no process behind it would be invisible to everyone. */
   action submitRequest(
     ChangeRequest : UUID,
     RequestType   : String(10) not null,
     BusinessPartner : String(10),
     Reason        : String(250),
     DataJson      : LargeString not null,
-    /** Set by the second press. Without it a request whose duplicate check
-     *  found anything stays a draft and reports what it found, so nobody
-     *  starts an approval for a partner that may already exist. */
+    /** The confirming second press. Without it a request that matched stays a draft and reports it. */
     Confirm       : Boolean
   ) returns {
     ChangeRequest     : UUID;
@@ -59,19 +46,15 @@ service ChangeRequestService @(path: '/service/changerequest') {
     /** True when the check found something and the submit is waiting for a
      *  confirming second press. */
     NeedsConfirmation : Boolean;
-    /** False when a validation blocked. The request stays a draft, no workflow
-     *  starts, and ValidationsJson says why. Derivations deliberately do NOT
-     *  run here - see checkRequest. */
+    /** False when a validation blocked: stays a draft and ValidationsJson says why. Derivations
+     *  deliberately do NOT run here - see checkRequest. */
     Valid             : Boolean;
     ValidationsJson   : LargeString;
     /** Findings for the message area, newest check only. */
     MessagesJson      : LargeString;
   };
 
-  /**
-   * Serves a staged request back in the same shape the maintenance screen
-   * sends, so the approve view can render it with the existing code path.
-   */
+  /** Serves a request back in the shape the screen sends, so the approve view reuses one code path. */
   function getRequestPayload(
     ChangeRequest : UUID not null
   ) returns {
@@ -88,10 +71,23 @@ service ChangeRequestService @(path: '/service/changerequest') {
   };
 
   /**
-   * The Check button: validate, derive, propose reformatting. Stages nothing.
-   * Everything comes back as a *proposal* - the requester applies it, not this.
-   * Duplicates are deliberately absent; see duplicateCheckRequest.
+   * The field property profiles that apply, merged, as
+   * `{ entities: { Addresses: 'readOnly' }, fields: { 'Addresses.Country': 'mandatory' }, profiles: 2 }`.
+   * A target no profile mentions is absent, which is not the same as `optional`.
+   *
+   * `Role` is what the **screen** is being rendered for - approve, rework or draft - and is a
+   * rendering answer only. Nothing is gated on it: the mandatory check runs inside the submit on
+   * the requester's own context, so a client naming a different role cannot submit past it.
    */
+  function effectiveFieldProperties(
+    /** The request type being maintained. Null matches only the `*` profiles. */
+    RequestType : String(10),
+    /** Requester, Approver or DataSteward. Null matches only the `*` profiles. */
+    Role        : String(40)
+  ) returns LargeString;
+
+  /** The Check button: validate, derive, propose reformatting, stage nothing. Everything comes back
+   *  as a proposal for the requester to apply. Duplicates are deliberately absent. */
   action checkRequest(
     ChangeRequest   : UUID,
     BusinessPartner : String(10),
@@ -113,11 +109,8 @@ service ChangeRequestService @(path: '/service/changerequest') {
     NormalisationsJson : LargeString;
   };
 
-  /**
-   * The Duplicate Check button: validate -> derive -> match, order fixed in
-   * srv/checks/pipeline.js. Derives in memory only and returns none of it.
-   * `RanDuplicateCheck` false means an empty `DuplicatesJson` proves nothing.
-   */
+  /** The Duplicate Check button: validate -> derive -> match. Derives in memory only and returns
+   *  none of it. `RanDuplicateCheck` false means an empty `DuplicatesJson` proves nothing. */
   action duplicateCheckRequest(
     ChangeRequest   : UUID,
     BusinessPartner : String(10),
@@ -131,24 +124,17 @@ service ChangeRequestService @(path: '/service/changerequest') {
   };
 
   /**
-   * The SPA decision callback. Records the outcome only - it never writes to
-   * S/4, however many approvers the process routed the request through.
-   * `approve` moves the request to `approved`, meaning every approval SPA
-   * required is in and the request is waiting to be posted.
-   *
-   * `reject` is **no longer terminal** (2026-08-19): it moves the request to
-   * `reworkRequired` and hands it back to the requester, who resubmits or
-   * withdraws it. The process instance stays parked, because `resubmitRequest`
-   * hands the request back to that same instance rather than starting a new one.
-   * The comment goes to `rejectionComment`, never over the requester's `reason`.
+   * The SPA decision callback. Records the outcome only and never writes to S/4: `approve` means
+   * every approval SPA wanted is in and the request waits to be posted. `reject` is NOT terminal -
+   * it goes to `reworkRequired` and back to the requester, leaving the instance parked for
+   * `resubmitRequest`, with the comment on `rejectionComment` rather than over `reason`.
    */
   action decideRequest(
     ChangeRequest : UUID not null,
     Decision      : String(10) not null,
     Comment       : String(250),
-    /** Default true. The UI5 task form sets it false: completing the task in
-     *  My Inbox is itself what resumes the workflow, so firing our own BPA
-     *  trigger as well would signal the same decision twice. */
+    /** Default true. The task form sets it false: completing the task already resumes the workflow,
+     *  so signalling here too would deliver the same decision twice. */
     SignalWorkflow : Boolean
   ) returns {
     ChangeRequest   : UUID;
@@ -157,11 +143,9 @@ service ChangeRequestService @(path: '/service/changerequest') {
   };
 
   /**
-   * The "all approvals collected" signal, and the only thing that writes to
-   * S/4. SPA calls it once its approval chain finishes, so the number of
-   * approvers and the criteria that picked them stay entirely on the SPA side.
-   * Idempotent: a request that already carries a number returns it unchanged,
-   * so a retried callback cannot create a second business partner.
+   * The "all approvals collected" signal, and the only thing that writes to S/4 - so how many
+   * approvers there were and what picked them stays entirely on SPA's side. Idempotent: a request
+   * that already carries a number returns it unchanged, so a retried callback creates nothing.
    */
   action completeRequest(
     ChangeRequest : UUID not null
@@ -171,24 +155,13 @@ service ChangeRequestService @(path: '/service/changerequest') {
     BusinessPartner : String(10);
   };
 
-  /**
-   * Rework, 2026-08-19. A rejection sends the request back to the requester
-   * rather than ending it, so these two are the requester's way out of
-   * `reworkRequired` — one back into approval, one out of existence.
-   *
-   * Both are the requester's actions, not SPA's. SPA only ever sends the
-   * request back; what happens next is a human decision on the rework screen.
-   */
+  // The requester's two ways out of `reworkRequired` - one back into approval, one out of existence.
+  // SPA only ever sends the request back; what happens next is a human decision on the rework screen.
 
   /**
-   * Saves the reworked payload and hands it back to the **existing** SPA process
-   * instance, which is still parked waiting for the requester. Runs exactly the
-   * gates a first submit runs — the validations and the duplicate check, with the
-   * same `Confirm` second press — because a reworked request is a request nobody
-   * has judged yet.
-   *
-   * Returns the submit shape so the maintenance screen can reuse one code path
-   * for submit and resubmit.
+   * Saves the reworked payload and hands it back to the EXISTING parked instance. Runs every gate a
+   * first submit runs, `Confirm` included, because a reworked request is one nobody has judged.
+   * Returns the submit shape, so the screen reuses one code path for both.
    */
   action resubmitRequest(
     ChangeRequest : UUID not null,
@@ -205,6 +178,22 @@ service ChangeRequestService @(path: '/service/changerequest') {
     Valid             : Boolean;
     ValidationsJson   : LargeString;
     MessagesJson      : LargeString;
+  };
+
+  /**
+   * Takes a request the approver sent back out of `inApproval` and into `reworkRequired`, so the
+   * rework screen can offer Resubmit/Withdraw. A stopgap for the missing SPA reject callback: the
+   * `reworkurl` is only ever sent by the rejection branch, so arriving on that screen is the only
+   * evidence CAP gets that the request came back. No-op on any other status, and the workflow is
+   * deliberately NOT signalled - the process already took its rejection branch.
+   */
+  action claimRework(
+    ChangeRequest : UUID not null
+  ) returns {
+    ChangeRequest : UUID;
+    Status        : String(20);
+    /** True only when this call moved the status. False means it was already there, or elsewhere. */
+    Claimed       : Boolean;
   };
 
   /**

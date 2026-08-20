@@ -18,7 +18,9 @@ const controller = read(APP, 'ext', 'controller', 'BusinessPartnerMaintenance.co
 const view = read(APP, 'ext', 'view', 'BusinessPartnerMaintenance.view.xml');
 const manifest = JSON.parse(read(APP, 'manifest.json'));
 
-const { EDITABLE_STATUSES, WITHDRAWABLE_STATUSES, RESUBMITTED_SIGNAL, reworkUrl } =
+const {
+  EDITABLE_STATUSES, WITHDRAWABLE_STATUSES, RESUBMITTED_SIGNAL, WITHDRAWN_SIGNAL, reworkUrl
+} =
   require('../srv/change-request-service')._internals;
 const { ACTIVE_REQUEST_STATUSES } = require('../srv/business-partner-service')._internals;
 
@@ -112,7 +114,7 @@ test('resubmit runs the same gates as a first submit', () => {
  */
 test('the resubmit signal carries the BP context flat inside inputs', () => {
   const wf = read(ROOT, 'srv', 'wf', 'processAutomation.js');
-  assert.match(wf, /async function triggerApprovalDecision\(executionId, result, extraInputs = \{\}\)/u);
+  assert.match(wf, /async function sendTrigger\(triggerId, label, executionId, result, extraInputs = \{\}\)/u);
   assert.match(wf, /inputs: \{ result, \.\.\.extraInputs \}/u);
   // executionId is the process instance, not the change request UUID. Arthur calls it the CR id;
   // swapping the two would leave the trigger unable to resolve the parked instance.
@@ -121,7 +123,7 @@ test('the resubmit signal carries the BP context flat inside inputs', () => {
     serviceJs.indexOf("this.on('resubmitRequest'"),
     serviceJs.indexOf("this.on('withdrawRequest'")
   );
-  assert.match(resubmit, /triggerApprovalDecision\(before\.processInstanceId, RESUBMITTED_SIGNAL, context\)/u);
+  assert.match(resubmit, /triggerRequesterCallback\(before\.processInstanceId, RESUBMITTED_SIGNAL, context\)/u);
   // His spelling, capitalised, unlike approved/rejected. A signal that does not match leaves the
   // request parked forever, so this is pinned rather than tidied.
   assert.equal(RESUBMITTED_SIGNAL, 'Resubmitted');
@@ -134,10 +136,14 @@ test('the resubmit signal carries the BP context flat inside inputs', () => {
 test('submit and resubmit send the same BP context, built once', () => {
   assert.match(serviceJs, /const workflowContext = async \(req, changeRequest, header, findings\)/u);
   assert.equal((serviceJs.match(/await workflowContext\(/gu) || []).length, 2, 'both paths use it');
-  // The context literal exists in exactly one place.
-  assert.equal((serviceJs.match(/changerequestid:/gu) || []).length, 1);
+  // Scoped to the builder, not the whole file: withdraw also sends `changerequestid`, but as a
+  // single field on its own signal rather than a second copy of the context.
+  const builder = serviceJs.slice(
+    serviceJs.indexOf('const workflowContext ='), serviceJs.indexOf('const persist =')
+  );
+  assert.equal((builder.match(/changerequestid:/gu) || []).length, 1, 'one context literal');
   for (const key of ['businesspartnerinput', 'bpduplicates', 'bpurl', 'reworkurl', 'requesttype']) {
-    assert.match(serviceJs, new RegExp(`${key}:`, 'u'), `${key} is in the context`);
+    assert.match(builder, new RegExp(`${key}:`, 'u'), `${key} is in the context`);
   }
 });
 
@@ -152,20 +158,34 @@ test('the resubmit context is rebuilt after the edits, not before', () => {
   );
   const persistAt = resubmit.indexOf('await persist(req)');
   const contextAt = resubmit.indexOf('await workflowContext(');
-  const signalAt = resubmit.indexOf('triggerApprovalDecision');
+  const signalAt = resubmit.indexOf('triggerRequesterCallback');
   assert.ok(persistAt < contextAt, 'the payload is saved before the context is built');
   assert.ok(contextAt < signalAt, 'and the context is built before it is sent');
   // Built from a fresh read, not from the header fetched before the guard.
   assert.match(resubmit.slice(persistAt, contextAt), /SELECT\.one\.from\(HEADER\)/u);
 });
 
-// Approve, reject and withdraw were not part of the agreed change, so their payload is untouched.
-test('the other signals still send result alone', () => {
+/**
+ * Two triggers, and which one a signal goes to is the contract. Arthur gave `requesterCallBack` for
+ * the requester's actions on 2026-08-19; approve and reject stay on the approver's `zApproved_wf`.
+ * Sending one down the other's trigger reaches a process step that is not waiting for it.
+ */
+test('the requester actions use their own trigger, the approver actions keep theirs', () => {
+  const wf = read(ROOT, 'srv', 'wf', 'processAutomation.js');
+  assert.match(wf, /REQUESTER_CALLBACK_TRIGGER_ID = "eu10\.alluvion-dev-cf\.mdmlightapproval\.requesterCallBack"/u);
+  assert.match(wf, /APPROVAL_DECISION_TRIGGER_ID = "eu10\.alluvion-dev-cf\.mdmlightapproval\.zApproved_wf"/u);
+  // The host stays with the destination. Writing the gateway in here would bypass the proxy and the
+  // token that `sbpa-destination` provides.
+  assert.equal(/spa-api-gateway/u.test(wf), false, 'the gateway host is not hardcoded');
+  assert.match(wf, /path: `\/unified\/v1\/triggers\/api\/\$\{triggerId\}\?environmentId=bpapprovalpoc`/u);
+  // Approve and reject are untouched by the rework work.
   for (const call of ["notifyWorkflow('rejected')", "notifyWorkflow('approved')"]) {
     assert.ok(serviceJs.includes(call), `${call} is unchanged`);
   }
-  const withdraw = serviceJs.slice(serviceJs.indexOf("this.on('withdrawRequest'"));
-  assert.match(withdraw, /triggerApprovalDecision\(header\.processInstanceId, 'withdrawn'\)/u);
+  assert.match(serviceJs, /triggerApprovalDecision\(header\.processInstanceId, workflowResult\)/u);
+  // Following his `Resubmitted` convention, not his instruction - he never specified this one.
+  assert.equal(WITHDRAWN_SIGNAL, 'Withdrawn');
+  assert.equal(RESUBMITTED_SIGNAL, 'Resubmitted');
 });
 
 /** Resume, not restart: one instance per request means one audit thread on Arthur's side. */
@@ -191,10 +211,57 @@ test('a failed signal leaves the request reworkable rather than stranded', () =>
     serviceJs.indexOf("this.on('resubmitRequest'"),
     serviceJs.indexOf("this.on('withdrawRequest'")
   );
-  const signalAt = resubmit.indexOf('triggerApprovalDecision');
+  const signalAt = resubmit.indexOf('triggerRequesterCallback');
   const statusAt = resubmit.indexOf("status: 'inApproval'");
   assert.ok(signalAt < statusAt, 'the signal is sent before the status moves');
   assert.match(resubmit.slice(signalAt, statusAt), /req\.reject\(502/u);
+});
+
+// --- The missing reject callback --------------------------------------------------------
+
+/**
+ * Arthur's rejection branch notifies the requester but does not call `decideRequest`, so the request
+ * is still `inApproval` when the rework screen opens it and every gate downstream refuses. The
+ * screen claims it instead, on the grounds that the `reworkurl` is only ever sent on a rejection.
+ * Temporary by construction: delete this and the handler once the callback exists.
+ */
+test('a request the approver sent back is claimed out of inApproval', () => {
+  assert.match(serviceCds, /action claimRework\(/u);
+  const claim = serviceJs.slice(
+    serviceJs.indexOf("this.on('claimRework'"), serviceJs.indexOf("this.on('withdrawRequest'")
+  );
+  assert.match(claim, /header\.status !== 'inApproval'/u);
+  assert.match(claim, /status: 'reworkRequired'/u);
+  // The process already took its rejection branch; a second decision is not one it waits for.
+  assert.equal(/trigger(ApprovalDecision|RequesterCallback)/u.test(claim), false, 'no workflow signal');
+});
+
+/** Same guard as withdraw: a posted request has a business partner behind it, whatever the status. */
+test('claiming never touches a request that has posted, or one already decided', () => {
+  const claim = serviceJs.slice(
+    serviceJs.indexOf("this.on('claimRework'"), serviceJs.indexOf("this.on('withdrawRequest'")
+  );
+  assert.match(claim, /if \(header\.postedBP \|\| header\.status !== 'inApproval'\)/u);
+  const guardAt = claim.indexOf('header.postedBP');
+  assert.ok(guardAt < claim.indexOf('UPDATE(HEADER)'), 'the guard comes before the update');
+  assert.match(claim, /Claimed: false/u);
+});
+
+/** Only the rework route claims, and only when the status has not moved on its own. */
+test('the screen claims on the rework route and nowhere else', () => {
+  assert.equal((controller.match(/this\._claimRework\(/gu) || []).length, 1, 'claimed in one place');
+  const load = controller.slice(controller.indexOf('_loadStagedRequest: async function'));
+  assert.match(load, /if \(state\.requestStatus === "inApproval"\)/u);
+  assert.match(load, /state\.requestStatus = await this\._claimRework\(changeRequest, state\.requestStatus\)/u);
+  // A failed claim leaves the status alone, which is the pre-existing "nothing to rework" screen.
+  const helper = controller.slice(controller.indexOf('_claimRework: async function'));
+  assert.match(helper.slice(0, helper.indexOf('_decide:')), /return currentStatus/u);
+});
+
+/** A rejection with no reason recorded is the normal case until the callback lands. */
+test('the screen says so when no rejection reason came through', () => {
+  const load = controller.slice(controller.indexOf('_loadStagedRequest: async function'));
+  assert.match(load, /No reason was recorded with it/u);
 });
 
 // --- Withdraw --------------------------------------------------------------------------
@@ -234,9 +301,9 @@ test('withdrawing an already-deleted request is not an error', () => {
 // rather than swallowed - an open approver task may be left needing a human.
 test('withdraw tells the process, best-effort, and says so when it could not', () => {
   const withdraw = serviceJs.slice(serviceJs.indexOf("this.on('withdrawRequest'"));
-  assert.match(withdraw, /triggerApprovalDecision\(header\.processInstanceId, 'withdrawn'\)/u);
+  assert.match(withdraw, /triggerRequesterCallback\(header\.processInstanceId, WITHDRAWN_SIGNAL/u);
   assert.match(withdraw, /req\.info\(200,/u);
-  const signalAt = withdraw.indexOf('triggerApprovalDecision');
+  const signalAt = withdraw.indexOf('triggerRequesterCallback');
   assert.ok(signalAt < withdraw.indexOf('DELETE.from(HEADER)'));
 });
 

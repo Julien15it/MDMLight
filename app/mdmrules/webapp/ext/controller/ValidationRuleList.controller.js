@@ -19,14 +19,8 @@ sap.ui.define([
     { field: "conditionField2", value: "conditionValue2" }
   ];
 
-  /**
-   * The Validation Rules decision table. Rows are real: they live in
-   * `mdmlight.config.ValidationRules` and the pipeline runs them on Check and on Submit.
-   *
-   * Deliberately the same page shape as DuplicateRuleList - one update group, batch on Save,
-   * `resetChanges` on Discard - because they are the same kind of table and a steward should not
-   * have to learn two.
-   */
+  // Rows are real: they live in `mdmlight.config.ValidationRules` and run on Check and Submit. Same
+  // page shape as DuplicateRuleList, because a steward should not have to learn two.
   return Controller.extend("mdm.md.mdmrules.manage.ext.controller.ValidationRuleList", {
 
     onInit: function () {
@@ -58,11 +52,8 @@ sap.ui.define([
       this._router.navTo("MDMRuleHub", {}, true);
     },
 
-    /**
-     * The component's model, not only the view's. Component models reach a view when it is placed
-     * in the control tree, which for a routed view has not happened yet in onInit - the trap that
-     * left the duplicate page's dropdowns empty the first time round.
-     */
+    // The component's model, not only the view's: a routed view is not in the control tree yet during
+    // onInit, which is what left the duplicate page's dropdowns empty the first time round.
     _model: function () {
       var component = this.getOwnerComponent();
       return this.getView().getModel("dc") || (component && component.getModel("dc"));
@@ -93,10 +84,8 @@ sap.ui.define([
       }
     },
 
-    /**
-     * A saved rule that would not run is the failure worth naming: it looks configured and does
-     * nothing. The service counts the runnable ones, so this compares that against what is stored.
-     */
+    // A saved rule that would not run looks configured and does nothing, so the runnable count from
+    // the service is compared against what is stored.
     _reportSkipped: function (options) {
       var view = this.getView().getModel("view");
       var runnable = options && options.validationCount;
@@ -113,9 +102,8 @@ sap.ui.define([
     onAddRule: function () {
       var binding = this._table().getBinding("items");
       if (!binding) return;
-      // No field and no value: there is no sensible default field, and a row that arrived
-      // pre-pointed at one would be a rule nobody wrote. Comparison and severity have honest
-      // defaults - the commonest rule is an equality that blocks.
+      // No field and no value: a row arriving pre-pointed at one would be a rule nobody wrote.
+      // Comparison and severity get honest defaults - the commonest rule is an equality that blocks.
       binding.create({
         sequence: 10,
         comparison: "eq",
@@ -150,16 +138,10 @@ sap.ui.define([
       this.getView().getModel("view").setProperty("/dirty", true);
     },
 
-    // -----------------------------------------------------------------------
-    // The field value help
-    // -----------------------------------------------------------------------
+    // --- The field value help ----------------------------------------------
 
-    /**
-     * Opened from any cell that can name a field: both conditions, the Field column, and the Value
-     * column (where a field means "compare against that field"). The cell is identified by its own
-     * binding rather than by custom data - `getBinding("value").getPath()` already knows which
-     * property it writes, so there is nothing to keep in step.
-     */
+    // Opened from any cell that can name a field. The cell is identified by its own binding rather
+    // than custom data: `getBinding("value").getPath()` already knows what it writes.
     onFieldValueHelp: async function (event) {
       var input = event.getSource();
       var binding = input.getBinding("value");
@@ -176,9 +158,8 @@ sap.ui.define([
         });
         this.getView().addDependent(this._valueHelp);
       }
-      // Cleared on the way IN, never on the way out. The dialog is shared by every cell, so a
-      // filter left over from the last search would carry into the next one - and clearing it while
-      // a selection is still being read is what made the wrong field land (see onFieldChosen).
+      // Cleared on the way IN, never on the way out: the dialog is shared, and clearing it while a
+      // selection is still being read is what made the wrong field land (see onFieldChosen).
       var items = this._valueHelp.getBinding("items");
       if (items) items.filter([]);
       this._valueHelp.open("");
@@ -198,16 +179,9 @@ sap.ui.define([
       }) : []);
     },
 
-    /**
-     * The code is read off the selected item's **binding context**, and read before anything else
-     * happens to the list.
-     *
-     * This used to clear the search filter first and then ask the item control for its value. That
-     * is a real bug and not a subtle one: resetting a JSONModel list binding re-templates the rows,
-     * so the item instance gets re-bound to whatever now sits at its old position. Searching
-     * "Country" left one match at position 0, and position 0 of the unfiltered catalog is a General
-     * name field - so that is what got written. The filter is reset on open instead.
-     */
+    // Read off the binding context, BEFORE anything touches the list. Clearing the filter first
+    // re-templates the rows and re-binds the item to whatever now sits at its old position, which is
+    // why searching "Country" used to write a General name field. The filter is reset on open instead.
     onFieldChosen: function (event) {
       var selected = event.getParameter("selectedItem");
       var context = selected && selected.getBindingContext("opt");
@@ -219,15 +193,10 @@ sap.ui.define([
       this._markDirty();
     },
 
-    // -----------------------------------------------------------------------
-    // Save
-    // -----------------------------------------------------------------------
+    // --- Save --------------------------------------------------------------
 
-    /**
-     * The same checks `validateValidationRule` makes server-side, so a steward is told at the
-     * keyboard rather than by a rejected batch. The service still validates - this is a courtesy,
-     * not the guard.
-     */
+    // The same checks the service makes, so a steward is told at the keyboard rather than by a
+    // rejected batch. The service still validates: this is a courtesy, not the guard.
     _localProblems: function (rows) {
       var needsValue = this.getView().getModel("view").getProperty("/needsValue");
       var problems = [];

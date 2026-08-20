@@ -38,6 +38,15 @@
           </GenericTile>
           <GenericTile
             class="sapUiTinyMargin"
+            header="Field Properties"
+            subheader="Which fields are mandatory, read-only or hidden, and for whom"
+            press=".onFieldProperties">
+            <TileContent>
+              <ImageContent src="sap-icon://form" />
+            </TileContent>
+          </GenericTile>
+          <GenericTile
+            class="sapUiTinyMargin"
             header="Derivation Rules"
             subheader="Which empty fields get filled in, and from where"
             press=".onDerivationRules">

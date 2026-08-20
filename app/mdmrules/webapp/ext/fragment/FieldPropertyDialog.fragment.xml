@@ -1,0 +1,93 @@
+<core:FragmentDefinition
+  xmlns="sap.m"
+  xmlns:core="sap.ui.core">
+  <!--
+    The entity list, with each entity opening up to its own fields. One table rather than a tree
+    control: the rows are built in the controller, so an expanded entity is simply its own row
+    followed by its fields, and the four property columns line up across both levels.
+  -->
+  <Dialog
+    id="fieldPropertyDialog"
+    title="{fp>/title}"
+    contentWidth="52rem"
+    contentHeight="34rem"
+    resizable="true"
+    stretchOnPhone="true">
+    <content>
+      <Table
+        id="fieldPropertyTable"
+        items="{ path: 'fp>/rows', templateShareable: false }"
+        sticky="ColumnHeaders"
+        growing="true"
+        growingThreshold="200">
+        <headerToolbar>
+          <OverflowToolbar>
+            <SearchField
+              width="20rem"
+              placeholder="Search entity or field"
+              liveChange=".onFieldSearch" />
+            <ToolbarSpacer />
+            <Button text="Expand All" type="Transparent" press=".onExpandAll" />
+            <Button text="Collapse All" type="Transparent" press=".onCollapseAll" />
+            <Button
+              text="Clear All"
+              icon="sap-icon://clear-all"
+              type="Transparent"
+              press=".onClearProperties" />
+          </OverflowToolbar>
+        </headerToolbar>
+        <columns>
+          <Column width="44%"><Text text="Entity / Field" /></Column>
+          <Column width="14%" hAlign="Center"><Text text="Mandatory" /></Column>
+          <Column width="14%" hAlign="Center"><Text text="Read-only" /></Column>
+          <Column width="14%" hAlign="Center"><Text text="Hidden" /></Column>
+          <Column width="14%" hAlign="Center"><Text text="Optional" /></Column>
+        </columns>
+        <items>
+          <ColumnListItem>
+            <cells>
+              <HBox alignItems="Center">
+                <!-- The arrow is what opens an entity. Fields have none, and are indented instead,
+                     so the two levels are told apart without a second column. -->
+                <Button
+                  icon="{= ${fp>expanded} ? 'sap-icon://navigation-down-arrow' : 'sap-icon://navigation-right-arrow' }"
+                  type="Transparent"
+                  visible="{= ${fp>kind} === 'entity' }"
+                  tooltip="Show the fields of this entity"
+                  press=".onToggleEntity" />
+                <Text
+                  class="sapUiTinyMarginBegin"
+                  text="{fp>text}"
+                  visible="{= ${fp>kind} === 'entity' }" />
+                <Text
+                  class="sapUiLargeMarginBegin"
+                  text="{fp>text}"
+                  visible="{= ${fp>kind} === 'field' }" />
+              </HBox>
+              <!-- One state per row: ticking a box clears the other three, and ticking the ticked
+                   one clears it - a row with nothing ticked says nothing about the field at all. -->
+              <CheckBox selected="{= ${fp>property} === 'mandatory' }" select=".onPropertySelect">
+                <customData><core:CustomData key="property" value="mandatory" /></customData>
+              </CheckBox>
+              <CheckBox selected="{= ${fp>property} === 'readOnly' }" select=".onPropertySelect">
+                <customData><core:CustomData key="property" value="readOnly" /></customData>
+              </CheckBox>
+              <CheckBox selected="{= ${fp>property} === 'hidden' }" select=".onPropertySelect">
+                <customData><core:CustomData key="property" value="hidden" /></customData>
+              </CheckBox>
+              <CheckBox selected="{= ${fp>property} === 'optional' }" select=".onPropertySelect">
+                <customData><core:CustomData key="property" value="optional" /></customData>
+              </CheckBox>
+            </cells>
+          </ColumnListItem>
+        </items>
+      </Table>
+    </content>
+    <beginButton>
+      <Button text="Apply" type="Emphasized" press=".onApplyProperties" />
+    </beginButton>
+    <endButton>
+      <Button text="Cancel" press=".onCancelProperties" />
+    </endButton>
+  </Dialog>
+</core:FragmentDefinition>

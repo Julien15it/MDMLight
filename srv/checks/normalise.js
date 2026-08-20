@@ -9,18 +9,10 @@ const {
 } = require('../ai/business-partner-assistant');
 
 /**
- * AI-proposed normalisation of stored master data — casing, legal forms, abbreviations,
- * whitespace, address conventions.
- *
- * **Proposals only. Nothing here ever changes a value.** The requester accepts or declines
- * each one. That is the whole design: normalising for *comparison* is already solved
- * deterministically in srv/ai/duplicate-fields.js and is the engine's business, whereas
- * rewriting what someone typed is an edit to master data and needs a human behind it. A model
- * that silently "corrects" a street name would produce a data-quality incident with no audit
- * trail and nobody watching.
- *
- * It is deliberately a separate stage from derivation: a derivation FILLS A GAP and never
- * overwrites, a normalisation only ever touches a field that already has a value.
+ * AI-proposed reformatting of stored master data. **Proposals only — nothing here changes a value.**
+ * Rewriting what someone typed is an edit to master data and needs a human behind it; normalising
+ * for comparison is a different job, already solved in srv/ai/duplicate-fields.js. Its own stage
+ * because a derivation fills a gap, while a normalisation only touches a field that has a value.
  */
 
 // Not a reasoning model: this is a formatting judgement at temperature 0, not a puzzle.
@@ -30,11 +22,8 @@ const MAX_VALUE_LENGTH = 120;
 const MAX_REASON_LENGTH = 160;
 const MAX_PROPOSALS = 25;
 
-/**
- * Only fields worth normalising, and only ones a human reads. Identifiers are deliberately
- * absent: a tax number or an IBAN is not a formatting matter, and the duplicate engine already
- * normalises those for comparison without touching what is stored.
- */
+// Only fields a human reads. Identifiers are deliberately absent: a tax number is not a formatting
+// matter, and the duplicate engine already normalises them for comparison without storing that.
 const NORMALISABLE = Object.freeze({
   root: Object.freeze([
     'OrganizationBPName1', 'OrganizationBPName2',
@@ -119,11 +108,8 @@ function normaliseConfig(modelName, maxTokens) {
   };
 }
 
-/**
- * Only populated, normalisable fields are sent — an empty field has nothing to reformat.
- * `scope` narrows to one target ('root' or a section name) so a field trigger asks the model
- * about the section the requester just left rather than the whole record.
- */
+// Only populated fields — an empty one has nothing to reformat. `scope` narrows to one target, so a
+// trigger asks about the section the requester just left rather than the whole record.
 function normalisableFields(payload = {}, scope = null) {
   const inScope = (target) => !scope || scope === target;
   const fields = [];
@@ -201,11 +187,8 @@ function proposalKey(target, index, field) {
   return `${section}|${bracketed ? Number(bracketed[2]) : Number(index)}|${field}`;
 }
 
-/**
- * The model's output is an edit to master data, so it is checked against what was actually sent
- * rather than trusted: a proposal for a field that was not offered, or one that does not change
- * anything, is dropped. This is what stops a hallucinated field name reaching the screen.
- */
+// Checked against what was actually sent rather than trusted: a proposal for a field that was not
+// offered, or one that changes nothing, is dropped. This is what stops a hallucinated field name.
 function sanitizeProposals(raw, fields) {
   const offered = new Map(
     fields.map((entry) => [proposalKey(entry.target, entry.index, entry.field), entry])

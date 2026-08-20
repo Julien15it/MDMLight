@@ -8,6 +8,7 @@ const path = require('node:path');
 const ChangeRequestService = require('../srv/change-request-service');
 const {
   approveUrl,
+  reworkUrl,
   buildBusinessPartnerInput,
   activeStagedRows,
   SUPPORTED_REQUEST_TYPES,
@@ -119,43 +120,83 @@ test('buildBusinessPartnerInput backfills the known BusinessPartner onto staged 
   assert.equal(result.A_BusinessPartnerAddress[0].addressID, '1');
 });
 
-test('approveUrl degrades to an empty string without an approuter route (local/hybrid dev)', () => {
-  const original = process.env.APPROUTER_URL;
-  delete process.env.APPROUTER_URL;
+/**
+ * The managed approuter serves the app through Work Zone, so a deep link is the site URL plus a
+ * cross-navigation intent - not the standalone approuter's `<host>/<app>/index.html#<route>`, which
+ * 404s since that module was removed. WORKZONE_URL replaced APPROUTER_URL so the stale value left
+ * on the deployed app cannot resurrect the dead host.
+ */
+const SITE = 'https://alluvion-dev-cf.launchpad.cfapps.eu10.hana.ondemand.com/site?siteId=988d11c0-0c6c-42f2-840d-f8875105417b';
+
+function withWorkzoneUrl(value, run) {
+  const original = process.env.WORKZONE_URL;
+  if (value === undefined) delete process.env.WORKZONE_URL;
+  else process.env.WORKZONE_URL = value;
   try {
-    assert.equal(approveUrl('11111111-1111-1111-1111-111111111111'), '');
+    run();
   } finally {
-    if (original === undefined) delete process.env.APPROUTER_URL;
-    else process.env.APPROUTER_URL = original;
+    if (original === undefined) delete process.env.WORKZONE_URL;
+    else process.env.WORKZONE_URL = original;
   }
+}
+
+// A missing link is diagnosable; a link to a host that no longer exists is not.
+test('approveUrl degrades to an empty string without a Work Zone site URL', () => {
+  withWorkzoneUrl(undefined, () => {
+    assert.equal(approveUrl('11111111-1111-1111-1111-111111111111'), '');
+    assert.equal(reworkUrl('11111111-1111-1111-1111-111111111111'), '');
+  });
 });
 
-test('approveUrl builds a deep link to the ChangeRequestApprove route', () => {
-  const original = process.env.APPROUTER_URL;
-  process.env.APPROUTER_URL = 'https://alluvion-dev-cf-dev-mdm-businesspartner-approuter.cfapps.eu10-004.hana.ondemand.com';
-  try {
+test('the deep links are Work Zone intents, not standalone approuter paths', () => {
+  withWorkzoneUrl(SITE, () => {
     assert.equal(
       approveUrl('11111111-1111-1111-1111-111111111111'),
-      'https://alluvion-dev-cf-dev-mdm-businesspartner-approuter.cfapps.eu10-004.hana.ondemand.com/mdmmdbusinesspartnermanage/index.html#ChangeRequests/11111111-1111-1111-1111-111111111111/approve'
+      `${SITE}#BusinessPartner-manage&/ChangeRequests/11111111-1111-1111-1111-111111111111/approve`
     );
-  } finally {
-    if (original === undefined) delete process.env.APPROUTER_URL;
-    else process.env.APPROUTER_URL = original;
-  }
+    assert.equal(
+      reworkUrl('11111111-1111-1111-1111-111111111111'),
+      `${SITE}#BusinessPartner-manage&/ChangeRequests/11111111-1111-1111-1111-111111111111/rework`
+    );
+    // The shape that 404'd: an app path plus index.html belongs to the removed standalone approuter.
+    assert.equal(/index\.html/u.test(approveUrl('x')), false);
+  });
 });
 
-test('approveUrl tolerates a trailing slash on APPROUTER_URL', () => {
-  const original = process.env.APPROUTER_URL;
-  process.env.APPROUTER_URL = 'https://example.cfapps.eu10-004.hana.ondemand.com/';
-  try {
+// The intent has to match the inbound in the partner app's manifest, or the link resolves to nothing.
+test('the intent matches the app inbound', () => {
+  const manifest = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '..', 'app', 'businesspartner', 'webapp', 'manifest.json'), 'utf8'
+  ));
+  const inbound = manifest['sap.app'].crossNavigation.inbounds['BusinessPartner-manage'];
+  assert.ok(inbound, 'the inbound exists');
+  withWorkzoneUrl(SITE, () => {
+    assert.ok(approveUrl('x').includes(`#${inbound.semanticObject}-${inbound.action}&/`));
+  });
+});
+
+/**
+ * Site Manager hands you the URL ending in `#Shell-home`, so that is what gets pasted into
+ * WORKZONE_URL. Keeping both hashes would resolve to the launchpad home instead of the request.
+ */
+test('a pasted #Shell-home URL still produces our intent, not two hashes', () => {
+  withWorkzoneUrl(SITE + '#Shell-home', () => {
+    const url = reworkUrl('cr-1');
+    assert.equal(url, `${SITE}#BusinessPartner-manage&/ChangeRequests/cr-1/rework`);
+    assert.equal(url.split('#').length, 2, 'exactly one hash');
+    assert.equal(/Shell-home/u.test(url), false);
+  });
+  // The siteId query string is part of the base and must survive.
+  withWorkzoneUrl(SITE, () => assert.ok(reworkUrl('cr-1').includes('?siteId=')));
+});
+
+test('a trailing slash on the site URL does not double up', () => {
+  withWorkzoneUrl(SITE + '/', () => {
     assert.equal(
       approveUrl('cr-1'),
-      'https://example.cfapps.eu10-004.hana.ondemand.com/mdmmdbusinesspartnermanage/index.html#ChangeRequests/cr-1/approve'
+      `${SITE}#BusinessPartner-manage&/ChangeRequests/cr-1/approve`
     );
-  } finally {
-    if (original === undefined) delete process.env.APPROUTER_URL;
-    else process.env.APPROUTER_URL = original;
-  }
+  });
 });
 
 // block and delete are reserved: they would stage cleanly and then mean nothing to postToS4.

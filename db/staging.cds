@@ -3,37 +3,18 @@ namespace mdmlight.staging;
 using { cuid, managed } from '@sap/cds/common';
 
 /**
- * Staging for MDMLight change requests, modelled after the MDG staging tables:
- * one typed table per Business Partner node, mirroring the sections of the
- * Maintain BP app, rather than one opaque payload.
- *
- * Nothing here is master data. A request holds the requested state until the
- * SAP Process Automation workflow reports every approval given, at which point
- * the rows are assembled into an API_BUSINESS_PARTNER call and the request is
- * closed.
- *
- * Column types and lengths are taken from srv/external/API_BUSINESS_PARTNER.csn
- * so staged values can never be truncated on the way to S/4.
- *
- * Approvals are NOT modelled here - SPA owns the approval state. The header
- * keeps only what is needed to correlate with the running process.
+ * Change request staging, MDG-style: one typed table per BP node, not one opaque payload. Nothing
+ * here is master data - a request holds the requested state until SPA reports every approval.
+ * Types and lengths come from API_BUSINESS_PARTNER.csn, so a staged value cannot be truncated.
+ * Approvals are NOT modelled: SPA owns that, and the header only correlates with the process.
  */
 
 type ChangeRequestType : String(10) enum { create; change; block; delete };
 
 /**
- * Mirrors the request lifecycle, not the approval steps. `inApproval` covers
- * the whole time SPA owns the request, however many steps that involves.
- *
- * `reworkRequired` is where a rejected request now lands (2026-08-19): the
- * approver sends it back to the requester, who edits it and either resubmits or
- * withdraws it. So a rejection is a **loop, not an end** — see "Rework" in
- * CLAUDE.md. `rejected` is kept because cds-deploy refuses to drop anything, but
- * nothing writes it any more.
- *
- * Widened from String(12) to hold `reworkRequired`. Widening a string is one of
- * the few non-lossy changes cds-deploy will actually perform; renaming or
- * dropping the old value would have failed the deploy.
+ * The request lifecycle, not the approval steps - `inApproval` covers however many steps SPA runs.
+ * A rejection lands on `reworkRequired` and goes back to the requester, so it is a loop, not an end;
+ * `rejected` is never written but cannot be dropped. Widened from String(12), which cds-deploy allows.
  */
 type ChangeRequestStatus : String(20) enum {
   draft; inApproval; approved; rejected; reworkRequired; posted; failed
@@ -42,24 +23,18 @@ type ChangeRequestStatus : String(20) enum {
 /** Per-row intent for the collection nodes, as MDG's change indicator. */
 type NodeAction : String(1) enum { create = 'C'; update = 'U'; delete = 'D' };
 
-// ---------------------------------------------------------------------------
-// Header
-// ---------------------------------------------------------------------------
+// --- Header ----------------------------------------------------------------
 
 entity ChangeRequests : cuid, managed {
   requestType       : ChangeRequestType   not null;
   status            : ChangeRequestStatus not null default 'draft';
 
-  /** The **requester's** reason for raising the request. A rejection no longer
-   *  overwrites it: the requester comes back to this screen to rework the
-   *  request, and finding their own reason replaced by the approver's verdict
-   *  would lose the one field they wrote and then resubmit the approver's words
-   *  as their justification. */
+  /** The requester's own reason. A rejection no longer overwrites it - they come back to rework the
+   *  request, and would otherwise resubmit the approver's words as their justification. */
   reason            : String(250);
 
-  /** Why the approver sent it back, kept separate from `reason` for exactly that
-   *  reason. Shown on the rework screen, because "rejected" without the why is
-   *  not something a requester can act on. */
+  /** Why it came back, kept apart from `reason`. Shown on the rework screen: "rejected" with no
+   *  why is not something a requester can act on. */
   rejectionComment  : String(250);
 
   /** Null until a create is posted; set from the outset for change/block/delete. */
@@ -70,26 +45,18 @@ entity ChangeRequests : cuid, managed {
   submittedAt       : Timestamp;
   submittedBy       : String(120);
 
-  /**
-   * ETag of the BP as read when the request was created. Compared against S/4
-   * again immediately before posting, so a concurrent change is detected
-   * instead of silently overwritten.
-   */
+  /** ETag as read when the request was raised, re-compared before posting so a concurrent change
+   *  is detected rather than overwritten. */
   sourceETag        : String(60);
 
-  /**
-   * Set once the post succeeds, and the idempotency guard: a request that
-   * already carries a number must never post again.
-   */
+  /** Set once the post succeeds, and the idempotency guard: a request with a number never reposts. */
   postedBP          : String(10);
   postedAt          : Timestamp;
   postError         : String(1000);
 
-  // One row per node, keyed by the request. General is 1:1, the rest are
-  // collections matching the object page sections.
-  // Every child carries an explicit `request` backlink, so the to-one
-  // compositions need an ON condition too - without it CAP would put a foreign
-  // key on the header instead of using the backlink.
+  // One row per node, keyed by the request; General is 1:1, the rest match the object page sections.
+  // Every child has a `request` backlink, so the to-ONE compositions need an ON condition too - without
+  // it CAP puts a foreign key on the header instead of using the backlink.
   general           : Composition of one  StagedGeneral        on general.request        = $self;
   addresses         : Composition of many StagedAddresses      on addresses.request      = $self;
   roles             : Composition of many StagedRoles          on roles.request          = $self;
@@ -108,15 +75,10 @@ entity ChangeRequests : cuid, managed {
   findings          : Composition of many CheckFindings        on findings.request       = $self;
 }
 
-// ---------------------------------------------------------------------------
-// Staged nodes
-// ---------------------------------------------------------------------------
+// --- Staged nodes ----------------------------------------------------------
 
-/**
- * General Information. Derived and system fields (full names, UUID, ETag,
- * created/changed by and on) are deliberately absent - S/4 owns them, and
- * staging them would invite writing stale values back.
- */
+// General Information. Derived and system fields are deliberately absent: S/4 owns them, and staging
+// them would invite writing stale values back.
 entity StagedGeneral : cuid {
   request                        : Association to ChangeRequests;
 
@@ -184,12 +146,8 @@ entity StagedGeneral : cuid {
   BPDataControllerIsNotRequired  : Boolean;
 }
 
-/**
- * Collection nodes. The surrogate `ID` is the key because on a create the S/4
- * natural key does not exist yet - AddressID and friends stay null until S/4
- * assigns them. `action` carries whether the row is being added, changed or
- * removed.
- */
+// Collection nodes. `ID` is the key because on a create the S/4 natural key does not exist yet;
+// `action` carries whether the row is added, changed or removed.
 entity StagedAddresses : cuid {
   request         : Association to ChangeRequests;
   action          : NodeAction not null default 'C';
@@ -254,12 +212,8 @@ entity StagedIndustries : cuid {
   IndustryKeyDescription : String(100);
 }
 
-/**
- * Customer Data. Full name and name are read-only in S/4; kept for display.
- * `action` mirrors the collection nodes' - although there is at most one row,
- * postToS4 still needs to know whether the requester actually touched it
- * before replaying it, same as any other child.
- */
+// Customer Data. Names are read-only in S/4, kept for display. `action` is here even though there is
+// one row: postToS4 still needs to know whether the requester touched it.
 entity StagedCustomer : cuid {
   request                     : Association to ChangeRequests;
   action                      : NodeAction;
@@ -289,13 +243,8 @@ entity StagedSupplier : cuid {
   VATRegistration             : String(20);
 }
 
-/**
- * Customer Company Code Data (A_CustomerCompany). One row per company code a
- * customer is extended to - unlike StagedCustomer, several can exist per
- * request. `Customer` is left unstaged like every other child's business
- * partner backlink: it does not exist yet on a create, and postToS4 fills it
- * in from the posted partner number before replaying the row to S/4.
- */
+// A_CustomerCompany, one row per company code. `Customer` is unstaged like every relation field: it
+// does not exist on a create, and postToS4 fills it from the posted partner number.
 entity StagedCustomerCompany : cuid {
   request               : Association to ChangeRequests;
   action                : NodeAction not null default 'C';
@@ -323,14 +272,8 @@ entity StagedSupplierCompany : cuid {
   AccountingClerk       : String(2);
 }
 
-/**
- * Customer Sales Area Data (A_CustomerSalesArea). Natural key is Customer +
- * SalesOrganization + DistributionChannel + Division - Customer stays
- * unstaged like every other relation field, the other three are staged
- * because, unlike Company Code, there is no single default: a customer with
- * no sales area yet cannot sell anything, so the requester must pick all
- * three on create.
- */
+// A_CustomerSalesArea. The three sales-area keys are staged, unlike Company Code, because there is no
+// default: a customer with no sales area cannot sell, so the requester picks all three on create.
 entity StagedCustomerSalesArea : cuid {
   request                    : Association to ChangeRequests;
   action                     : NodeAction not null default 'C';
@@ -347,10 +290,7 @@ entity StagedCustomerSalesArea : cuid {
   BillingIsBlockedForCustomer : String(2);
 }
 
-/**
- * Customer Tax Categories (A_CustomerTaxGrouping) - the "Tax Categories" block
- * of the MDG ERP Customer screen. Natural key is Customer + the grouping code.
- */
+// A_CustomerTaxGrouping - the Tax Categories block of the MDG ERP Customer screen.
 entity StagedCustomerTaxGrouping : cuid {
   request                        : Association to ChangeRequests;
   action                         : NodeAction not null default 'C';
@@ -363,10 +303,7 @@ entity StagedCustomerTaxGrouping : cuid {
   CustTaxGroupSubjectedEndDate   : Date;
 }
 
-/**
- * Supplier Purchasing Organization Data (A_SupplierPurchasingOrg). Natural
- * key is Supplier + PurchasingOrganization.
- */
+// A_SupplierPurchasingOrg. Natural key is Supplier + PurchasingOrganization.
 entity StagedSupplierPurchasingOrg : cuid {
   request                        : Association to ChangeRequests;
   action                         : NodeAction not null default 'C';
@@ -380,9 +317,7 @@ entity StagedSupplierPurchasingOrg : cuid {
   InvoiceIsGoodsReceiptBased     : Boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Check results
-// ---------------------------------------------------------------------------
+// --- Check results ---------------------------------------------------------
 
 /** Output of the duplicate and data quality checks against a staged request. */
 entity CheckFindings : cuid, managed {
@@ -399,15 +334,12 @@ entity CheckFindings : cuid, managed {
   candidateBP : String(10);
   score       : Decimal(5, 4);
 
-  /** Set instead of `candidateBP` when the match is another change request that
-   *  has not posted yet. A pending create has no partner number, and two
-   *  requests for the same company are exactly what the check has to catch. */
+  /** Instead of `candidateBP` when the match is a request that has not posted: a pending create has
+   *  no partner number, and two requests for one company are what the check must catch. */
   candidateRequest : UUID;
 
-  /** Duplicate verdict tier. Its own column rather than folded into `severity`:
-   *  severity says whether someone must act, verdict says what was found, and
-   *  they are not the same concept. Adding a column is safe - the deployer only
-   *  refuses to drop them. */
+  /** Its own column, not folded into `severity`: severity says whether to act, verdict says what
+   *  was found, and they are not the same concept. */
   verdict     : String(12);
 
   /** Set when a re-check supersedes this finding rather than deleting it. */
@@ -415,13 +347,9 @@ entity CheckFindings : cuid, managed {
 }
 
 /**
- * The rest of the MDG "ERP Customer" / "ERP Supplier" tree.
- *
- * Each row carries its parent's keys - CompanyCode for a dunning row, the four
- * sales-area keys for a partner function - because that is what makes the record
- * addressable on replay; postToS4 builds the parent URI out of them. The relation
- * field itself (Customer / Supplier) stays unstaged like everywhere else: it is
- * resolved from the business partner at posting time, not carried in the request.
+ * The rest of the MDG ERP Customer / Supplier tree. Each row carries its PARENT's keys, because that
+ * is what makes it addressable on replay - postToS4 builds the parent URI from them. Customer and
+ * Supplier themselves stay unstaged, resolved from the business partner at posting time.
  */
 
 /** Customer Texts (A_CustomerText). */

@@ -18,12 +18,8 @@ sap.ui.define([
     { field: "conditionField2", value: "conditionValue2" }
   ];
 
-  /**
-   * The Derivation Rules decision table. Rows are real: they live in
-   * `mdmlight.config.DerivationRules` and the pipeline runs them on Check, where they are offered
-   * to the requester as proposals. They are deliberately **not** run on Submit - a derivation
-   * changes the data, so the requester has to have seen and ticked it.
-   */
+  // Rows are real and run on Check, where they are offered as proposals. Deliberately NOT run on
+  // Submit: a derivation changes the data, so the requester has to have seen and ticked it.
   return Controller.extend("mdm.md.mdmrules.manage.ext.controller.DerivationRuleList", {
 
     onInit: function () {
@@ -133,15 +129,10 @@ sap.ui.define([
       this.getView().getModel("view").setProperty("/dirty", true);
     },
 
-    // -----------------------------------------------------------------------
-    // The field value help
-    // -----------------------------------------------------------------------
+    // --- The field value help ----------------------------------------------
 
-    /**
-     * Opened from the conditions, the Field column, and the Value column. On Value it is the whole
-     * point: "fill field A with the same value as field B" should be a pick, not a name a steward
-     * has to spell exactly right.
-     */
+    // Opened from the conditions, Field and Value. On Value it is the point: "same value as field B"
+    // should be a pick, not a name a steward has to spell exactly right.
     onFieldValueHelp: async function (event) {
       var input = event.getSource();
       var binding = input.getBinding("value");
@@ -178,11 +169,8 @@ sap.ui.define([
       }) : []);
     },
 
-    /**
-     * Read off the selected item's binding context, before anything touches the list. Clearing the
-     * filter first re-templates the rows and re-binds the item to whatever now sits at its old
-     * position, which wrote the wrong field - see ValidationRuleList.controller.js.
-     */
+    // Read off the binding context before anything touches the list - clearing the filter first wrote
+    // the wrong field. See ValidationRuleList.controller.js.
     onFieldChosen: function (event) {
       var selected = event.getParameter("selectedItem");
       var context = selected && selected.getBindingContext("opt");
@@ -192,9 +180,7 @@ sap.ui.define([
       this._markDirty();
     },
 
-    // -----------------------------------------------------------------------
-    // Save
-    // -----------------------------------------------------------------------
+    // --- Save --------------------------------------------------------------
 
     /** The same checks `validateDerivationRule` makes server-side, at the keyboard. */
     _localProblems: function (rows) {

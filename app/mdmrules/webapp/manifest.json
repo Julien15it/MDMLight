@@ -5,7 +5,7 @@
     "type": "application",
     "i18n": "i18n/i18n.properties",
     "applicationVersion": {
-      "version": "1.1.1"
+      "version": "1.2.0"
     },
     "title": "{{appTitle}}",
     "description": "{{appDescription}}",
@@ -131,6 +131,11 @@
           "pattern": "DerivationRules",
           "name": "DerivationRuleList",
           "target": "DerivationRuleList"
+        },
+        {
+          "pattern": "FieldProperties",
+          "name": "FieldPropertyProfileList",
+          "target": "FieldPropertyProfileList"
         }
       ],
       "targets": {
@@ -156,6 +161,12 @@
           "type": "View",
           "id": "DerivationRuleList",
           "name": "mdm.md.mdmrules.manage.ext.view.DerivationRuleList",
+          "viewType": "XML"
+        },
+        "FieldPropertyProfileList": {
+          "type": "View",
+          "id": "FieldPropertyProfileList",
+          "name": "mdm.md.mdmrules.manage.ext.view.FieldPropertyProfileList",
           "viewType": "XML"
         }
       }

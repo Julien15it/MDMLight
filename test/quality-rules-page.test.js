@@ -118,9 +118,16 @@ test('saving a rule invalidates the rules the pipeline is holding', () => {
  * validations because these are offline and a request that fails one should not cost a VIES call,
  * derivations because the pipeline never overwrites - so the stage that fills a field first wins,
  * and an explicitly configured rule is a decision somebody made about that field.
+ *
+ * The field property validations joined the head of the validation list on 2026-08-20, ahead of the
+ * configured rules for the same reason they lead: they are offline, and "this field is required" is
+ * the most basic complaint there is.
  */
 test('the configured stages join the registry stages, configured first', () => {
-  assert.match(changeRequestJs, /validations: \[\.\.\.configured\.validations, \.\.\.registry\.validations\]/u);
+  assert.match(
+    changeRequestJs,
+    /validations: \[\.\.\.properties\.validations, \.\.\.configured\.validations, \.\.\.registry\.validations\]/u
+  );
   assert.match(changeRequestJs, /derivations: \[\.\.\.configured\.derivations, \.\.\.registry\.derivations\]/u);
 });
 

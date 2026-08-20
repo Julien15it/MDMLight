@@ -276,6 +276,41 @@ payload so re-committing an untouched field costs nothing; and a failure is a
 duplicate check is **not** trigger-driven: it is pairwise and already refuses
 above a population limit.
 
+##### Check used to derive twice (fixed 2026-08-19)
+
+Pressing **Check** shortly after typing produced a second proposals dialog for the
+same record. The guard was **one-directional**, and that was the whole bug:
+
+- `_runTriggeredCheck` refused to start while `state.busy`, and a button press sets
+  it. A trigger firing *during* a check was correctly dropped.
+- Nothing stopped an already **scheduled** trigger from firing the moment the
+  button released busy. Commit a field, press Check inside `TRIGGER_IDLE_MS`
+  (1500ms), and: Check runs → busy goes false → the idle timer fires →
+  `_flushPendingScope` → a second `checkRequest` over the same payload.
+
+`_cancelPendingTrigger()` is the fix, called by **every button that runs a check of
+its own** — Check, Duplicate Check, Save/Submit/Resubmit and Withdraw. It clears
+both timers (`_idleTimer` for the pending scope, `_triggerTimer` for the debounce
+after it flushes) and nulls `_pendingScope`, or the next commit in a different
+scope would flush the stale one. It runs **before** the client-side validation, so
+a press that fails that check has still superseded what the trigger was about to
+ask.
+
+Cancelling timers cannot help a trigger that is already **mid-flight**, and the
+busy check happens before the await — so a button pressed *during* a trigger would
+still have produced two dialogs. `_buttonRun` closes that half: the trigger records
+which press it started under and drops its result if that changed, because an
+explicit press is the answer the requester is looking at and the trigger was only
+ever a convenience. It still records `_lastTriggerKey` first, so the wasted call is
+not repeated by the next identical commit.
+
+Two things not to "simplify" here. Setting `_lastTriggerKey` from the buttons
+instead would **not** work: the key is `scope|propose|dataJson` and a triggered
+check is scoped where a button's is not, so the keys never collide. And the cancel
+belongs on all the buttons, not just Check — Duplicate Check asks the same question
+of the same record, and the submit paths move the request past the point a trigger
+reports on.
+
 **Derivations no longer auto-apply.** They used to be written straight into the
 form on Check, which made them easy to miss and impossible to decline. They are
 proposals now, and they share the normalisation dialog: one list, a `change`
@@ -344,9 +379,9 @@ tile it is the last steward-gated action on the list report.
 ### The MDM Rules tile — its own app (`app/mdmrules`, 2026-08-17)
 
 Rule configuration left the Maintain BP app's toolbar and became its own tile.
-`app/mdmrules/webapp/ext/view/MDMRuleHub.view.xml` is the landing page: three
-`GenericTile`s for **Duplicate Check Rules**, **Validation Rules** and
-**Derivation Rules**.
+`app/mdmrules/webapp/ext/view/MDMRuleHub.view.xml` is the landing page: four
+`GenericTile`s for **Duplicate Check Rules**, **Validation Rules**,
+**Field Properties** and **Derivation Rules**.
 
 **It is a second HTML5 app, not a second inbound.** The first attempt declared
 `MDMRules-manage` alongside `BusinessPartner-manage` in one manifest and told
@@ -539,6 +574,124 @@ Still open on these tables, and not built:
 - Rules for object types other than the Business Partner. When MM arrives, **copy
   the tables** rather than adding an object-type column.
 
+### Field property profiles (2026-08-20)
+
+`db/field-properties.cds` adds `FieldPropertyProfiles` and its
+`FieldPropertySettings`, exposed by the same `DuplicateConfigService`. A profile
+says what a request may, must and must not show: **mandatory, read-only, hidden or
+optional**, per entity and per field.
+
+A profile is **conditions plus content**, and they are maintained separately
+because they are different sizes. The conditions are two dropdowns on the profile
+row — **CR type** and **role** — and both take `*` for "all", which is how a global
+profile is written. The content is several hundred fields, so it lives behind
+**Modify**: a dialog listing every entity, each opening up with its arrow to the
+fields underneath it, four checkboxes on both levels. Setting a property on the
+entity row is what lets a steward hide or require a whole section without naming
+every field in it.
+
+Decisions worth keeping:
+
+- **One state per target, not four flags.** The boxes are drawn as checkboxes
+  because that is what was asked for, but they behave as a radio group: ticking one
+  clears the other three. `hidden` + `mandatory` is a request nobody can submit,
+  and `readOnly` + `mandatory` is one only a derivation could satisfy. The stored
+  row carries a single `property`, so nothing downstream has to resolve a
+  contradiction that should never have been storable.
+- **Absent is not `optional`.** A field with no row is not mentioned by the profile
+  at all; `optional` is an explicit override, which is what makes a narrow profile
+  able to hand a field back after a broader one made it mandatory.
+- **The dialog replaces the whole profile.** `saveFieldProperties` deletes the
+  profile's rows and writes what was sent, the same wholesale-replace reasoning as
+  the staged nodes: the dialog always holds the complete state, so no unticked row
+  can survive as a setting nobody can see any more. An unknown entity, field or
+  property is **refused**, not filtered — storing the valid remainder leaves a
+  profile quietly missing what someone thought they set.
+- **The entity/field tree is generated** by `srv/checks/field-properties.js` from
+  `payloadFields()`, so a new node in `db/staging.cds` appears in the dialog with no
+  UI change. The condition lists are closed and served from the same module: a typed
+  value outside them makes a profile that looks configured and never fires.
+- **The roles are not the xsappname scopes.** `Approver` is a workflow role that no
+  scope carries, so `ROLES` is a hand-kept list next to `REQUEST_TYPES`, which is
+  the set of types a request can actually carry (`block`/`delete` are in the enum
+  and nothing produces them).
+- **Modify saves the profile first.** The settings hang off a saved profile, so a
+  row just added has no id to hang them on; the page offers the save rather than
+  refusing, because pressing Modify on a new row is the obvious thing to do.
+
+#### Applying them (2026-08-20)
+
+**Where two profiles match, the broadest result wins.** Maarten's rule, and it is a
+**join over three axes** (visible / editable / required) rather than a ranking,
+because `mandatory` and `readOnly` are not comparable — one says what you must
+fill, the other what you may touch. Visible or editable if **any** matching profile
+allows it; required only if **every** profile that speaks demands it. His two
+examples fall out of that rather than being special-cased:
+
+| Profile 1 | Profile 2 | Result |
+| --- | --- | --- |
+| hidden | readOnly | readOnly |
+| mandatory | readOnly | **optional** |
+| mandatory | optional | optional |
+| hidden | mandatory | optional |
+
+`PROPERTY_STATE` in `srv/checks/field-properties.js` is the whole rule, and the
+join is closed over the four names — every combination lands back on one of them,
+which `test/field-property-apply.test.js` proves exhaustively. **`sequence` is
+therefore not a precedence**: the merge is order-independent, and the column stays
+as grid order only.
+
+**Silence is not `optional`.** A profile that says nothing about a target is left
+out of the join entirely. Counting it as `optional` would let one global profile
+neuter every narrower one, which is the opposite of what a global base profile is
+for.
+
+**Only `hidden` and `readOnly` cascade from an entity to its fields**, because they
+describe the container: nothing shows inside a hidden section and nothing is
+editable inside a frozen one. An entity's `mandatory` is about whether it needs a
+**row** at all — cascading it would silently make every field of Tax Numbers
+required, which is not what ticking Mandatory on the entity means.
+
+Two halves, and they are not the same code path for a reason:
+
+- **Rendering** — `effectiveFieldProperties(RequestType, Role)` on
+  `ChangeRequestService` returns the merged answer, and the maintenance controller
+  loads it **before the first render** (rendering is synchronous; a field painted
+  and then taken away is worse than one never drawn). `hidden` drops the field from
+  both layouts entirely — a disabled input still shows the value — and a hidden
+  entity hides its whole `ObjectPageSection`, not just the container, or a heading
+  is left pointing at nothing. `readOnly` takes editability away and can never
+  grant it: a field S/4 will not accept on create stays uneditable however broad a
+  profile is. `mandatory`/`optional` have the last word on the star, which is what
+  `optional` is for.
+- **Enforcement** — `createFieldPropertyStages` adds a `field_properties`
+  validation to the Check button, the Duplicate Check button, submit and resubmit.
+  A mandatory field left empty blocks, naming the row; a mandatory entity with no
+  rows blocks. Without it a profile is a star on a label that a direct service call
+  walks straight past. It reads the cascade back first: a field marked mandatory
+  inside an entity a broader profile hid or froze is not something anyone can fill.
+
+**The role a submit is judged under is never the client's to name.**
+`requesterContext(req)` hardcodes `Requester` on every write path — whoever submits
+is the requester — while the *screen* asks for whatever role it is rendering
+(`approve` → `Approver`, draft/rework → `Requester`). Otherwise a requester could
+claim `Approver` and submit past every mandatory field set for them. When the role
+model lands — a requester role, one approver role per function, a steward role —
+this becomes a scope read off `req.user` and the two converge.
+
+**`hidden` is deliberately honoured on the approve view.** Confirmed 2026-08-20:
+once approvals are split by function, a sales approver has no business reading the
+bank details, and that is the point of the feature rather than a risk to it.
+
+`srv/checks/field-property-store.js` caches the profiles for 60s and drops them on
+any write, like `rule-store.js`. Its failure mode is the **opposite** one on
+purpose: an unreadable rule table reports itself, because a validation nobody ran
+must not read as "nothing to report"; an unreadable *profile* table resolves to
+nothing, because a read failure that hid every field or blocked every submit would
+take the maintenance screen down over a control that is not a verdict on the data.
+
+
+
 A `draft` opens editable via `ChangeRequestEdit`. **Anything further along is not
 navigable from here at all** (changed 2026-08-13): the approve screen is reached
 from the approver's inbox and nowhere else, so a decision is always taken against
@@ -708,6 +861,22 @@ Decisions behind it, each of which has a cheaper wrong version:
   verdict on it — and then resubmit the approver's words as their reason. The
   comment leads the screen as a Warning strip, because "rejected" with no why is
   not something anyone can act on.
+- **`claimRework` is a stopgap for the missing reject callback (2026-08-20).** The
+  approver presses Reject in My Inbox, SPA notifies the requester with the
+  `reworkurl` — and never calls `decideRequest`, so the request is still
+  `inApproval` when the rework screen opens it. Every gate downstream reads the
+  status, so the screen offered no buttons, refused to edit, and `resubmitRequest`
+  would have 409'd. `claimRework` moves `inApproval` → `reworkRequired` on the
+  rework route only, treating arrival on that link as the evidence of a rejection —
+  the link is only ever sent by the rejection branch. It is a no-op on any other
+  status, refuses a request carrying `postedBP`, and deliberately does **not**
+  signal the workflow: the process already took its rejection branch.
+  **The accepted cost:** the link stays in the requester's mailbox, so clicking it
+  again *after* a resubmit pulls a live approval back into rework. Maarten chose
+  this over an explicit "take back" press, with the hazard on the table. **Delete
+  the handler, the controller call and their tests once Arthur's rejection branch
+  calls `decideRequest`** — that is the real transition, and it carries the comment
+  this path cannot (the screen says "No reason was recorded with it" instead).
 - **`reworkRequired` is an ACTIVE_REQUEST_STATUS.** It looks finished, but the
   requester is about to edit and resubmit, so the partner stays locked. Leaving it
   out would unlock the partner for a second editor mid-rework.
@@ -778,16 +947,28 @@ Changing any of these breaks Arthur's process definition, so agree the change
 first rather than "fixing" it locally:
 
 - Approver task URL: `<app-url>#/ChangeRequests/{changeRequestId}/approve`
-- Requester rework URL: `<app-url>#/ChangeRequests/{changeRequestId}/rework`
+- Requester rework URL: `<site-url>#BusinessPartner-manage&/ChangeRequests/{id}/rework`
+
+**Both deep links are Work Zone intents, not approuter paths (fixed 2026-08-19).** They were built
+as `<approuter-host>/mdmmdbusinesspartnermanage/index.html#<route>`, which is the standalone
+approuter's shape - and that module was removed on 2026-08-13, so every link 404'd with
+"Requested route does not exist". The managed approuter serves the app through the Work Zone site,
+so a link is the **site URL plus a cross-navigation intent**, with the app's own route after `&/`.
+The base comes from **`WORKZONE_URL`** (a literal in `mta.yaml`, from Site Manager). `APPROUTER_URL`
+is deliberately no longer read: it was still set on the deployed app and kept producing the dead
+host, so the variable was renamed rather than reused - unset now yields `''`, and a missing link is
+diagnosable where a 404 is not. The intent must match the `BusinessPartner-manage` inbound.
 - Workflow context sent at submit:
   `{ changerequestid, requesttype, businesspartner, emailadressinitiator, bpurl, reworkurl }`
 
 **Not built on Arthur's side yet — rework needs three things from his definition,
 and the loop does not close without them:**
 
-1. On reject, **notify the requester** with `reworkurl`, and **do not complete the
-   instance** — park it waiting. `resubmitRequest` hands the request back to that
-   same instance.
+1. On reject, **call `decideRequest` with `Decision: 'reject'` and the approver's
+   comment**, then **notify the requester** with `reworkurl`, and **do not complete
+   the instance** — park it waiting. `resubmitRequest` hands the request back to
+   that same instance. As of 2026-08-20 the notification arrives but the callback
+   does not, which is why `claimRework` exists — see the Rework section.
 2. Handle the approval-decision trigger input `result: 'Resubmitted'` by routing
    the request back to the approver, the way a first submit does. **Capitalised**,
    unlike `approved`/`rejected` - his spelling, agreed 2026-08-19. The resubmit
