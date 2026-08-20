@@ -12,10 +12,17 @@ const qualityRules = require('./checks/rule-store');
 const {
   ENTITY: FEATURES, SINGLETON_ID, forgetCachedSettings
 } = require('./ai/availability');
+const {
+  PROPERTIES, PROPERTY_TEXT, REQUEST_TYPES, REQUEST_TYPE_TEXT, ROLES, ROLE_TEXT,
+  fieldPropertyTree, normaliseSettings
+} = require('./checks/field-properties');
+const fieldPropertyStore = require('./checks/field-property-store');
 
 const RULES = 'mdmlight.config.DuplicateRules';
 const VALIDATIONS = 'mdmlight.config.ValidationRules';
 const DERIVATIONS = 'mdmlight.config.DerivationRules';
+const PROFILES = 'mdmlight.config.FieldPropertyProfiles';
+const SETTINGS = 'mdmlight.config.FieldPropertySettings';
 
 const SEVERITY_TEXT = Object.freeze({
   error: 'Error — blocks the request',
@@ -63,11 +70,8 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
     // Any write drops the resident ruleset, the same way a partner write drops the name index.
     this.after(['CREATE', 'UPDATE', 'DELETE'], 'DuplicateRules', () => ruleStore.markStale());
 
-    /**
-     * The validation and derivation tables get the same treatment, and for the same reason: a rule
-     * the engine cannot evaluate is caught at the keyboard, because by check time the answer has
-     * already been given. The two differ only in which validator they hand the row to.
-     */
+    // Same treatment for both tables: a rule the engine cannot evaluate is caught at the keyboard,
+    // because by check time the answer has already been given. Only the validator differs.
     const guard = (entity, table, validate) => {
       this.before(['CREATE', 'UPDATE'], entity, async (req) => {
         // A patch carries only what changed, so it is validated against the stored row it lands on.
@@ -89,9 +93,8 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
     guard('ValidationRules', VALIDATIONS, validateValidationRule);
     guard('DerivationRules', DERIVATIONS, validateDerivationRule);
 
-    // Straight from the code-defined catalog, never a copy the UI keeps in step by hand. It also
-    // re-reads the ruleset, so the page can report honestly whether the configured rules are the
-    // ones actually running or whether it has fallen back to the defaults.
+    // Straight from the code-defined catalog, never a hand-kept UI copy. Re-reads the ruleset too, so
+    // the page can say whether the configured rules are running or the defaults are.
     this.on('ruleOptions', async () => {
       await refreshRules(async () => cds.run(cds.ql.SELECT.from(RULES)), { force: true });
       return {
@@ -107,15 +110,8 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
       };
     });
 
-    /**
-     * The validation and derivation grids' choices. Fields come from the staging model via
-     * `payloadFields`, comparisons and severities from the engine — so the dropdowns are the true
-     * ones and there is no second copy to go stale.
-     *
-     * The counts are of rules that **would actually run**: active, and passing the same validator
-     * the save uses. A steward who has saved eight rules and is told six are running has learned
-     * something an empty banner would never have told them.
-     */
+    // Fields from the staging model, comparisons and severities from the engine, so nothing goes stale.
+    // The counts are of rules that WOULD run - active and valid - so a skipped row can be named.
     this.on('qualityRuleOptions', async () => {
       const runnable = async (table, validate) => {
         try {
@@ -142,11 +138,71 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
       };
     });
 
-    /**
-     * Delegated to BusinessPartnerService, which owns the S/4 connection and the one resident
-     * name index. Standing up a second index here would be a second duplicate check by the back
-     * door — exactly what the one-engine requirement forbids.
-     */
+    // Any write drops the resident profiles, the same way a rule write drops the rule store.
+    for (const entity of ['FieldPropertyProfiles', 'FieldPropertySettings']) {
+      this.after(['CREATE', 'UPDATE', 'DELETE'], entity, () => fieldPropertyStore.markStale());
+    }
+
+    // The condition pair is the whole of a profile's matching, so a value outside the closed list
+    // makes a profile that can never fire - and looks configured while doing nothing.
+    this.before(['CREATE', 'UPDATE'], 'FieldPropertyProfiles', (req) => {
+      const { requestType, role } = req.data;
+      if (requestType !== undefined && requestType !== null && !REQUEST_TYPES.includes(requestType)) {
+        req.error(400, `“${requestType}” is not a request type. Use * for every type.`, 'requestType');
+      }
+      if (role !== undefined && role !== null && !ROLES.includes(role)) {
+        req.error(400, `“${role}” is not a role. Use * for every role.`, 'role');
+      }
+    });
+
+    // The entity/field tree and the two closed lists, generated from the staging model so a new node
+    // shows up in the dialog without anyone editing the UI.
+    this.on('fieldPropertyOptions', () => ({
+      entities: fieldPropertyTree(),
+      properties: PROPERTIES.map((code) => ({ code, text: PROPERTY_TEXT[code] || code })),
+      requestTypes: REQUEST_TYPES.map((code) => ({ code, text: REQUEST_TYPE_TEXT[code] || code })),
+      roles: ROLES.map((code) => ({ code, text: ROLE_TEXT[code] || code }))
+    }));
+
+    this.on('fieldPropertiesOf', async (req) => {
+      const rows = await cds.run(
+        cds.ql.SELECT.from(SETTINGS)
+          .columns('section', 'element', 'property')
+          .where({ profile_ID: req.data.Profile })
+      );
+      return JSON.stringify(rows || []);
+    });
+
+    // Wholesale replace: the dialog always sends the complete state of the profile, so rewriting
+    // beats diffing and no stale row can survive a field being unticked.
+    this.on('saveFieldProperties', async (req) => {
+      const profile = req.data.Profile;
+      const stored = await cds.run(cds.ql.SELECT.one.from(PROFILES).where({ ID: profile }));
+      if (!stored) return req.reject(404, `Profile ${profile} was not found. Save it before setting its fields.`);
+
+      let parsed;
+      try {
+        parsed = JSON.parse(req.data.SettingsJson || '[]');
+      } catch (error) {
+        return req.reject(400, `SettingsJson is not valid JSON: ${error.message}`);
+      }
+      if (!Array.isArray(parsed)) return req.reject(400, 'SettingsJson must be an array of settings.');
+
+      const { settings, errors } = normaliseSettings(parsed);
+      // Refused, not filtered: a dialog sending an unknown field is a bug, and storing the rest
+      // would leave a profile that is quietly missing what someone thought they set.
+      if (errors.length) return req.reject(400, errors.join(' '));
+
+      await cds.run(cds.ql.DELETE.from(SETTINGS).where({ profile_ID: profile }));
+      if (settings.length) {
+        await cds.run(cds.ql.INSERT.into(SETTINGS).entries(
+          settings.map((setting) => ({ ...setting, profile_ID: profile }))
+        ));
+      }
+      fieldPropertyStore.markStale();
+      return { Profile: profile, Saved: settings.length };
+    });
+
     /**
      * Reports the effective switches, not the stored row. An installation that
      * has never saved a setting has no row at all, and the page must read that
@@ -173,6 +229,8 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
       return { aiAssistanceEnabled: enabled };
     });
 
+    // Delegated to BusinessPartnerService, which owns the S/4 connection and the one name index: a
+    // second index here would be a second duplicate check by the back door.
     this.on('testRuleset', async (req) => {
       const bp = await cds.connect.to('BusinessPartnerService');
       return bp.send('testDuplicateRuleset', {

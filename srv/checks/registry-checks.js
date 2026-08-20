@@ -4,15 +4,9 @@ const { enrichCandidate } = require('../ai/registry');
 const { candidateFromStagedRequest } = require('../ai/duplicate-check');
 
 /**
- * VIES and GLEIF as a validation and a derivation, sharing one lookup.
- *
- * They were already in the codebase, but only feeding the duplicate engine extra names and
- * identifiers. Here they answer the two questions a steward actually asks of a registry: does what
- * was typed agree with the official record, and can the gaps be filled from it.
- *
- * The pair is created **per check**, and the derivation reuses what the validation looked up —
- * VIES throttles per member state and GLEIF is a public API, so asking twice for one press of the
- * Check button would be both slower and ruder.
+ * VIES and GLEIF as one validation and one derivation: does what was typed agree with the official
+ * record, and can the gaps be filled from it. The pair is created per check and shares a single
+ * lookup — VIES throttles per member state, so asking twice for one press would be slower and ruder.
  */
 
 const ADDRESS_FIELDS = Object.freeze(['StreetName', 'HouseNumber', 'PostalCode', 'CityName', 'Country']);
@@ -21,13 +15,8 @@ const ADDRESS_FIELDS = Object.freeze(['StreetName', 'HouseNumber', 'PostalCode',
 // trading one, and blocking here stopped the derivations and the proposals as well. 'error' restores it.
 const NAME_MISMATCH_SEVERITY = 'warning';
 
-/**
- * Only the name mismatch is re-graded. Everything else keeps the severity `registry.js` gave it,
- * and that is load-bearing: `vat_registered` carries **both** "not registered in VIES" (error) and
- * "VIES could not confirm it" (info, because VIES answers `isValid: false` when a member state is
- * merely throttled). Re-grading by check name alone would block on an outage — the one thing that
- * would teach people to ignore these findings.
- */
+// Only the name mismatch is re-graded; everything else keeps registry.js's severity. Load-bearing:
+// `vat_registered` means both "not registered" and "could not confirm", so grade by severity, not name.
 function severityOf(finding) {
   if (finding.check === 'vat_name_matches') return NAME_MISMATCH_SEVERITY;
   return finding.severity || 'info';

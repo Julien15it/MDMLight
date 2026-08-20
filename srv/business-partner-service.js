@@ -33,12 +33,8 @@ const SEARCHABLE_FIELDS = Object.freeze([
   'OrganizationBPName1'
 ]);
 
-/**
- * S/4 puts the BusinessPartner key through an ALPHA conversion exit, which rejects the whole read
- * with /IWBEP/CM_MGW_RT/264 rather than just missing: "destelbergen" 502'd the assistant on
- * 2026-08-14. Only a digit term that fits CHAR(10) is safe, and a name still matches the name
- * fields, so dropping the key costs nothing an alphanumeric external number would have found.
- */
+// S/4's ALPHA conversion exit rejects the whole read (/IWBEP/CM_MGW_RT/264) for a non-numeric key,
+// so only a digit term fitting CHAR(10) goes against it. A name still matches the name fields.
 const BP_NUMBER_TERM = /^\d{1,10}$/u;
 
 function searchableFieldsFor(term) {
@@ -117,11 +113,8 @@ const ASSISTANT_MAX_ROWS = 100000;
 
 const { STOP_WORDS: ASSISTANT_STOP_WORDS } = require('./ai/stop-words');
 
-// Entities projected onto ZSRVB_MDMLIGHT_VH in business-partner-service.cds —
-// read from that service instead of being forwarded to S4 (see the READ
-// handler loop in init()). Kept in one place so CDS, routing and the UI's
-// VALUE_HELP_FIELDS config (BusinessPartnerMaintenance.controller.js) stay in
-// sync when a lookup is added or removed.
+// Read from ZSRVB_MDMLIGHT_VH rather than forwarded to S/4. One place, so the CDS, the READ handler
+// loop and the UI's VALUE_HELP_FIELDS stay in sync when a lookup is added.
 const VALUE_HELP_ENTITIES = Object.freeze([
   'BusinessPartnerGroupings',
   'BusinessPartnerCategories',
@@ -211,10 +204,8 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     updatable: true,
     requiredCreateFields: ['SupplierAccountGroup']
   }),
-  // Nested one level deeper than the rest: A_BusinessPartner has no direct
-  // navigation to company code data, only to_Customer/to_Supplier do. Create
-  // therefore posts under A_Customer/A_Supplier, not A_BusinessPartner - see
-  // parentEntity/parentKeyField in businessPartnerNavigationPath.
+  // A_BusinessPartner has no navigation to company code data, so a create posts under
+  // A_Customer/A_Supplier instead - see parentEntity in businessPartnerNavigationPath.
   CustomerCompany: Object.freeze({
     remote: 'A_CustomerCompany',
     navigation: 'to_CustomerCompany',
@@ -260,12 +251,8 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     deletable: true,
     requiredCreateFields: ['Supplier', 'PurchasingOrganization']
   }),
-  // --- The rest of the MDG "ERP Customer" / "ERP Supplier" tree ------------------
-  // Everything below is a grandchild of the business partner, and several hang off a
-  // *composite-keyed* parent: Dunning and Withholding Tax off
-  // A_CustomerCompany(Customer, CompanyCode), the sales-area nodes off
-  // A_CustomerSalesArea(Customer, SalesOrganization, DistributionChannel, Division).
-  // Those are addressed through parentKeyFields - see businessPartnerNavigationPath.
+  // --- The rest of the MDG ERP Customer / Supplier tree -------------------------
+  // All grandchildren, several off a COMPOSITE-keyed parent, addressed via parentKeyFields.
   CustomerText: Object.freeze({
     remote: 'A_CustomerText',
     navigation: 'to_CustomerText',
@@ -585,16 +572,9 @@ function validateMaintenanceCreate(entityName, payload, configuration) {
 }
 
 /**
- * Path a child node is created under: the parent's canonical URI plus the navigation.
- *
- * A parent may itself be a child - Dunning hangs off A_CustomerCompany, which is keyed
- * (Customer, CompanyCode), and Partner Functions hang off A_CustomerSalesArea, keyed on
- * four fields. So the parent key is a list, declared as parentKeyFields; parentKeyField
- * stays supported for the single-key nodes that already use it.
- *
- * Every key value is read off the payload the client sent, because a grandchild carries
- * its parent's keys as its own leading keys - that is what makes the row addressable at
- * all, and it is why no extra round trip is needed to find the parent.
+ * The parent's canonical URI plus the navigation. A parent may itself be a child with a composite
+ * key, hence parentKeyFields as a list (parentKeyField stays for the single-key nodes). Key values
+ * come off the client payload - a grandchild carries its parent's keys, so no extra round trip.
  */
 function businessPartnerNavigationPath(configuration, payload) {
   const parentEntity = configuration.parentEntity || 'A_BusinessPartner';
@@ -607,9 +587,8 @@ function businessPartnerNavigationPath(configuration, payload) {
     }
     return { field, value: value.replaceAll("'", "''") };
   });
-  // A single key is addressed positionally, A_Customer('54') - the form the existing nodes
-  // already send. A composite key has to name each field, because position alone would not
-  // say which key is which: A_CustomerCompany(Customer='54',CompanyCode='1000').
+  // A single key stays positional, A_Customer('54'); a composite key must name each field, because
+  // position alone would not say which is which.
   const keyPredicate = values.length === 1
     ? `'${values[0].value}'`
     : values.map(({ field, value }) => `${field}='${value}'`).join(',');
@@ -624,14 +603,8 @@ async function createBusinessPartnerChild(s4, configuration, payload) {
   }));
 }
 
-/**
- * I_BusPartTaxTypeText is keyed (Language, BPTaxType), so the catalogue arrives once per installed
- * language and a picker would list every category many times over.
- *
- * Which encoding the language key uses — ISO `EN` or the SAP key `E` — cannot be read off the
- * metadata (`String(2)` either way), and guessing wrong would filter the list to nothing, which is
- * the bug this replaces. So the preferred row is chosen by prefix match instead of by a literal.
- */
+// The catalogue arrives once per installed language, so a picker would repeat every category. Which
+// encoding the key uses (`EN` or `E`) is not in the metadata, so the row is chosen by prefix match.
 function taxTypeLanguageRank(language, wanted) {
   const value = String(language || '').trim().toUpperCase();
   if (!value) return 3;
@@ -713,34 +686,19 @@ function joinExpressions(expressions, operator) {
   ]);
 }
 
+// Not every S/4 release implements the V2 free-text search extension, so Fiori's `$search` becomes
+// ordinary `contains` filters.
 /**
- * API_BUSINESS_PARTNER is OData V2 and not every S/4 release implements its
- * free-text search extension consistently. Convert the Fiori `$search` request
- * to ordinary `contains` filters, which CAP translates to OData V2.
- */
-/**
- * A partner is locked while a change request over it is still in flight, so it
- * must not be edited from the list in the meantime. `posted` is finished - S/4
- * holds the latest data again. `failed` counts as active on purpose: the post is
- * not atomic, so the partner may be half-written and needs a human before anyone
- * else touches it.
- *
- * `reworkRequired` counts as active too, and that is the whole reason it is here
- * (2026-08-19). It looks finished - the approver said no - but the requester is
- * about to edit and resubmit it, so the partner is still claimed. Leaving it out
- * would unlock the partner for a second editor mid-rework, which is precisely
- * what this list exists to prevent. `rejected` is no longer written at all.
+ * A partner is locked while a request over it is in flight. `failed` counts as active because the
+ * post is not atomic and may have left it half-written; `reworkRequired` counts because the
+ * requester is about to edit and resubmit, so leaving it out would unlock the partner mid-rework.
  */
 const ACTIVE_REQUEST_STATUSES = ['draft', 'inApproval', 'approved', 'reworkRequired', 'failed'];
 
 /** Beyond this the `ne` chain makes the remote OData URL unreasonably long. */
 const MAX_EXCLUDED_PARTNERS = 200;
 
-/**
- * Excludes partners that are locked in an active change request. Applied as a
- * filter on the remote query rather than by dropping rows afterwards, so
- * $top/$skip and $count stay consistent with what is shown.
- */
+// A filter on the remote query rather than post-filtering, so $top/$skip and $count stay correct.
 function applyChangeRequestExclusion(query, blockedPartners) {
   const select = query && query.SELECT;
   if (!select || !blockedPartners || blockedPartners.length === 0) return query;
@@ -864,12 +822,8 @@ function assistantList(title, partners) {
   ].join('\n');
 }
 
-/**
- * Derives the search terms from a free-form question. Must be given the
- * original question, not a lower-cased one: quoted text wins, then capitalised
- * words such as "Alluvion" (almost always the name the user is after), and only
- * then the remaining content words.
- */
+// Needs the ORIGINAL question, not a lower-cased one: quoted text wins, then capitalised words
+// (almost always the name being asked about), then the remaining content words.
 function assistantSearchTerms(question) {
   const raw = String(question || '');
 
@@ -895,10 +849,7 @@ function assistantSearchTerms(question) {
   return words.map((word) => word.toLocaleLowerCase()).filter(isContentWord);
 }
 
-/**
- * Pushes the search down to S/4 so the whole data set is searched instead of
- * only the rows that happen to be loaded first.
- */
+/** Pushed down to S/4, so the whole data set is searched and not just the first rows loaded. */
 function assistantSearchFilter(terms) {
   return joinExpressions(terms.map(termExpression), 'or');
 }
@@ -1013,10 +964,8 @@ const STAGING_NODES = Object.freeze({
   BusinessPartnerRoles: 'mdmlight.staging.StagedRoles'
 });
 
-/**
- * Pending creates, read whole so they can be matched against. Best-effort: staging being
- * unavailable must degrade the check to live partners only, not fail the question or the submit.
- */
+// Pending creates, read whole so they can be matched. Best-effort: unavailable staging degrades the
+// check to live partners rather than failing the question.
 async function pendingCreateRequests() {
   try {
     const db = await cds.connect.to('db');
@@ -1056,11 +1005,8 @@ async function findIndexedDuplicates(s4, candidate, partners = [], { excludeRequ
     : checkAgainstPartners(record, partners, { extra: pending });
 }
 
-/**
- * Matches on any term and ranks by how many terms hit. Requiring every term to
- * match makes a natural sentence such as "toon alle data die Alluvion als naam
- * heeft" impossible to satisfy, because no partner contains every word.
- */
+// Any term, ranked by how many hit. Requiring every term makes a natural sentence unsatisfiable,
+// because no partner contains every word of it.
 function matchingBusinessPartners(terms, partners = [], addresses = []) {
   return partners
     .map((partner) => {
@@ -1378,9 +1324,8 @@ function duplicateAnswer(name, duplicates) {
   ].join('\n');
 }
 
-// req.user.attr.email is populated from the XSUAA JWT's `email` claim (see
-// @sap/cds jwt-auth middleware); req.user.id is the logon name/fallback for
-// auth kinds or local mocked users that don't carry an email claim.
+// attr.email comes from the XSUAA JWT claim; id is the logon-name fallback for auth kinds and
+// mocked local users that carry no email.
 function requestingUserEmail(req) {
   return req.user?.attr?.email || req.user?.id || '';
 }
@@ -1393,13 +1338,8 @@ const WORKFLOW_DATE_TYPES = Object.freeze(new Set(['cds.Date', 'cds.DateTime', '
 const WORKFLOW_TIME_TYPES = Object.freeze(new Set(['cds.Time']));
 const WORKFLOW_NUMBER_TYPES = Object.freeze(new Set(['cds.Decimal', 'cds.Double', 'cds.Integer', 'cds.Integer64']));
 
-// ABAP's "initial" (never-set) value for a date field is 00000000, which the
-// @sap/cds odata-v2 remote client (libx/_runtime/remote/utils/data.js)
-// converts into the epoch-derived date "0001-01-01" — a syntactically valid
-// ISO date, but not a real one. Likewise, an initial TIME (000000) comes
-// through as the plain string "00:00:00". BPA's schema validation rejects
-// both as "not a valid date"/"not a valid time" (SAP_IPA_12094), so they must
-// be treated the same as no value at all and omitted, not sent through.
+// ABAP's initial date (00000000) reaches us as "0001-01-01" and an initial time as "00:00:00" -
+// valid ISO, not real values. BPA rejects both (SAP_IPA_12094), so they are omitted, not sent.
 function isAbapInitialDate(date) {
   return date.getUTCFullYear() <= 1;
 }
@@ -1408,25 +1348,15 @@ function isAbapInitialTime(value) {
   return value === '00:00:00';
 }
 
-// Standard SAP audit-trail fields, present on almost every S4 entity. BPA's
-// schema rejects at least CreationDate/CreationTime with SAP_IPA_12094 ("not
-// a valid date"/"not a valid time") even when S/4 returns a real, current
-// value for them — and who/when a record was technically created isn't
-// useful context for an approval decision anyway — so these are dropped
-// everywhere, unconditionally, rather than only when blank.
+// BPA rejects CreationDate/CreationTime (SAP_IPA_12094) even with a real value, and who created a
+// record technically is no use to an approver - so these are dropped unconditionally, not when blank.
 const WORKFLOW_AUDIT_FIELDS = Object.freeze(new Set([
   'CreationDate', 'CreationTime', 'CreatedByUser',
   'LastChangeDate', 'LastChangeTime', 'LastChangedByUser'
 ]));
 
-// Per-entity date/time fields BPA's schema rejects even given the exact same
-// well-formed ISO datetime string that's accepted elsewhere (confirmed: the
-// identical value for A_BusinessPartnerAddress.validityStartDate is accepted
-// while A_BuPaAddressUsage.validityStartDate is not) — so this isn't a value
-// formatting issue, it's that specific BPA context variable being typed
-// differently (e.g. plain "date" instead of "datetime"). Add an entry here
-// whenever SAP_IPA_12094 points at a field not already covered by
-// WORKFLOW_AUDIT_FIELDS or the ABAP-initial-value checks above.
+// Fields BPA rejects given the very value it accepts elsewhere, so it is that context variable being
+// typed differently, not the value. Add an entry whenever SAP_IPA_12094 names a field not covered above.
 const WORKFLOW_FIELD_EXCLUSIONS = Object.freeze({
   A_BuPaAddressUsage: new Set(['ValidityStartDate', 'ValidityEndDate']),
   A_BusinessPartnerRole: new Set(['ValidFrom', 'ValidTo'])
@@ -1449,15 +1379,8 @@ function toWorkflowValue(element, value) {
   return value;
 }
 
-// Shapes any S4 entity row into the form BPA expects: every scalar field
-// present, camelCased the same way S/4 already does for its own OData V4
-// proxies (lower-case the first letter only, e.g. BusinessPartner ->
-// businessPartner, POBox -> pOBox, BPTaxType -> bPTaxType) — EXCEPT date/time
-// fields, which are omitted entirely whenever there's no real value (blank,
-// unparseable, or an ABAP-initial sentinel). BPA's schema validates
-// date/time-typed context variables strictly and rejects both "" and those
-// sentinels as invalid (SAP_IPA_12094), so an unset date must be a missing
-// key, never a blank string or a fake "0001-01-01"/"00:00:00".
+// Every scalar field, camelCased as S/4 does for its own V4 proxies (first letter only) - EXCEPT
+// date/time fields with no real value, which are omitted: BPA rejects "" and the sentinels alike.
 function toWorkflowShape(entity, row, entityName) {
   const shaped = {};
   for (const [name, element] of Object.entries(entity.elements || {})) {
@@ -1486,12 +1409,8 @@ function toWorkflowShape(entity, row, entityName) {
   return shaped;
 }
 
-// Every API_BUSINESS_PARTNER entity the approval workflow's businesspartnerinput
-// wants, and how each relates back to the Business Partner being approved.
-// cardinality 'one' -> single object (first/only row, or an all-blank shape
-// if none exists); 'many' -> array of shaped rows (possibly empty). This
-// mirrors the workflow's own schema, not true S/4 key cardinality — several
-// composite-keyed entities (e.g. A_BuPaIndustry) are still modeled as 'one'.
+// Every entity businesspartnerinput wants, and how each relates back to the partner. 'one' -> a
+// single object (blank if absent), 'many' -> an array. Mirrors the WORKFLOW's schema, not S/4's keys.
 const WORKFLOW_ENTITIES = Object.freeze([
   { name: 'A_BPAddrDepdntIntlLocNumber', cardinality: 'one', filterBy: 'businessPartner' },
   { name: 'A_BPContactToAddress', cardinality: 'many', filterBy: 'businessPartnerCompany' },
@@ -1538,9 +1457,8 @@ const WORKFLOW_ENTITIES = Object.freeze([
   { name: 'A_SupplierPurchasingOrgText', cardinality: 'many', filterBy: 'supplier' },
   { name: 'A_SupplierText', cardinality: 'many', filterBy: 'supplier' },
   { name: 'A_SupplierWithHoldingTax', cardinality: 'many', filterBy: 'supplier' },
-  // Address-level communication data isn't keyed by BusinessPartner at all
-  // (key is AddressID+Person+OrdinalNumber) — filtered by the AddressIDs
-  // found via A_BusinessPartnerAddress instead, see filterBy: 'address' below.
+  // Not keyed by BusinessPartner at all, so it is filtered by the AddressIDs found via
+  // A_BusinessPartnerAddress - see filterBy: 'address'.
   { name: 'A_AddressEmailAddress', cardinality: 'many', filterBy: 'address' },
   { name: 'A_AddressFaxNumber', cardinality: 'many', filterBy: 'address' },
   { name: 'A_AddressHomePageURL', cardinality: 'many', filterBy: 'address' },
@@ -1561,10 +1479,8 @@ async function fetchWorkflowEntityRows(s4, entity, where, cardinality, name) {
   }
 }
 
-// Builds the complete businesspartnerinput object the approval workflow
-// expects: A_BusinessPartner itself plus every related entity S/4 exposes,
-// each shaped via toWorkflowShape. Best-effort per entity — one failing
-// lookup blanks out just that block instead of aborting workflow start.
+// A_BusinessPartner plus every related entity, each shaped by toWorkflowShape. Best-effort per
+// entity: one failing lookup blanks that block rather than aborting the workflow start.
 async function fetchBusinessPartnerInputForWorkflow(s4, businessPartner) {
   const result = {};
 
@@ -1597,24 +1513,15 @@ async function fetchBusinessPartnerInputForWorkflow(s4, businessPartner) {
   return result;
 }
 
-// Full, fixed list of every API_BUSINESS_PARTNER entity the approval
-// workflow's businesspartnerinput expects, in the same order
-// fetchBusinessPartnerInputForWorkflow assembles it in.
+// Every entity businesspartnerinput expects, in the order fetchBusinessPartnerInputForWorkflow uses.
 const WORKFLOW_INPUT_ENTITIES = Object.freeze([
   { name: 'A_BusinessPartner', cardinality: 'one' },
   { name: 'A_BusinessPartnerAddress', cardinality: 'many' },
   ...WORKFLOW_ENTITIES
 ]);
 
-// Same output shape as fetchBusinessPartnerInputForWorkflow, but built from
-// rows the caller already has instead of a live S/4 read. Used by
-// ChangeRequestService.submitRequest: a `create` request has nothing in S/4
-// yet to read at that point, only staged Postgres rows. `rowsByEntity[name]`
-// supplies a row (cardinality 'one') or an array of rows (cardinality
-// 'many') for whichever entities the caller has data for; any entity not
-// present (this app only stages a subset of the 51 API_BUSINESS_PARTNER
-// entities the workflow schema lists) is shaped blank, exactly like a brand
-// new Business Partner would look.
+// The same shape, built from rows the caller already has rather than a live read - a `create` has
+// nothing in S/4 yet. Entities absent from `rowsByEntity` are shaped blank, like a brand new partner.
 function buildWorkflowInputFromRows(s4, rowsByEntity) {
   const result = {};
   for (const config of WORKFLOW_INPUT_ENTITIES) {
@@ -1659,15 +1566,12 @@ function externalResearchAnswer(name, research) {
 class BusinessPartnerService extends cds.ApplicationService {
   async init() {
     const s4 = await cds.connect.to('API_BUSINESS_PARTNER');
-    // Custom S/4 value-help service (ZSRVB_MDMLIGHT_VH) backing every
-    // @Common.ValueList lookup — see srv/external/ZSRVB_MDMLIGHT_VH and
-    // VALUE_HELP_ENTITIES below. API_BUSINESS_PARTNER exposes none of these.
+    // ZSRVB_MDMLIGHT_VH backs every @Common.ValueList lookup; API_BUSINESS_PARTNER exposes none.
     const valueHelp = await cds.connect.to('ZSRVB_MDMLIGHT_VH');
     const db = await cds.connect.to('db');
 
-    // Both remote models are copies checked into srv/external, so they go stale silently. Report
-    // it once per start. Deliberately not awaited: this must never delay or fail boot, and where
-    // no destination resolves — plain local dev — it logs at debug and stops.
+    // Both remote models are checked-in copies, so they go stale silently. Not awaited: this must
+    // never delay or fail boot, and with no destination it logs at debug and stops.
     checkMetadataDrift({
       requires: cds.env.requires,
       maintenanceEntities: MAINTENANCE_ENTITIES,
@@ -1804,12 +1708,8 @@ class BusinessPartnerService extends cds.ApplicationService {
           return req.reject(error.statusCode || 502, remoteErrorMessage(error, 'S/4HANA rejected the create request.'));
         }
 
-        // The approval workflow is deliberately NOT started here: at this
-        // point only the root Business Partner exists in S/4 — the UI still
-        // has to save addresses/roles/etc. via saveBusinessPartnerEntity
-        // afterwards. Starting it now would always send an empty address
-        // list. The UI calls startBusinessPartnerApprovalWorkflow once every
-        // section has been saved.
+        // The workflow is deliberately NOT started here: only the root exists in S/4 yet, so it would
+        // always send an empty address list. The UI starts it once every section is saved.
 
         return created;
       }
@@ -2098,9 +1998,8 @@ class BusinessPartnerService extends cds.ApplicationService {
       this.on('READ', entity, (req) => valueHelp.run(req.query));
     }
 
-    // Paging is dropped deliberately: one row per category can only be chosen once every
-    // language's rows are in hand, and a page that shrinks after deduplication is worse than
-    // reading a catalogue this small whole.
+    // No paging: one row per category needs every language's rows in hand, and a page that shrinks
+    // after deduplication is worse than reading a catalogue this small whole.
     this.on('READ', 'TaxTypes', async (req) => {
       if (req.query?.SELECT?.limit) delete req.query.SELECT.limit;
       return oneRowPerTaxType(await valueHelp.run(req.query), req.locale);

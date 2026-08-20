@@ -1,6 +1,6 @@
 _schema-version: "3.2"
 ID: mdm-md-businesspartner-manage
-version: 1.31.0
+version: 1.32.0
 description: "Manage Business Partner (F3163) - CAP + Fiori Elements"
 parameters:
   enable-parallel-deployments: true
@@ -41,9 +41,13 @@ modules:
       AICORE_FALLBACK_MODELS: gemini-3.5-flash,gpt-5-mini
       AICORE_RESOURCE_GROUP: default
       ASSISTANT_INTENT_SOURCE: model
-      # APPROUTER_URL is deliberately unset: the standalone approuter is gone, so
-      # there is no module to source it from and approveUrl() degrades to ''.
-      # Set it to the Work Zone site URL as a literal to restore the deep link.
+      # The Work Zone site URL, used to build the approve/rework deep links sent to
+      # SPA. Managed approuter, so there is no module to source it from - it is a
+      # literal, and unset means approveUrl()/reworkUrl() return '' rather than a
+      # dead link. Take it from Site Manager (the site's "Open" URL), including the
+      # /site path and no trailing hash. APPROUTER_URL is NOT read any more: it was
+      # left set on the deployed app and kept producing the removed standalone host.
+      WORKZONE_URL: "https://alluvion-dev-cf.launchpad.cfapps.eu10.hana.ondemand.com/site?siteId=988d11c0-0c6c-42f2-840d-f8875105417b"
   
 
   # --- PostgreSQL schema deployer ----------------------------------------------
