@@ -2001,9 +2001,12 @@ sap.ui.define([
         derivations.filter(function (entry) { return entry.field; }).forEach(function (entry) {
           seen[keyOf(entry)] = rows.length;
           rows.push({
-            change: "Filled in",
+            // "Added" is its own answer: accepting it creates a record the requester never added,
+            // which is a bigger thing than filling a field they left empty.
+            change: entry.createRow ? "Added" : "Filled in",
             target: entry.target || "root",
             index: entry.index || 0,
+            createRow: Boolean(entry.createRow),
             field: entry.field,
             current: "",
             proposed: entry.value,
@@ -2097,9 +2100,16 @@ sap.ui.define([
         var applied = 0;
         var state = this.getView().getModel("maintenance").getData();
         accepted.forEach(function (proposal) {
-          var record = (!proposal.target || proposal.target === "root")
-            ? state.root
-            : (state.sections[proposal.target] || [])[proposal.index || 0];
+          var isRoot = !proposal.target || proposal.target === "root";
+          var rows = isRoot ? null : (state.sections[proposal.target] = state.sections[proposal.target] || []);
+          var record = isRoot ? state.root : rows[proposal.index || 0];
+          // The section had no row when the derivation ran, so accepting the proposal is what
+          // creates it. `new` rather than `changed`: it stages as a C, and several accepted
+          // proposals for the same section land on this one row rather than one row each.
+          if (!record && proposal.createRow && !rows.length) {
+            record = { __state: "new" };
+            rows.push(record);
+          }
           if (!record) return;
           // An emptied field is a decline, not an instruction to blank what is there.
           var value = String(proposal.proposed === undefined ? "" : proposal.proposed).trim();

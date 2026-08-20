@@ -192,8 +192,34 @@ Configured stages come first in both lists; the reasoning is with the tables.
   answers `isValid: false` when merely throttled). Re-grade by severity, not by
   check name — `severityOf` exists for exactly this.
 - **Derivation**: fills empty address fields on the *first* address row from VIES
-  first, then GLEIF. A row that does not exist is never invented, but the value is
-  still reported with no `field`, so the screen says so and writes nothing.
+  first, then GLEIF.
+
+#### A derivation may create the row it needs (changed 2026-08-20)
+
+A derivation used to refuse to invent a row: with no address on the screen, a VIES
+answer was reported with no `field` ("there is no Addresses row to hold it") and
+written nowhere — so the requester had to press **Add** before the register could
+fill anything, which is precisely the case where the lookup is most useful. Maarten
+asked for the opposite: conditions met should be enough.
+
+An entry may now carry **`createRow: true`**, and `createTargetRecord` in
+`pipeline.js` honours it. Three constraints hold it in place:
+
+- **Only an empty section, and only index 0.** Appending to a section that already
+  has rows would put the registered seat onto a second address somebody added
+  deliberately; filling index 3 of a one-row section would invent the two rows in
+  between. Both are still reported as statements, exactly as before.
+- **The requester still ticks it.** The row is created in the pipeline's own copy
+  (which is what the duplicate check reads) and on the screen only when the
+  proposal is accepted — `_applyProposals` creates it with `__state: "new"` so it
+  stages as a `C`. The dialog labels it **Added** rather than *Filled in*, because
+  accepting it creates a record rather than filling a blank. Nothing is written
+  unasked, which is the rule every proposal has followed since 2026-08-14.
+- **A rule cannot create a row out of its own emptiness.** `runDerivationRule`
+  evaluates an empty section against one synthetic row, so a condition on the
+  rule's *own* section (`where Addresses.Country = BE`) can never hold — only
+  conditions met elsewhere (`where General.BusinessPartnerCategory = 2`) bring a
+  row into existence.
 
 Three behaviours worth not "simplifying" away: a validation that throws blocks
 (a rule that silently skipped would defeat the ordering); a derivation that
