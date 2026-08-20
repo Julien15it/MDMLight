@@ -58,4 +58,15 @@ entity DerivationRules : managed, ruleConditions {
        *  so a literal can never be mistaken for one. */
       value : String(120) not null;
 
+      /**
+       * Superseded, and kept only because `cds-deploy` refuses to drop an element - the same reason
+       * `DuplicateRules` still carries its four `cond*` columns. **Nothing reads it. Do not write
+       * to it.**
+       *
+       * It was the opt-in for a rule that adds its row instead of filling one (2026-08-20). The
+       * merged design takes the trigger from the payload instead: a rule whose target section holds
+       * no rows proposes the row, one whose section has rows fills its gaps. Dropping the column
+       * failed the database deployer, because it had already reached the deployed model.
+       */
+      createsRow : Boolean default false;
 }

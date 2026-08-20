@@ -209,7 +209,11 @@ the idempotency and the stage ordering from the second — Maarten's call.
 - **The payload is the trigger, not a flag on the rule.** A rule whose target section
   holds no rows proposes the row; one whose section has rows fills its gaps. There is
   no `createsRow` column and no "Add row" checkbox: conditions met are enough, and a
-  steward should not have to tick a second box to get the obvious behaviour. (Julien's
+  steward should not have to tick a second box to get the obvious behaviour. The
+  `createsRow` **column stays in `db/quality-rules.cds` as dead weight**: dropping it
+  failed `deploy_to_postgresql` four times over, because Julien's build had already
+  reached the deployed model. Nothing reads it, the same way nothing reads the four
+  `cond*` columns on `DuplicateRules`. (Julien's
   version made it opt-in per rule, with save-time refusals guarding the checkbox;
   those refusals went with it — a condition on the section being added is evaluated
   against an empty row and cannot hold, and a value copied out of that section

@@ -14,6 +14,7 @@
  */
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const cds = require('@sap/cds');
@@ -55,6 +56,28 @@ function request(sections = {}, country = 'BE') {
 
 const derive = (rules, payload) =>
   runDerivations(payload, createConfiguredStages({ derivations: rules, model }).derivations);
+
+/**
+ * The column outlived the design. `cds-deploy` refuses to drop an element and it had already
+ * reached the deployed model, so it stays as dead weight - exactly like the four `cond*` columns on
+ * DuplicateRules. This test exists to keep it dead: the trigger is the payload, and a rule carrying
+ * `createsRow: true` must behave no differently from one without it.
+ */
+test('the superseded createsRow column is kept but never read', async () => {
+  const flagged = await derive([{ ...ADDS_ORG, createsRow: true }], request());
+  const plain = await derive([ADDS_ORG], request());
+  assert.deepEqual(flagged.derived.sections.SupplierPurchasingOrg,
+    plain.derived.sections.SupplierPurchasingOrg);
+
+  // And it cannot make a rule add a row beside one that exists.
+  const beside = await derive([{ ...ADDS_ORG, createsRow: true }], request({
+    SupplierPurchasingOrg: [{ PurchasingOrganization: '1010' }]
+  }));
+  assert.deepEqual(beside.derived.sections.SupplierPurchasingOrg, [{ PurchasingOrganization: '1010' }]);
+
+  const source = fs.readFileSync(path.join(__dirname, '..', 'srv', 'checks', 'rule-engine.js'), 'utf8');
+  assert.equal(/rule\.createsRow/u.test(source), false, 'the engine must not read it');
+});
 
 test('the row is added when the conditions hold and nothing holds the value yet', async () => {
   const { derived, applied } = await derive([ADDS_ORG], request());
