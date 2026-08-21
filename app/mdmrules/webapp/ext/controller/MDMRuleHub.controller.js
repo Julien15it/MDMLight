@@ -38,6 +38,10 @@ sap.ui.define([
       this._router.navTo("FieldPropertyProfileList");
     },
 
+    onWorkflowRules: function () {
+      this._router.navTo("WorkflowRuleList");
+    },
+
     /**
      * The switch is bound two-way to the perm model, so it has already moved by the time
      * this runs. On failure it is put back, because leaving it where the user dragged it

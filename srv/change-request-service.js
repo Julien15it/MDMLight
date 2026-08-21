@@ -12,6 +12,7 @@ const { runChecks, runValidations, BLOCKING } = require('./checks/pipeline');
 const { createRegistryStages } = require('./checks/registry-checks');
 const { configuredStages } = require('./checks/rule-store');
 const { fieldPropertyStages, resolvedProperties } = require('./checks/field-property-store');
+const { approversFor } = require('./checks/workflow-rule-store');
 const { proposeNormalisations } = require('./checks/normalise');
 const { aiAssistanceEnabled } = require('./ai/availability');
 const { PAYLOAD_NODES, ROOT_SECTION } = require('./checks/payload-fields');
@@ -339,6 +340,23 @@ class ChangeRequestService extends cds.ApplicationService {
       } catch (error) {
         console.error(`Could not build businesspartnerinput for change request ${changeRequest}:`, error);
       }
+      // Who approves this one, from the WorkflowRules table. Determined HERE rather than earlier, so
+      // it is decided on the payload actually being submitted: after the validations and the
+      // duplicate gate, and after a rework rather than on the version the approver rejected.
+      // Best-effort like `businesspartnerinput`. An empty list is what an installation with no rules
+      // configured sends, and what every submit sent before this table existed, so SPA falls back to
+      // its own routing rather than a requester losing a submit over a routing hint.
+      let payload = {};
+      try {
+        payload = parseJsonObject(req.data.DataJson, 'DataJson');
+      } catch (error) {
+        console.warn(`Could not read the payload to determine the approvers of ${changeRequest}:`, error.message);
+      }
+      const approvers = await approversFor({
+        requestType: req.data.RequestType,
+        payload: { root: payload.root || {}, sections: payload.sections || {} }
+      });
+
       return {
         changerequestid: changeRequest,
         requesttype: req.data.RequestType,
@@ -350,7 +368,10 @@ class ChangeRequestService extends cds.ApplicationService {
         businesspartnerinput: businessPartnerInput,
         // One entry per matched partner, so the approver sees what was flagged and why. Empty when
         // nothing matched, never absent - SPA can then bind it without a null check.
-        bpduplicates: duplicateSummary(findings)
+        bpduplicates: duplicateSummary(findings),
+        // `{ step, sequence, kind, value }` per approver, `kind` telling a user from a role - the one
+        // distinction SBPA needs to assign a task. Empty, never absent, for the same reason.
+        approvers
       };
     };
 

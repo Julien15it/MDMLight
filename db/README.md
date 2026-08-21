@@ -75,15 +75,23 @@ data-quality results.
 
 ### Configuration, not master data
 
-`duplicate-rules.cds`, `quality-rules.cds` and `field-properties.cds` hold the
-data-steward rule tables — `DuplicateRules`, `ValidationRules`, `DerivationRules`
-and `FieldPropertyProfiles` with its `FieldPropertySettings`, all in namespace
+`duplicate-rules.cds`, `quality-rules.cds`, `field-properties.cds` and
+`workflow-rules.cds` hold the data-steward rule tables — `DuplicateRules`,
+`ValidationRules`, `DerivationRules`, `WorkflowRules`, and `FieldPropertyProfiles`
+with its `FieldPropertySettings`, all in namespace
 `mdmlight.config`. They live in the same database but are a different kind of
 thing: staging is a request in flight, these are a control that outlives every
 request. All of them are served by `DuplicateConfigService` under
 `/service/duplicateconfig`, behind the `Steward` scope.
 
-The three rule tables are **row-per-criterion decision tables**, and that is a deliberate
+`WorkflowRules` is the odd one out in what it produces: it is not a check on the
+data at all, but the routing hint that becomes the `approvers` list in the
+workflow context. Two of its columns hold a **list** rather than one value — the
+condition values and the approvers — encoded by `srv/checks/value-lists.js`, which
+is deliberately a format where a single stored value is already a valid one-entry
+list.
+
+The rule tables are **row-per-criterion decision tables**, and that is a deliberate
 choice against a column-per-criterion model: adding a criterion has to be an
 INSERT, because `cds-deploy` refuses to drop elements and every removed criterion
 would otherwise be a failed deployment from then on. `DuplicateRules` still

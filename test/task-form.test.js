@@ -83,12 +83,33 @@ test('resubmit/withdraw are never wired to an inbox button', () => {
 // the approver's decision screen - nothing already working needed its input mapping touched.
 test('tasktype distinguishes a rework task from the approver decision task', () => {
   assert.match(component, /context\.tasktype === "rework"/u);
-  assert.match(component, /if \(context\.changerequestid\) this\._openRework\(context\.changerequestid\)/u);
+  assert.match(component, /if \(context\.changerequestid\) \{\s+this\._openRework\(context\.changerequestid\);/u);
   assert.ok(manifest['sap.bpa.task'].inputs.properties.tasktype, 'tasktype is declared as an input');
   assert.equal(
     manifest['sap.bpa.task'].inputs.required.includes('tasktype'), false,
     'optional - absent still means approve'
   );
+});
+
+// Rework needs the same bypass Julien's fix gave approve: the hash belongs to the inbox shell
+// embedded, so a route pattern written into it matches nothing of ours.
+test('rework shows the page without touching the hash, the same way approve does', () => {
+  const embedded = component.slice(component.indexOf('_openRework: function'));
+  const body = embedded.slice(0, embedded.indexOf('_startupParameters'));
+  assert.match(body, /if \(!this\.getModel\("env"\)\.getProperty\("\/embedded"\)\)/u);
+  assert.match(body, /navTo\(\s*"ChangeRequestRework"/u);
+  assert.match(body, /setProperty\("\/taskReworkChangeRequest", changeRequest\)/u);
+  assert.match(body, /publish\("taskform", "rework"/u);
+  assert.match(body, /targets\.display\("BusinessPartnerMaintenance"\)/u);
+});
+
+test('the rework page picks the request up by model and by event, on its own channel', () => {
+  assert.match(reuseController, /subscribe\("taskform", "rework"/u);
+  assert.match(reuseController, /getProperty\("\/taskReworkChangeRequest"\)/u);
+  const matches = reuseController.match(
+    /_loadStagedRequest\(\s*(?:data\.changeRequest|pendingRework), "rework"\)/gu
+  );
+  assert.equal(matches.length, 2, 'both paths must load the staged request');
 });
 
 test('resubmit and withdraw report back to an embedded rework task, only after they succeed', () => {
@@ -135,12 +156,49 @@ test('the task form suppresses the server-side BPA trigger', () => {
 // would send the task form to the partner list instead of the request under review.
 test('embedded navigation reads the task context, not the browser hash', () => {
   assert.match(component, /contextModel\.loadData\(this\._taskInstanceUrl\(\) \+ "\/context"\)/u);
-  assert.match(component, /if \(context\.changerequestid\) this\._openApprove\(context\.changerequestid\)/u);
+  assert.match(component, /if \(context\.changerequestid\) \{\s+this\._openApprove\(context\.changerequestid\);/u);
   assert.equal(
     /window\.location\.hash && window\.location\.hash !== "#"/u.test(component),
     false,
     'the old host-hash guard must be gone'
   );
+});
+
+// The hash belongs to the inbox shell while embedded, so a route pattern written into it
+// matches nothing of ours: the component renders and the approve page never activates. That
+// is the "form is there, data is not" symptom, so embedded must not navigate at all.
+test('embedded shows the page without touching the hash', () => {
+  const embedded = component.slice(component.indexOf('_openApprove: function'));
+  // The whole method, not the file: navTo must be inside the standalone guard and nowhere else.
+  const body = embedded.slice(0, embedded.indexOf('_startupParameters'));
+
+  // navTo stays, but only on the standalone side of the guard.
+  assert.match(body, /if \(!this\.getModel\("env"\)\.getProperty\("\/embedded"\)\)/u);
+  assert.match(body, /navTo\(/u);
+  // And the embedded side displays the target and hands the id over directly.
+  assert.match(body, /setProperty\("\/taskChangeRequest", changeRequest\)/u);
+  assert.match(body, /publish\("taskform", "approve"/u);
+  assert.match(body, /targets\.display\("BusinessPartnerMaintenance"\)/u);
+});
+
+// Both, because the context fetch is a round trip and may land either side of the page's
+// own init: the model covers a late reader, the event an early one.
+test('the approve page picks the request up by model and by event', () => {
+  const controller = read(
+    '..', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse',
+    'controller', 'BusinessPartnerMaintenance.controller.js'
+  );
+  assert.match(controller, /subscribe\("taskform", "approve"/u);
+  assert.match(controller, /getProperty\("\/taskChangeRequest"\)/u);
+  const matches = controller.match(/_loadStagedRequest\(\s*(?:data\.changeRequest|pending), "approve"\)/gu);
+  assert.equal(matches.length, 2, 'both paths must load the staged request');
+});
+
+// A task with no id mapped is a process problem, and a blank form looks like the app lost the
+// data instead. The message has to name what to fix.
+test('a task with no request id says so', () => {
+  assert.match(component, /carries no change request id/u);
+  assert.match(component, /sap\.bpa\.task/u);
 });
 
 test('a context that cannot be loaded is reported, not left as an empty create screen', () => {

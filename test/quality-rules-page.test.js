@@ -124,9 +124,24 @@ test('the new tables need no new approuter route', () => {
   assert.ok(routes.indexOf(configRoute) < routes.findIndex((entry) => entry.source === '^(.*)$'));
 });
 
-// Any write drops the resident ruleset, the same way a partner write drops the name index.
+/**
+ * Any write drops the resident ruleset, the same way a partner write drops the name index.
+ *
+ * The call is `guard`'s default parameter since the workflow rule table joined it (2026-08-21):
+ * that table needs its own store dropped, not this one. So what is pinned is the default and the
+ * two tables that take it - a quality table given a different store would fail here, which is the
+ * mistake worth catching.
+ */
 test('saving a rule invalidates the rules the pipeline is holding', () => {
-  assert.match(serviceJs, /qualityRules\.markStale\(\)/u);
+  assert.match(serviceJs, /markStale = qualityRules\.markStale/u);
+  assert.match(serviceJs, /entity, \(\) => markStale\(\)/u);
+  for (const table of ['ValidationRules', 'DerivationRules']) {
+    assert.match(
+      serviceJs,
+      new RegExp(`guard\\('${table}', [A-Z_]+, validate\\w+\\);`, 'u'),
+      `${table} takes the quality store`
+    );
+  }
 });
 
 /**

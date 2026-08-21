@@ -1,0 +1,125 @@
+<mvc:View
+  controllerName="mdm.md.mdmrules.manage.ext.controller.WorkflowRuleList"
+  xmlns:mvc="sap.ui.core.mvc"
+  xmlns:core="sap.ui.core"
+  xmlns:app="http://schemas.sap.com/sapui5/extension/sap.ui.core.CustomData/1"
+  xmlns="sap.m"
+  height="100%">
+  <Page
+    title="Workflow Rules"
+    showNavButton="true"
+    navButtonPress=".onBackToHub">
+    <content>
+      <!--
+        A decision table like the other three, and read the same way left to right - "a create
+        request whose Country is BE, NL, FR or DE is approved by these three people". Two columns
+        take a LIST rather than one value: the condition values, so four countries are one row, and
+        the approvers, so a step can have several.
+      -->
+      <MessageStrip
+        class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
+        visible="{= ${view>/skipped} > 0 }"
+        text="{view>/skippedText}"
+        type="Warning"
+        showIcon="true" />
+      <Table
+        id="ruleTable"
+        items="{ path: 'dc>/WorkflowRules', parameters: { $orderby: 'createdAt', $$updateGroupId: 'ruleChanges' } }"
+        mode="SingleSelectMaster"
+        busy="{view>/busy}"
+        growing="true"
+        growingThreshold="100"
+        updateFinished=".onRowsRendered">
+        <headerToolbar>
+          <OverflowToolbar>
+            <Title text="Rules" level="H2" />
+            <ToolbarSpacer />
+            <Button text="Add Rule" icon="sap-icon://add" type="Transparent" press=".onAddRule" />
+            <Button text="Delete" icon="sap-icon://delete" type="Transparent" press=".onDeleteRule" />
+            <Button text="Save" icon="sap-icon://save" type="Emphasized" press=".onSave" enabled="{view>/dirty}" />
+            <Button text="Discard" icon="sap-icon://undo" type="Transparent" press=".onDiscard" enabled="{view>/dirty}" />
+          </OverflowToolbar>
+        </headerToolbar>
+        <!-- Percentage widths: without them every cell shrinks to its content and the row reads as
+             scattered controls with gaps between them. -->
+        <columns>
+          <Column width="10%"><Text text="CR Type" /></Column>
+          <Column width="9%"><Text text="Step" /></Column>
+          <Column width="14%"><Text text="Condition 1 Field" /></Column>
+          <Column width="14%"><Text text="Condition 1 Values" /></Column>
+          <Column width="14%"><Text text="Condition 2 Field" /></Column>
+          <Column width="14%"><Text text="Condition 2 Values" /></Column>
+          <Column width="20%"><Text text="Approvers" /></Column>
+          <Column width="4rem" hAlign="Center"><Text text="Active" /></Column>
+        </columns>
+        <items>
+          <ColumnListItem>
+            <cells>
+              <!-- All four CR types, and no "any": an approver list is not something to default. -->
+              <ComboBox
+                width="100%"
+                selectedKey="{dc>requestType}"
+                items="{ path: 'opt>/requestTypes', templateShareable: false }"
+                change=".onCellChange">
+                <core:Item key="{opt>code}" text="{opt>text}" />
+              </ComboBox>
+              <!-- One entry today. A column rather than an assumption - see db/workflow-rules.cds. -->
+              <ComboBox
+                width="100%"
+                selectedKey="{dc>step}"
+                items="{ path: 'opt>/steps', templateShareable: false }"
+                change=".onCellChange">
+                <core:Item key="{opt>code}" text="{opt>text}" />
+              </ComboBox>
+              <!-- Both conditions are optional and independent: leave a pair empty and it means
+                   "any". A condition here is always about the partner, so any row of the named
+                   section satisfying it is enough. -->
+              <Input
+                width="100%"
+                value="{dc>conditionField}"
+                placeholder="any"
+                showValueHelp="true"
+                valueHelpRequest=".onFieldValueHelp"
+                change=".onCellChange" />
+              <!-- Tokens, one per value, and they are OR: one match is enough. Nobody types the
+                   delimiter the cell is stored with - see srv/checks/value-lists.js. -->
+              <MultiInput
+                width="100%"
+                placeholder="any"
+                enabled="{= !!${dc>conditionField} }"
+                app:listPath="conditionValues"
+                tokenUpdate=".onListTokenUpdate"
+                submit=".onListSubmit"
+                change=".onListChange" />
+              <Input
+                width="100%"
+                value="{dc>conditionField2}"
+                placeholder="any"
+                showValueHelp="true"
+                valueHelpRequest=".onFieldValueHelp"
+                change=".onCellChange" />
+              <MultiInput
+                width="100%"
+                placeholder="any"
+                enabled="{= !!${dc>conditionField2} }"
+                app:listPath="conditionValues2"
+                tokenUpdate=".onListTokenUpdate"
+                submit=".onListSubmit"
+                change=".onListChange" />
+              <!-- E-mail addresses, roles, or both. An entry carrying an `@` goes to SBPA as a user
+                   and anything else as a role; which roles exist is SBPA's to know, not ours. -->
+              <MultiInput
+                width="100%"
+                placeholder="e-mail or role"
+                app:listPath="approvers"
+                tokenUpdate=".onListTokenUpdate"
+                submit=".onListSubmit"
+                change=".onListChange" />
+              <CheckBox selected="{dc>isActive}" select=".onCellChange" />
+            </cells>
+          </ColumnListItem>
+        </items>
+      </Table>
+    </content>
+  </Page>
+</mvc:View>

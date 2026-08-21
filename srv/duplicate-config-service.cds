@@ -2,9 +2,11 @@ using { mdmlight.config as config } from '../db/duplicate-rules';
 using { mdmlight.config as quality } from '../db/quality-rules';
 using { mdmlight.config as features } from '../db/feature-settings';
 using { mdmlight.config as fieldprops } from '../db/field-properties';
+using { mdmlight.config as workflow } from '../db/workflow-rules';
 
 /**
- * Data-steward configuration for all three quality controls. Separate from BusinessPartnerService
+ * Data-steward configuration for the quality controls and for approval routing. Separate from
+ * BusinessPartnerService
  * because it is a control over local tables, maintained by different people. The path keeps its
  * original name: it is in xs-app.json and the deployed approuter config, so renaming it costs a
  * route change to gain nothing - and one service means one `@requires` and no second destination.
@@ -16,6 +18,9 @@ service DuplicateConfigService {
   entity DuplicateRules  as projection on config.DuplicateRules;
   entity ValidationRules as projection on quality.ValidationRules;
   entity DerivationRules as projection on quality.DerivationRules;
+
+  /** Who approves what. Read on every submit to build the `approvers` list in the workflow context. */
+  entity WorkflowRules   as projection on workflow.WorkflowRules;
 
   /** The profile header. Its settings are written through `saveFieldProperties`, not by binding the
    *  composition: the dialog replaces the whole set in one call. */
@@ -90,6 +95,22 @@ service DuplicateConfigService {
   /** Generated from the staging model and the engine, never a hand-kept UI copy. The counts are of
    *  rules that would actually run, so a page can say when a saved row is being skipped. */
   function qualityRuleOptions() returns QualityRuleOptions;
+
+  type WorkflowRuleOptions {
+    /** The same qualified payload catalog the quality rules use - a condition names a payload field. */
+    fields       : array of PayloadField;
+    /** All four CR types. No `*`: an approver list is not something to default. */
+    requestTypes : array of Option;
+    /** `Approve` today. A column rather than an assumption - see db/workflow-rules.cds. */
+    steps        : array of Option;
+    /** Rules that would actually run, so the page can say when a saved row is being skipped. */
+    ruleCount    : Integer;
+    /** The delimiter a multi-value cell is stored with, so the grid never hard-codes it. */
+    listDelimiter : String(1);
+  }
+
+  /** Everything the workflow rule page needs to offer valid choices, generated, never hand-kept. */
+  function workflowRuleOptions() returns WorkflowRuleOptions;
 
   /** One field of an entity, as the property dialog lists it under its parent. */
   type FieldPropertyField {
