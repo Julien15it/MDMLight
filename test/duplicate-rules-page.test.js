@@ -23,7 +23,23 @@ function loadController() {
   let definition;
   const base = { extend: (name, members) => ({ name, members }) };
   vm.runInNewContext(controllerSource, {
-    sap: { ui: { define: (unused, factory) => { definition = factory(base, {}, function () {}, {}, {}); } } }
+    // One stub per dependency the controller declares. ListCell is real rather than empty
+    // because the validation below calls parseList on it: a bare {} makes it undefined and
+    // the page fails on "Cannot read properties of undefined", which is not what is under
+    // test here. Delimiter and semantics per app/mdmrules/webapp/ext/ListCell.js.
+    sap: {
+      ui: {
+        define: (unused, factory) => {
+          definition = factory(base, {}, function () {}, {}, {}, {
+            DELIMITER: '|',
+            mixin: () => {},
+            parseList: (value) => String(value === null || value === undefined ? '' : value)
+              .split('|').map((entry) => entry.trim()).filter(Boolean),
+            formatList: (values) => (values || []).join('|')
+          });
+        }
+      }
+    }
   });
   return definition.members;
 }
@@ -107,10 +123,17 @@ test('the grid asks only for what a steward has to decide', () => {
     assert.equal(view.includes(gone), false, `${gone} is still on the grid`);
   }
   assert.match(view, /\{dc>conditionField\}/u);
-  assert.match(view, /\{dc>conditionValue\}/u);
   // Two independent conditions, so a steward can write "Role = Vendor and Country = BE".
   assert.match(view, /\{dc>conditionField2\}/u);
-  assert.match(view, /\{dc>conditionValue2\}/u);
+  // The values are a LIST since 2026-08-21, so they are token cells rather than bound Inputs: the
+  // column is one string and `tokens` is an aggregation, so the path travels as custom data.
+  // The column keeps its singular name: `cds-deploy` cannot rename an element any more than it can
+  // drop one, so the three older tables hold a list in `conditionValue` while the workflow table,
+  // written after the decision, has `conditionValues`.
+  for (const column of ['conditionValue', 'conditionValue2']) {
+    assert.match(view, new RegExp(`app:listPath="${column}"`, 'u'), `${column} is a token cell`);
+  }
+  assert.equal(/value="\{dc>conditionValue2?\}"/u.test(view), false, 'no single-value cell is left');
 });
 
 // Columns sized to the row, not to their content, and no standing explanation above the table.

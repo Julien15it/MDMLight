@@ -13,24 +13,21 @@ sap.ui.define([
 
   var UPDATE_GROUP = "ruleChanges";
 
-  // Mirrors CONDITION_PAIRS in srv/checks/rule-engine.js. The column names are part of the OData
-  // contract, so this is the one thing the page may hold a copy of.
+  // Mirrors CONDITION_PAIRS in srv/checks/workflow-rules.js. The column names are part of the OData
+  // contract, so this is the one thing the page may hold a copy of. Values plural: they are lists.
   var CONDITION_PAIRS = [
-    { field: "conditionField", value: "conditionValue" },
-    { field: "conditionField2", value: "conditionValue2" }
+    { field: "conditionField", values: "conditionValues" },
+    { field: "conditionField2", values: "conditionValues2" }
   ];
 
-  // Rows are real: they live in `mdmlight.config.ValidationRules` and run on Check and Submit. Same
-  // page shape as DuplicateRuleList, because a steward should not have to learn two.
-  return Controller.extend("mdm.md.mdmrules.manage.ext.controller.ValidationRuleList", {
+  // Who approves what. Same page shape as the other three rule tables, because a steward should not
+  // have to learn two - the only new idea is a cell that holds a list.
+  return Controller.extend("mdm.md.mdmrules.manage.ext.controller.WorkflowRuleList", {
 
     onInit: function () {
       this.getView().setModel(new JSONModel({
         busy: false,
         dirty: false,
-        // code -> false for the comparisons that compare against nothing, so the Value cell can
-        // disable itself rather than accept a value the engine will ignore.
-        needsValue: {},
         skipped: 0,
         skippedText: ""
       }), "view");
@@ -70,20 +67,21 @@ sap.ui.define([
       return this.byId("ruleTable");
     },
 
-    /** Fields from the staging model, comparisons and severities from the engine. */
+    /** Payload fields from the staging model, the CR types and the steps from the engine. */
     _loadOptions: async function () {
-      var view = this.getView().getModel("view");
       try {
-        var options = await this._callAction("qualityRuleOptions", {});
+        var options = await this._callAction("workflowRuleOptions", {});
         this.getView().setModel(new JSONModel(options || {}), "opt");
-        var needsValue = {};
-        (options && options.comparisons ? options.comparisons : []).forEach(function (entry) {
-          needsValue[entry.code] = entry.needsValue !== false;
-        });
-        view.setProperty("/needsValue", needsValue);
+        // A page splitting on a different character from the one the service stores would show one
+        // token where three are saved, so it is worth saying out loud rather than debugging twice.
+        if (options && options.listDelimiter && options.listDelimiter !== ListCell.DELIMITER) {
+          MessageBox.error("This page and the service disagree about how a list is stored ("
+            + options.listDelimiter + " against " + ListCell.DELIMITER
+            + "). Multi-value cells will be wrong.");
+        }
         this._reportSkipped(options);
         if (!options || !options.fields || !options.fields.length) {
-          MessageBox.error("The field catalog came back empty, so no rule can be written. "
+          MessageBox.error("The field catalog came back empty, so no condition can be written. "
             + "The staging model could not be read.");
         }
       } catch (error) {
@@ -95,26 +93,26 @@ sap.ui.define([
     // the service is compared against what is stored.
     _reportSkipped: function (options) {
       var view = this.getView().getModel("view");
-      var runnable = options && options.validationCount;
+      var runnable = options && options.ruleCount;
       var binding = this._table() && this._table().getBinding("items");
       var stored = binding ? binding.getLength() : 0;
       var skipped = (typeof runnable === "number" && stored > runnable) ? stored - runnable : 0;
       view.setProperty("/skipped", skipped);
       view.setProperty("/skippedText", skipped
         ? skipped + " of the " + stored + " saved rules are not running, because they are inactive or "
-          + "incomplete. Fix the row or deactivate it, so the table says what it does."
+          + "incomplete. Those requests are routed as if the table said nothing about them."
         : "");
     },
 
     onAddRule: function () {
       var binding = this._table().getBinding("items");
       if (!binding) return;
-      // No field and no value: a row arriving pre-pointed at one would be a rule nobody wrote.
-      // Comparison and severity get honest defaults - the commonest rule is an equality that blocks.
+      // The step is the only honest default: there is one, and it is what every row is for today.
+      // Request type and approvers are left empty - a row arriving pre-pointed at a CR type would be
+      // a routing rule nobody wrote.
       binding.create({
-        sequence: 10,
-        comparison: "eq",
-        severity: "error",
+        step: "Approve",
+        approvers: "",
         isActive: true
       });
       this._markDirty();
@@ -147,8 +145,8 @@ sap.ui.define([
 
     // --- The field value help ----------------------------------------------
 
-    // Opened from any cell that can name a field. The cell is identified by its own binding rather
-    // than custom data: `getBinding("value").getPath()` already knows what it writes.
+    // Opened from either condition field cell. The cell is identified by its own binding rather than
+    // custom data: `getBinding("value").getPath()` already knows what it writes.
     onFieldValueHelp: async function (event) {
       var input = event.getSource();
       var binding = input.getBinding("value");
@@ -205,22 +203,22 @@ sap.ui.define([
     // The same checks the service makes, so a steward is told at the keyboard rather than by a
     // rejected batch. The service still validates: this is a courtesy, not the guard.
     _localProblems: function (rows) {
-      var needsValue = this.getView().getModel("view").getProperty("/needsValue");
       var problems = [];
       rows.forEach(function (rule, index) {
         var label = "Row " + (index + 1) + ": ";
-        if (!rule.field) problems.push(label + "choose the field to validate.");
-        if (!rule.comparison) problems.push(label + "choose a comparison.");
-        if (rule.comparison && needsValue[rule.comparison] !== false && !rule.value) {
-          problems.push(label + "this comparison needs a value.");
+        if (!rule.requestType) problems.push(label + "choose the CR type this rule applies to.");
+        if (!rule.step) problems.push(label + "choose the step.");
+        // A step with nobody on it is the row that looks configured and stops a request dead.
+        if (!ListCell.parseList(rule.approvers).length) {
+          problems.push(label + "add at least one approver — an e-mail address or a role.");
         }
-        // Half a condition is the dangerous half: a field with no value would match everything.
+        // Half a condition is the dangerous half: a field with no values would match everything.
         CONDITION_PAIRS.forEach(function (pair, position) {
           var name = "condition " + (position + 1);
-          if (rule[pair.field] && !ListCell.parseList(rule[pair.value]).length) {
+          if (rule[pair.field] && !ListCell.parseList(rule[pair.values]).length) {
             problems.push(label + name + " needs at least one value, or clear its field.");
           }
-          if (ListCell.parseList(rule[pair.value]).length && !rule[pair.field]) {
+          if (ListCell.parseList(rule[pair.values]).length && !rule[pair.field]) {
             problems.push(label + name + " needs a field.");
           }
         });
@@ -256,7 +254,7 @@ sap.ui.define([
         view.setProperty("/dirty", false);
         // Re-read: what is running has changed, and the banner has to stop claiming otherwise.
         await this._loadOptions();
-        MessageToast.show("Validation rules saved.");
+        MessageToast.show("Workflow rules saved.");
       } catch (error) {
         MessageBox.error("The rules could not be saved: " + this._errorText(error));
       } finally {

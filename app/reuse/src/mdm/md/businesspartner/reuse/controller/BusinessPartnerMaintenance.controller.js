@@ -335,10 +335,32 @@ sap.ui.define([
           if (route) route.attachPatternMatched(entry[1], this);
         }, this);
 
+        // Embedded in My Inbox there is no route to match: the hash belongs to the inbox, so
+        // the Component hands the request over directly. Read once for a context that has
+        // already arrived, and subscribed for one that has not - the fetch is a round trip and
+        // may land either side of this.
+        var component = this.getOwnerComponent();
+        component.getEventBus().subscribe("taskform", "approve", function (channel, event, data) {
+          if (data && data.changeRequest) this._loadStagedRequest(data.changeRequest, "approve");
+        }, this);
+        var pending = component.getModel("env").getProperty("/taskChangeRequest");
+        if (pending) this._loadStagedRequest(pending, "approve");
+
+        // Same bypass, for the rework task added alongside the reworkurl deep link: a My Inbox
+        // task carrying tasktype: "rework" hands its id over the same way, on its own channel.
+        component.getEventBus().subscribe("taskform", "rework", function (channel, event, data) {
+          if (data && data.changeRequest) this._loadStagedRequest(data.changeRequest, "rework");
+        }, this);
+        var pendingRework = component.getModel("env").getProperty("/taskReworkChangeRequest");
+        if (pendingRework) this._loadStagedRequest(pendingRework, "rework");
+
         this.getView().setModel(new JSONModel(this._emptyState()), "maintenance");
       },
 
       _emptyState: function () {
+        // Declines belong to the record on screen: this runs exactly when the screen is reset to
+        // another one, which is exactly when they stop meaning anything.
+        this._declinedProposals = {};
         return {
           busy: false,
           mode: "create",
@@ -1455,6 +1477,19 @@ sap.ui.define([
         MessageBox.error("This Business Partner is not open for editing.");
       },
 
+      /**
+       * Reports Resubmit/Withdraw back to a My Inbox rework task after the action already
+       * succeeded server-side. A no-op outside app/bptask: env>/embedded is only ever true there,
+       * and only that host's Component implements completeOutcome. Best-effort like every other
+       * workflow side effect here - the staged data is already right by the time this runs, and a
+       * BPA hiccup must not turn a successful resubmit/withdraw into an error the requester sees.
+       */
+      _completeEmbeddedOutcome: function (outcomeId) {
+        if (!this.getView().getModel("env").getProperty("/embedded")) return;
+        var component = this.getOwnerComponent();
+        if (component && component.completeOutcome) component.completeOutcome(outcomeId);
+      },
+
       // Withdraw deletes the request and its staging rows. Confirmed first and worded plainly: it is
       // the one action here that destroys data, and there is no undo.
       onWithdraw: function () {
@@ -1499,6 +1534,7 @@ sap.ui.define([
           state.title = "Request withdrawn";
           state.duplicates = [];
           state.duplicatesHeader = "";
+          this._completeEmbeddedOutcome("withdraw");
           state.messages = [{
             type: "Success",
             text: "Change request " + state.changeRequest + " was withdrawn and deleted."
@@ -1715,6 +1751,7 @@ sap.ui.define([
           state.duplicatesHeader = "";
           // Deliberately no navigation: the request header and its messages stay on screen, the
           // way Save already behaves and the way MDG reports a submit.
+          if (action === "resubmitRequest") this._completeEmbeddedOutcome("resubmit");
         } catch (error) {
           MessageBox.error(errorMessage(error, "The request could not be saved."));
         } finally {
@@ -1772,6 +1809,9 @@ sap.ui.define([
         clearTimeout(this._triggerTimer);
         this._pendingScope = null;
         this._buttonRun = (this._buttonRun || 0) + 1;
+        // Pressing a button is the requester asking, so a proposal they turned down earlier is
+        // offered again - "declining is not ticking it, and the next Check proposes it again".
+        this._declinedProposals = {};
       },
 
       _runTriggeredCheck: async function (options) {
@@ -1812,9 +1852,12 @@ sap.ui.define([
           state.messages = this._checkMessages(validations, derivations);
           this._renderAll();
 
-          // Silence when there is nothing to offer. A dialog on every commit would be unusable.
-          var proposals = this._proposalRows(derivations, normalisations);
-          if (proposals.length) this._offerProposals(proposals);
+          // Silence when there is nothing to offer. A dialog on every commit would be unusable, and
+          // a proposal the requester has already turned down is not something to offer again - see
+          // _rememberDeclined. Only automatic checks are filtered: a button press is them asking.
+          var proposals = this._proposalRows(derivations, normalisations)
+            .filter(function (proposal) { return !this._isDeclined(proposal); }, this);
+          if (proposals.length && !this._proposalsOpen) this._offerProposals(proposals);
         } catch (error) {
           // A check nobody asked for must never interrupt; the buttons still report properly.
           console.warn("[triggers] automatic check failed:", errorMessage(error, ""));
@@ -2041,13 +2084,53 @@ sap.ui.define([
             accepted: true
           });
         });
+        // What the requester was asked, as one string. Stamped AFTER the merge above, so a field
+        // that was derived and then reformatted carries the value actually being offered - and
+        // stamped here rather than read off the row later, because `proposed` is two-way bound to an
+        // editable Input and a decline must be remembered against what was proposed, not against
+        // what was typed over it. See _rememberDeclined.
+        rows.forEach(function (row) {
+          row.key = row.target + "|" + row.index + "|" + row.field + "|" + row.proposed;
+        });
         return rows;
+      },
+
+      /**
+       * A proposal the requester turned down is not asked again until something changes.
+       *
+       * `_lastTriggerKey` cannot do this: it is keyed on the payload, so any edit anywhere makes a
+       * fresh key and the same proposal comes back. That is what produced two identical dialogs from
+       * one register answer - committing a name schedules a `root` check, and opening Add on Tax
+       * Numbers commits its registry-trigger field and schedules a second with no scope at all.
+       * Scope narrows only the normalisation proposals, so both checks derive the same thing.
+       *
+       * Keyed on the proposal, not the payload: the register returning a DIFFERENT value is a new
+       * question and is asked. And only automatic checks are silenced - pressing Check is the
+       * requester asking, so `_cancelPendingTrigger` empties this.
+       */
+      _rememberDeclined: function (proposals, applied) {
+        this._declinedProposals = this._declinedProposals || {};
+        (proposals || []).forEach(function (proposal) {
+          // After Apply Selected the unticked rows are declines too: unticking is deliberate.
+          if (applied && proposal.accepted) return;
+          if (proposal.key) this._declinedProposals[proposal.key] = true;
+        }, this);
+      },
+
+      _isDeclined: function (proposal) {
+        return Boolean(this._declinedProposals && this._declinedProposals[proposal.key]);
       },
 
       // Proposals, never changes: declining is not ticking it, and the next Check proposes it again.
       // Proposed is an Input because the model can be right that "st" needs resolving and wrong how.
       _offerProposals: function (proposals) {
         var model = new JSONModel({ proposals: proposals });
+        // Whether Apply Selected was pressed, read in afterClose: every other way out of this dialog
+        // - Not Now, Escape - declines everything in it.
+        var applied = false;
+        // One dialog at a time. A trigger firing while the requester is reading this one must not
+        // stack a second on top of it, whatever it found.
+        this._proposalsOpen = true;
 
         var table = new Table({
           mode: "MultiSelect",
@@ -2091,6 +2174,7 @@ sap.ui.define([
             press: function () {
               // Read back from the model, not from the row: the value may have been edited, and
               // `accepted` is two-way bound to the checkbox.
+              applied = true;
               this._applyProposals(model.getProperty("/proposals").filter(function (proposal) {
                 return proposal.accepted;
               }));
@@ -2098,7 +2182,13 @@ sap.ui.define([
             }.bind(this)
           }),
           endButton: new Button({ text: "Not Now", press: function () { dialog.close(); } }),
-          afterClose: function () { dialog.destroy(); }
+          // Every path out of the dialog lands here, which is why the declines are recorded here
+          // rather than on the Not Now button: Escape closes it too, and that is a decline as well.
+          afterClose: function () {
+            this._rememberDeclined(model.getProperty("/proposals"), applied);
+            this._proposalsOpen = false;
+            dialog.destroy();
+          }.bind(this)
         });
         this.getView().addDependent(dialog);
         dialog.open();
@@ -2168,8 +2258,13 @@ sap.ui.define([
         );
       },
 
-      // The requester's screen for a request sent back. Reached only by the `reworkurl` deep link -
-      // the list is steward-gated. Every field is editable, and the footer offers Resubmit/Withdraw.
+      // The requester's screen for a request sent back. Reached by the `reworkurl` deep link, or by
+      // a My Inbox task carrying `tasktype: "rework"` - the list is steward-gated either way, so
+      // neither path is reachable from there. Every field is editable, and the footer offers
+      // Resubmit/Withdraw; embedded, those two buttons stay visible (only Approve/Reject hide) and
+      // report their outcome back to the task through _completeEmbeddedOutcome once the action has
+      // already succeeded server-side - unlike a decision, Resubmit needs the requester's own edits,
+      // so it cannot be reduced to a My Inbox outcome button the way Approve/Reject are.
       _onReworkRoute: function (event) {
         return this._loadStagedRequest(
           decodeURIComponent(event.getParameter("arguments").changeRequest), "rework"

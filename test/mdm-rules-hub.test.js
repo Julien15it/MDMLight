@@ -35,7 +35,9 @@ test('the two apps share the business service and differ only by app id', () => 
 test('the partner app keeps one inbound and no rules routing', () => {
   assert.deepEqual(Object.keys(bpManifest['sap.app'].crossNavigation.inbounds), ['BusinessPartner-manage']);
   const names = bpManifest['sap.ui5'].routing.routes.map((entry) => entry.name);
-  for (const gone of ['MDMRuleHub', 'DuplicateRuleList', 'ValidationRuleList', 'DerivationRuleList']) {
+  for (const gone of [
+    'MDMRuleHub', 'DuplicateRuleList', 'ValidationRuleList', 'DerivationRuleList', 'WorkflowRuleList'
+  ]) {
     assert.equal(names.includes(gone), false, `${gone} is still routed in the partner app`);
     assert.equal(Object.hasOwn(bpManifest['sap.ui5'].routing.targets, gone), false);
   }
@@ -57,7 +59,7 @@ test('the hub is the landing page and starts the router itself', () => {
 test('each rule screen has a route, a target and a view that exists', () => {
   for (const name of [
     'MDMRuleHub', 'DuplicateRuleList', 'ValidationRuleList', 'DerivationRuleList',
-    'FieldPropertyProfileList'
+    'FieldPropertyProfileList', 'WorkflowRuleList'
   ]) {
     const route = routing.routes.find((entry) => entry.name === name);
     assert.ok(route, `${name} has a route`);
@@ -71,16 +73,18 @@ test('each rule screen has a route, a target and a view that exists', () => {
   }
 });
 
-test('the hub offers exactly the four rule kinds, each wired to its page', () => {
+test('the hub offers exactly the five rule kinds, each wired to its page', () => {
   for (const header of [
-    'Duplicate Check Rules', 'Validation Rules', 'Derivation Rules', 'Field Properties'
+    'Duplicate Check Rules', 'Validation Rules', 'Derivation Rules', 'Field Properties',
+    'Workflow Rules'
   ]) {
     assert.ok(hub.includes(`header="${header}"`), `${header} is offered`);
   }
-  assert.equal((hub.match(/<GenericTile/gu) || []).length, 4);
+  assert.equal((hub.match(/<GenericTile/gu) || []).length, 5);
   const controller = read(path.join('controller', 'MDMRuleHub.controller.js'));
   for (const target of [
-    'DuplicateRuleList', 'ValidationRuleList', 'DerivationRuleList', 'FieldPropertyProfileList'
+    'DuplicateRuleList', 'ValidationRuleList', 'DerivationRuleList', 'FieldPropertyProfileList',
+    'WorkflowRuleList'
   ]) {
     assert.match(controller, new RegExp(`navTo\\("${target}"\\)`, 'u'));
   }

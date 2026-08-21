@@ -17,12 +17,19 @@ const {
   fieldPropertyTree, normaliseSettings
 } = require('./checks/field-properties');
 const fieldPropertyStore = require('./checks/field-property-store');
+const {
+  REQUEST_TYPES: WORKFLOW_REQUEST_TYPES, REQUEST_TYPE_TEXT: WORKFLOW_REQUEST_TYPE_TEXT,
+  STEPS, STEP_TEXT, validateWorkflowRule, runnableWorkflowRules
+} = require('./checks/workflow-rules');
+const workflowRuleStore = require('./checks/workflow-rule-store');
+const { DELIMITER } = require('./checks/value-lists');
 
 const RULES = 'mdmlight.config.DuplicateRules';
 const VALIDATIONS = 'mdmlight.config.ValidationRules';
 const DERIVATIONS = 'mdmlight.config.DerivationRules';
 const PROFILES = 'mdmlight.config.FieldPropertyProfiles';
 const SETTINGS = 'mdmlight.config.FieldPropertySettings';
+const WORKFLOW_RULES = 'mdmlight.config.WorkflowRules';
 
 const SEVERITY_TEXT = Object.freeze({
   error: 'Error — blocks the request',
@@ -72,7 +79,7 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
 
     // Same treatment for both tables: a rule the engine cannot evaluate is caught at the keyboard,
     // because by check time the answer has already been given. Only the validator differs.
-    const guard = (entity, table, validate) => {
+    const guard = (entity, table, validate, markStale = qualityRules.markStale) => {
       this.before(['CREATE', 'UPDATE'], entity, async (req) => {
         // A patch carries only what changed, so it is validated against the stored row it lands on.
         let stored = null;
@@ -87,11 +94,38 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
         for (const warning of warnings) req.info(200, warning.message, warning.field);
         for (const error of errors) req.error(400, error.message, error.field);
       });
-      this.after(['CREATE', 'UPDATE', 'DELETE'], entity, () => qualityRules.markStale());
+      this.after(['CREATE', 'UPDATE', 'DELETE'], entity, () => markStale());
     };
 
     guard('ValidationRules', VALIDATIONS, validateValidationRule);
     guard('DerivationRules', DERIVATIONS, validateDerivationRule);
+    // Same treatment again, and for the same reason: by submit time the approvers have already gone
+    // to SBPA, so a row that cannot resolve has to be caught at the keyboard. Its own store, though.
+    guard('WorkflowRules', WORKFLOW_RULES, validateWorkflowRule, workflowRuleStore.markStale);
+
+    // The payload catalog again - a condition names a payload field, so the two pages offer the same
+    // list - plus the two closed lists and the count of rows that would actually run.
+    this.on('workflowRuleOptions', async () => {
+      let ruleCount = null;
+      try {
+        const stored = await cds.run(cds.ql.SELECT.from(WORKFLOW_RULES));
+        ruleCount = runnableWorkflowRules(stored || []).length;
+      } catch (error) {
+        // A count is a nicety; the page still has to load and let someone fix the table.
+        console.warn('[workflow-rules] Could not count the runnable workflow rules:', error.message);
+      }
+      return {
+        fields: payloadFields().map(({ field, text, section, type }) => ({
+          code: field, text, section, type
+        })),
+        requestTypes: WORKFLOW_REQUEST_TYPES.map((code) => ({
+          code, text: WORKFLOW_REQUEST_TYPE_TEXT[code] || code
+        })),
+        steps: STEPS.map((code) => ({ code, text: STEP_TEXT[code] || code })),
+        ruleCount,
+        listDelimiter: DELIMITER
+      };
+    });
 
     // Straight from the code-defined catalog, never a hand-kept UI copy. Re-reads the ruleset too, so
     // the page can say whether the configured rules are running or the defaults are.

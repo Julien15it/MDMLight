@@ -108,8 +108,9 @@ test('a triggered check is quiet, guarded and de-duplicated', () => {
   assert.match(run, /if \(key === this\._lastTriggerKey\) return/u, 'unchanged data costs nothing');
   assert.match(run, /Propose: options\.propose/u);
   assert.match(run, /Scope: options\.scope \|\| null/u);
-  // Proposals go through the same vetted dialog, so nothing is written without a tick.
-  assert.match(run, /if \(proposals\.length\) this\._offerProposals\(proposals\)/u);
+  // Proposals go through the same vetted dialog, so nothing is written without a tick - and only
+  // when there is something left to ask and nothing already being asked.
+  assert.match(run, /if \(proposals\.length && !this\._proposalsOpen\) this\._offerProposals\(proposals\)/u);
   assert.equal(/_applyProposals/u.test(run), false, 'a trigger never applies anything itself');
   assert.match(run, /catch \(error\)[\s\S]{0,200}console\.warn/u, 'a failed trigger never interrupts');
 });
@@ -179,4 +180,51 @@ test('a trigger overtaken by a button press drops its result', () => {
   assert.ok(guardAt < run.indexOf('_offerProposals'), 'before the dialog');
   // The key is still recorded, so the wasted call is not repeated by the next identical commit.
   assert.ok(run.indexOf('this._lastTriggerKey = key') < guardAt);
+});
+
+
+/**
+ * The same derivation was offered twice, reported 2026-08-21: fill in a name, press Add on Tax
+ * Numbers, and "Not Now" had to be pressed on two identical dialogs.
+ *
+ * Both halves of the cause are real. Committing the name schedules a `root` check; opening Add
+ * commits the tax number cell, which is a registry trigger field and schedules a second check with
+ * no scope at all. `Scope` narrows only the normalisation proposals - derivations always run over
+ * the whole payload - so both checks derive the same thing, and `_lastTriggerKey` cannot tell them
+ * apart: it is keyed on the payload, which the new row changed.
+ *
+ * So the trigger filters what the requester has already turned down. What a decline means is
+ * exercised in submit-messages.test.js, where the dialog's own tests live.
+ */
+test('a triggered check does not re-offer what was declined, or stack a second dialog', () => {
+  const run = CONTROLLER.slice(
+    CONTROLLER.indexOf('_runTriggeredCheck: async function'),
+    CONTROLLER.indexOf('onCheck: async function')
+  );
+  assert.match(run, /\.filter\(function \(proposal\) \{ return !this\._isDeclined\(proposal\); \}, this\)/u);
+  assert.match(run, /!this\._proposalsOpen/u, 'one dialog at a time');
+});
+
+/**
+ * Only the automatic checks are silenced. "Declining is not ticking it, and the next Check proposes
+ * it again" is the documented contract of this dialog, so every button clears the record - which is
+ * exactly what `_cancelPendingTrigger` already runs for.
+ */
+test('pressing a button asks again, and a fresh record forgets', () => {
+  const cancel = CONTROLLER.slice(CONTROLLER.indexOf('_cancelPendingTrigger: function'));
+  assert.match(cancel.slice(0, cancel.indexOf('\n      },')), /this\._declinedProposals = \{\}/u);
+  // A record leaving the screen takes its declines with it.
+  const empty = CONTROLLER.slice(CONTROLLER.indexOf('_emptyState: function'));
+  assert.match(empty.slice(0, empty.indexOf('return {')), /this\._declinedProposals = \{\}/u);
+});
+
+// Recorded on the way out rather than on the Not Now button: Escape closes the dialog too, and that
+// is a decline as well.
+test('every way out of the proposals dialog records what was not applied', () => {
+  const offer = CONTROLLER.slice(CONTROLLER.indexOf('_offerProposals: function'));
+  const body = offer.slice(0, offer.indexOf('_applyProposals: function'));
+  assert.match(body, /afterClose: function \(\) \{[\s\S]{0,200}_rememberDeclined/u);
+  assert.match(body, /applied = true;/u, 'Apply Selected says so, and afterClose reads it');
+  assert.match(body, /this\._proposalsOpen = true;/u);
+  assert.match(body, /this\._proposalsOpen = false;/u);
 });

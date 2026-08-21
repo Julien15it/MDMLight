@@ -364,6 +364,36 @@ belongs on all the buttons, not just Check — Duplicate Check asks the same que
 of the same record, and the submit paths move the request past the point a trigger
 reports on.
 
+##### And once more, from a payload that changed (fixed 2026-08-21)
+
+The same GLEIF derivation was offered twice: fill in a name, press **Add** on Tax Numbers, and
+"Not Now" had to be pressed on two identical dialogs. Neither guard above can catch it, and the
+reason is worth keeping:
+
+- Committing the name schedules a `root` check. Opening **Add** commits the tax number cell, which
+  is a `REGISTRY_TRIGGER_FIELDS` entry and schedules a *second* check with `scope: null`.
+- **`Scope` narrows only the normalisation proposals.** Derivations always run over the whole
+  payload, so both checks derive the same thing.
+- `_lastTriggerKey` cannot tell them apart, because it is keyed on `scope|propose|dataJson` and the
+  new row changed the payload. Every guard here was about *the check*; nothing was about *the
+  answer*.
+
+So a decline is now remembered against the **proposal**: `_rememberDeclined` records every row that
+was not applied, and a triggered check filters them out. Decisions inside that:
+
+- **Keyed on `target|index|field|proposed`**, stamped when the row is built. The register answering
+  something *different* is a new question and is asked. Stamped at build time rather than read off
+  the row later, because `proposed` is two-way bound to an editable Input — a requester who edits a
+  value and then declines must not have the decline recorded against what they typed.
+- **Only automatic checks are filtered.** "Declining is not ticking it, and the next Check proposes
+  it again" is this dialog's contract, so `_cancelPendingTrigger` — which every button already runs
+  — empties the record. `_emptyState` empties it too: declines belong to the record on screen.
+- **Recorded in `afterClose`, not on the Not Now button.** Escape closes the dialog as well, and
+  that is a decline too. After *Apply Selected* the unticked rows are declines as well; unticking
+  one is deliberate.
+- **One dialog at a time.** A trigger firing while the requester is reading one no longer stacks a
+  second on top of it, whatever it found.
+
 **Derivations no longer auto-apply.** They used to be written straight into the
 form on Check, which made them easy to miss and impossible to decline. They are
 proposals now, and they share the normalisation dialog: one list, a `change`
@@ -432,9 +462,9 @@ tile it is the last steward-gated action on the list report.
 ### The MDM Rules tile — its own app (`app/mdmrules`, 2026-08-17)
 
 Rule configuration left the Maintain BP app's toolbar and became its own tile.
-`app/mdmrules/webapp/ext/view/MDMRuleHub.view.xml` is the landing page: four
+`app/mdmrules/webapp/ext/view/MDMRuleHub.view.xml` is the landing page: five
 `GenericTile`s for **Duplicate Check Rules**, **Validation Rules**,
-**Field Properties** and **Derivation Rules**.
+**Field Properties**, **Derivation Rules** and **Workflow Rules**.
 
 **It is a second HTML5 app, not a second inbound.** The first attempt declared
 `MDMRules-manage` alongside `BusinessPartner-manage` in one manifest and told
@@ -708,6 +738,31 @@ Still open on these tables, and not built:
 - Rules for object types other than the Business Partner. When MM arrives, **copy
   the tables** rather than adding an object-type column.
 
+#### Condition values are lists on every table (2026-08-21)
+
+All four rule tables take **several values per condition**, ORed: one match is enough, so
+"Country is BE, NL, FR or DE" is one row rather than four. The encoding is
+`srv/checks/value-lists.js` for all of them.
+
+- **No migration, and no stored row changed.** The format was chosen so a single stored value is
+  already a valid one-entry list, which is the whole reason it went in as a shared module when the
+  workflow table needed it first.
+- **The columns keep their singular names.** `cds-deploy` cannot rename an element any more than it
+  can drop one, so the three older tables hold a list in `conditionValue` / `conditionValue2` while
+  `WorkflowRules`, written after the decision, has `conditionValues`. Do not "tidy" this.
+- **Conditions only.** A Validation's `value` (what the field is compared *against*) and a
+  Derivation's `value` (what the field is *filled with*) stay single: filling a field with four
+  values means nothing, and `<` against a list is not a comparison anyone can read. Field Properties
+  is untouched — its conditions are closed dropdowns where `*` already means "all".
+- **One implementation of the cell**, `app/mdmrules/webapp/ext/ListCell.js`, mixed into all four
+  controllers. Sixty lines of aggregation bookkeeping copied four times drifts the first time one
+  copy is fixed — the same reasoning that put the maintenance screen in `app/reuse`. The four
+  handler names (`onRowsRendered`, `onListTokenUpdate`, `onListSubmit`, `onListChange`) are part of
+  that contract, so a cell moved between pages keeps working.
+- **Where the matching changed**: `conditionHolds` in `srv/checks/rule-engine.js` and `holds` in
+  `srv/ai/duplicate-engine.js`, both now OR over the parsed list. An empty list still means "any",
+  and a value that normalises away still narrows nothing — the single-value behaviour, unchanged.
+
 ### Field property profiles (2026-08-20)
 
 `db/field-properties.cds` adds `FieldPropertyProfiles` and its
@@ -831,6 +886,85 @@ nothing, because a read failure that hid every field or blocked every submit wou
 take the maintenance screen down over a control that is not a verdict on the data.
 
 
+
+### Workflow rules — who approves what (2026-08-21)
+
+`db/workflow-rules.cds` adds `WorkflowRules`, the fifth table on the MDM Rules
+tile and the first one that is **not a check on the data**: it produces the
+`approvers` list in the workflow context, and SBPA routes on it.
+
+Read a row left to right as one sentence — *a **create** request whose
+`Addresses.Country` is **BE, NL, FR or DE** is **approved** by **these three
+people***. The columns are CR type, step, two condition pairs, and the approvers.
+
+- **The table decides WHO, never how many approvals or in what order.** That
+  stays on SBPA's side, the same way `decideRequest` records an outcome without
+  knowing the chain. CAP does not check that a role exists either — roles live in
+  SBPA, and a copy kept here would go stale.
+- **An entry carrying an `@` goes out as a user, anything else as a role.** Each
+  approver reaches SBPA as `{ step, kind, value }`; `kind` is the one distinction
+  it needs to assign a task. **There is no order column** — rows are additive, so
+  every matching row contributes its approvers and nothing needs ranking. Asked for
+  and removed on 2026-08-21, before anything was deployed: it was copied in from the
+  other rule tables rather than wanted, and dropping a column after a deploy is what
+  `cds-deploy` refuses to do.
+- **Empty is a legitimate answer.** No rule matched, the table is empty, or it
+  could not be read — all three resolve to `[]`, which is what every submit sent
+  before this table existed, so SBPA reads it as "route it the way you always
+  did". The store's failure mode is `field-property-store.js`'s, not
+  `rule-store.js`'s, deliberately: a submit that failed because the approver table
+  was unreadable would stop every request in the installation over a routing hint.
+- **Resolved in `workflowContext()`**, so it happens after the validations and the
+  duplicate gate, and is rebuilt after a rework — a resubmitted request is routed
+  on the payload the requester fixed, not the one that was rejected. Best-effort,
+  like `businesspartnerinput`.
+- **All four CR types, and no `*`.** Unlike the field property profiles' closed
+  list this table offers `block` and `delete`, because it is where a steward says
+  who approves one and saying it early is harmless — `SUPPORTED_REQUEST_TYPES`
+  still gates what can be submitted. There is no "any type" row on purpose: an
+  approver list is not something to default.
+- **`step` carries only `Approve`.** It is a column rather than an assumption
+  because the next version of this table is meant to describe whole request types
+  (Supplier creation, Customer creation) with several steps each, and a step added
+  later must not be a column added later.
+
+#### Two columns hold a list, and the encoding is shared
+
+`conditionValues`, `conditionValues2` and `approvers` are lists in a single
+column, separated by `|` (`srv/checks/value-lists.js`). So "Country is BE, NL, FR
+or DE" is **one row**, and the values are **OR** — one match is enough.
+
+- **`|` rather than a comma or a semicolon**: company names carry commas
+  ("Acme, Inc") and address text carries semicolons, while neither appears in an
+  e-mail address, a country code or a role. Nobody types it either — the grid uses
+  tokens.
+- **A single stored value is already a valid one-entry list**, which is what lets
+  the other tables' single-value condition columns become multi-value later
+  without touching a stored row. That is the whole reason the encoding is a shared
+  module rather than two lines in this table's engine.
+- **A condition here is always a statement about the partner.** A row of this
+  table targets no section of its own, so any row of the named section satisfying
+  the condition is enough — unlike the validation and derivation tables, where a
+  condition on the rule's *own* section is evaluated per row.
+- **The page keeps tokens and the stored string in step by hand.** A
+  `MultiInput`'s `tokens` is an aggregation and the column is one string: `tokens`
+  cannot be bound to a string and a formatter cannot create controls. So rendered
+  rows are filled from the stored value (`updateFinished`) and every edit writes
+  the whole list back. Reading the stored value back after each write is what makes
+  it self-correcting — a token the control added itself for the same text is
+  de-duplicated by the round trip. `tokenUpdate` fires **before** the aggregation
+  changes, so the new list is computed from `addedTokens`/`removedTokens` rather
+  than read off the control.
+- Enter commits a value **and so does leaving the cell**: a token silently dropped
+  on the way out is a rule quietly missing an approver.
+
+**Still open, and agreed as the next step:** wiring SBPA to actually consume
+`approvers`. Arthur's definition ignores the field today, so the list is sent and
+nothing reads it — the table is inert until his process assigns its approver task
+from it. And once that lands, offering multi-value conditions on the **other**
+rule tables is the follow-up Maarten asked for; the encoding is already shared for
+it, but each page needs its cell replaced and each engine needs `listMatches`
+where it compares one value today.
 
 A `draft` opens editable via `ChangeRequestEdit`. **Anything further along is not
 navigable from here at all** (changed 2026-08-13): the approve screen is reached
@@ -978,11 +1112,26 @@ the route change together.
 
 Decisions behind it, each of which has a cheaper wrong version:
 
-- **The entry point is the deep link and nothing else.** `reworkurl` goes to SPA
-  with the *initial* workflow context (alongside `bpurl`), because SPA owns the
-  rejection branch and has it to hand there. The change request list is
-  steward-gated, so a requester has no other route in — which is also why the
-  screen has to cope with a link opened twice.
+- **The entry point was the deep link and nothing else — until a second one was
+  added deliberately (2026-08-21): a My Inbox task, assigned to the requester,
+  whose input carries `tasktype: "rework"`.** `reworkurl` still goes to SPA with
+  the *initial* workflow context (alongside `bpurl`), because SPA owns the
+  rejection branch and has it to hand there, and a task with no `tasktype` (every
+  task built before this existed) still opens the approver's decision screen — so
+  nothing already working needed its input mapping touched. The change request
+  list stays steward-gated either way, so neither path is a substitute for the
+  other existing; a workflow can use one, both, or keep only `reworkurl`. The
+  screen still has to cope with a link opened twice, for whichever entry point
+  reopens it. Embedded, only Approve/Reject hide behind `env>/embedded` —
+  Resubmit and Withdraw stay visible, because unlike a decision they need the
+  requester's own edits and cannot be reduced to a My Inbox outcome button; the
+  task completes itself only *after* `resubmitRequest`/`withdrawRequest` already
+  succeeded, via `_completeEmbeddedOutcome` in the shared controller calling
+  `completeOutcome` on the task app's Component — the same `PATCH task-instances`
+  the approve path sends, without a `decideRequest` in front of it since that
+  action already recorded the outcome server-side. `resubmit`/`withdraw` were
+  added to `sap.bpa.task.outcomes` in `app/bptask` for this; they are never wired
+  to `inboxAPI.addAction`, unlike `approve`/`reject`.
 - **Resubmit resumes, it does not restart.** The process instance stays parked
   through the rejection, and `resubmitRequest` signals it with
   `RESUBMITTED_SIGNAL` (`'resubmitted'`). One instance per change request means one
@@ -1122,7 +1271,11 @@ is deliberately no longer read: it was still set on the deployed app and kept pr
 host, so the variable was renamed rather than reused - unset now yields `''`, and a missing link is
 diagnosable where a 404 is not. The intent must match the `BusinessPartner-manage` inbound.
 - Workflow context sent at submit:
-  `{ changerequestid, requesttype, businesspartner, emailadressinitiator, bpurl, reworkurl }`
+  `{ changerequestid, requesttype, businesspartner, emailadressinitiator, bpurl, reworkurl,
+  businesspartnerinput, bpduplicates, approvers }`
+- `approvers` is `[{ step, kind, value }]` from the `WorkflowRules`
+  table, `kind` being `user` (an e-mail address) or `role`. **Nothing on Arthur's
+  side reads it yet** — see "Workflow rules" above.
 
 **Not built on Arthur's side yet — rework needs three things from his definition,
 and the loop does not close without them:**

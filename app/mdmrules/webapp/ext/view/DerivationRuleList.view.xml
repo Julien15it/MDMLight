@@ -2,6 +2,7 @@
   controllerName="mdm.md.mdmrules.manage.ext.controller.DerivationRuleList"
   xmlns:mvc="sap.ui.core.mvc"
   xmlns:core="sap.ui.core"
+  xmlns:app="http://schemas.sap.com/sapui5/extension/sap.ui.core.CustomData/1"
   xmlns="sap.m"
   height="100%">
   <Page
@@ -27,7 +28,8 @@
         mode="SingleSelectMaster"
         busy="{view>/busy}"
         growing="true"
-        growingThreshold="100">
+        growingThreshold="100"
+        updateFinished=".onRowsRendered">
         <headerToolbar>
           <OverflowToolbar>
             <Title text="Rules" level="H2" />
@@ -40,9 +42,9 @@
         </headerToolbar>
         <columns>
           <Column width="16%"><Text text="Condition 1 Field" /></Column>
-          <Column width="11%"><Text text="Condition 1 Value" /></Column>
+          <Column width="11%"><Text text="Condition 1 Values" /></Column>
           <Column width="16%"><Text text="Condition 2 Field" /></Column>
-          <Column width="11%"><Text text="Condition 2 Value" /></Column>
+          <Column width="11%"><Text text="Condition 2 Values" /></Column>
           <Column width="20%"><Text text="Field" /></Column>
           <Column width="20%"><Text text="Value" /></Column>
           <Column width="4rem" hAlign="Center"><Text text="Active" /></Column>
@@ -57,12 +59,17 @@
                 showValueHelp="true"
                 valueHelpRequest=".onFieldValueHelp"
                 change=".onCellChange" />
-              <Input
+              <!-- A LIST of values, one token each, and they are OR: one match is enough, so
+                   "Country is BE, NL, FR or DE" is one rule rather than four. Nobody types the
+                   delimiter it is stored with - see app/mdmrules/webapp/ext/ListCell.js. -->
+              <MultiInput
                 width="100%"
-                value="{dc>conditionValue}"
                 placeholder="any"
                 enabled="{= !!${dc>conditionField} }"
-                change=".onCellChange" />
+                app:listPath="conditionValue"
+                tokenUpdate=".onListTokenUpdate"
+                submit=".onListSubmit"
+                change=".onListChange" />
               <Input
                 width="100%"
                 value="{dc>conditionField2}"
@@ -70,12 +77,17 @@
                 showValueHelp="true"
                 valueHelpRequest=".onFieldValueHelp"
                 change=".onCellChange" />
-              <Input
+              <!-- A LIST of values, one token each, and they are OR: one match is enough, so
+                   "Country is BE, NL, FR or DE" is one rule rather than four. Nobody types the
+                   delimiter it is stored with - see app/mdmrules/webapp/ext/ListCell.js. -->
+              <MultiInput
                 width="100%"
-                value="{dc>conditionValue2}"
                 placeholder="any"
                 enabled="{= !!${dc>conditionField2} }"
-                change=".onCellChange" />
+                app:listPath="conditionValue2"
+                tokenUpdate=".onListTokenUpdate"
+                submit=".onListSubmit"
+                change=".onListChange" />
               <!-- The field being filled in. -->
               <Input
                 width="100%"

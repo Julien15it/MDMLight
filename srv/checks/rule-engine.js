@@ -3,6 +3,7 @@
 const {
   resolvePayloadField, sectionRows, targetFor, isEmptyValue, humanise, ROOT_TARGET
 } = require('./payload-fields');
+const { parseValueList, listMatches } = require('./value-lists');
 
 /**
  * Evaluates the configured validation and derivation tables against the request payload, through the
@@ -92,10 +93,21 @@ function resolveValueForRow(spec, payload, ownSection, row, model) {
   return resolveValue(spec, payload, ownSection, model);
 }
 
-/** The rule's conditions as specs, dropping the halves that carry no field. */
+/**
+ * The rule's conditions as specs, dropping the halves that carry no field.
+ *
+ * A condition value is a LIST (2026-08-21), so "Country is BE, NL, FR or DE" is one rule rather
+ * than four. `value` is kept alongside it for the message text; the matching reads `values`. A
+ * single stored value parses as a one-entry list, which is why no stored row had to change.
+ */
 function readConditions(rule, model) {
   return CONDITION_PAIRS
-    .map((pair) => ({ names: pair, field: trimmed(rule[pair.field]), value: trimmed(rule[pair.value]) }))
+    .map((pair) => ({
+      names: pair,
+      field: trimmed(rule[pair.field]),
+      value: trimmed(rule[pair.value]),
+      values: parseValueList(rule[pair.value])
+    }))
     .filter((condition) => condition.field)
     .map((condition) => ({
       ...condition,
@@ -108,7 +120,8 @@ function readConditions(rule, model) {
 function conditionHolds(condition, payload, ownSection, row, model) {
   if (!condition.resolved) return false;
   const { section, element } = condition.resolved;
-  const matches = (value) => compare(value, condition.value) === 0;
+  // OR across the values: one of them matching is what makes the condition hold.
+  const matches = (value) => listMatches(condition.values, value, compare);
   if (section === ownSection && row) return matches(row.record[element]);
   return sectionRows(payload, section).some(({ record }) => matches(record[element]));
 }
@@ -128,7 +141,9 @@ const OPERATOR_TEXT = Object.freeze({
 function describeCondition(conditions) {
   if (!conditions.length) return '';
   return ` (rule applies where ${conditions
-    .map((condition) => `${condition.field} = ${condition.value}`)
+    // Every value, not the raw stored string: a requester reading why a rule fired should see the
+    // list it matched against rather than the delimiter it happens to be stored with.
+    .map((condition) => `${condition.field} = ${condition.values.join(', ')}`)
     .join(' and ')})`;
 }
 
@@ -295,15 +310,15 @@ function conditionProblems(rule, model) {
   const errors = [];
   for (const pair of CONDITION_PAIRS) {
     const field = trimmed(rule[pair.field]);
-    const value = trimmed(rule[pair.value]);
+    const values = parseValueList(rule[pair.value]);
     if (field && !resolvePayloadField(field, model)) {
       errors.push({ field: pair.field, message: `“${field}” is not a field in the catalog.` });
     }
     // A field with no value would match every record, which is the opposite of a condition.
-    if (field && !value) {
+    if (field && !values.length) {
       errors.push({ field: pair.value, message: 'A condition field needs a value. Leave both empty for “any”.' });
     }
-    if (value && !field) {
+    if (values.length && !field) {
       errors.push({ field: pair.field, message: 'A condition value needs a field.' });
     }
   }

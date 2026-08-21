@@ -33,7 +33,9 @@ sap.ui.define(
                  * Fiori Elements, which is not a documented task-UI host. Kept rather than
                  * removed because the view is shared with the app where it is sometimes true.
                  */
-                this.setModel(new JSONModel({ embedded: false }), "env");
+                // `taskChangeRequest` is declared and never filled here: the shared controller
+                // reads it, and only the task app has anything to put in it.
+                this.setModel(new JSONModel({ embedded: false, taskChangeRequest: "" }), "env");
                 this._openDeepLink();
             },
 
