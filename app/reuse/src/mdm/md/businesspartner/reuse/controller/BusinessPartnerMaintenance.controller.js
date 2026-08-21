@@ -339,6 +339,13 @@ sap.ui.define([
         // the Component hands the request over directly. Read once for a context that has
         // already arrived, and subscribed for one that has not - the fetch is a round trip and
         // may land either side of this.
+        // BEFORE the handover below, not after: _loadStagedRequest reads this model on its first
+        // line, and the handover calls it synchronously. Created afterwards, the task form loaded
+        // its request into a model that did not exist yet and then had the empty create state put
+        // on top - which is what left My Inbox showing "New Business Partner" with every section
+        // blank. A route match cannot hit this, because it arrives after onInit has returned.
+        this.getView().setModel(new JSONModel(this._emptyState()), "maintenance");
+
         var component = this.getOwnerComponent();
         component.getEventBus().subscribe("taskform", "approve", function (channel, event, data) {
           if (data && data.changeRequest) this._loadStagedRequest(data.changeRequest, "approve");
@@ -353,8 +360,6 @@ sap.ui.define([
         }, this);
         var pendingRework = component.getModel("env").getProperty("/taskReworkChangeRequest");
         if (pendingRework) this._loadStagedRequest(pendingRework, "rework");
-
-        this.getView().setModel(new JSONModel(this._emptyState()), "maintenance");
       },
 
       _emptyState: function () {
