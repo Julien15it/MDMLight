@@ -232,7 +232,15 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
   @readonly entity A_CustomerCompany                     as projection on S4.A_CustomerCompany;
   @readonly entity A_CustomerCompanyText                 as projection on S4.A_CustomerCompanyText;
   @readonly entity A_CustomerDunning                     as projection on S4.A_CustomerDunning;
-  @readonly entity A_CustomerWithHoldingTax              as projection on S4.A_CustomerWithHoldingTax;
+  // `RecipientType` went the way of the four fields excluded above: the startup drift check
+  // reported it gone from the live A_CustomerWithHoldingTax on 2026-08-21, and asking for a field
+  // the service no longer exposes answers 404 "Resource not found for the segment" - which fails
+  // the WHOLE Customer Withholding Tax read, so the section renders empty for a customer that has
+  // withholding tax data. This is a maintained section (MAINTENANCE_ENTITIES.CustomerWithholdingTax,
+  // read through to_WithHoldingTax), not one of the read-only catalogue entities nothing touches.
+  @readonly entity A_CustomerWithHoldingTax              as projection on S4.A_CustomerWithHoldingTax excluding {
+    RecipientType
+  };
   @readonly entity A_CustomerSalesArea                   as projection on S4.A_CustomerSalesArea excluding {
     CustomerStatisticsGroup
   };

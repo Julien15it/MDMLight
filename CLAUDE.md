@@ -133,6 +133,15 @@ Both checked-in copies got here by hand, from Julien and Arthur respectively.
 There has never been an automated path, so treat a re-import as a manual step
 someone performs, not as something the app can do for itself.
 
+**The drift check earns its keep, and its output needs reading against the excludes**
+(2026-08-21). It reported six fields gone from the live service; five were already in
+the exclusion lists, and the sixth — `RecipientType` on `A_CustomerWithHoldingTax` —
+was not, so that section's read was answering 404 and rendering empty on a partner
+that has withholding tax data. When this warning fires, check each named field
+against the `excluding {}` lists: the ones already there are noise, and the one that
+is not is a broken section. Re-importing is the proper fix; an exclusion is the one
+that does not need S/4 credentials.
+
 `srv/metadata-drift.js` runs once at startup and reports the difference against
 the live services, scoped to the entity sets the app actually reads (nine of the
 65 in `API_BUSINESS_PARTNER`). A property the live service **dropped** is a
