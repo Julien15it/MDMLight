@@ -1,6 +1,6 @@
 _schema-version: "3.2"
 ID: mdm-md-businesspartner-manage
-version: 1.49.0
+version: 1.50.0
 description: "Manage Business Partner (F3163) - CAP + Fiori Elements"
 parameters:
   enable-parallel-deployments: true
@@ -93,12 +93,18 @@ modules:
           content-target: true
     build-parameters:
       builder: custom
+      # `ci`, not `install`, and for the same reason the root before-all uses it. All three
+      # package-lock.json files are tracked, and `npm install` rewrites a lock whenever it can
+      # improve it - so every build dirtied the working tree and the next `git pull` refused with
+      # "Your local changes would be overwritten by merge". `ci` never writes the lock, and when
+      # the lock and package.json disagree it fails loudly instead, which is what should happen:
+      # that exact drift shipped an unbuildable version once already (archiver, 2026-08).
       commands:
-        - npm --prefix app/businesspartner install
+        - npm --prefix app/businesspartner ci
         - npm --prefix app/businesspartner run build:cf
-        - npm --prefix app/mdmrules install
+        - npm --prefix app/mdmrules ci
         - npm --prefix app/mdmrules run build:cf
-        - npm --prefix app/bptask install
+        - npm --prefix app/bptask ci
         - npm --prefix app/bptask run build:cf
         - node tools/package-html5.js
       build-result: resources
