@@ -317,8 +317,7 @@ test('every token cell has the bound control that writes it', () => {
 test('the write path draws what it wrote, and never re-reads the model', () => {
   const shared = read(APP, 'ext', 'ListCell.js');
   const write = shared.slice(shared.indexOf('var writeTokens = function'));
-  const body = write.slice(0, write.indexOf('
-    };'));
+  const body = write.slice(0, write.indexOf('\n    };'));
   assert.match(body, /applyTokens\(cell, stored\)/u, 'it draws the list it just wrote');
   assert.equal(
     /getProperty\(/u.test(body),
