@@ -72,23 +72,26 @@ async function runDerivations(payload, derivations = DERIVATIONS) {
         applied.push({ check: derivation.name, severity: 'info', message: entry.message });
         continue;
       }
-      // The one case where a row *is* invented, and only because a rule asked for it in so
-      // many words. Everything below still holds for every other entry: a value with nowhere
-      // to go is reported, never written somewhere it was not meant to be.
+      // The one case where a row *is* invented, and only because the derivation asked for it. The
+      // section has to be EMPTY: appending beside rows somebody added deliberately would put a
+      // registered seat onto their second address, so everything else is still reported and never
+      // written somewhere it was not meant to be.
       if (entry.createsRow && entry.target && entry.target !== ROOT) {
         const rows = derived.sections[entry.target] || (derived.sections[entry.target] = []);
-        rows.push({ [entry.field]: entry.value });
-        applied.push({
-          check: derivation.name,
-          target: entry.target,
-          index: rows.length - 1,
-          field: entry.field,
-          value: entry.value,
-          createsRow: true,
-          severity: 'info',
-          message: entry.message || `A ${entry.target} row was added with ${entry.field} ${entry.value}.`
-        });
-        continue;
+        if (!rows.length) {
+          rows.push({ [entry.field]: entry.value });
+          applied.push({
+            check: derivation.name,
+            target: entry.target,
+            index: rows.length - 1,
+            field: entry.field,
+            value: entry.value,
+            createsRow: true,
+            severity: 'info',
+            message: entry.message || `A ${entry.target} row was added with ${entry.field} ${entry.value}.`
+          });
+          continue;
+        }
       }
       const record = targetRecord(derived, entry);
       // A missing row is never invented, but the value is still reported without a `field`: a registry

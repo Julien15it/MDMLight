@@ -14,6 +14,7 @@
  */
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const cds = require('@sap/cds');
@@ -30,14 +31,14 @@ test.before(async () => {
 });
 
 const ADDS_ORG = Object.freeze({
-  ID: 'a', sequence: 10, isActive: true, createsRow: true,
+  ID: 'a', sequence: 10, isActive: true,
   conditionField: 'BusinessPartnerRoles.BusinessPartnerRole', conditionValue: 'FLVN01',
   conditionField2: 'Addresses.Country', conditionValue2: 'BE',
   field: 'SupplierPurchasingOrg.PurchasingOrganization', value: '1710'
 });
 
 const FILLS_CURRENCY = Object.freeze({
-  ID: 'b', sequence: 20, isActive: true, createsRow: false,
+  ID: 'b', sequence: 20, isActive: true,
   conditionField: 'BusinessPartnerRoles.BusinessPartnerRole', conditionValue: 'FLVN01',
   field: 'SupplierPurchasingOrg.PurchaseOrderCurrency', value: 'EUR'
 });
@@ -55,6 +56,28 @@ function request(sections = {}, country = 'BE') {
 
 const derive = (rules, payload) =>
   runDerivations(payload, createConfiguredStages({ derivations: rules, model }).derivations);
+
+/**
+ * The column outlived the design. `cds-deploy` refuses to drop an element and it had already
+ * reached the deployed model, so it stays as dead weight - exactly like the four `cond*` columns on
+ * DuplicateRules. This test exists to keep it dead: the trigger is the payload, and a rule carrying
+ * `createsRow: true` must behave no differently from one without it.
+ */
+test('the superseded createsRow column is kept but never read', async () => {
+  const flagged = await derive([{ ...ADDS_ORG, createsRow: true }], request());
+  const plain = await derive([ADDS_ORG], request());
+  assert.deepEqual(flagged.derived.sections.SupplierPurchasingOrg,
+    plain.derived.sections.SupplierPurchasingOrg);
+
+  // And it cannot make a rule add a row beside one that exists.
+  const beside = await derive([{ ...ADDS_ORG, createsRow: true }], request({
+    SupplierPurchasingOrg: [{ PurchasingOrganization: '1010' }]
+  }));
+  assert.deepEqual(beside.derived.sections.SupplierPurchasingOrg, [{ PurchasingOrganization: '1010' }]);
+
+  const source = fs.readFileSync(path.join(__dirname, '..', 'srv', 'checks', 'rule-engine.js'), 'utf8');
+  assert.equal(/rule\.createsRow/u.test(source), false, 'the engine must not read it');
+});
 
 test('the row is added when the conditions hold and nothing holds the value yet', async () => {
   const { derived, applied } = await derive([ADDS_ORG], request());
@@ -85,19 +108,28 @@ test('checking twice adds one row, not two', async () => {
   assert.deepEqual(second.applied.filter((message) => message.field), []);
 });
 
-test('a row the requester added by hand is kept, and a different one is left beside it', async () => {
-  // Same organisation: theirs is the row the rule would have proposed, so nothing is added.
+/**
+ * Scope, decided 2026-08-20: only an EMPTY section gets a row. A section the requester has already
+ * put a row in is theirs - the rule falls back to filling its gaps, and never appends beside it.
+ */
+test('a section that already has a row is filled, never appended to', async () => {
+  // Their row already carries the value: nothing to add and nothing to fill.
   const same = await derive([ADDS_ORG], request({
     SupplierPurchasingOrg: [{ PurchasingOrganization: '1710' }]
   }));
   assert.deepEqual(same.derived.sections.SupplierPurchasingOrg, [{ PurchasingOrganization: '1710' }]);
 
-  // A different organisation is not the same statement, so the rule still has something to say.
+  // A different organisation is theirs to keep: a derivation never overwrites, and no second row
+  // appears beside it.
   const other = await derive([ADDS_ORG], request({
     SupplierPurchasingOrg: [{ PurchasingOrganization: '1010' }]
   }));
-  assert.deepEqual(other.derived.sections.SupplierPurchasingOrg, [
-    { PurchasingOrganization: '1010' }, { PurchasingOrganization: '1710' }
+  assert.deepEqual(other.derived.sections.SupplierPurchasingOrg, [{ PurchasingOrganization: '1010' }]);
+
+  // An empty row of theirs is a gap, so it is filled where it stands.
+  const blank = await derive([ADDS_ORG], request({ SupplierPurchasingOrg: [{ PurchasingGroup: '001' }] }));
+  assert.deepEqual(blank.derived.sections.SupplierPurchasingOrg, [
+    { PurchasingGroup: '001', PurchasingOrganization: '1710' }
   ]);
 });
 
@@ -111,47 +143,44 @@ test('the conditions still gate it', async () => {
   assert.equal(wrongRole.derived.sections.SupplierPurchasingOrg, undefined);
 });
 
-test('a gap-filler still refuses to invent a row', async () => {
-  // The behaviour createsRow opts out of, and the reason it has to be opt-in: a rule that
-  // fills a field must not quietly start creating records.
+/**
+ * There is no gap-filler/row-adder distinction on the rule any more: the same rule does whichever
+ * the payload calls for. A rule that used to say "there is no row to hold it" now proposes the row.
+ */
+test('a rule over an empty section proposes the row rather than reporting it', async () => {
   const { derived, applied } = await derive([FILLS_CURRENCY], request());
-
-  assert.equal(derived.sections.SupplierPurchasingOrg, undefined);
-  // And it says so. Looping zero times in silence is what made this look broken rather than
-  // misconfigured, so the message names the checkbox that fixes it.
-  const advice = applied.find((message) => /no SupplierPurchasingOrg row/u.test(message.message));
-  assert.ok(advice, 'a rule that cannot fire said nothing');
-  assert.match(advice.message, /Add row/u);
-  assert.equal(advice.field, undefined, 'advice must not be applied as a value');
+  assert.deepEqual(derived.sections.SupplierPurchasingOrg, [{ PurchaseOrderCurrency: 'EUR' }]);
+  const entry = applied.find((message) => message.target === 'SupplierPurchasingOrg');
+  assert.equal(entry.createsRow, true);
+  assert.equal(entry.field, 'PurchaseOrderCurrency');
 });
 
-test('a row-adding rule is refused when it could not mean what it says', () => {
-  // A condition on the section being added is about a row that does not exist yet.
-  const ownSection = validateDerivationRule({
-    createsRow: true,
+/**
+ * The refusals that guarded the checkbox went with it: with the payload deciding, there is nothing
+ * to misconfigure. Both cases simply do not fire - a condition on the section being added is
+ * evaluated against an empty row, and a value copied out of it resolves to nothing.
+ */
+test('a rule that could not mean anything proposes nothing, and is not refused', async () => {
+  const ownSection = {
+    ID: 'c', isActive: true,
     conditionField: 'SupplierPurchasingOrg.PurchasingGroup', conditionValue: '001',
     field: 'SupplierPurchasingOrg.PurchasingOrganization', value: '1710'
-  }, model);
-  assert.match(ownSection.errors[0].message, /does not exist yet/u);
+  };
+  assert.deepEqual(validateDerivationRule(ownSection, model).errors, [], 'nothing to refuse');
+  const conditioned = await derive([ownSection], request());
+  assert.equal(conditioned.derived.sections.SupplierPurchasingOrg, undefined);
 
-  // Same for copying a value out of it.
-  const ownReference = validateDerivationRule({
-    createsRow: true,
+  const ownReference = {
+    ID: 'd', isActive: true,
     field: 'SupplierPurchasingOrg.PurchasingOrganization',
     value: 'SupplierPurchasingOrg.PurchasingGroup'
-  }, model);
-  assert.ok(ownReference.errors.some((error) => /the one being added/u.test(error.message)));
+  };
+  const copied = await derive([ownReference], request());
+  assert.equal(copied.derived.sections.SupplierPurchasingOrg, undefined);
 
-  // And the request root is not a list.
-  const root = validateDerivationRule({
-    createsRow: true, field: 'General.Language', value: 'NL'
-  }, model);
-  assert.match(root.errors[0].message, /not a list/u);
-
-  // The same rule without the flag is fine, so the flag is what is being refused.
-  assert.deepEqual(validateDerivationRule({
-    field: 'SupplierPurchasingOrg.PurchasingOrganization', value: '1710'
-  }, model).errors, []);
+  // The request root is not a list, so it is never a row to add - it is filled as it always was.
+  const root = await derive([{ ID: 'e', isActive: true, field: 'General.Language', value: 'NL' }], request());
+  assert.equal(root.derived.root.Language, 'NL');
 });
 
 test('an unusable row-adding rule is dropped rather than run', () => {

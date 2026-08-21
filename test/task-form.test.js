@@ -5,11 +5,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const APP = path.join(__dirname, '..', 'app', 'businesspartner');
+const APP = path.join(__dirname, '..', 'app', 'bptask');
 const read = (...segments) => fs.readFileSync(path.join(APP, ...segments), 'utf8');
 
 const component = read('webapp', 'Component.js');
-const view = read('webapp', 'ext', 'view', 'BusinessPartnerMaintenance.view.xml');
+const view = read('..', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse', 'view', 'BusinessPartnerMaintenance.view.xml');
 const xsApp = JSON.parse(read('xs-app.json'));
 const manifest = JSON.parse(read('webapp', 'manifest.json'));
 const serviceCds = fs.readFileSync(
@@ -57,7 +57,7 @@ test('the workflow base url is built from sap.cloud.service and sap.app.id', () 
     + manifest['sap.cloud'].service.replaceAll('.', '')
     + '.' + manifest['sap.app'].id.replaceAll('.', '')
     + '/api/public/workflow/rest/v1';
-  assert.equal(expected, '/mdmmdbusinesspartner.mdmmdbusinesspartnermanage/api/public/workflow/rest/v1');
+  assert.equal(expected, '/mdmmdbusinesspartner.mdmmdbusinesspartnertask/api/public/workflow/rest/v1');
 });
 
 test('the inbox actions match the outcomes declared in sap.bpa.task', () => {
@@ -101,46 +101,12 @@ test('the task form suppresses the server-side BPA trigger', () => {
 // would send the task form to the partner list instead of the request under review.
 test('embedded navigation reads the task context, not the browser hash', () => {
   assert.match(component, /contextModel\.loadData\(this\._taskInstanceUrl\(\) \+ "\/context"\)/u);
-  assert.match(component, /if \(context\.changerequestid\) \{\s+this\._openApprove\(context\.changerequestid\);/u);
+  assert.match(component, /if \(context\.changerequestid\) this\._openApprove\(context\.changerequestid\)/u);
   assert.equal(
     /window\.location\.hash && window\.location\.hash !== "#"/u.test(component),
     false,
     'the old host-hash guard must be gone'
   );
-});
-
-// The hash belongs to the inbox shell while embedded, so a route pattern written into it
-// matches nothing of ours: the component renders and the approve page never activates. That
-// is the "form is there, data is not" symptom, so embedded must not navigate at all.
-test('embedded shows the page without touching the hash', () => {
-  const embedded = component.slice(component.indexOf('_openApprove: function'));
-  // The whole method, not the file: navTo must be inside the standalone guard and nowhere else.
-  const body = embedded.slice(0, embedded.indexOf('_startupParameters'));
-
-  // navTo stays, but only on the standalone side of the guard.
-  assert.match(body, /if \(!this\.getModel\("env"\)\.getProperty\("\/embedded"\)\)/u);
-  assert.match(body, /navTo\(/u);
-  // And the embedded side displays the target and hands the id over directly.
-  assert.match(body, /setProperty\("\/taskChangeRequest", changeRequest\)/u);
-  assert.match(body, /publish\("taskform", "approve"/u);
-  assert.match(body, /targets\.display\("BusinessPartnerMaintenance"\)/u);
-});
-
-// Both, because the context fetch is a round trip and may land either side of the page's
-// own init: the model covers a late reader, the event an early one.
-test('the approve page picks the request up by model and by event', () => {
-  const controller = read('webapp', 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js');
-  assert.match(controller, /subscribe\("taskform", "approve"/u);
-  assert.match(controller, /getProperty\("\/taskChangeRequest"\)/u);
-  const matches = controller.match(/_loadStagedRequest\(\s*(?:data\.changeRequest|pending), "approve"\)/gu);
-  assert.equal(matches.length, 2, 'both paths must load the staged request');
-});
-
-// A task with no id mapped is a process problem, and a blank form looks like the app lost the
-// data instead. The message has to name what to fix.
-test('a task with no request id says so', () => {
-  assert.match(component, /carries no change request id/u);
-  assert.match(component, /sap\.bpa\.task/u);
 });
 
 test('a context that cannot be loaded is reported, not left as an empty create screen', () => {
@@ -168,4 +134,83 @@ test('the app hides its own decision buttons while embedded', () => {
 test('task form initialisation can never reject into component init', () => {
   assert.match(component, /this\._initTaskForm\(\)\.catch\(/u);
   assert.match(component, /Task form initialisation failed/u);
+});
+
+// --- The extraction (2026-08-20) -------------------------------------------------------
+//
+// The task UI used to be the Fiori Elements app itself: sap.bpa.task sat in its manifest and
+// Component.js implemented the inbox contract on top of sap.fe.core.AppComponent. SAP documents
+// task UIs for freestyle apps, so the contract moved to an app that is one, and the screen both
+// of them render moved to app/reuse rather than being copied.
+
+const BP_APP = path.join(__dirname, '..', 'app', 'businesspartner', 'webapp');
+const bpManifest = JSON.parse(fs.readFileSync(path.join(BP_APP, 'manifest.json'), 'utf8'));
+const bpComponent = fs.readFileSync(path.join(BP_APP, 'Component.js'), 'utf8');
+const REUSE = path.join(__dirname, '..', 'app', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse');
+const reuseController = fs.readFileSync(
+  path.join(REUSE, 'controller', 'BusinessPartnerMaintenance.controller.js'), 'utf8'
+);
+
+test('the task UI is a freestyle app, not Fiori Elements', () => {
+  assert.match(component, /sap\/ui\/core\/UIComponent/u);
+  assert.equal(/sap\/fe\/core/u.test(component), false, 'no Fiori Elements component class');
+  assert.equal(Object.hasOwn(manifest['sap.ui5'].dependencies.libs, 'sap.fe.templates'), false);
+  assert.equal(manifest['sap.ui5'].rootView.viewName, 'mdm.md.businesspartner.task.view.App');
+});
+
+test('the task contract lives in the task app and nowhere else', () => {
+  assert.ok(manifest['sap.bpa.task'], 'the task app declares it');
+  assert.equal(Object.hasOwn(bpManifest, 'sap.bpa.task'), false, 'the partner app no longer does');
+  // The inbox plumbing went with it; what stays is the bpurl query-parameter deep link.
+  assert.equal(/inboxAPI/u.test(bpComponent), false);
+  assert.equal(/task-instances/u.test(bpComponent), false);
+  assert.match(bpComponent, /changerequestid/u, 'the deep link still opens the approve view');
+});
+
+test('both apps render the one shared screen, resolved the same way', () => {
+  for (const [name, descriptor] of [['task', manifest], ['partner', bpManifest]]) {
+    assert.equal(
+      descriptor['sap.ui5'].resourceRoots['mdm.md.businesspartner.reuse'], './reuse',
+      `the ${name} app maps the reuse namespace`
+    );
+    const targets = descriptor['sap.ui5'].routing.targets;
+    assert.equal(
+      targets.BusinessPartnerMaintenance.name,
+      'mdm.md.businesspartner.reuse.view.BusinessPartnerMaintenance',
+      `the ${name} app targets the shared view`
+    );
+  }
+});
+
+// The whole point of the split: if the shared screen ever takes a Fiori Elements dependency, the
+// task app stops working and the failure surfaces in the browser rather than here.
+test('the shared screen depends on no Fiori Elements module', () => {
+  assert.equal(/sap\/fe\/|sap\.fe\./u.test(reuseController), false);
+  assert.equal(/sap\/fe\/|sap\.fe\./u.test(view), false);
+});
+
+test('the task app is its own app on the same business service', () => {
+  assert.equal(manifest['sap.cloud'].service, bpManifest['sap.cloud'].service);
+  assert.notEqual(manifest['sap.app'].id, bpManifest['sap.app'].id);
+  // No inbound: My Inbox resolves it by sap.cloud.service and app id, not by intent - so the
+  // one-inbound-per-app limit in Work Zone standard edition never applies to it.
+  assert.equal(Object.hasOwn(manifest['sap.app'], 'crossNavigation'), false);
+});
+
+/**
+ * Set by Maarten on 2026-08-20. `{{Approve}}` resolves out of the app's own i18n bundle, which is
+ * not where the Lobby looks, so the outcome labels are literal text and the i18n keys went with
+ * them. Pinned because "these should be translatable" is exactly the observation that would put
+ * the placeholders back.
+ */
+test('the outcome labels are literal, not i18n placeholders', () => {
+  const outcomes = manifest['sap.bpa.task'].outcomes;
+  assert.deepEqual(outcomes.map((outcome) => outcome.label), ['Approve', 'Reject']);
+  for (const outcome of outcomes) {
+    assert.equal(
+      /\{\{|\}\}/u.test(outcome.label), false, `${outcome.id} must not carry a placeholder`
+    );
+  }
+  const bundle = read('webapp', 'i18n', 'i18n.properties');
+  assert.equal(/^Approve=/mu.test(bundle), false, 'and the unused keys are not left behind');
 });

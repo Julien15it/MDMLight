@@ -1,0 +1,28 @@
+{
+  "name": "mdm.md.businesspartner.task",
+  "version": "1.0.0",
+  "description": "Approval task UI for Business Partner change requests - freestyle UI5, rendered by My Inbox",
+  "keywords": [
+    "ui5",
+    "sapui5",
+    "business-partner",
+    "task-ui"
+  ],
+  "main": "webapp/index.html",
+  "scripts": {
+    "sync:reuse": "node ../../tools/sync-reuse.js",
+    "start": "npm run sync:reuse && fiori run --open \"index.html\"",
+    "build": "npm run sync:reuse && ui5 build --config=ui5.yaml --clean-dest --dest dist",
+    "build:cf": "npm run sync:reuse && ui5 build preload --clean-dest --config ui5.yaml --dest dist --include-task=generateCachebusterInfo && node -e \"require('node:fs').copyFileSync('xs-app.json','dist/xs-app.json')\""
+  },
+  "devDependencies": {
+    "@sap/ux-ui5-tooling": "^1",
+    "@ui5/cli": "^4.0.60"
+  },
+  "sapuxLayer": "CUSTOMER_BASE",
+  "ui5": {
+    "dependencies": [
+      "@sap/ux-ui5-tooling"
+    ]
+  }
+}

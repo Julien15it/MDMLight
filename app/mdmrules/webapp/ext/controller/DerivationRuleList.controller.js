@@ -100,9 +100,9 @@ sap.ui.define([
       if (!binding) return;
       // No field and no value on purpose: a row that arrived pointing at a field would be a rule
       // nobody wrote, and a derivation with a default value would fill data nobody asked for.
-      // createsRow false: a new rule fills a gap until someone says otherwise, which is the
-      // behaviour every existing rule has and the one that cannot surprise anyone.
-      binding.create({ sequence: 10, isActive: true, createsRow: false });
+      // A rule carries no "adds the row" answer either: the payload decides. A rule whose section
+      // holds no rows proposes the row, one whose section has rows fills its gaps.
+      binding.create({ sequence: 10, isActive: true });
       this._markDirty();
     },
 
@@ -121,6 +121,21 @@ sap.ui.define([
           this._markDirty();
         }.bind(this)
       });
+    },
+
+    /**
+     * The Value column means two things and this hint is the only thing that says which one was
+     * read. A literal gets no hint at all - a free-form `BE` used to render "Copied from undefined",
+     * because the text was concatenated whether or not the catalog lookup found anything.
+     */
+    formatValueHint: function (value, fieldText) {
+      var label = (fieldText || {})[value];
+      return label ? "Copied from " + label : "";
+    },
+
+    /** Same lookup, as the visibility: no hint at all for a literal. */
+    isFieldReference: function (value, fieldText) {
+      return Boolean((fieldText || {})[value]);
     },
 
     onCellChange: function () {

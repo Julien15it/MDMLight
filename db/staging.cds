@@ -21,7 +21,11 @@ type ChangeRequestStatus : String(20) enum {
 };
 
 /** Per-row intent for the collection nodes, as MDG's change indicator. */
-type NodeAction : String(1) enum { create = 'C'; update = 'U'; delete = 'D' };
+// `none` is a row staged for context that nobody touched - the whole partner is staged so the
+// approver sees it in full, but only touched rows may be replayed to S/4. It was a NULL until
+// 2026-08-20, which every one of these columns forbids: a first submit never noticed because every
+// row is new, and a resubmit reloads untouched rows from staging and hit the constraint.
+type NodeAction : String(1) enum { create = 'C'; update = 'U'; delete = 'D'; none = 'N' };
 
 // --- Header ----------------------------------------------------------------
 

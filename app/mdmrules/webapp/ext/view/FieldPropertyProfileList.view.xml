@@ -16,7 +16,7 @@
       -->
       <Table
         id="profileTable"
-        items="{ path: 'dc>/FieldPropertyProfiles', parameters: { $orderby: 'sequence,createdAt', $$updateGroupId: 'ruleChanges' } }"
+        items="{ path: 'dc>/FieldPropertyProfiles', parameters: { $orderby: 'name,createdAt', $$updateGroupId: 'ruleChanges' } }"
         mode="SingleSelectMaster"
         busy="{view>/busy}"
         growing="true"
@@ -32,10 +32,9 @@
           </OverflowToolbar>
         </headerToolbar>
         <columns>
-          <Column width="24%"><Text text="Profile" /></Column>
+          <Column width="30%"><Text text="Profile" /></Column>
           <Column width="18%"><Text text="Request Type" /></Column>
           <Column width="18%"><Text text="Role" /></Column>
-          <Column width="8%" hAlign="End"><Text text="Order" /></Column>
           <Column width="5rem" hAlign="Center"><Text text="Active" /></Column>
           <Column width="12%"><Text text="Properties" /></Column>
           <Column width="8rem" hAlign="End"><Text text="" /></Column>
@@ -64,11 +63,6 @@
                 change=".onCellChange">
                 <core:Item key="{opt>code}" text="{opt>text}" />
               </ComboBox>
-              <Input
-                width="100%"
-                type="Number"
-                value="{dc>sequence}"
-                change=".onCellChange" />
               <CheckBox selected="{dc>isActive}" select=".onCellChange" />
               <Text text="{ parts: [{ path: 'dc>ID' }, { path: 'view>/counts' }], formatter: '.formatPropertyCount' }" />
               <Button

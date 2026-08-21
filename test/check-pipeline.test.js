@@ -18,6 +18,14 @@ const fillCountry = {
   name: 'fillCountry',
   run: async () => [{ target: 'root', field: 'Country', value: 'BE' }]
 };
+// Same answer, but asking for the row it needs - what the registry stages send since 2026-08-20.
+const createsStreet = {
+  name: 'registry',
+  run: async () => [{
+    target: 'Addresses', index: 0, createsRow: true, field: 'StreetName', value: 'Kerkstraat',
+    message: 'StreetName was filled in as “Kerkstraat” from VIES (a new address).'
+  }]
+};
 const fillStreet = {
   name: 'registry',
   run: async () => [{
@@ -91,9 +99,36 @@ test('a derivation can fill a field on a section row', async () => {
   assert.match(applied[0].message, /from GLEIF/u);
 });
 
-// Filling a street into an address the user never added would create data nobody asked for — but
-// staying silent about it would waste the lookup, so it is reported with no field to write.
-test('a derivation never invents the row it targets, and says so', async () => {
+/**
+ * Changed 2026-08-20. A registry answer used to be reported as homeless when the requester had not
+ * pressed Add yet, so a VIES address could never be proposed on a partner without an address row -
+ * exactly the case where it is most useful. The derivation now asks for the row and the pipeline
+ * creates it; the requester still ticks the proposal, so nothing is written unasked.
+ */
+test('a derivation may create the first row of an empty section, when it asks to', async () => {
+  const { derived, applied } = await runDerivations(payload({}, { Addresses: [] }), [createsStreet]);
+  assert.equal(derived.sections.Addresses.length, 1);
+  assert.equal(derived.sections.Addresses[0].StreetName, 'Kerkstraat');
+  assert.equal(applied.length, 1);
+  assert.equal(applied[0].field, 'StreetName');
+  assert.equal(applied[0].createsRow, true, 'the screen has to add the row too');
+});
+
+/** A section with no rows is the only case. Everything else is still never invented. */
+test('a derivation still never invents a row beside one that exists', async () => {
+  const { derived, applied } = await runDerivations(
+    payload({}, { Addresses: [{ StreetName: 'Dorpsstraat' }] }),
+    [{ name: 'registry', run: async () => [{
+      target: 'Addresses', index: 1, createsRow: true, field: 'StreetName', value: 'Kerkstraat',
+      message: 'StreetName is available but there is no second Addresses row.'
+    }] }]
+  );
+  assert.equal(derived.sections.Addresses.length, 1, 'no second row appears');
+  assert.equal(applied[0].field, undefined, 'reported as a statement, exactly as before');
+});
+
+/** Without the flag nothing changes: a derivation that never asked cannot create anything. */
+test('a derivation that does not ask for a row is still reported as homeless', async () => {
   const { derived, applied } = await runDerivations(payload({}, { Addresses: [] }), [fillStreet]);
   assert.deepEqual(derived.sections.Addresses, []);
   assert.equal(applied.length, 1);

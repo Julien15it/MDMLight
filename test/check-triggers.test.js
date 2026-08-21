@@ -67,7 +67,7 @@ test('the action declares Propose and Scope, and the runner threads both', () =>
 });
 
 const CONTROLLER = fs.readFileSync(
-  path.join(__dirname, '..', 'app', 'businesspartner', 'webapp', 'ext', 'controller',
+  path.join(__dirname, '..', 'app', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse', 'controller',
     'BusinessPartnerMaintenance.controller.js'),
   'utf8'
 );

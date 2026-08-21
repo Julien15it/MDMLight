@@ -7,11 +7,12 @@ const test = require('node:test');
 const vm = require('node:vm');
 
 const APP = path.join(__dirname, '..', 'app', 'businesspartner', 'webapp');
+const REUSE = path.join(__dirname, '..', 'app', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse');
 const controllerSource = fs.readFileSync(
-  path.join(APP, 'ext', 'controller', 'BusinessPartnerMaintenance.controller.js'),
+  path.join(REUSE, 'controller', 'BusinessPartnerMaintenance.controller.js'),
   'utf8'
 );
-const view = fs.readFileSync(path.join(APP, 'ext', 'view', 'BusinessPartnerMaintenance.view.xml'), 'utf8');
+const view = fs.readFileSync(path.join(REUSE, 'view', 'BusinessPartnerMaintenance.view.xml'), 'utf8');
 
 // The controller is a UI5 module; only the pure message helpers are exercised here.
 function loadController() {
@@ -359,9 +360,29 @@ test('a submit that found duplicates refreshes the panel', () => {
 });
 
 test('an applied proposal can land on an address row, not only on the root', () => {
-  assert.match(controllerSource, /proposal\.target === "root"[\s\S]{0,140}state\.sections\[proposal\.target\]/u);
+  assert.match(controllerSource, /proposal\.target === "root"[\s\S]{0,200}state\.sections\[proposal\.target\]/u);
   // Without marking the row changed, an accepted field never reaches staging.
   assert.match(controllerSource, /record\.__state = "changed"/u);
+});
+
+/**
+ * Asked for 2026-08-20: a derivation whose conditions are met should not wait for the requester to
+ * press Add before it can propose anything. The server creates the row in its own copy and flags
+ * the proposal; accepting it is what creates the row on the screen - so nothing is added without a
+ * tick, which is the rule every proposal has followed since 2026-08-14.
+ */
+test('accepting a proposal can create the row it needs', () => {
+  // Its own label: adding a record nobody added is a bigger thing than filling an empty field.
+  assert.match(controllerSource, /change: entry\.createsRow \? "Row added" : "Filled in"/u);
+  assert.match(controllerSource, /createsRow: Boolean\(entry\.createsRow\)/u);
+  // Accepting is what creates it, and it stages as a C - an update to a row S/4 does not have
+  // would be replayed as one by postToS4.
+  assert.match(controllerSource, /if \(proposal\.createsRow && proposal\.target && proposal\.target !== "root"\)/u);
+  assert.match(controllerSource, /added = \{ __state: "new" \}/u);
+  // Accepting the same proposal twice, or accepting one the requester already added by hand,
+  // must not produce a second row.
+  assert.match(controllerSource, /duplicate = rows\.some\(/u);
+  assert.match(controllerSource, /if \(duplicate\) return;/u);
 });
 
 // "Cancel" cancels nothing once the request is in approval, and every other footer button is

@@ -29,8 +29,8 @@ sap.ui.define([
   "sap/m/VBox",
   "sap/m/HBox",
   "sap/m/Title",
-  "mdm/md/businesspartner/manage/ext/BusinessPartnerMetadata",
-  "mdm/md/businesspartner/manage/ext/BusinessPartnerAssistant"
+  "mdm/md/businesspartner/reuse/BusinessPartnerMetadata",
+  "mdm/md/businesspartner/reuse/BusinessPartnerAssistant"
 ], function (
   Controller,
   JSONModel,
@@ -310,7 +310,7 @@ sap.ui.define([
   }
 
   return Controller.extend(
-    "mdm.md.businesspartner.manage.ext.controller.BusinessPartnerMaintenance",
+    "mdm.md.businesspartner.reuse.controller.BusinessPartnerMaintenance",
     {
       onInit: function () {
         this._metadata = Metadata.sections;
@@ -320,23 +320,20 @@ sap.ui.define([
           return section.kind === "root";
         });
         this._router = UIComponent.getRouterFor(this);
-        this._router.getRoute("BusinessPartnerCreate").attachPatternMatched(this._onCreateRoute, this);
-        this._router.getRoute("BusinessPartnerDisplay").attachPatternMatched(this._onDisplayRoute, this);
-        this._router.getRoute("BusinessPartnerMaintain").attachPatternMatched(this._onEditRoute, this);
-        this._router.getRoute("ChangeRequestApprove").attachPatternMatched(this._onApproveRoute, this);
-        this._router.getRoute("ChangeRequestEdit").attachPatternMatched(this._onRequestEditRoute, this);
-        this._router.getRoute("ChangeRequestRework").attachPatternMatched(this._onReworkRoute, this);
-
-        // Embedded in My Inbox there is no route to match: the hash belongs to the inbox, so
-        // the Component hands the request over directly. Read once for a context that has
-        // already arrived, and subscribed for one that has not - the fetch is a round trip and
-        // may land either side of this.
-        var component = this.getOwnerComponent();
-        component.getEventBus().subscribe("taskform", "approve", function (channel, event, data) {
-          if (data && data.changeRequest) this._loadStagedRequest(data.changeRequest, "approve");
+        // Attached only where the host declares them. The partner app routes all six; the task app
+        // is embedded on one request and declares only what it can reach, and a missing route must
+        // not throw in onInit - that would take the whole screen down rather than one entry point.
+        [
+          ["BusinessPartnerCreate", this._onCreateRoute],
+          ["BusinessPartnerDisplay", this._onDisplayRoute],
+          ["BusinessPartnerMaintain", this._onEditRoute],
+          ["ChangeRequestApprove", this._onApproveRoute],
+          ["ChangeRequestEdit", this._onRequestEditRoute],
+          ["ChangeRequestRework", this._onReworkRoute]
+        ].forEach(function (entry) {
+          var route = this._router.getRoute(entry[0]);
+          if (route) route.attachPatternMatched(entry[1], this);
         }, this);
-        var pending = component.getModel("env").getProperty("/taskChangeRequest");
-        if (pending) this._loadStagedRequest(pending, "approve");
 
         this.getView().setModel(new JSONModel(this._emptyState()), "maintenance");
       },
@@ -2017,8 +2014,8 @@ sap.ui.define([
             change: entry.createsRow ? "Row added" : "Filled in",
             target: entry.target || "root",
             index: entry.index || 0,
-            field: entry.field,
             createsRow: Boolean(entry.createsRow),
+            field: entry.field,
             current: "",
             proposed: entry.value,
             reason: entry.message || "found in the official register",

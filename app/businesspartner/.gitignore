@@ -5,3 +5,5 @@ webapp/localService/mainService/metadata.xml
 *.mtar
 archive.zip
 resources.json
+# Synced from app/reuse by tools/sync-reuse.js. Never edit here.
+webapp/reuse/

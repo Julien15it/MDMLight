@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.DS_Store
+*.mtar
+resources.json
+# Synced from app/reuse by tools/sync-reuse.js. Never edit here.
+webapp/reuse/

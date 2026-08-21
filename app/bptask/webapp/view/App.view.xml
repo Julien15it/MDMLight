@@ -1,0 +1,8 @@
+<mvc:View
+  xmlns:mvc="sap.ui.core.mvc"
+  xmlns="sap.m"
+  displayBlock="true"
+  height="100%">
+  <!-- controlId in the manifest routing config; the maintenance view is placed in its pages. -->
+  <App id="taskApp" />
+</mvc:View>

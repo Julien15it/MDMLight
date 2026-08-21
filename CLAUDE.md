@@ -51,6 +51,13 @@ npm install
 npm run build:cf         # ui5 build preload for Cloud Foundry
 ```
 
+UI (`app/bptask`, the My Inbox approval task UI — freestyle UI5, third npm project):
+```bash
+cd app/bptask
+npm install
+npm run build:cf         # syncs app/reuse, then ui5 build preload for Cloud Foundry
+```
+
 Deployment (multi-target app):
 ```bash
 mbt build
@@ -192,8 +199,54 @@ Configured stages come first in both lists; the reasoning is with the tables.
   answers `isValid: false` when merely throttled). Re-grade by severity, not by
   check name — `severityOf` exists for exactly this.
 - **Derivation**: fills empty address fields on the *first* address row from VIES
-  first, then GLEIF. A row that does not exist is never invented, but the value is
-  still reported with no `field`, so the screen says so and writes nothing.
+  first, then GLEIF.
+
+#### A derivation may create the row it needs (changed 2026-08-20)
+
+A derivation used to refuse to invent a row: with no address on the screen, a VIES
+answer was reported with no `field` ("there is no Addresses row to hold it") and
+written nowhere — so the requester had to press **Add** before the register could
+fill anything, which is precisely the case where the lookup is most useful.
+
+**Built twice, on the same afternoon, and merged into one.** Maarten and Julien both
+implemented it within four minutes of each other (`b50a8a1` and `6a45554`). The
+merged design takes the trigger, the scope and the registry path from the first and
+the idempotency and the stage ordering from the second — Maarten's call.
+
+- **The payload is the trigger, not a flag on the rule.** A rule whose target section
+  holds no rows proposes the row; one whose section has rows fills its gaps. There is
+  no `createsRow` column and no "Add row" checkbox: conditions met are enough, and a
+  steward should not have to tick a second box to get the obvious behaviour. The
+  `createsRow` **column stays in `db/quality-rules.cds` as dead weight**: dropping it
+  failed `deploy_to_postgresql` four times over, because Julien's build had already
+  reached the deployed model. Nothing reads it, the same way nothing reads the four
+  `cond*` columns on `DuplicateRules`. (Julien's
+  version made it opt-in per rule, with save-time refusals guarding the checkbox;
+  those refusals went with it — a condition on the section being added is evaluated
+  against an empty row and cannot hold, and a value copied out of that section
+  resolves to nothing, so both simply do not fire.)
+- **Only an EMPTY section, and only its first row.** A section the requester has
+  already put a row in is theirs: the rule falls back to filling gaps and never
+  appends beside it. This is narrower than Julien's version, which appended — so
+  "role FLVN01 in BE means purchasing organisation 1710" fires on a partner with no
+  purchasing org, but will not add a *second* one.
+- **Two stages, adders before fillers.** Every rule in one stage sees the same payload
+  — the pipeline applies a stage's entries only after it returns — so a filler sharing
+  a stage with the rule that adds its row would fill nothing. Both stages run every
+  rule and `mode` (`'create'` / `'fill'`) decides what each may emit, because which
+  rule adds and which fills is not known until the payload is in hand. `sequence`
+  therefore orders rules *within* each kind, not across them.
+- **Idempotent.** A section already holding a row with that value is left alone, and
+  `_applyProposals` refuses to add a second row carrying the value it is accepting —
+  so pressing Check twice adds one row, and a row the requester added by hand is kept.
+- **The requester still ticks it.** The row is created in the pipeline's own copy
+  (which is what the duplicate check reads) and on the screen only when the proposal
+  is accepted — with `__state: "new"`, so it stages as a `C` rather than an update to
+  a row S/4 does not have. The dialog says **Row added** rather than *Filled in*.
+- **The registry creates the first address too** (`registry-checks.js`): VIES/GLEIF
+  set `createsRow` when there is no address row at all, which is the case that started
+  this. Only the first of the four address entries carries the flag — the pipeline
+  fills the rest into the row it just made.
 
 Three behaviours worth not "simplifying" away: a validation that throws blocks
 (a rule that silently skipped would defeat the ordering); a derivation that
@@ -440,6 +493,87 @@ the duplicate rule table's layout, and each page still binds only its own entity
 binding `dc>/DuplicateRules` would show duplicate rules under a Validation Rules
 heading and let someone edit them by accident.
 
+### The shared maintenance screen (`app/reuse`, 2026-08-20)
+
+The Business Partner maintenance screen — the object page used for create, edit,
+approve and rework — lives in **`app/reuse`**, not in either app that renders it:
+
+```
+app/reuse/src/mdm/md/businesspartner/reuse/
+  controller/BusinessPartnerMaintenance.controller.js
+  view/BusinessPartnerMaintenance.view.xml
+  BusinessPartnerMetadata.js      (generated)
+  BusinessPartnerAssistant.js
+  css/maintenance.css
+```
+
+Two apps render it: `app/businesspartner` (the Work Zone tile) and `app/bptask`
+(the My Inbox task UI). It moved there rather than being copied, because a second
+copy of a 2,400-line controller drifts and nobody notices until the two screens
+disagree about what a request contains.
+
+**The screen was already freestyle** — a plain `sap/ui/core/mvc/Controller`, and a
+view over `sap.m`/`sap.uxap` — which is what made the extraction cheap. It has no
+`sap.fe` dependency and must not gain one: `test/task-form.test.js` fails if it
+does, because the task app has no Fiori Elements libraries to satisfy it.
+
+#### It is copied at build time, not deployed as a library
+
+`tools/sync-reuse.js` copies the folder into each consumer's `webapp/reuse`
+(gitignored, never edited), and each manifest maps the namespace onto it:
+
+```json
+"resourceRoots": { "mdm.md.businesspartner.reuse": "./reuse" }
+```
+
+So the module names are identical in both apps — `mdm.md.businesspartner.reuse.*`
+— and there is exactly one copy in git.
+
+**A deployed UI5 library would have been the textbook answer and is the wrong one
+here.** An HTML5-repository library is addressed by its version-stamped URL, and a
+stale version reference is precisely what made the task UI 404 on 2026-08-20
+(`…manage-1.15.0/Component.js`). Copying at build time leaves nothing to resolve
+at runtime. `app/reuse` is still shaped as a real UI5 library project (`ui5.yaml`
+`type: library`, `.library`, `library.js`) so that decision can be revisited
+without moving a file — but nothing loads `library.js` today.
+
+Consequences worth knowing:
+
+- **`npm run generate:metadata` writes into the library**, not into an app. Both
+  consumers pick the new `BusinessPartnerMetadata.js` up on their next build.
+- **Every build runs `sync:reuse` first.** `build` and `build:cf` in both apps
+  chain it, and `mta.yaml` calls those. Editing `webapp/reuse` directly is
+  pointless — the next build deletes it.
+- **The controller attaches only to routes its host declares.** The partner app
+  routes all six (create, display, maintain, approve, edit, rework); the task app
+  declares only approve and rework. `onInit` skips a missing route rather than
+  throwing, which would take the whole screen down instead of one entry point.
+- **`ui5 build preload` bundles `webapp/reuse/**` under the consuming app's own
+  namespace**, which is not the name the runtime asks for, so the shared modules
+  load as individual files from `dist/reuse/…` and the bundle carries unused
+  copies. It works and it is not free; excluding them from the bundle is a
+  worthwhile follow-up, not a correctness fix.
+
+#### The task app (`app/bptask`)
+
+Third HTML5 app, same pattern as `app/mdmrules`: unique `sap.app.id`
+(`mdm.md.businesspartner.task`), **shared `sap.cloud.service`**
+(`mdm.md.businesspartner`), its own `xs-app.json` reusing the
+`mdm-businesspartner-srv-api` destination, and one more entry in
+`tools/package-html5.js` and in the app-content module's build commands.
+
+**It declares no `crossNavigation` inbound**, deliberately: My Inbox resolves a
+task UI by `sap.cloud.service` + `sap.app.id`, not by intent, so the
+one-inbound-per-app limit in Work Zone standard edition never applies to it — and
+it needs no tile, no catalog and no role assignment.
+
+What stayed behind in `app/businesspartner`: the List Report, the object page, the
+`CustomActions` toolbar wiring, and the `bpurl` **query-parameter** deep link
+(`?changerequestid=`). What left: `sap.bpa.task`, the `inboxAPI` actions, the task
+context load and the `PATCH task-instances/{id}` completion. The `env>/embedded`
+model stays set — to `false`, always — because the shared view binds it to decide
+whether to draw its own decision buttons, and in the task app it is sometimes true.
+
 ### The validation and derivation tables (2026-08-19)
 
 `db/quality-rules.cds` adds `ValidationRules` and `DerivationRules` alongside
@@ -637,9 +771,15 @@ examples fall out of that rather than being special-cased:
 
 `PROPERTY_STATE` in `srv/checks/field-properties.js` is the whole rule, and the
 join is closed over the four names — every combination lands back on one of them,
-which `test/field-property-apply.test.js` proves exhaustively. **`sequence` is
-therefore not a precedence**: the merge is order-independent, and the column stays
-as grid order only.
+which `test/field-property-apply.test.js` proves exhaustively. **Nothing therefore
+reads a precedence.** A `sequence` was modelled for one, removed on 2026-08-20 when
+Maarten asked what the Order column was for — and **put straight back the same day
+as dead weight**, because removing it failed `deploy_to_postgresql` four times over:
+it had already reached the deployed model, and `cds-deploy` cannot drop an element.
+So the column stands in `db/field-properties.cds` and nothing reads it, the same way
+nothing reads `createsRow` on `DerivationRules` or the four `cond*` columns on
+`DuplicateRules`. The merge is a join, so no profile is ever "first"; the grid shows
+no Order cell and the resolver never sorts.
 
 **Silence is not `optional`.** A profile that says nothing about a target is left
 out of the join entirely. Counting it as `optional` would let one global profile
@@ -909,9 +1049,32 @@ Open TODOs on this, agreed and deliberately deferred:
 
 #### The approve screen as a BPA UI5 Task Form
 
-The same app serves the Work Zone tile and the My Inbox task form. `sap.bpa.task`
-in `manifest.json` declares it; `Component.js` implements the contract from SAP
-Help, *Technical Information for Adapting the SAPUI5 Application*.
+**The task form is its own app since 2026-08-20: `app/bptask`
+(`mdm.md.businesspartner.task`), freestyle UI5.** It used to be this Fiori
+Elements app — `sap.bpa.task` in its manifest, `Component.js` implementing the
+inbox contract on top of `sap.fe.core.AppComponent`. SAP documents UI5 task UIs
+for **freestyle** apps; FE as a task host is not a combination they bless, and
+"we embedded a Fiori Elements app as a task form" is where an incident stalls.
+See "The shared maintenance screen" below for how the screen is shared rather
+than copied. The contract itself is unchanged, and still comes from SAP Help,
+*Technical Information for Adapting the SAPUI5 Application*.
+
+**The outcome labels are literal text, not `{{...}}` keys — do not "fix" them
+back.** Maarten set them this way on 2026-08-20: `{{Approve}}` resolves out of
+the app's own i18n bundle, which is not where the Lobby looks, so the two i18n
+keys went with them. `inputs` and `outputs` stay as they are; they declare the
+task context for the Lobby, while the runtime reads none of it — `Component.js`
+fetches `/task-instances/{id}/context` itself and PATCHes the whole context back.
+`test/task-form.test.js` pins the labels.
+
+**Verified end to end on 2026-08-20**: the partner app opens from the Work Zone
+tile (so `resourceRoots` resolves the shared screen at runtime), and Arthur
+re-pointed the SBPA user task at `mdm.md.businesspartner.task`, which rendered.
+The `inputs`/`outputs` schemas above are the ones that worked — Arthur emptied
+them on the old app in `1f5988f`; that is not needed and was not carried over.
+**Re-pointing the user task in the Lobby is a manual step**: the app id changed,
+so the process definition had to be edited and released. A future task UI rename
+costs the same step.
 
 - **Never put a comment key in `app/businesspartner/xs-app.json`.** It ships into
   the HTML5 apps repository with the app and is schema-validated there; an
@@ -1034,17 +1197,18 @@ by `@sap/ux-ui5-tooling`/`@ui5/cli`, not by the root CAP project. It is a
 standard List Report / Object Page Fiori Elements app
 (`webapp/manifest.json`) with custom extensions layered on top rather than a
 hand-rolled UI5 app:
-- `webapp/ext/controller/BusinessPartnerMaintenance.controller.js` and
-  `ListReportExtension.controller.js` — controller extensions for the
-  full-screen create/edit flow and list-report behavior.
-- `webapp/ext/BusinessPartnerAssistant.js` / `CustomActions.js` — the chatbot
-  panel and custom toolbar actions, calling the `askBusinessPartnerAssistant`
-  and `saveBusinessPartner*` actions on the CAP service.
-- `webapp/ext/BusinessPartnerMetadata.js` plus
-  `scripts/generate-maintenance-metadata.js` — generates the metadata driving
-  the full-screen maintenance UI; re-run `npm run generate:metadata` (also
-  part of `build`/`build:cf`) after changing `MAINTENANCE_ENTITIES` on the
+- The **maintenance screen itself is not here any more** — the controller, its
+  view, `BusinessPartnerMetadata.js` and `BusinessPartnerAssistant.js` moved to
+  `app/reuse` on 2026-08-20 so the task UI can render the same screen. See "The
+  shared maintenance screen". `scripts/generate-maintenance-metadata.js` still
+  lives here but writes into the library; re-run `npm run generate:metadata`
+  (also part of `build`/`build:cf`) after changing `MAINTENANCE_ENTITIES` on the
   service side or the maintained entities won't line up.
+- `webapp/ext/controller/ListReportExtension.controller.js` — controller
+  extension for list-report behaviour.
+- `webapp/ext/CustomActions.js` — custom toolbar actions, calling the
+  `askBusinessPartnerAssistant` and `saveBusinessPartner*` actions on the CAP
+  service.
 - `ui5.yaml` (real backend) vs `ui5-mock.yaml` (local mock data) are separate
   UI5 tooling configs — pick the matching npm script (`start` vs
   `start-mock`) rather than editing one to behave like the other.

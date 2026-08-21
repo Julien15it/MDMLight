@@ -59,22 +59,14 @@ entity DerivationRules : managed, ruleConditions {
       value : String(120) not null;
 
       /**
-       * Adds the row instead of only filling one that is already there.
+       * Superseded, and kept only because `cds-deploy` refuses to drop an element - the same reason
+       * `DuplicateRules` still carries its four `cond*` columns. **Nothing reads it. Do not write
+       * to it.**
        *
-       * Off, a derivation is a gap-filler: it needs a row to write into, and a purchasing
-       * organisation nobody added yet is a value with nowhere to go. On, the rule proposes
-       * the row itself - "role FLVN01 in BE means purchasing organisation 1710" - so the
-       * requester no longer has to add the line before the rule can say anything about it.
-       *
-       * Idempotent: a section that already holds a row with this value is left alone, so
-       * checking twice does not add the row twice, and a requester who added it by hand
-       * keeps their own.
-       *
-       * To fill more fields on that row, add ordinary derivations on the same section. The
-       * row-adding rules run as their own stage, before the gap-fillers, so a filler always
-       * finds the row this rule proposed. `sequence` therefore orders rules within each
-       * kind, not across them - adding cannot be made to follow filling, because that would
-       * only ever fill rows nobody added.
+       * It was the opt-in for a rule that adds its row instead of filling one (2026-08-20). The
+       * merged design takes the trigger from the payload instead: a rule whose target section holds
+       * no rows proposes the row, one whose section has rows fills its gaps. Dropping the column
+       * failed the database deployer, because it had already reached the deployed model.
        */
       createsRow : Boolean default false;
 }
