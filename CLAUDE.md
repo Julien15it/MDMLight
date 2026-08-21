@@ -1112,11 +1112,26 @@ the route change together.
 
 Decisions behind it, each of which has a cheaper wrong version:
 
-- **The entry point is the deep link and nothing else.** `reworkurl` goes to SPA
-  with the *initial* workflow context (alongside `bpurl`), because SPA owns the
-  rejection branch and has it to hand there. The change request list is
-  steward-gated, so a requester has no other route in — which is also why the
-  screen has to cope with a link opened twice.
+- **The entry point was the deep link and nothing else — until a second one was
+  added deliberately (2026-08-21): a My Inbox task, assigned to the requester,
+  whose input carries `tasktype: "rework"`.** `reworkurl` still goes to SPA with
+  the *initial* workflow context (alongside `bpurl`), because SPA owns the
+  rejection branch and has it to hand there, and a task with no `tasktype` (every
+  task built before this existed) still opens the approver's decision screen — so
+  nothing already working needed its input mapping touched. The change request
+  list stays steward-gated either way, so neither path is a substitute for the
+  other existing; a workflow can use one, both, or keep only `reworkurl`. The
+  screen still has to cope with a link opened twice, for whichever entry point
+  reopens it. Embedded, only Approve/Reject hide behind `env>/embedded` —
+  Resubmit and Withdraw stay visible, because unlike a decision they need the
+  requester's own edits and cannot be reduced to a My Inbox outcome button; the
+  task completes itself only *after* `resubmitRequest`/`withdrawRequest` already
+  succeeded, via `_completeEmbeddedOutcome` in the shared controller calling
+  `completeOutcome` on the task app's Component — the same `PATCH task-instances`
+  the approve path sends, without a `decideRequest` in front of it since that
+  action already recorded the outcome server-side. `resubmit`/`withdraw` were
+  added to `sap.bpa.task.outcomes` in `app/bptask` for this; they are never wired
+  to `inboxAPI.addAction`, unlike `approve`/`reject`.
 - **Resubmit resumes, it does not restart.** The process instance stays parked
   through the rejection, and `resubmitRequest` signals it with
   `RESUBMITTED_SIGNAL` (`'resubmitted'`). One instance per change request means one
