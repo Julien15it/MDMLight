@@ -1,6 +1,6 @@
 _schema-version: "3.2"
 ID: mdm-md-businesspartner-manage
-version: 1.50.0
+version: 1.51.0
 description: "Manage Business Partner (F3163) - CAP + Fiori Elements"
 parameters:
   enable-parallel-deployments: true
@@ -93,18 +93,22 @@ modules:
           content-target: true
     build-parameters:
       builder: custom
-      # `ci`, not `install`, and for the same reason the root before-all uses it. All three
-      # package-lock.json files are tracked, and `npm install` rewrites a lock whenever it can
-      # improve it - so every build dirtied the working tree and the next `git pull` refused with
-      # "Your local changes would be overwritten by merge". `ci` never writes the lock, and when
-      # the lock and package.json disagree it fails loudly instead, which is what should happen:
-      # that exact drift shipped an unbuildable version once already (archiver, 2026-08).
+      # `ci` first, `install` only if it cannot run. All three package-lock.json files are
+      # tracked, and plain `npm install` rewrites a lock whenever it can improve it - so every
+      # build left the working tree modified and the next `git pull` refused with "Your local
+      # changes would be overwritten by merge". `ci` never writes the lock, which is the point.
+      #
+      # But `ci` also refuses outright when the lock is missing or too old, and it did: a BAS
+      # workspace turned up without app/mdmrules/package-lock.json and the whole build stopped.
+      # A build that cannot run is worse than a tree that needs cleaning, so `install` stays as
+      # the fallback. It is reached only when there is no usable lock, which is exactly the case
+      # where writing one is the right thing to do.
       commands:
-        - npm --prefix app/businesspartner ci
+        - npm --prefix app/businesspartner ci || npm --prefix app/businesspartner install
         - npm --prefix app/businesspartner run build:cf
-        - npm --prefix app/mdmrules ci
+        - npm --prefix app/mdmrules ci || npm --prefix app/mdmrules install
         - npm --prefix app/mdmrules run build:cf
-        - npm --prefix app/bptask ci
+        - npm --prefix app/bptask ci || npm --prefix app/bptask install
         - npm --prefix app/bptask run build:cf
         - node tools/package-html5.js
       build-result: resources
