@@ -260,3 +260,43 @@ test('a readable table becomes the stages, and an empty one becomes none', async
   assert.equal(loaded.validations[0].name, 'configured_validation');
   store.reset();
 });
+
+
+/**
+ * A rule saved, then lost its two list columns the moment the app was left and re-entered
+ * (reported 2026-08-21). The row was in the database; those two columns were empty in it.
+ *
+ * The cause was the write path, not the data: a `MultiInput`'s tokens are an aggregation, so the
+ * cells wrote the column with `context.setProperty`. That reaches the client model - which is why
+ * the values survived navigating around inside the app, off the model cache - and never reached the
+ * server. Every column on these pages that does save is written by a **two-way binding**, so each
+ * token cell now has a hidden bound `Input` beside it that does the writing.
+ *
+ * Pinned per column on every page, because a page that grew a token cell without a writer would
+ * fail silently in exactly the same way.
+ */
+test('every token cell has the bound control that writes it', () => {
+  for (const name of [
+    'DuplicateRuleList', 'ValidationRuleList', 'DerivationRuleList', 'WorkflowRuleList'
+  ]) {
+    const source = view(name);
+    const columns = [...source.matchAll(/app:listPath="([^"]+)"/gu)].map((match) => match[1]);
+    assert.ok(columns.length >= 2, `${name} has token cells`);
+    for (const column of columns) {
+      assert.match(
+        source,
+        new RegExp(`app:listSink="${column}"`, 'u'),
+        `${name} has a bound writer for ${column}`
+      );
+      assert.match(
+        source,
+        new RegExp(`value="\\{dc>${column}\\}"`, 'u'),
+        `${name} binds ${column} two-way, which is what makes it travel`
+      );
+    }
+  }
+  // The module writes through it, and says so loudly rather than silently falling back.
+  const shared = read(APP, 'ext', 'ListCell.js');
+  assert.match(shared, /sink\.setValue\(stored\)/u);
+  assert.match(shared, /has no bound writer, so it cannot be saved/u);
+});

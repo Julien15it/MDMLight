@@ -957,7 +957,18 @@ or DE" is **one row**, and the values are **OR** — one match is enough.
   `MultiInput`'s `tokens` is an aggregation and the column is one string: `tokens`
   cannot be bound to a string and a formatter cannot create controls. So rendered
   rows are filled from the stored value (`updateFinished`) and every edit writes
-  the whole list back. Reading the stored value back after each write is what makes
+  the whole list back.
+- **A hidden bound `Input` is what writes the column** — the MultiInput is display
+  only. The first version wrote with `context.setProperty`, and the values were
+  **lost on the server while looking saved on screen** (fixed 2026-08-21): the row
+  was in the database with those two columns empty, and the value survived
+  navigating around inside the app only because it was sitting in the model cache.
+  Leaving for another tile and coming back is what exposed it. Every column on
+  these pages that does save is written by a **two-way binding**, so each token
+  cell now has an invisible `Input` bound to the same column beside it, and
+  `sink.setValue(stored)` is the write. A cell with no sink logs an error rather
+  than silently not saving, and `test/quality-rules-page.test.js` pins one writer
+  per token cell on all four pages. **Do not "simplify" the pair away.** Reading the stored value back after each write is what makes
   it self-correcting — a token the control added itself for the same text is
   de-duplicated by the round trip. `tokenUpdate` fires **before** the aggregation
   changes, so the new list is computed from `addedTokens`/`removedTokens` rather
@@ -970,10 +981,9 @@ after being created. `hasPendingChanges` answers for **one update group**, so a 
 that never travelled leaves it false and the toast reports a save that did not happen —
 from the outside, a rule vanishing. `_transientRows()` now asks the rows directly: a
 context still transient after a submit was never written, and the page says so instead.
-Whether that was the actual cause is **unconfirmed** — it could not be reproduced
-locally, and the two things that would settle it are whether the row comes back after a
-browser reload, and whether the row reaches
-`/service/duplicateconfig/WorkflowRules`.
+That guard is worth keeping, but it was **not** the cause: Maarten's next report pinned
+it exactly — the row persisted and only the two list columns came back empty, which is
+the `context.setProperty` write path above, not a submit that never happened.
 
 **Still open, and agreed as the next step:** wiring SBPA to actually consume
 `approvers`. Arthur's definition ignores the field today, so the list is sent and

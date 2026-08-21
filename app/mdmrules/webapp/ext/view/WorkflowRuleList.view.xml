@@ -83,14 +83,24 @@
                 change=".onCellChange" />
               <!-- Tokens, one per value, and they are OR: one match is enough. Nobody types the
                    delimiter the cell is stored with - see srv/checks/value-lists.js. -->
-              <MultiInput
-                width="100%"
-                placeholder="any"
-                enabled="{= !!${dc>conditionField} }"
-                app:listPath="conditionValues"
-                tokenUpdate=".onListTokenUpdate"
-                submit=".onListSubmit"
-                change=".onListChange" />
+              <VBox>
+                <MultiInput
+                  width="100%"
+                  placeholder="any"
+                  enabled="{= !!${dc>conditionField} }"
+                  app:listPath="conditionValues"
+                  tokenUpdate=".onListTokenUpdate"
+                  submit=".onListSubmit"
+                  change=".onListChange" />
+                <!-- The control that actually WRITES the column. The MultiInput above is the
+                     display: its tokens are an aggregation, and a `context.setProperty` write
+                     reached the client model but never the server (2026-08-21). Every column on
+                     this page that saves is written by a two-way binding, so this one is too. -->
+                <Input
+                  visible="false"
+                  value="{dc>conditionValues}"
+                  app:listSink="conditionValues" />
+              </VBox>
               <Input
                 width="100%"
                 value="{dc>conditionField2}"
@@ -98,27 +108,47 @@
                 showValueHelp="true"
                 valueHelpRequest=".onFieldValueHelp"
                 change=".onCellChange" />
-              <MultiInput
-                width="100%"
-                placeholder="any"
-                enabled="{= !!${dc>conditionField2} }"
-                app:listPath="conditionValues2"
-                tokenUpdate=".onListTokenUpdate"
-                submit=".onListSubmit"
-                change=".onListChange" />
+              <VBox>
+                <MultiInput
+                  width="100%"
+                  placeholder="any"
+                  enabled="{= !!${dc>conditionField2} }"
+                  app:listPath="conditionValues2"
+                  tokenUpdate=".onListTokenUpdate"
+                  submit=".onListSubmit"
+                  change=".onListChange" />
+                <!-- The control that actually WRITES the column. The MultiInput above is the
+                     display: its tokens are an aggregation, and a `context.setProperty` write
+                     reached the client model but never the server (2026-08-21). Every column on
+                     this page that saves is written by a two-way binding, so this one is too. -->
+                <Input
+                  visible="false"
+                  value="{dc>conditionValues2}"
+                  app:listSink="conditionValues2" />
+              </VBox>
               <!-- E-mail addresses, roles, or both. An entry carrying an `@` goes to SBPA as a user
                    and anything else as a role; which roles RESOLVE to is SBPA's to know, not ours.
                    An address is typed straight in; the value help is for the roles, so nobody has to
                    remember how DataSteward is spelled. -->
-              <MultiInput
-                width="100%"
-                placeholder="e-mail or role"
-                app:listPath="approvers"
-                showValueHelp="true"
-                valueHelpRequest=".onRoleValueHelp"
-                tokenUpdate=".onListTokenUpdate"
-                submit=".onListSubmit"
-                change=".onListChange" />
+              <VBox>
+                <MultiInput
+                  width="100%"
+                  placeholder="e-mail or role"
+                  app:listPath="approvers"
+                  showValueHelp="true"
+                  valueHelpRequest=".onRoleValueHelp"
+                  tokenUpdate=".onListTokenUpdate"
+                  submit=".onListSubmit"
+                  change=".onListChange" />
+                <!-- The control that actually WRITES the column. The MultiInput above is the
+                     display: its tokens are an aggregation, and a `context.setProperty` write
+                     reached the client model but never the server (2026-08-21). Every column on
+                     this page that saves is written by a two-way binding, so this one is too. -->
+                <Input
+                  visible="false"
+                  value="{dc>approvers}"
+                  app:listSink="approvers" />
+              </VBox>
               <CheckBox selected="{dc>isActive}" select=".onCellChange" />
             </cells>
           </ColumnListItem>

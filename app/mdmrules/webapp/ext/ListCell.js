@@ -39,20 +39,50 @@ sap.ui.define(["sap/m/Token"], function (Token) {
     var getTable = options.getTable;
     var onChanged = options.onChanged || function () {};
 
+    /**
+     * Every token cell on the table, as `{ cell, sink, context, path }`.
+     *
+     * `sink` is the hidden `Input` beside the MultiInput, and it is the only thing that WRITES:
+     * a `context.setProperty` write reached the client model and never the server, so the column
+     * looked saved until the app was left and re-entered (2026-08-21). Everything on these pages
+     * that does save is written by a two-way binding, so the list is too - the MultiInput is
+     * display only.
+     */
     var listCells = function () {
       var table = getTable();
       if (!table) return [];
       var cells = [];
+      var walk = function (control, context, found) {
+        if (!control || !control.isA) return;
+        if (control.isA("sap.m.MultiInput") && control.data("listPath")) {
+          found.cell = control;
+          found.path = control.data("listPath");
+        } else if (control.isA("sap.m.Input") && control.data("listSink")) {
+          found.sink = control;
+        }
+        // The pair sits in a container, so one level of nesting is walked rather than assumed.
+        if (control.getItems) control.getItems().forEach(function (child) {
+          walk(child, context, found);
+        });
+      };
       table.getItems().forEach(function (item) {
         var context = item.getBindingContext("dc");
         if (!context) return;
         item.getCells().forEach(function (cell) {
-          if (!cell.isA || !cell.isA("sap.m.MultiInput")) return;
-          var path = cell.data("listPath");
-          if (path) cells.push({ cell: cell, context: context, path: path });
+          var found = {};
+          walk(cell, context, found);
+          if (found.cell && found.path) {
+            cells.push({ cell: found.cell, sink: found.sink, context: context, path: found.path });
+          }
         });
       });
       return cells;
+    };
+
+    /** The bound writer for one MultiInput, found through the row it belongs to. */
+    var sinkFor = function (cell) {
+      var match = listCells().filter(function (entry) { return entry.cell === cell; })[0];
+      return match ? match.sink : null;
     };
 
     var fillTokens = function (cell, context, path) {
@@ -85,7 +115,17 @@ sap.ui.define(["sap/m/Token"], function (Token) {
       var stored = formatList((tokens || cell.getTokens()).map(function (token) {
         return token.getText();
       }));
-      context.setProperty(path, stored);
+      var sink = sinkFor(cell);
+      if (sink) {
+        // A property change on a two-way bound control, which is how every column here that saves
+        // gets written. `setValue` propagates through the binding; `setProperty` on the context did
+        // not travel, and the value was lost the moment the app was left.
+        sink.setValue(stored);
+      } else {
+        // A page that forgot its sink would silently stop saving, which is the bug this replaced.
+        console.error("[ListCell] " + path + " has no bound writer, so it cannot be saved.");
+        context.setProperty(path, stored);
+      }
       cell.data("shownList", null);
       fillTokens(cell, context, path);
       onChanged();
