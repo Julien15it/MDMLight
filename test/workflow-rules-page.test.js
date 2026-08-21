@@ -183,7 +183,14 @@ test('the approvers are sent with the workflow context, and never absent', () =>
   const body = builder.slice(0, builder.indexOf('\n    };'));
   assert.match(body, /approversFor\(\{/u);
   assert.match(body, /requestType: req\.data\.RequestType/u);
-  assert.match(body, /^\s*approvers$/mu, 'the context carries an `approvers` key');
+  // Flattened to the values at this boundary: the deployed process declares `approvers` as an
+  // array of strings, and sending objects failed the whole submit with "/approvers/0 The value
+  // must be of string type". resolveApprovers still returns { step, kind, value } - only what
+  // crosses to SBPA is narrowed, so restoring it is a process-side schema change and this map.
+  assert.match(
+    body, /approvers: approvers\.map\(\(approver\) => approver\.value\)/u,
+    'the context carries approvers as strings'
+  );
   // Best-effort, like `businesspartnerinput`: an empty list is what SBPA read before this table
   // existed, so a routing hint must not cost a requester their submit.
   assert.match(body, /console\.warn/u);

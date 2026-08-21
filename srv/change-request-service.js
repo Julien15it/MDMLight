@@ -369,9 +369,17 @@ class ChangeRequestService extends cds.ApplicationService {
         // One entry per matched partner, so the approver sees what was flagged and why. Empty when
         // nothing matched, never absent - SPA can then bind it without a null check.
         bpduplicates: duplicateSummary(findings),
-        // `{ step, sequence, kind, value }` per approver, `kind` telling a user from a role - the one
-        // distinction SBPA needs to assign a task. Empty, never absent, for the same reason.
-        approvers
+        // Flattened to the values, because the deployed process declares `approvers` as an array of
+        // strings and the runtime validates against that: sending `{ step, kind, value }` fails the
+        // whole submit with "/approvers/0 The value must be of string type, but actual type is
+        // object", which is every create refused over a routing hint.
+        //
+        // So this is the boundary, not the design. resolveApprovers still returns the structured
+        // list, and `kind` is still derivable the way it is derived here - an entry carrying an `@`
+        // is a user. What is genuinely lost is `step`: two steps arrive as one list. Restoring it
+        // means declaring `approvers` as an array of objects in the process context, after which
+        // this map comes off again.
+        approvers: approvers.map((approver) => approver.value)
       };
     };
 

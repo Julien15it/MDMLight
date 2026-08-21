@@ -901,9 +901,10 @@ people***. The columns are CR type, step, two condition pairs, and the approvers
   stays on SBPA's side, the same way `decideRequest` records an outcome without
   knowing the chain. CAP does not check that a role exists either — roles live in
   SBPA, and a copy kept here would go stale.
-- **An entry carrying an `@` goes out as a user, anything else as a role.** Each
-  approver reaches SBPA as `{ step, kind, value }`; `kind` is the one distinction
-  it needs to assign a task. The two halves are **entered** differently on purpose
+- **An entry carrying an `@` goes out as a user, anything else as a role.**
+  `resolveApprovers` returns `{ step, kind, value }` per approver, but **what crosses
+  to SBPA is a flat array of the values** — see "What actually goes over the wire"
+  below. `kind` stays derivable on either side from the `@`. The two halves are **entered** differently on purpose
   (2026-08-21): an address is free text nobody could offer a list for, while a role
   has to be spelled exactly as SBPA knows it, so the cell takes typing *and* offers
   a multi-select value help over the roles. The list is `ROLES` from
@@ -975,6 +976,29 @@ or DE" is **one row**, and the values are **OR** — one match is enough.
   than read off the control.
 - Enter commits a value **and so does leaving the cell**: a token silently dropped
   on the way out is a rule quietly missing an approver.
+
+##### What actually goes over the wire (fixed 2026-08-21)
+
+`workflowContext` sends `approvers` as a **flat array of strings**, not the structured
+list the engine produces. Julien found this the hard way: the deployed process declares
+`approvers` as an array of strings and the runtime validates against it, so sending
+objects failed **every submit** with
+
+```
+[340,5] /approvers/0 The value must be of string type, but actual type is object.
+```
+
+That is a create refused over a routing hint, which is the exact failure mode the
+best-effort resolution was supposed to prevent — the guard covered a table that could
+not be *read*, not a payload SBPA would not *accept*.
+
+- **Flattened at the boundary only.** `resolveApprovers` still returns
+  `{ step, kind, value }`; the `.map` sits in `workflowContext` and nowhere else.
+- **What is genuinely lost is `step`.** Two steps arrive as one list. Restoring it is a
+  process-side schema change to an array of objects, after which the map comes off. Do
+  not "restore" it on this side alone — that is the change that broke every submit.
+- **`kind` is not lost**, only implicit: an entry carrying an `@` is a user, on either
+  side of the wire.
 
 **Save cannot claim what it did not do (2026-08-21).** A rule appeared to clear itself
 after being created. `hasPendingChanges` answers for **one update group**, so a create
@@ -1300,9 +1324,9 @@ diagnosable where a 404 is not. The intent must match the `BusinessPartner-manag
 - Workflow context sent at submit:
   `{ changerequestid, requesttype, businesspartner, emailadressinitiator, bpurl, reworkurl,
   businesspartnerinput, bpduplicates, approvers }`
-- `approvers` is `[{ step, kind, value }]` from the `WorkflowRules`
-  table, `kind` being `user` (an e-mail address) or `role`. **Nothing on Arthur's
-  side reads it yet** — see "Workflow rules" above.
+- `approvers` is an **array of strings** from the `WorkflowRules` table — e-mail
+  addresses and role names mixed, `kind` derivable from the `@`. It is **not** an
+  array of objects: see "What actually goes over the wire" under "Workflow rules".
 
 **Not built on Arthur's side yet — rework needs three things from his definition,
 and the loop does not close without them:**
