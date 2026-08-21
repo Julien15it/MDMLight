@@ -478,7 +478,9 @@ sap.ui.define([
         maintenanceModel.setData(state);
 
         try {
-          var model = this.getView().getModel();
+          // The component's model as a fallback - see _serviceModel.
+          var model = this._serviceModel();
+          if (!model) throw new Error("The business partner service is not bound to this screen.");
           var rootBinding = model.bindContext(
             "/BusinessPartners('" + escapeODataKey(businessPartner) + "')"
           );
@@ -548,7 +550,8 @@ sap.ui.define([
       },
 
       _loadSection: async function (businessPartner, section) {
-        var model = this.getView().getModel();
+        var model = this._serviceModel();
+        if (!model) throw new Error("The business partner service is not bound to this screen.");
         var availableFields = section.fields.map(function (field) { return field.name; });
         if (!availableFields.includes(section.relationField)) availableFields.push(section.relationField);
         var omittedFields = [];
@@ -602,7 +605,12 @@ sap.ui.define([
       _loadCodeTexts: async function (collectionPaths) {
         this._codeTexts = this._codeTexts || {};
         this._codeTextRequests = this._codeTextRequests || {};
-        var model = this.getView().getModel();
+        // Rendering reaches this, and on the task path rendering follows straight out of onInit -
+        // so the component's model is the one that answers. See _serviceModel.
+        var model = this._serviceModel();
+        // A code list that cannot be read leaves the codes showing as codes, which is what this
+        // did before it was asked for. Not worth failing a screen over.
+        if (!model) return;
 
         await Promise.all(collectionPaths.map(function (path) {
           if (this._codeTextRequests[path]) return this._codeTextRequests[path];
@@ -1405,10 +1413,33 @@ sap.ui.define([
         hosted.forEach(function (entry) { this._renderSection(entry.section); }, this);
       },
 
+      /**
+       * The view's model, or the component's. A routed view is in the control tree by the time a
+       * pattern matches, so the view has inherited everything - but the TASK handover calls
+       * `_loadStagedRequest` from `onInit`, before the view is placed, and nothing has propagated
+       * down yet. `getModel` then answers `undefined` and the caller dies on
+       * "Cannot read properties of undefined (reading 'bindContext')" - which is the popup on
+       * opening a change request from My Inbox (2026-08-21).
+       *
+       * Same fallback the rule pages use for their `dc` model, and for the same reason.
+       */
+      _serviceModel: function (modelName) {
+        var component = this.getOwnerComponent();
+        return this.getView().getModel(modelName)
+          || (component && component.getModel(modelName));
+      },
+
       // modelName selects the service: undefined is BusinessPartnerService,
       // "cr" is ChangeRequestService (the staging actions).
       _executeAction: async function (name, parameters, modelName) {
-        var binding = this.getView().getModel(modelName).bindContext("/" + name + "(...)");
+        var model = this._serviceModel(modelName);
+        // Named rather than thrown at by the framework: a missing service model is a wiring
+        // problem in whichever app is hosting this screen, and the message has to say so.
+        if (!model) {
+          throw new Error("The " + (modelName === "cr" ? "change request" : "business partner")
+            + " service is not bound to this screen.");
+        }
+        var binding = model.bindContext("/" + name + "(...)");
         Object.keys(parameters).forEach(function (parameter) {
           binding.setParameter(parameter, parameters[parameter]);
         });

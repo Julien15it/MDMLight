@@ -338,3 +338,55 @@ test('the maintenance model exists before the task handover reads it', () => {
   assert.ok(modelAt > -1 && handoverAt > -1, 'both the model and the handover are in onInit');
   assert.ok(modelAt < handoverAt, 'the model has to be created first, or the load writes nowhere');
 });
+
+
+/**
+ * "Cannot read properties of undefined (reading 'bindContext')", in a popup, on opening a change
+ * request from My Inbox (reported 2026-08-21).
+ *
+ * The task handover calls `_loadStagedRequest` from `onInit` - it has to, because embedded there is
+ * no route to carry the request id. But a view has not inherited its component's models at that
+ * point: propagation happens when the view is placed in the control tree, which for a routed view
+ * is before a pattern matches and for this one is *after* onInit returns. So
+ * `this.getView().getModel("cr")` answered undefined and the first action call died on it.
+ *
+ * The fallback is the one the rule pages already use for their own service model. Pinned because the
+ * failure only shows in the inbox: every routed path works, so nothing else catches it.
+ */
+test('a service model is read off the component when the view has not inherited it yet', () => {
+  const controller = read(
+    '..', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse',
+    'controller', 'BusinessPartnerMaintenance.controller.js'
+  );
+
+  // One accessor, and it tries the view first so a routed view keeps behaving exactly as it did.
+  assert.match(controller, /_serviceModel: function \(modelName\)/u);
+  const accessor = controller.slice(controller.indexOf('_serviceModel: function'));
+  const body = accessor.slice(0, accessor.indexOf('\n      },'));
+  assert.match(body, /this\.getView\(\)\.getModel\(modelName\)/u);
+  assert.match(body, /\|\|[\s\S]{0,60}component\.getModel\(modelName\)/u);
+
+  // Every reader that can run before the view is placed goes through it.
+  assert.match(controller, /var model = this\._serviceModel\(modelName\);/u);
+  assert.equal(
+    /getView\(\)\.getModel\(modelName\)\.bindContext/u.test(controller),
+    false,
+    'no action call reads the model straight off the view any more'
+  );
+  // And the action names the missing service rather than letting the framework throw.
+  assert.match(controller, /service is not bound to this screen/u);
+});
+
+// The reason the fallback is needed at all: the handover runs inside onInit, where a routed load
+// never does. If this ever moves out of onInit the fallback is still correct, but the comment on
+// _serviceModel would be describing something that no longer happens.
+test('the task handover still loads the request from onInit', () => {
+  const controller = read(
+    '..', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse',
+    'controller', 'BusinessPartnerMaintenance.controller.js'
+  );
+  const init = controller.slice(controller.indexOf('onInit: function'));
+  const body = init.slice(0, init.indexOf('_emptyState: function'));
+  assert.match(body, /_loadStagedRequest\(pending, "approve"\)/u);
+  assert.match(body, /_loadStagedRequest\(pendingRework, "rework"\)/u);
+});

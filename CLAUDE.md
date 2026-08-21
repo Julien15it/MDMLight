@@ -1300,6 +1300,16 @@ costs the same step.
   well would deliver the same decision twice.
 - Embedded, `window.location` is the **host's**. The change request id comes from
   the loaded task **context**, never from the hash.
+- **A service model is read through `_serviceModel()`, never straight off the view**
+  (fixed 2026-08-21). The handover calls `_loadStagedRequest` from `onInit`, and a
+  view has not inherited its component's models at that point — propagation happens
+  when it is placed in the control tree. `getView().getModel("cr")` answered
+  `undefined`, so the first action call popped **"Cannot read properties of
+  undefined (reading 'bindContext')"** and the form opened empty. The accessor tries
+  the view first, so every routed path is untouched, and falls back to the
+  component — the same fallback the rule pages use for their `dc` model, for the
+  same reason. Only the readers that can run before the view is placed use it; the
+  value-help dialog and the assistant are opened by a press, long after.
 
 #### Contract the SPA side depends on
 
