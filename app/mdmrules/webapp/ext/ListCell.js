@@ -40,6 +40,20 @@ sap.ui.define(["sap/m/Token"], function (Token) {
     var onChanged = options.onChanged || function () {};
 
     /**
+     * Set while THIS module is redrawing a cell's tokens, and checked by every handler that writes.
+     *
+     * Without it the module destroys data. `applyTokens` calls `removeAllTokens()` to redraw, the
+     * control reports those tokens as removed, `onListTokenUpdate` computes the resulting list as
+     * empty and writes `""` back - through the bound sink, so it is a real change. Opening a page
+     * therefore blanked every stored condition value, and typing one in re-entered the same loop
+     * (reported 2026-08-21).
+     *
+     * A counter rather than a boolean because a redraw can be reached from inside a write, and the
+     * inner one must not clear the outer one's guard.
+     */
+    var redrawing = 0;
+
+    /**
      * Every token cell on the table, as `{ cell, sink, context, path }`.
      *
      * `sink` is the hidden `Input` beside the MultiInput, and it is the only thing that WRITES:
@@ -102,10 +116,16 @@ sap.ui.define(["sap/m/Token"], function (Token) {
       // cell is rebuilt from the list that was actually stored.
       var shown = formatList(cell.getTokens().map(function (token) { return token.getText(); }));
       if (shown === stored && cell.data("shownList") === stored) return;
-      cell.removeAllTokens();
-      parseList(stored).forEach(function (value) {
-        cell.addToken(new Token({ key: value, text: value }));
-      });
+      redrawing += 1;
+      try {
+        cell.removeAllTokens();
+        parseList(stored).forEach(function (value) {
+          cell.addToken(new Token({ key: value, text: value }));
+        });
+      } finally {
+        // `finally`, or one throwing token leaves the guard up and the cell silently read-only.
+        redrawing -= 1;
+      }
       cell.data("shownList", stored);
     };
 
@@ -165,6 +185,8 @@ sap.ui.define(["sap/m/Token"], function (Token) {
     // `tokenUpdate` fires BEFORE the aggregation is changed, so the new list is computed from the
     // added and removed tokens rather than read back off the control.
     controller.onListTokenUpdate = function (event) {
+      // Our own redraw reports every token as removed. Acting on that is what emptied the column.
+      if (redrawing) return;
       var cell = event.getSource();
       var removed = event.getParameter("removedTokens") || [];
       var added = event.getParameter("addedTokens") || [];
@@ -176,12 +198,14 @@ sap.ui.define(["sap/m/Token"], function (Token) {
 
     /** Enter. The value becomes a token, so a list is typed rather than assembled from a dialog. */
     controller.onListSubmit = function (event) {
+      if (redrawing) return;
       takeTypedValue(event.getSource(), event.getParameter("value"));
     };
 
     // Leaving the cell keeps what was typed, rather than making Enter the only way to commit a
     // value - a token silently dropped on the way out is a rule quietly missing a condition.
     controller.onListChange = function (event) {
+      if (redrawing) return;
       takeTypedValue(event.getSource(), event.getParameter("value"));
     };
 
