@@ -13,14 +13,17 @@ sap.ui.define([
   var UPDATE_GROUP = "ruleChanges";
 
   // Mirrors CONDITION_PAIRS in srv/checks/workflow-rules.js. The column names are part of the OData
-  // contract, so this is the one thing the page may hold a copy of. Values plural: they are lists.
+  // contract, so this is the one thing the page may hold a copy of. The `values` keys are PLURAL and
+  // hold one value each: multiple values were withdrawn on 2026-08-21 and `cds-deploy` cannot rename
+  // a column - see "Multiple values per condition" in CLAUDE.md.
   var CONDITION_PAIRS = [
     { field: "conditionField", values: "conditionValues" },
     { field: "conditionField2", values: "conditionValues2" }
   ];
 
   // Who approves what. Same page shape as the other three rule tables, because a steward should not
-  // have to learn two - the only new idea is a cell that holds a list.
+  // have to learn two: one value per cell, a field value help on the conditions and a role value
+  // help on the approver. Several approvers means several rows.
   return Controller.extend("mdm.md.mdmrules.manage.ext.controller.WorkflowRuleList", {
 
     onInit: function () {

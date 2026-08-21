@@ -120,16 +120,17 @@ test('every cell is a single bound value, and nothing tokenises', () => {
 // a steward is not told by a rejected batch.
 test('the row is checked before it is sent, and again on the way in', () => {
   assert.match(controller, /choose the CR type this rule applies to/u);
-  assert.match(controller, /add at least one approver/u);
-  assert.match(controller, /needs at least one value, or clear its field/u);
+  assert.match(controller, /name the approver/u);
+  assert.match(controller, /needs a value, or clear its field/u);
   assert.match(serviceJs, /guard\('WorkflowRules', WORKFLOW_RULES, validateWorkflowRule/u);
   // Its own store, or a write would drop the quality cache and leave the approvers stale.
   assert.match(serviceJs, /workflowRuleStore\.markStale/u);
 });
 
 // Rows not columns, like every other table here: adding a step or an approver must be an INSERT,
-// because cds-deploy refuses to drop an element.
-test('the table is rows, and the lists are single columns', () => {
+// because cds-deploy refuses to drop an element. One value per column, so an extra approver is an
+// extra row - which is what the Add button is for and what resolveApprovers merges.
+test('the table is rows, and every column holds one value', () => {
   assert.match(rulesCds, /entity WorkflowRules : managed/u);
   for (const column of [
     'requestType', 'step', 'conditionField', 'conditionValues', 'conditionField2',
