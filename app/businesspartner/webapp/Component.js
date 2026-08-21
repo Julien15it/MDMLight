@@ -28,7 +28,9 @@ sap.ui.define(
                 );
                 this._loadPermissions();
                 // Always set, so the view can bind on it whether or not BPA embedded us.
-                this.setModel(new JSONModel({ embedded: false }), "env");
+                // taskChangeRequest is filled only while embedded, and is how the approve
+                // page learns which request to load without a route to carry it.
+                this.setModel(new JSONModel({ embedded: false, taskChangeRequest: "" }), "env");
                 // Never allowed to reject: init() is synchronous to its caller, and an unhandled
                 // rejection here can abort the shell's app creation and have it retried - which
                 // surfaces as "adding element with duplicate id ...-content" rather than as
@@ -108,17 +110,52 @@ sap.ui.define(
                 }
 
                 var context = contextModel.getData() || {};
-                if (context.changerequestid) this._openApprove(context.changerequestid);
+                if (context.changerequestid) {
+                    this._openApprove(context.changerequestid);
+                } else {
+                    // The task loaded but carries no request id, which is a mapping problem in
+                    // the process rather than anything this app can recover from. Said out loud:
+                    // an empty form looks like the app lost the data it was given.
+                    MessageBox.error(
+                        "This task carries no change request id, so there is nothing to show. "
+                        + "In the approval step of the process, map the process context onto the "
+                        + "task inputs declared in sap.bpa.task - changerequestid is the required one."
+                    );
+                }
 
                 this._addInboxActions();
             },
 
+            /**
+             * Standalone this is a route: the URL is ours, and the hash is how the app says
+             * which request it is showing.
+             *
+             * Embedded in My Inbox it cannot be. The hash belongs to the inbox shell, so
+             * writing our pattern into it matches no route of ours - the component renders
+             * and its approve page never activates, which is exactly "the form is there but
+             * the data is not". So the target is displayed directly and the id is handed to
+             * the page through the env model and the event bus, bypassing routing entirely.
+             *
+             * Both are used because the order is not guaranteed: the page may already be
+             * listening when the context arrives, or may still be initialising. The model
+             * covers the late reader, the event the early one.
+             */
             _openApprove: function (changeRequest) {
-                this.getRouter().navTo(
-                    "ChangeRequestApprove",
-                    { changeRequest: encodeURIComponent(changeRequest) },
-                    true
-                );
+                if (!this.getModel("env").getProperty("/embedded")) {
+                    this.getRouter().navTo(
+                        "ChangeRequestApprove",
+                        { changeRequest: encodeURIComponent(changeRequest) },
+                        true
+                    );
+                    return;
+                }
+
+                this.getModel("env").setProperty("/taskChangeRequest", changeRequest);
+                this.getEventBus().publish("taskform", "approve", { changeRequest: changeRequest });
+
+                var router = this.getRouter();
+                var targets = router && router.getTargets && router.getTargets();
+                if (targets) targets.display("BusinessPartnerMaintenance");
             },
 
             _startupParameters: function () {

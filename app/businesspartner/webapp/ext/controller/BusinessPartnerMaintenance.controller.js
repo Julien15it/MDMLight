@@ -327,6 +327,17 @@ sap.ui.define([
         this._router.getRoute("ChangeRequestEdit").attachPatternMatched(this._onRequestEditRoute, this);
         this._router.getRoute("ChangeRequestRework").attachPatternMatched(this._onReworkRoute, this);
 
+        // Embedded in My Inbox there is no route to match: the hash belongs to the inbox, so
+        // the Component hands the request over directly. Read once for a context that has
+        // already arrived, and subscribed for one that has not - the fetch is a round trip and
+        // may land either side of this.
+        var component = this.getOwnerComponent();
+        component.getEventBus().subscribe("taskform", "approve", function (channel, event, data) {
+          if (data && data.changeRequest) this._loadStagedRequest(data.changeRequest, "approve");
+        }, this);
+        var pending = component.getModel("env").getProperty("/taskChangeRequest");
+        if (pending) this._loadStagedRequest(pending, "approve");
+
         this.getView().setModel(new JSONModel(this._emptyState()), "maintenance");
       },
 
