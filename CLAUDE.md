@@ -1296,6 +1296,13 @@ costs the same step.
 - The runtime base URL is **derived**: `/{sap.cloud.service}.{sap.app.id}/api/
   public/workflow/rest/v1`, dots stripped. Renaming either breaks it, which
   `test/task-form.test.js` pins.
+- **Verifying `manifest.json` over HTTP proves nothing about what the app is
+  running.** `build:cf` uses `ui5 build preload`, and `Component-preload.js`
+  **embeds the manifest** — the runtime reads it from the bundle, not from the file.
+  So fetching `…/manifest.json` can show a fix that the running app does not have,
+  because the bundle at an unchanged version URL is still cached. Cost half an hour
+  on 2026-08-21. To test a task-app change, disable the browser cache or move the
+  app version; to check what is live, look at the URL the app actually requests.
 - **The OData `dataSources` are ABSOLUTE, on that same derived app path** (fixed
   2026-08-21) — `/mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/…/`, not
   `service/…/`. Embedded in My Inbox the app is served out of the HTML5 repository
