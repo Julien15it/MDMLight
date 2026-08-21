@@ -1455,6 +1455,19 @@ sap.ui.define([
         MessageBox.error("This Business Partner is not open for editing.");
       },
 
+      /**
+       * Reports Resubmit/Withdraw back to a My Inbox rework task after the action already
+       * succeeded server-side. A no-op outside app/bptask: env>/embedded is only ever true there,
+       * and only that host's Component implements completeOutcome. Best-effort like every other
+       * workflow side effect here - the staged data is already right by the time this runs, and a
+       * BPA hiccup must not turn a successful resubmit/withdraw into an error the requester sees.
+       */
+      _completeEmbeddedOutcome: function (outcomeId) {
+        if (!this.getView().getModel("env").getProperty("/embedded")) return;
+        var component = this.getOwnerComponent();
+        if (component && component.completeOutcome) component.completeOutcome(outcomeId);
+      },
+
       // Withdraw deletes the request and its staging rows. Confirmed first and worded plainly: it is
       // the one action here that destroys data, and there is no undo.
       onWithdraw: function () {
@@ -1499,6 +1512,7 @@ sap.ui.define([
           state.title = "Request withdrawn";
           state.duplicates = [];
           state.duplicatesHeader = "";
+          this._completeEmbeddedOutcome("withdraw");
           state.messages = [{
             type: "Success",
             text: "Change request " + state.changeRequest + " was withdrawn and deleted."
@@ -1715,6 +1729,7 @@ sap.ui.define([
           state.duplicatesHeader = "";
           // Deliberately no navigation: the request header and its messages stay on screen, the
           // way Save already behaves and the way MDG reports a submit.
+          if (action === "resubmitRequest") this._completeEmbeddedOutcome("resubmit");
         } catch (error) {
           MessageBox.error(errorMessage(error, "The request could not be saved."));
         } finally {
@@ -2168,8 +2183,13 @@ sap.ui.define([
         );
       },
 
-      // The requester's screen for a request sent back. Reached only by the `reworkurl` deep link -
-      // the list is steward-gated. Every field is editable, and the footer offers Resubmit/Withdraw.
+      // The requester's screen for a request sent back. Reached by the `reworkurl` deep link, or by
+      // a My Inbox task carrying `tasktype: "rework"` - the list is steward-gated either way, so
+      // neither path is reachable from there. Every field is editable, and the footer offers
+      // Resubmit/Withdraw; embedded, those two buttons stay visible (only Approve/Reject hide) and
+      // report their outcome back to the task through _completeEmbeddedOutcome once the action has
+      // already succeeded server-side - unlike a decision, Resubmit needs the requester's own edits,
+      // so it cannot be reduced to a My Inbox outcome button the way Approve/Reject are.
       _onReworkRoute: function (event) {
         return this._loadStagedRequest(
           decodeURIComponent(event.getParameter("arguments").changeRequest), "rework"

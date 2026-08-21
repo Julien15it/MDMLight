@@ -62,11 +62,45 @@ test('the workflow base url is built from sap.cloud.service and sap.app.id', () 
 
 test('the inbox actions match the outcomes declared in sap.bpa.task', () => {
   const declared = manifest['sap.bpa.task'].outcomes.map((outcome) => outcome.id).sort();
-  assert.deepEqual(declared, ['approve', 'reject']);
+  // approve/reject go through inboxAPI.addAction, same as ever. resubmit/withdraw are declared
+  // outcomes too - the workflow runtime has to accept them on completion - but are reported by
+  // completeOutcome() after the shared screen's own Resubmit/Withdraw buttons already succeeded,
+  // never by an inbox button: unlike a decision, resubmitRequest needs the requester's edits.
+  assert.deepEqual(declared, ['approve', 'reject', 'resubmit', 'withdraw']);
   // Registered with the same ids, or the completion is rejected by the runtime.
   assert.match(component, /\{ id: "reject", label: "Reject", type: "reject" \}/u);
   assert.match(component, /\{ id: "approve", label: "Approve", type: "accept" \}/u);
   assert.match(component, /inbox\.addAction\(/u);
+});
+
+test('resubmit/withdraw are never wired to an inbox button', () => {
+  assert.equal(/id: "resubmit"/u.test(component), false);
+  assert.equal(/id: "withdraw"/u.test(component), false);
+  assert.match(component, /completeOutcome: async function \(outcomeId\)/u);
+});
+
+// A task with no tasktype (every task built before rework-via-My-Inbox existed) must still open
+// the approver's decision screen - nothing already working needed its input mapping touched.
+test('tasktype distinguishes a rework task from the approver decision task', () => {
+  assert.match(component, /context\.tasktype === "rework"/u);
+  assert.match(component, /if \(context\.changerequestid\) this\._openRework\(context\.changerequestid\)/u);
+  assert.ok(manifest['sap.bpa.task'].inputs.properties.tasktype, 'tasktype is declared as an input');
+  assert.equal(
+    manifest['sap.bpa.task'].inputs.required.includes('tasktype'), false,
+    'optional - absent still means approve'
+  );
+});
+
+test('resubmit and withdraw report back to an embedded rework task, only after they succeed', () => {
+  assert.match(reuseController, /_completeEmbeddedOutcome: function \(outcomeId\)/u);
+  // A no-op outside app/bptask: only that host's Component implements completeOutcome.
+  assert.match(
+    reuseController, /if \(!this\.getView\(\)\.getModel\("env"\)\.getProperty\("\/embedded"\)\) return;/u
+  );
+  assert.match(reuseController, /component\.completeOutcome/u);
+  // Wired into each action's own success path, not called unconditionally.
+  assert.match(reuseController, /_completeEmbeddedOutcome\("withdraw"\)/u);
+  assert.match(reuseController, /if \(action === "resubmitRequest"\) this\._completeEmbeddedOutcome\("resubmit"\)/u);
 });
 
 test('the task is completed by patching the task instance', () => {
@@ -205,7 +239,9 @@ test('the task app is its own app on the same business service', () => {
  */
 test('the outcome labels are literal, not i18n placeholders', () => {
   const outcomes = manifest['sap.bpa.task'].outcomes;
-  assert.deepEqual(outcomes.map((outcome) => outcome.label), ['Approve', 'Reject']);
+  assert.deepEqual(
+    outcomes.map((outcome) => outcome.label), ['Approve', 'Reject', 'Resubmit', 'Withdraw']
+  );
   for (const outcome of outcomes) {
     assert.equal(
       /\{\{|\}\}/u.test(outcome.label), false, `${outcome.id} must not carry a placeholder`

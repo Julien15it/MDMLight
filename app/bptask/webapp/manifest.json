@@ -5,7 +5,7 @@
     "type": "application",
     "i18n": "i18n/i18n.properties",
     "applicationVersion": {
-      "version": "1.0.0"
+      "version": "1.1.0"
     },
     "title": "{{appTitle}}",
     "description": "{{appDescription}}",
@@ -137,6 +137,16 @@
         "id": "reject",
         "label": "Reject",
         "type": "negative"
+      },
+      {
+        "id": "resubmit",
+        "label": "Resubmit",
+        "type": "positive"
+      },
+      {
+        "id": "withdraw",
+        "label": "Withdraw",
+        "type": "negative"
       }
     ],
     "inputs": {
@@ -151,25 +161,9 @@
           "type": "string",
           "title": "Change Request"
         },
-        "requesttype": {
+        "tasktype": {
           "type": "string",
-          "title": "Request Type"
-        },
-        "businesspartner": {
-          "type": "string",
-          "title": "Business Partner"
-        },
-        "emailadressinitiator": {
-          "type": "string",
-          "title": "Initiator"
-        },
-        "bpurl": {
-          "type": "string",
-          "title": "Approve URL"
-        },
-        "businesspartnerinput": {
-          "type": "object",
-          "title": "Business Partner Data"
+          "title": "Task Type"
         }
       }
     },

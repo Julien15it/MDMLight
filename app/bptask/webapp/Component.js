@@ -102,6 +102,14 @@ sap.ui.define(
                 }
 
                 var context = contextModel.getData() || {};
+                // `tasktype` is the only thing telling a rework task apart from the approver's
+                // decision task. Absent - every task built before rework existed - still means
+                // approve, so no workflow that already works needs its input mapping touched.
+                if (context.tasktype === "rework") {
+                    if (context.changerequestid) this._openRework(context.changerequestid);
+                    return;
+                }
+
                 if (context.changerequestid) this._openApprove(context.changerequestid);
 
                 this._addInboxActions();
@@ -110,6 +118,22 @@ sap.ui.define(
             _openApprove: function (changeRequest) {
                 this.getRouter().navTo(
                     "ChangeRequestApprove",
+                    { changeRequest: encodeURIComponent(changeRequest) },
+                    true
+                );
+            },
+
+            /**
+             * Unlike approve/reject, Resubmit and Withdraw need the requester to actually edit and
+             * confirm on the shared screen (checks, the duplicate-check confirmation dialog) - that
+             * cannot be reduced to a My Inbox outcome button. So no inboxAPI.addAction here: the
+             * screen keeps its own Resubmit/Withdraw buttons (they are not hidden by env>/embedded),
+             * and completeOutcome() below is called back from the shared controller once the action
+             * has already succeeded server-side.
+             */
+            _openRework: function (changeRequest) {
+                this.getRouter().navTo(
+                    "ChangeRequestRework",
                     { changeRequest: encodeURIComponent(changeRequest) },
                     true
                 );
@@ -209,6 +233,24 @@ sap.ui.define(
                 });
                 if (!response.ok) {
                     throw new Error("the workflow runtime answered " + response.status);
+                }
+            },
+
+            /**
+             * Called by the shared maintenance controller after a resubmit or withdraw succeeds,
+             * only while embedded. resubmitRequest/withdrawRequest already did the server-side work,
+             * so this is purely telling the workflow runtime the outcome - the same PATCH the
+             * approve path sends, just without a decideRequest call in front of it.
+             */
+            completeOutcome: async function (outcomeId) {
+                try {
+                    await this._patchTaskInstance(outcomeId);
+                    this._startupParameters().inboxAPI.updateTask("NA", this._taskInstanceId());
+                } catch (error) {
+                    MessageBox.error(
+                        "The request was saved, but the task could not be completed: "
+                        + (error.message || error)
+                    );
                 }
             }
         });
