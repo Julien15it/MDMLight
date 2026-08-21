@@ -303,3 +303,32 @@ test('every token cell has the bound control that writes it', () => {
   assert.match(shared, /sink\.setValue\(stored\)/u);
   assert.match(shared, /has no bound writer, so it cannot be saved/u);
 });
+
+
+/**
+ * A typed approver address stopped sticking the moment the write moved onto the binding (reported
+ * 2026-08-21): the write path re-read the model to redraw the tokens, and through a two-way binding
+ * that read does not reliably see what was just written - so it came back with the PREVIOUS value
+ * and removed the token a line after adding it. `context.setProperty` had hidden this by updating
+ * the client cache synchronously.
+ *
+ * So the write path draws what it wrote, and only the render path reads the model.
+ */
+test('the write path draws what it wrote, and never re-reads the model', () => {
+  const shared = read(APP, 'ext', 'ListCell.js');
+  const write = shared.slice(shared.indexOf('var writeTokens = function'));
+  const body = write.slice(0, write.indexOf('
+    };'));
+  assert.match(body, /applyTokens\(cell, stored\)/u, 'it draws the list it just wrote');
+  assert.equal(
+    /getProperty\(/u.test(body),
+    false,
+    'the write path reads nothing back out of the model'
+  );
+  assert.equal(/fillTokens\(/u.test(body), false, 'and does not go through the render path');
+  // The render path is the only reader, and it is the one the table calls on updateFinished.
+  const fill = shared.slice(shared.indexOf('var fillTokens = function'));
+  assert.match(fill.slice(0, fill.indexOf('};')), /context\.getProperty\(path\)/u);
+  // Still self-correcting: a stray token the control added is compared against and cleaned up.
+  assert.match(shared, /var shown = formatList\(cell\.getTokens\(\)/u);
+});

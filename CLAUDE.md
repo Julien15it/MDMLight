@@ -959,6 +959,14 @@ or DE" is **one row**, and the values are **OR** — one match is enough.
   cannot be bound to a string and a formatter cannot create controls. So rendered
   rows are filled from the stored value (`updateFinished`) and every edit writes
   the whole list back.
+- **The write path never reads the model back.** It draws the list it just wrote.
+  Re-reading is what stopped a typed address from sticking (2026-08-21): through a
+  two-way binding the read does not reliably see what was just written, so it came
+  back with the previous value and removed the token a line after adding it. The
+  earlier `context.setProperty` write had hidden this by updating the client cache
+  synchronously. `fillTokens` (the render path, on `updateFinished`) is the only
+  reader; `applyTokens` draws, and compares against the tokens **on screen** so a
+  stray one the control added itself is still cleaned up.
 - **A hidden bound `Input` is what writes the column** — the MultiInput is display
   only. The first version wrote with `context.setProperty`, and the values were
   **lost on the server while looking saved on screen** (fixed 2026-08-21): the row

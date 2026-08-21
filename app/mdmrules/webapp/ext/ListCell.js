@@ -85,16 +85,33 @@ sap.ui.define(["sap/m/Token"], function (Token) {
       return match ? match.sink : null;
     };
 
-    var fillTokens = function (cell, context, path) {
-      var stored = formatList(context.getProperty(path));
-      // Nothing to redraw when the cell already shows what is stored - and re-templating a row
-      // while someone is typing in it would take their half-typed value away.
-      if (cell.data("shownList") === stored) return;
+    /**
+     * Draws exactly the list it is given. Separate from reading the model on purpose: the write
+     * path must NOT read back what it just wrote.
+     *
+     * That read-back is what stopped a typed address from sticking (2026-08-21). While the write
+     * went through `context.setProperty` the client cache updated synchronously, so re-reading saw
+     * the new value; through a two-way binding it does not reliably, so the read returned the
+     * PREVIOUS value and the token the requester had just typed was removed again a line later.
+     */
+    var applyTokens = function (cell, stored) {
+      // Nothing to redraw when the cell already SHOWS this - and re-templating a row while someone
+      // is typing in it would take their half-typed value away. Compared against the tokens on
+      // screen as well as the cached answer, which is what keeps this self-correcting: if the
+      // control added a token of its own for a value already in the list, the two disagree and the
+      // cell is rebuilt from the list that was actually stored.
+      var shown = formatList(cell.getTokens().map(function (token) { return token.getText(); }));
+      if (shown === stored && cell.data("shownList") === stored) return;
       cell.removeAllTokens();
       parseList(stored).forEach(function (value) {
         cell.addToken(new Token({ key: value, text: value }));
       });
       cell.data("shownList", stored);
+    };
+
+    /** The render path: what the model holds is what the cell should show. */
+    var fillTokens = function (cell, context, path) {
+      applyTokens(cell, formatList(context.getProperty(path)));
     };
 
     var syncTokens = function () {
@@ -104,9 +121,9 @@ sap.ui.define(["sap/m/Token"], function (Token) {
     };
 
     /**
-     * Writes the whole list back, then re-reads it. The round trip is what makes this
-     * self-correcting: a token the control added itself for a value already in the list is
-     * de-duplicated by `formatList`, so the cell ends up showing exactly what is saved.
+     * Writes the whole list back and draws that same list. `formatList` de-duplicates on the way
+     * through, so a token the control added itself for a value already in the list collapses - and
+     * `applyTokens` compares against the tokens on screen, so the stray one is cleaned up.
      */
     var writeTokens = function (cell, tokens) {
       var context = cell.getBindingContext("dc");
@@ -126,8 +143,10 @@ sap.ui.define(["sap/m/Token"], function (Token) {
         console.error("[ListCell] " + path + " has no bound writer, so it cannot be saved.");
         context.setProperty(path, stored);
       }
-      cell.data("shownList", null);
-      fillTokens(cell, context, path);
+      // Drawn from what was just written, never re-read from the model: the binding may not have
+      // published it yet, and a read that came back with the previous value used to delete the
+      // token the requester had only just typed.
+      applyTokens(cell, stored);
       onChanged();
     };
 
