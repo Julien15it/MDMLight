@@ -1296,6 +1296,25 @@ costs the same step.
 - The runtime base URL is **derived**: `/{sap.cloud.service}.{sap.app.id}/api/
   public/workflow/rest/v1`, dots stripped. Renaming either breaks it, which
   `test/task-form.test.js` pins.
+- **The OData `dataSources` are ABSOLUTE, on that same derived app path** (fixed
+  2026-08-21) — `/mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/…/`, not
+  `service/…/`. Embedded in My Inbox the app is served out of the HTML5 repository
+  at its **version-stamped** path, and `/service/*` is not proxied there, so a
+  relative uri resolved against it and every OData call answered **500 without ever
+  reaching CAP** — nothing in `cf logs`, which is what made it look like a server
+  fault for an afternoon. The evidence, from one page load:
+
+  ```
+  …mdmmdbusinesspartnertask-1.2.0/service/changerequest/$metadata   500
+  …mdmmdbusinesspartnertask-1.2.0/reuse/view/…view.xml              200
+  …mdmmdbusinesspartnertask/api/public/workflow/…/context           200
+  ```
+
+  Statics come from the versioned path; the approuter applies `xs-app.json` on the
+  **unversioned** one. `Component.js` was already building its `/api/` URL that way,
+  which is why the task context loaded while the data did not. **`app/businesspartner`
+  keeps its relative uris** — it is served at the approuter app path with a
+  cachebuster, where relative resolves correctly. Do not "make them consistent".
 - My Inbox renders the buttons. `Component.js` registers them with
   `inboxAPI.addAction`, ids matching `sap.bpa.task.outcomes`, and the app's own
   footer Approve/Reject hide on `env>/embedded` so there is one place to press.

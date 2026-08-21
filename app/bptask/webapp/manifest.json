@@ -11,7 +11,7 @@
     "description": "{{appDescription}}",
     "dataSources": {
       "mainService": {
-        "uri": "service/businesspartner/",
+        "uri": "/mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/businesspartner/",
         "type": "OData",
         "settings": {
           "annotations": [],
@@ -19,7 +19,7 @@
         }
       },
       "changeRequestService": {
-        "uri": "service/changerequest/",
+        "uri": "/mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/changerequest/",
         "type": "OData",
         "settings": {
           "annotations": [],

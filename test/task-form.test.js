@@ -390,3 +390,39 @@ test('the task handover still loads the request from onInit', () => {
   assert.match(body, /_loadStagedRequest\(pending, "approve"\)/u);
   assert.match(body, /_loadStagedRequest\(pendingRework, "rework"\)/u);
 });
+
+
+/**
+ * The OData URIs are ABSOLUTE, on the app path the approuter routes (fixed 2026-08-21).
+ *
+ * Embedded in My Inbox the app is served out of the HTML5 repository at its VERSION-STAMPED path,
+ * `…mdmmdbusinesspartnertask-1.2.0/`. Static content comes back from there fine - that is where the
+ * shared view loads from - but `/service/*` is not proxied at that path, so a RELATIVE dataSource
+ * uri resolved against it and every OData call answered 500 without ever reaching CAP:
+ *
+ *   …mdmmdbusinesspartnertask-1.2.0/service/changerequest/$metadata   500
+ *   …mdmmdbusinesspartnertask/api/public/workflow/…/context           200
+ *
+ * The second is the proof: `Component.js` already builds that one absolutely from
+ * `sap.cloud.service` + `sap.app.id`, dots stripped, and the approuter applies `xs-app.json`
+ * there - route 1 proxies `/service/businesspartner/*` to the CAP destination. So the data
+ * sources use the same prefix.
+ *
+ * Derived from the two ids rather than pinned as a literal, exactly as the runtime base URL test
+ * above does: renaming either breaks both, and it should break here first.
+ */
+test('the OData sources are absolute, on the same app path the workflow runtime uses', () => {
+  const prefix = `/${manifest['sap.cloud'].service.replaceAll('.', '')}`
+    + `.${manifest['sap.app'].id.replaceAll('.', '')}/`;
+  const sources = manifest['sap.app'].dataSources;
+
+  assert.equal(sources.mainService.uri, `${prefix}service/businesspartner/`);
+  assert.equal(sources.changeRequestService.uri, `${prefix}service/changerequest/`);
+
+  // Not relative: that is the whole bug, and a relative uri looks perfectly correct in review.
+  for (const name of Object.keys(sources)) {
+    assert.match(sources[name].uri, /^\//u, `${name} must not be relative`);
+  }
+  // The same prefix Component.js derives for the workflow runtime, so the two cannot drift.
+  assert.match(component, /"\/" \+ service \+ "\." \+ app \+ "\/api\/public\/workflow\/rest\/v1"/u);
+});
