@@ -493,3 +493,82 @@ test('every submit outcome reports Valid and ValidationsJson', () => {
 test('the duplicate dialog names each partner, not only its number', () => {
   assert.match(controllerSource, /finding\.candidateName \? " " \+ finding\.candidateName : ""/u);
 });
+
+
+// --- Declining a proposal ------------------------------------------------------------
+
+/**
+ * Two identical dialogs from one register answer, reported 2026-08-21. The payload-keyed
+ * `_lastTriggerKey` cannot prevent it: any edit anywhere makes a fresh key, and a derivation runs
+ * over the whole payload whatever the check was scoped to. So a decline is remembered against the
+ * PROPOSAL - see check-triggers.test.js for the trigger side.
+ */
+test('a proposal the requester turned down is not offered again', () => {
+  const controller = loadController();
+  const derivation = { target: 'root', index: 0, field: 'OrganizationBPName1', value: 'Alluvion BV', message: 'From GLEIF.' };
+  const rows = controller._proposalRows.call(controller, [derivation], []);
+  assert.equal(rows.length, 1);
+  assert.ok(rows[0].key, 'a row carries the identity a decline is remembered against');
+  assert.equal(controller._isDeclined.call(controller, rows[0]), false, 'nothing declined yet');
+
+  // Not Now: everything in the dialog was declined.
+  controller._rememberDeclined.call(controller, rows, false);
+
+  // The second check derives the same thing from the same register answer, so it is silent.
+  const again = controller._proposalRows.call(controller, [derivation], []);
+  assert.equal(controller._isDeclined.call(controller, again[0]), true);
+});
+
+// Keyed on the proposal, not on the payload: the register answering something DIFFERENT is a new
+// question and a decline must not swallow it.
+test('a different proposed value, or a different field, is still asked', () => {
+  const controller = loadController();
+  const first = controller._proposalRows.call(
+    controller, [{ target: 'root', index: 0, field: 'OrganizationBPName1', value: 'Alluvion BV' }], []
+  );
+  controller._rememberDeclined.call(controller, first, false);
+
+  const changed = controller._proposalRows.call(
+    controller, [{ target: 'root', index: 0, field: 'OrganizationBPName1', value: 'Alluvion NV' }], []
+  );
+  assert.equal(controller._isDeclined.call(controller, changed[0]), false, 'a new value is a new question');
+
+  const other = controller._proposalRows.call(
+    controller, [{ target: 'Addresses', index: 0, field: 'CityName', value: 'Gent' }], []
+  );
+  assert.equal(controller._isDeclined.call(controller, other[0]), false, 'and another field is untouched');
+});
+
+// After Apply Selected the unticked rows are declines too - unticking one is deliberate - while an
+// applied row is not remembered as refused.
+test('unticking is a decline, applying is not', () => {
+  const controller = loadController();
+  const rows = controller._proposalRows.call(
+    controller,
+    [
+      { target: 'root', index: 0, field: 'OrganizationBPName1', value: 'Alluvion BV' },
+      { target: 'Addresses', index: 0, field: 'CityName', value: 'Gent' }
+    ],
+    []
+  );
+  rows[0].accepted = true;
+  rows[1].accepted = false;
+  controller._rememberDeclined.call(controller, rows, true);
+  assert.equal(controller._isDeclined.call(controller, rows[0]), false, 'the applied one is not refused');
+  assert.equal(controller._isDeclined.call(controller, rows[1]), true, 'the unticked one is');
+});
+
+/**
+ * The key is stamped when the row is built, not read off it later: `proposed` is two-way bound to an
+ * editable Input, so a requester who edits the value and then declines must not have the decline
+ * recorded against what they typed.
+ */
+test('the key is the value that was proposed, not the value that was typed over it', () => {
+  const controller = loadController();
+  const rows = controller._proposalRows.call(
+    controller, [{ target: 'root', index: 0, field: 'OrganizationBPName1', value: 'Alluvion BV' }], []
+  );
+  const stamped = rows[0].key;
+  rows[0].proposed = 'Something Else Entirely';
+  assert.equal(rows[0].key, stamped, 'editing the cell does not move the key');
+});

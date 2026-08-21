@@ -6,8 +6,9 @@ sap.ui.define([
   "sap/ui/model/Filter",
   "sap/ui/model/FilterOperator",
   "sap/m/MessageBox",
-  "sap/m/MessageToast"
-], function (Controller, UIComponent, Fragment, JSONModel, Filter, FilterOperator, MessageBox, MessageToast) {
+  "sap/m/MessageToast",
+  "mdm/md/mdmrules/manage/ext/ListCell"
+], function (Controller, UIComponent, Fragment, JSONModel, Filter, FilterOperator, MessageBox, MessageToast, ListCell) {
   "use strict";
 
   var UPDATE_GROUP = "ruleChanges";
@@ -34,6 +35,12 @@ sap.ui.define([
         skippedText: ""
       }), "view");
       this._router = UIComponent.getRouterFor(this);
+      // The condition value cells hold a LIST. The handlers behind them are shared rather than
+      // copied into every rule page - see app/mdmrules/webapp/ext/ListCell.js.
+      ListCell.mixin(this, {
+        getTable: this._table.bind(this),
+        onChanged: this._markDirty.bind(this)
+      });
       this._loadOptions();
     },
 
@@ -210,10 +217,10 @@ sap.ui.define([
         // Half a condition is the dangerous half: a field with no value would match everything.
         CONDITION_PAIRS.forEach(function (pair, position) {
           var name = "condition " + (position + 1);
-          if (rule[pair.field] && !rule[pair.value]) {
-            problems.push(label + name + " needs a value, or clear its field.");
+          if (rule[pair.field] && !ListCell.parseList(rule[pair.value]).length) {
+            problems.push(label + name + " needs at least one value, or clear its field.");
           }
-          if (rule[pair.value] && !rule[pair.field]) {
+          if (ListCell.parseList(rule[pair.value]).length && !rule[pair.field]) {
             problems.push(label + name + " needs a field.");
           }
         });
@@ -260,6 +267,8 @@ sap.ui.define([
     onDiscard: function () {
       this._model().resetChanges(UPDATE_GROUP);
       this.getView().getModel("view").setProperty("/dirty", false);
+      // The token cells are showing the abandoned lists, and nothing else redraws them.
+      this.resetListCells();
     },
 
     _callAction: async function (name, parameters) {

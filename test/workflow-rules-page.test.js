@@ -12,6 +12,9 @@ const read = (...parts) => fs.readFileSync(path.join(...parts), 'utf8');
 
 const view = read(APP, 'ext', 'view', 'WorkflowRuleList.view.xml');
 const controller = read(APP, 'ext', 'controller', 'WorkflowRuleList.controller.js');
+// The token cells are shared by all four rule pages, so what they do is asserted against the module
+// rather than against this page - see quality-rules-page.test.js for the no-copies rule.
+const listCell = read(APP, 'ext', 'ListCell.js');
 const hub = read(APP, 'ext', 'view', 'MDMRuleHub.view.xml');
 const hubController = read(APP, 'ext', 'controller', 'MDMRuleHub.controller.js');
 const manifest = JSON.parse(read(APP, 'manifest.json'));
@@ -114,16 +117,16 @@ test('the two condition value cells and the approver cell take several values', 
   }
   // Rendered rows get their tokens from the stored value, and every edit writes the whole list back.
   assert.match(view, /updateFinished="\.onRowsRendered"/u);
-  assert.match(controller, /_syncTokens/u);
-  assert.match(controller, /removeAllTokens\(\)/u);
-  assert.match(controller, /new Token\(\{ key: value, text: value \}\)/u);
+  assert.match(listCell, /removeAllTokens\(\)/u);
+  assert.match(listCell, /new Token\(\{ key: value, text: value \}\)/u);
+  assert.match(controller, /ListCell\.mixin\(this, \{/u);
 });
 
 // `tokenUpdate` fires before the aggregation changes, so reading the control back would miss the
 // edit that triggered it.
 test('the new list is computed from the added and removed tokens', () => {
-  const handler = controller.slice(controller.indexOf('onListTokenUpdate:'));
-  const body = handler.slice(0, handler.indexOf('\n    },'));
+  const handler = listCell.slice(listCell.indexOf('controller.onListTokenUpdate'));
+  const body = handler.slice(0, handler.indexOf('\n    };'));
   assert.match(body, /removedTokens/u);
   assert.match(body, /addedTokens/u);
 });
@@ -135,10 +138,10 @@ test('the new list is computed from the added and removed tokens', () => {
  */
 test('the page and the service agree on the delimiter', () => {
   const { DELIMITER } = require('../srv/checks/value-lists');
-  assert.match(controller, new RegExp(`var DELIMITER = "\\${DELIMITER}"`, 'u'));
+  assert.match(listCell, new RegExp(`var DELIMITER = "\\${DELIMITER}"`, 'u'));
   assert.match(serviceCds, /listDelimiter : String\(1\)/u);
   assert.match(serviceJs, /listDelimiter: DELIMITER/u);
-  assert.match(controller, /options\.listDelimiter !== DELIMITER/u);
+  assert.match(controller, /options\.listDelimiter !== ListCell\.DELIMITER/u);
 });
 
 // The service validates whatever a client sends; the page checks the same things at the keyboard so

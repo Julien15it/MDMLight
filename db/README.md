@@ -86,10 +86,17 @@ request. All of them are served by `DuplicateConfigService` under
 
 `WorkflowRules` is the odd one out in what it produces: it is not a check on the
 data at all, but the routing hint that becomes the `approvers` list in the
-workflow context. Two of its columns hold a **list** rather than one value — the
-condition values and the approvers — encoded by `srv/checks/value-lists.js`, which
-is deliberately a format where a single stored value is already a valid one-entry
-list.
+workflow context.
+
+**Condition values are a list on every rule table** (2026-08-21), encoded by
+`srv/checks/value-lists.js` — deliberately a format where a single stored value is
+already a valid one-entry list, so nothing had to be migrated when the older
+tables joined. The column names differ and cannot be made to agree: `cds-deploy`
+refuses to rename an element, so `DuplicateRules`, `ValidationRules` and
+`DerivationRules` hold their list in `conditionValue` / `conditionValue2`, while
+`WorkflowRules` — written after the decision — has `conditionValues`. Only the
+*conditions* are lists: a validation's compared-against value and a derivation's
+filled-with value stay single.
 
 The rule tables are **row-per-criterion decision tables**, and that is a deliberate
 choice against a column-per-criterion model: adding a criterion has to be an

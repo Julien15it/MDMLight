@@ -364,6 +364,36 @@ belongs on all the buttons, not just Check — Duplicate Check asks the same que
 of the same record, and the submit paths move the request past the point a trigger
 reports on.
 
+##### And once more, from a payload that changed (fixed 2026-08-21)
+
+The same GLEIF derivation was offered twice: fill in a name, press **Add** on Tax Numbers, and
+"Not Now" had to be pressed on two identical dialogs. Neither guard above can catch it, and the
+reason is worth keeping:
+
+- Committing the name schedules a `root` check. Opening **Add** commits the tax number cell, which
+  is a `REGISTRY_TRIGGER_FIELDS` entry and schedules a *second* check with `scope: null`.
+- **`Scope` narrows only the normalisation proposals.** Derivations always run over the whole
+  payload, so both checks derive the same thing.
+- `_lastTriggerKey` cannot tell them apart, because it is keyed on `scope|propose|dataJson` and the
+  new row changed the payload. Every guard here was about *the check*; nothing was about *the
+  answer*.
+
+So a decline is now remembered against the **proposal**: `_rememberDeclined` records every row that
+was not applied, and a triggered check filters them out. Decisions inside that:
+
+- **Keyed on `target|index|field|proposed`**, stamped when the row is built. The register answering
+  something *different* is a new question and is asked. Stamped at build time rather than read off
+  the row later, because `proposed` is two-way bound to an editable Input — a requester who edits a
+  value and then declines must not have the decline recorded against what they typed.
+- **Only automatic checks are filtered.** "Declining is not ticking it, and the next Check proposes
+  it again" is this dialog's contract, so `_cancelPendingTrigger` — which every button already runs
+  — empties the record. `_emptyState` empties it too: declines belong to the record on screen.
+- **Recorded in `afterClose`, not on the Not Now button.** Escape closes the dialog as well, and
+  that is a decline too. After *Apply Selected* the unticked rows are declines as well; unticking
+  one is deliberate.
+- **One dialog at a time.** A trigger firing while the requester is reading one no longer stacks a
+  second on top of it, whatever it found.
+
 **Derivations no longer auto-apply.** They used to be written straight into the
 form on Check, which made them easy to miss and impossible to decline. They are
 proposals now, and they share the normalisation dialog: one list, a `change`
@@ -707,6 +737,31 @@ Still open on these tables, and not built:
 - A custom message per validation row; a generated one is what ships.
 - Rules for object types other than the Business Partner. When MM arrives, **copy
   the tables** rather than adding an object-type column.
+
+#### Condition values are lists on every table (2026-08-21)
+
+All four rule tables take **several values per condition**, ORed: one match is enough, so
+"Country is BE, NL, FR or DE" is one row rather than four. The encoding is
+`srv/checks/value-lists.js` for all of them.
+
+- **No migration, and no stored row changed.** The format was chosen so a single stored value is
+  already a valid one-entry list, which is the whole reason it went in as a shared module when the
+  workflow table needed it first.
+- **The columns keep their singular names.** `cds-deploy` cannot rename an element any more than it
+  can drop one, so the three older tables hold a list in `conditionValue` / `conditionValue2` while
+  `WorkflowRules`, written after the decision, has `conditionValues`. Do not "tidy" this.
+- **Conditions only.** A Validation's `value` (what the field is compared *against*) and a
+  Derivation's `value` (what the field is *filled with*) stay single: filling a field with four
+  values means nothing, and `<` against a list is not a comparison anyone can read. Field Properties
+  is untouched — its conditions are closed dropdowns where `*` already means "all".
+- **One implementation of the cell**, `app/mdmrules/webapp/ext/ListCell.js`, mixed into all four
+  controllers. Sixty lines of aggregation bookkeeping copied four times drifts the first time one
+  copy is fixed — the same reasoning that put the maintenance screen in `app/reuse`. The four
+  handler names (`onRowsRendered`, `onListTokenUpdate`, `onListSubmit`, `onListChange`) are part of
+  that contract, so a cell moved between pages keeps working.
+- **Where the matching changed**: `conditionHolds` in `srv/checks/rule-engine.js` and `holds` in
+  `srv/ai/duplicate-engine.js`, both now OR over the parsed list. An empty list still means "any",
+  and a value that normalises away still narrows nothing — the single-value behaviour, unchanged.
 
 ### Field property profiles (2026-08-20)
 

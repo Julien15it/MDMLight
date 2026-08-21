@@ -22,7 +22,7 @@ test('the validation table has the columns a rule needs, in order', () => {
   const columns = [...view('ValidationRuleList').matchAll(/<Column[^>]*>\s*<Text text="([^"]+)"/gu)]
     .map((match) => match[1]);
   assert.deepEqual(columns, [
-    'Condition 1 Field', 'Condition 1 Value', 'Condition 2 Field', 'Condition 2 Value',
+    'Condition 1 Field', 'Condition 1 Values', 'Condition 2 Field', 'Condition 2 Values',
     'Field', 'Comparison', 'Value', 'Severity', 'Active'
   ]);
 });
@@ -31,23 +31,62 @@ test('the derivation table has the columns a rule needs, in order', () => {
   const columns = [...view('DerivationRuleList').matchAll(/<Column[^>]*>\s*<Text text="([^"]+)"/gu)]
     .map((match) => match[1]);
   assert.deepEqual(columns, [
-    'Condition 1 Field', 'Condition 1 Value', 'Condition 2 Field', 'Condition 2 Value',
+    'Condition 1 Field', 'Condition 1 Values', 'Condition 2 Field', 'Condition 2 Values',
     'Field', 'Value', 'Active'
   ]);
 });
 
-// Both pages carry the same two condition pairs as the duplicate table, and the same "any" meaning.
+/**
+ * Both pages carry the same two condition pairs as the duplicate table, and the same "any" meaning.
+ * The VALUES became a list on 2026-08-21 - one row for "Country is BE, NL, FR or DE" - so they are
+ * token cells naming their column through custom data, while the fields stay bound Inputs.
+ */
 test('the conditions are the duplicate table conditions', () => {
   for (const name of ['ValidationRuleList', 'DerivationRuleList']) {
     const source = view(name);
-    for (const column of ['conditionField', 'conditionValue', 'conditionField2', 'conditionValue2']) {
+    for (const column of ['conditionField', 'conditionField2']) {
       assert.match(source, new RegExp(`\\{dc>${column}\\}`, 'u'), `${name} binds ${column}`);
     }
+    // The columns keep their singular names: `cds-deploy` cannot rename an element any more than
+    // it can drop one, so these tables hold a list in `conditionValue` while the workflow table,
+    // written after the decision, has `conditionValues`.
+    for (const column of ['conditionValue', 'conditionValue2']) {
+      assert.match(source, new RegExp(`app:listPath="${column}"`, 'u'), `${name} tokenises ${column}`);
+    }
+    assert.equal(
+      /value="\{dc>conditionValue2?\}"/u.test(source),
+      false,
+      `${name} has no single-value condition cell left`
+    );
     assert.match(source, /placeholder="any"/u);
     // A value with no field would be half a condition; the cell is disabled until there is one.
     assert.match(source, /enabled="\{= !!\$\{dc>conditionField\} \}"/u);
+    // Rendered rows are filled from the stored value, which is what keeps tokens and column in step.
+    assert.match(source, /updateFinished="\.onRowsRendered"/u);
   }
   assert.match(rulesCds, /aspect ruleConditions/u);
+});
+
+/**
+ * One implementation of the token cells for all four rule pages. Sixty lines of aggregation
+ * bookkeeping copied four times drifts the first time one copy is fixed - the same reasoning that
+ * put the maintenance screen in app/reuse.
+ */
+test('every rule page uses the one shared token cell, and none carries a copy', () => {
+  const shared = read(APP, 'ext', 'ListCell.js');
+  assert.match(shared, /new Token\(\{ key: value, text: value \}\)/u);
+  assert.match(shared, /removeAllTokens\(\)/u);
+  // tokenUpdate fires before the aggregation changes, so the list comes from the event.
+  assert.match(shared, /addedTokens/u);
+  assert.match(shared, /removedTokens/u);
+  for (const name of [
+    'DuplicateRuleList', 'ValidationRuleList', 'DerivationRuleList', 'WorkflowRuleList'
+  ]) {
+    const source = controller(name);
+    assert.match(source, /ListCell\.mixin\(this, \{/u, `${name} takes the shared handlers`);
+    assert.equal(/new Token\(/u.test(source), false, `${name} builds no tokens of its own`);
+    assert.equal(/removeAllTokens/u.test(source), false, `${name} keeps no copy`);
+  }
 });
 
 /**

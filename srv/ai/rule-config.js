@@ -1,6 +1,7 @@
 'use strict';
 
 const { resolveField, isIndexedField, catalogFields } = require('./duplicate-fields');
+const { parseValueList } = require('../checks/value-lists');
 const { COMPARISONS, INDICATORS, DEFAULT_RULES, CONDITION_PAIRS } = require('./duplicate-engine');
 const { DUPLICATE_THRESHOLD } = require('./name-match');
 
@@ -14,9 +15,11 @@ function trimmed(value) {
 }
 
 // One condition pair off a stored row, with the column names kept so a message can point at the
-// cell the steward has to fix.
+// cell the steward has to fix. `value` is what is stored and what travels to the engine - a
+// delimited LIST since 2026-08-21 - and `values` is that list, for anything counting entries.
 function readCondition(row, pair) {
-  return { field: trimmed(row[pair.field]), value: trimmed(row[pair.value]), names: pair };
+  const value = trimmed(row[pair.value]);
+  return { field: trimmed(row[pair.field]), value, values: parseValueList(value), names: pair };
 }
 
 /**
@@ -57,15 +60,15 @@ function validateRule(row = {}) {
   // Conditions are field/value pairs from the same catalog, e.g. Role = Vendor and Country = BE.
   // Each pair stands on its own: neither, either or both may be filled.
   const conditions = CONDITION_PAIRS.map((pair) => readCondition(row, pair));
-  for (const { field: conditionField, value: conditionValue, names } of conditions) {
+  for (const { field: conditionField, values: conditionValues, names } of conditions) {
     if (conditionField && !resolveField(conditionField)) {
       errors.push({ field: names.field, message: `“${conditionField}” is not a field in the catalog.` });
     }
     // Half a condition is the dangerous half: a field with no value would match everything.
-    if (conditionField && !conditionValue) {
+    if (conditionField && !conditionValues.length) {
       errors.push({ field: names.value, message: 'A condition field needs a value. Leave both empty for “any”.' });
     }
-    if (conditionValue && !conditionField) {
+    if (conditionValues.length && !conditionField) {
       errors.push({ field: names.field, message: 'A condition value needs a field.' });
     }
   }
@@ -103,8 +106,10 @@ function toEngineRule(row = {}) {
   // Only a complete pair travels: half a condition would match everything, which is the opposite
   // of what a condition is for.
   for (const pair of CONDITION_PAIRS) {
-    const { field, value } = readCondition(row, pair);
-    if (field && value) {
+    const { field, value, values } = readCondition(row, pair);
+    // The delimited list travels as it is stored: `holds` in the engine parses it, so nothing here
+    // has to know how many values a condition carries.
+    if (field && values.length) {
       rule[pair.field] = field;
       rule[pair.value] = value;
     }

@@ -43,6 +43,8 @@ const CONDITION_COLUMNS = Object.freeze({
 
 // Two independent condition pairs, ANDed when both are filled: "Role = Vendor and Country = BE".
 // Either may be left empty, which means "any" — an empty pair never narrows the rule.
+const { parseValueList } = require('../checks/value-lists');
+
 const CONDITION_PAIRS = Object.freeze([
   Object.freeze({ field: 'conditionField', value: 'conditionValue' }),
   Object.freeze({ field: 'conditionField2', value: 'conditionValue2' })
@@ -86,15 +88,27 @@ function bagOf(record, fields) {
   return built;
 }
 
+/**
+ * One condition, against the candidate's bag of normalised values. The wanted value is a LIST
+ * (2026-08-21) and the entries are OR: "Country is BE, NL, FR or DE" is one rule. A single stored
+ * value parses as a one-entry list, so rows written before that change behave exactly as they did.
+ */
 function holds(field, wanted, bag) {
-  if (wanted === undefined || wanted === null || String(wanted).trim() === '') return true;
+  const values = parseValueList(wanted);
+  // An empty pair means "any", which is the whole reason both halves are optional.
+  if (!values.length) return true;
   const resolved = resolveField(field);
   // An unresolvable condition field cannot be satisfied, so the rule stays out rather than
   // matching everything. Saving one is rejected up front; this is the backstop.
   if (!resolved) return false;
-  const normalised = resolved.entry.normalise(wanted, {});
-  if (!normalised) return true;
-  return (bag[field] || []).includes(normalised);
+  const normalised = values
+    .map((value) => resolved.entry.normalise(value, {}))
+    .filter(Boolean);
+  // Nothing left to compare: the same case a single unnormalisable value was, and it narrows
+  // nothing rather than ruling the rule out.
+  if (!normalised.length) return true;
+  const held = bag[field] || [];
+  return normalised.some((value) => held.includes(value));
 }
 
 /**
