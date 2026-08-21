@@ -47,6 +47,15 @@
           </GenericTile>
           <GenericTile
             class="sapUiTinyMargin"
+            header="Workflow Rules"
+            subheader="Who approves which change request, and under what conditions"
+            press=".onWorkflowRules">
+            <TileContent>
+              <ImageContent src="sap-icon://workflow-tasks" />
+            </TileContent>
+          </GenericTile>
+          <GenericTile
+            class="sapUiTinyMargin"
             header="Derivation Rules"
             subheader="Which empty fields get filled in, and from where"
             press=".onDerivationRules">
