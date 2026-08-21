@@ -48,6 +48,11 @@ const rule = (overrides = {}) => ({
 
 // ---------------------------------------------------------------------------
 // The encoding
+//
+// The grid offers ONE value per field again (multiple values were withdrawn on 2026-08-21 - see
+// "Multiple values per condition" in CLAUDE.md). These stay because the READ path still parses a
+// delimited list: rows written while the feature was live may hold `BE|NL`, and a stored rule that
+// silently stopped matching is the failure this codebase refuses everywhere else.
 // ---------------------------------------------------------------------------
 
 /**

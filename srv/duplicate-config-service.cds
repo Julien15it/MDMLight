@@ -108,8 +108,6 @@ service DuplicateConfigService {
     steps        : array of Option;
     /** Rules that would actually run, so the page can say when a saved row is being skipped. */
     ruleCount    : Integer;
-    /** The delimiter a multi-value cell is stored with, so the grid never hard-codes it. */
-    listDelimiter : String(1);
   }
 
   /** Everything the workflow rule page needs to offer valid choices, generated, never hand-kept. */

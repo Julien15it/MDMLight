@@ -22,7 +22,7 @@ test('the validation table has the columns a rule needs, in order', () => {
   const columns = [...view('ValidationRuleList').matchAll(/<Column[^>]*>\s*<Text text="([^"]+)"/gu)]
     .map((match) => match[1]);
   assert.deepEqual(columns, [
-    'Condition 1 Field', 'Condition 1 Values', 'Condition 2 Field', 'Condition 2 Values',
+    'Condition 1 Field', 'Condition 1 Value', 'Condition 2 Field', 'Condition 2 Value',
     'Field', 'Comparison', 'Value', 'Severity', 'Active'
   ]);
 });
@@ -31,65 +31,23 @@ test('the derivation table has the columns a rule needs, in order', () => {
   const columns = [...view('DerivationRuleList').matchAll(/<Column[^>]*>\s*<Text text="([^"]+)"/gu)]
     .map((match) => match[1]);
   assert.deepEqual(columns, [
-    'Condition 1 Field', 'Condition 1 Values', 'Condition 2 Field', 'Condition 2 Values',
+    'Condition 1 Field', 'Condition 1 Value', 'Condition 2 Field', 'Condition 2 Value',
     'Field', 'Value', 'Active'
   ]);
 });
 
-/**
- * Both pages carry the same two condition pairs as the duplicate table, and the same "any" meaning.
- * The VALUES became a list on 2026-08-21 - one row for "Country is BE, NL, FR or DE" - so they are
- * token cells naming their column through custom data, while the fields stay bound Inputs.
- */
+// Both pages carry the same two condition pairs as the duplicate table, and the same "any" meaning.
 test('the conditions are the duplicate table conditions', () => {
   for (const name of ['ValidationRuleList', 'DerivationRuleList']) {
     const source = view(name);
-    for (const column of ['conditionField', 'conditionField2']) {
+    for (const column of ['conditionField', 'conditionValue', 'conditionField2', 'conditionValue2']) {
       assert.match(source, new RegExp(`\\{dc>${column}\\}`, 'u'), `${name} binds ${column}`);
-    }
-    // The columns keep their singular names: `cds-deploy` cannot rename an element any more than
-    // it can drop one, so these tables hold a list in `conditionValue` while the workflow table,
-    // written after the decision, has `conditionValues`.
-    for (const column of ['conditionValue', 'conditionValue2']) {
-      assert.match(source, new RegExp(`app:listPath="${column}"`, 'u'), `${name} tokenises ${column}`);
-    }
-    // Every `value="{dc>conditionValue…}"` binding belongs to the hidden writer beside the token
-    // cell - that binding is what makes the list travel - and there is exactly one per column.
-    for (const column of ['conditionValue', 'conditionValue2']) {
-      const bindings = (source.match(new RegExp(`value="\\{dc>${column}\\}"`, 'gu')) || []).length;
-      const sinks = (source.match(new RegExp(`app:listSink="${column}"`, 'gu')) || []).length;
-      assert.equal(bindings, sinks, `${name}: ${column} is bound only by its writer`);
-      assert.equal(bindings, 1, `${name}: ${column} has exactly one writer`);
     }
     assert.match(source, /placeholder="any"/u);
     // A value with no field would be half a condition; the cell is disabled until there is one.
     assert.match(source, /enabled="\{= !!\$\{dc>conditionField\} \}"/u);
-    // Rendered rows are filled from the stored value, which is what keeps tokens and column in step.
-    assert.match(source, /updateFinished="\.onRowsRendered"/u);
   }
   assert.match(rulesCds, /aspect ruleConditions/u);
-});
-
-/**
- * One implementation of the token cells for all four rule pages. Sixty lines of aggregation
- * bookkeeping copied four times drifts the first time one copy is fixed - the same reasoning that
- * put the maintenance screen in app/reuse.
- */
-test('every rule page uses the one shared token cell, and none carries a copy', () => {
-  const shared = read(APP, 'ext', 'ListCell.js');
-  assert.match(shared, /new Token\(\{ key: value, text: value \}\)/u);
-  assert.match(shared, /removeAllTokens\(\)/u);
-  // tokenUpdate fires before the aggregation changes, so the list comes from the event.
-  assert.match(shared, /addedTokens/u);
-  assert.match(shared, /removedTokens/u);
-  for (const name of [
-    'DuplicateRuleList', 'ValidationRuleList', 'DerivationRuleList', 'WorkflowRuleList'
-  ]) {
-    const source = controller(name);
-    assert.match(source, /ListCell\.mixin\(this, \{/u, `${name} takes the shared handlers`);
-    assert.equal(/new Token\(/u.test(source), false, `${name} builds no tokens of its own`);
-    assert.equal(/removeAllTokens/u.test(source), false, `${name} keeps no copy`);
-  }
 });
 
 /**
@@ -262,104 +220,4 @@ test('a readable table becomes the stages, and an empty one becomes none', async
   assert.equal(loaded.validations.length, 1);
   assert.equal(loaded.validations[0].name, 'configured_validation');
   store.reset();
-});
-
-
-/**
- * A rule saved, then lost its two list columns the moment the app was left and re-entered
- * (reported 2026-08-21). The row was in the database; those two columns were empty in it.
- *
- * The cause was the write path, not the data: a `MultiInput`'s tokens are an aggregation, so the
- * cells wrote the column with `context.setProperty`. That reaches the client model - which is why
- * the values survived navigating around inside the app, off the model cache - and never reached the
- * server. Every column on these pages that does save is written by a **two-way binding**, so each
- * token cell now has a hidden bound `Input` beside it that does the writing.
- *
- * Pinned per column on every page, because a page that grew a token cell without a writer would
- * fail silently in exactly the same way.
- */
-test('every token cell has the bound control that writes it', () => {
-  for (const name of [
-    'DuplicateRuleList', 'ValidationRuleList', 'DerivationRuleList', 'WorkflowRuleList'
-  ]) {
-    const source = view(name);
-    const columns = [...source.matchAll(/app:listPath="([^"]+)"/gu)].map((match) => match[1]);
-    assert.ok(columns.length >= 2, `${name} has token cells`);
-    for (const column of columns) {
-      assert.match(
-        source,
-        new RegExp(`app:listSink="${column}"`, 'u'),
-        `${name} has a bound writer for ${column}`
-      );
-      assert.match(
-        source,
-        new RegExp(`value="\\{dc>${column}\\}"`, 'u'),
-        `${name} binds ${column} two-way, which is what makes it travel`
-      );
-    }
-  }
-  // The module writes through it, and says so loudly rather than silently falling back.
-  const shared = read(APP, 'ext', 'ListCell.js');
-  assert.match(shared, /sink\.setValue\(stored\)/u);
-  assert.match(shared, /has no bound writer, so it cannot be saved/u);
-});
-
-
-/**
- * A typed approver address stopped sticking the moment the write moved onto the binding (reported
- * 2026-08-21): the write path re-read the model to redraw the tokens, and through a two-way binding
- * that read does not reliably see what was just written - so it came back with the PREVIOUS value
- * and removed the token a line after adding it. `context.setProperty` had hidden this by updating
- * the client cache synchronously.
- *
- * So the write path draws what it wrote, and only the render path reads the model.
- */
-test('the write path draws what it wrote, and never re-reads the model', () => {
-  const shared = read(APP, 'ext', 'ListCell.js');
-  const write = shared.slice(shared.indexOf('var writeTokens = function'));
-  const body = write.slice(0, write.indexOf('\n    };'));
-  assert.match(body, /applyTokens\(cell, stored\)/u, 'it draws the list it just wrote');
-  assert.equal(
-    /getProperty\(/u.test(body),
-    false,
-    'the write path reads nothing back out of the model'
-  );
-  assert.equal(/fillTokens\(/u.test(body), false, 'and does not go through the render path');
-  // The render path is the only reader, and it is the one the table calls on updateFinished.
-  const fill = shared.slice(shared.indexOf('var fillTokens = function'));
-  assert.match(fill.slice(0, fill.indexOf('};')), /context\.getProperty\(path\)/u);
-  // Still self-correcting: a stray token the control added is compared against and cleaned up.
-  assert.match(shared, /var shown = formatList\(cell\.getTokens\(\)/u);
-});
-
-
-/**
- * The module destroyed data, reported 2026-08-21: every existing condition value came back empty
- * and could not be re-entered. `applyTokens` calls `removeAllTokens()` to redraw a cell, the
- * control reports those tokens as removed, `onListTokenUpdate` computes the resulting list as empty
- * and writes "" back - and since the write goes through the bound sink, that is a real change to a
- * stored rule. Merely OPENING a page blanked every value on it.
- *
- * So the module tracks when it is redrawing, and every handler that writes stands aside. This is
- * pinned hard because the failure is silent, immediate and destroys configuration.
- */
-test('a redraw can never write, so opening a page cannot empty a stored rule', () => {
-  const shared = read(APP, 'ext', 'ListCell.js');
-
-  // The guard exists, is a counter rather than a boolean, and is released even on a throw.
-  assert.match(shared, /var redrawing = 0;/u);
-  const apply = shared.slice(shared.indexOf('var applyTokens = function'));
-  const body = apply.slice(0, apply.indexOf('\n    };'));
-  assert.match(body, /redrawing \+= 1;/u);
-  assert.match(body, /finally \{[\s\S]{0,120}redrawing -= 1;/u);
-  // Raised BEFORE the tokens are touched, or the first removal is already through the door.
-  assert.ok(body.indexOf('redrawing += 1') < body.indexOf('removeAllTokens'));
-
-  // Every handler that can write checks it. tokenUpdate is the one that did the damage; the other
-  // two are guarded so nothing has to reason about which events a redraw can raise.
-  for (const handler of ['onListTokenUpdate', 'onListSubmit', 'onListChange']) {
-    const from = shared.slice(shared.indexOf(`controller.${handler} = function`));
-    const handlerBody = from.slice(0, from.indexOf('\n    };'));
-    assert.match(handlerBody, /if \(redrawing\) return;/u, `${handler} stands aside during a redraw`);
-  }
 });

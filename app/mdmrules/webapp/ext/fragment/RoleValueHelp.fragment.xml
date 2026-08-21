@@ -6,16 +6,15 @@
     still works and is the common case - this is for the other half, where nobody should have to
     remember how `DataSteward` is spelled.
 
-    `multiSelect`, because a step usually names more than one: picking three roles is one trip
-    through the dialog rather than three.
+    One role per cell, because the cell holds one approver: several approvers are several rows,
+    which is what the Add button is for and what the engine merges.
 
     The list is served by `workflowRuleOptions()` from srv/checks/field-properties.js, so it is the
     same set of roles the field property profiles condition on. It deliberately does NOT include
     `*`: "every role" is not somebody who can approve a request.
   -->
   <SelectDialog
-    title="Choose Roles"
-    multiSelect="true"
+    title="Choose a Role"
     noDataText="No role matches that search."
     search=".onRoleSearch"
     liveChange=".onRoleSearch"

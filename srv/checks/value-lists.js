@@ -1,13 +1,19 @@
 'use strict';
 
 /**
- * The one encoding for a multi-value cell. A list is stored in a single column as its entries
- * separated by `|`, so a stored single value is already a valid one-entry list - which is what lets
- * the existing single-value condition columns become lists without touching a row.
+ * The encoding a multi-value cell used, kept as a READ path only.
  *
- * `|` rather than a comma or a semicolon on purpose: company names carry commas ("Acme, Inc"),
- * addresses carry semicolons, and neither appears in an e-mail address, a country code or a role.
- * Nobody types the delimiter either - the grid uses tokens.
+ * Multiple values per condition were built on 2026-08-21 and withdrawn the same day: no grid could
+ * be made to save a token cell reliably (see "Multiple values per condition" in CLAUDE.md). Every
+ * page offers one value per field again.
+ *
+ * This stays because rows written while the feature was live may hold `BE|NL`, and a stored rule
+ * that silently stops matching is the failure this codebase refuses everywhere else - "no
+ * duplicates found" from a check that never ran. A single value parses as a one-entry list, so the
+ * tolerance costs nothing and no row had to be migrated in either direction.
+ *
+ * `|` was chosen over a comma or a semicolon because company names carry commas ("Acme, Inc") and
+ * addresses carry semicolons, while neither appears in an e-mail address, a country code or a role.
  */
 
 const DELIMITER = '|';
