@@ -58,6 +58,13 @@ const RELATION_FIELDS = Object.freeze({
   SupplierPartnerFunctions:          'Supplier'
 });
 
+/**
+ * The two nodes that are themselves the Customer/Supplier record rather than something
+ * hanging off it. They are the only ones where a missing relation number is a state to
+ * act on instead of an error, and the only ones whose create addresses A_BusinessPartner.
+ */
+const ROLE_NODES = new Set(['Customers', 'Suppliers']);
+
 /** Navigation off A_BusinessPartner used to resolve each relation field's real
  *  number - see resolveRelationNumber. */
 const RELATION_NAVIGATION = Object.freeze({
@@ -885,12 +892,22 @@ class ChangeRequestService extends cds.ApplicationService {
             resolvedRelations[relationField] = await resolveRelationNumber(s4, businessPartner, relationField);
           }
           const relationValue = resolvedRelations[relationField];
-          if (relationValue == null) {
+
+          // Customers and Suppliers ARE the record the relation field names - the others hang
+          // off it. So a missing number means different things: for a child there is nothing to
+          // hang it on and posting it would be wrong, but for the role node itself it simply
+          // does not exist yet, which is something to create.
+          const isRoleNode = ROLE_NODES.has(section);
+          if (relationValue == null && !isRoleNode) {
             throw new Error(
               `Cannot post ${section}: Business Partner ${businessPartner} has no ${relationField} record yet.`
             );
           }
-          data[relationField] = relationValue;
+          if (relationValue != null) data[relationField] = relationValue;
+          // What a create of the role node addresses its parent by: to_Customer hangs off
+          // A_BusinessPartner, not off A_Customer. Dropped again by sanitizeEntityPayload for
+          // every node whose entity has no such element.
+          if (isRoleNode) data.BusinessPartner = businessPartner;
 
           if (action === 'D') {
             await bp.send('deleteBusinessPartnerEntity', {
@@ -900,10 +917,20 @@ class ChangeRequestService extends cds.ApplicationService {
             continue;
           }
 
+          // Whether the record is already there decides this for the role node, not what the
+          // requester did on screen: with CVI configured, adding the role is what creates the
+          // customer, so by the time this runs S/4 already has one and a POST would be refused.
+          // Without CVI nothing else creates it, and the same line still posts. Every other node
+          // follows the staged action, which is the only thing that knows about it.
+          const isCreate = isRoleNode ? relationValue == null : action !== 'U';
+
           await bp.send('saveBusinessPartnerEntity', {
             Entity: section,
-            IsCreate: action !== 'U',
-            KeyJson: JSON.stringify({}),
+            IsCreate: isCreate,
+            // The keys travel in `data` - the relation field plus whatever the row staged. Sent
+            // empty until now, so every update failed on "Missing key field(s)" rather than
+            // updating anything; the delete path has always passed them.
+            KeyJson: JSON.stringify(data),
             DataJson: JSON.stringify(data)
           });
         }
