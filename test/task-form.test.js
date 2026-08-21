@@ -308,3 +308,33 @@ test('the outcome labels are literal, not i18n placeholders', () => {
   const bundle = read('webapp', 'i18n', 'i18n.properties');
   assert.equal(/^Approve=/mu.test(bundle), false, 'and the unused keys are not left behind');
 });
+
+/**
+ * Pinned on request (2026-08-21). A process in SAP Build Process Automation points its UI5 task at
+ * one app version, so every bump of `applicationVersion` means re-pointing the task - the workflow
+ * has been rebuilt three times over 1.0.0 -> 1.1.0 -> 1.2.0 for no gain the process could see.
+ *
+ * Nothing in the build derives it from `mta.yaml`, so the MTA version is free to move; this is
+ * hand-maintained and now deliberately still. Raise it only when the process is going to be
+ * re-pointed on purpose, and change this assertion in the same commit so the two cannot drift.
+ */
+test('the task app version is pinned, so the process keeps pointing at it', () => {
+  assert.equal(manifest['sap.app'].applicationVersion.version, '1.2.0');
+});
+
+/**
+ * The empty form in My Inbox: the maintenance model has to exist before the handover, because
+ * `_loadStagedRequest` reads it on its first line and the handover calls it synchronously from
+ * `onInit`. Created afterwards, the request loaded into a model that was not there yet and the
+ * empty create state landed on top - "New Business Partner" with every section blank, which is
+ * `_emptyState()`'s own header. A routed load cannot hit it: a pattern match arrives later.
+ */
+test('the maintenance model exists before the task handover reads it', () => {
+  const init = reuseController.slice(reuseController.indexOf('onInit: function'));
+  const body = init.slice(0, init.indexOf('_emptyState: function'));
+
+  const modelAt = body.indexOf('setModel(new JSONModel(this._emptyState()), "maintenance")');
+  const handoverAt = body.indexOf('getProperty("/taskChangeRequest")');
+  assert.ok(modelAt > -1 && handoverAt > -1, 'both the model and the handover are in onInit');
+  assert.ok(modelAt < handoverAt, 'the model has to be created first, or the load writes nowhere');
+});
