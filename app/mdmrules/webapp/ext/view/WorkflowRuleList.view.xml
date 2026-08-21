@@ -107,11 +107,15 @@
                 submit=".onListSubmit"
                 change=".onListChange" />
               <!-- E-mail addresses, roles, or both. An entry carrying an `@` goes to SBPA as a user
-                   and anything else as a role; which roles exist is SBPA's to know, not ours. -->
+                   and anything else as a role; which roles RESOLVE to is SBPA's to know, not ours.
+                   An address is typed straight in; the value help is for the roles, so nobody has to
+                   remember how DataSteward is spelled. -->
               <MultiInput
                 width="100%"
                 placeholder="e-mail or role"
                 app:listPath="approvers"
+                showValueHelp="true"
+                valueHelpRequest=".onRoleValueHelp"
                 tokenUpdate=".onListTokenUpdate"
                 submit=".onListSubmit"
                 change=".onListChange" />

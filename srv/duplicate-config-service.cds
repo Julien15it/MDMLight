@@ -99,6 +99,9 @@ service DuplicateConfigService {
   type WorkflowRuleOptions {
     /** The same qualified payload catalog the quality rules use - a condition names a payload field. */
     fields       : array of PayloadField;
+    /** The roles an approver step can name, `*` left out: "every role" cannot approve anything. An
+     *  approver may also be an e-mail address, which is free text and needs no list. */
+    roles        : array of Option;
     /** All four CR types. No `*`: an approver list is not something to default. */
     requestTypes : array of Option;
     /** `Approve` today. A column rather than an assumption - see db/workflow-rules.cds. */

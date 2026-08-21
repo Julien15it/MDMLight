@@ -126,6 +126,18 @@ sap.ui.define(["sap/m/Token"], function (Token) {
       takeTypedValue(event.getSource(), event.getParameter("value"));
     };
 
+    /**
+     * Adds values to a cell from somewhere other than the keyboard - a value help, today. They are
+     * ADDED to what is there rather than replacing it: a list is built up, and a dialog that wiped
+     * what the cell already held would be a trap. Duplicates fall out in the round trip.
+     */
+    controller.addListValues = function (cell, values) {
+      var tokens = cell.getTokens().concat((values || []).map(function (value) {
+        return new Token({ key: value, text: value });
+      }));
+      writeTokens(cell, tokens);
+    };
+
     // Discard leaves the cells showing the abandoned lists, and nothing else redraws them.
     controller.resetListCells = function () {
       listCells().forEach(function (entry) { entry.cell.data("shownList", null); });

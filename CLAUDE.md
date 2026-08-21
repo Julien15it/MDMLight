@@ -903,7 +903,14 @@ people***. The columns are CR type, step, two condition pairs, and the approvers
   SBPA, and a copy kept here would go stale.
 - **An entry carrying an `@` goes out as a user, anything else as a role.** Each
   approver reaches SBPA as `{ step, kind, value }`; `kind` is the one distinction
-  it needs to assign a task. **There is no order column** — rows are additive, so
+  it needs to assign a task. The two halves are **entered** differently on purpose
+  (2026-08-21): an address is free text nobody could offer a list for, while a role
+  has to be spelled exactly as SBPA knows it, so the cell takes typing *and* offers
+  a multi-select value help over the roles. The list is `ROLES` from
+  `srv/checks/field-properties.js` — the same set the field property profiles
+  condition on, so the two cannot drift — **minus `*`**, which is a wildcard for
+  matching and not somebody who can approve a request. The condition cells
+  deliberately do not get it: a country is not a role. **There is no order column** — rows are additive, so
   every matching row contributes its approvers and nothing needs ranking. Asked for
   and removed on 2026-08-21, before anything was deployed: it was copied in from the
   other rule tables rather than wanted, and dropping a column after a deploy is what
@@ -957,6 +964,16 @@ or DE" is **one row**, and the values are **OR** — one match is enough.
   than read off the control.
 - Enter commits a value **and so does leaving the cell**: a token silently dropped
   on the way out is a rule quietly missing an approver.
+
+**Save cannot claim what it did not do (2026-08-21).** A rule appeared to clear itself
+after being created. `hasPendingChanges` answers for **one update group**, so a create
+that never travelled leaves it false and the toast reports a save that did not happen —
+from the outside, a rule vanishing. `_transientRows()` now asks the rows directly: a
+context still transient after a submit was never written, and the page says so instead.
+Whether that was the actual cause is **unconfirmed** — it could not be reproduced
+locally, and the two things that would settle it are whether the row comes back after a
+browser reload, and whether the row reaches
+`/service/duplicateconfig/WorkflowRules`.
 
 **Still open, and agreed as the next step:** wiring SBPA to actually consume
 `approvers`. Arthur's definition ignores the field today, so the list is sent and

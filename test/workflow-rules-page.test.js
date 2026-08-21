@@ -188,3 +188,80 @@ test('the approvers are sent with the workflow context, and never absent', () =>
   // existed, so a routing hint must not cost a requester their submit.
   assert.match(body, /console\.warn/u);
 });
+
+
+/**
+ * An approver is an e-mail address or a role, and the two are entered differently on purpose: an
+ * address is free text nobody could offer a list for, while a role has to be spelled exactly as
+ * SBPA knows it. So the cell takes typing AND offers the roles.
+ */
+test('the approver cell offers the roles and still takes a typed address', () => {
+  const cell = view.slice(view.indexOf('app:listPath="approvers"'));
+  const body = cell.slice(0, cell.indexOf('/>'));
+  assert.match(body, /showValueHelp="true"/u);
+  assert.match(body, /valueHelpRequest="\.onRoleValueHelp"/u);
+  // Typing is unaffected: Enter and leaving the cell both still commit a value.
+  assert.match(body, /submit="\.onListSubmit"/u);
+  assert.match(body, /change="\.onListChange"/u);
+  // Against the whole view: the placeholder sits above the listPath the slice starts at.
+  assert.match(view, /placeholder="e-mail or role"/u);
+  // The condition cells are NOT given the role list - a country is not a role.
+  const conditionCell = view.slice(view.indexOf('app:listPath="conditionValues"'));
+  assert.equal(
+    /valueHelpRequest/u.test(conditionCell.slice(0, conditionCell.indexOf('/>'))),
+    false,
+    'the condition values have their own field help, not the roles'
+  );
+});
+
+// Its own fragment, and multiSelect: a step usually names more than one role, and picking three
+// should be one trip through the dialog rather than three.
+test('the role help is a multi-select dialog over the served roles', () => {
+  const fragment = read(APP, 'ext', 'fragment', 'RoleValueHelp.fragment.xml');
+  assert.match(fragment, /<SelectDialog/u);
+  assert.match(fragment, /multiSelect="true"/u);
+  assert.match(fragment, /items="\{ path: 'opt>\/roles'/u);
+  assert.match(controller, /ext\.fragment\.RoleValueHelp/u);
+  // Searchable over the code as well as the label, like the field help.
+  assert.match(controller, /onRoleSearch/u);
+  assert.match(controller, /FilterOperator\.Contains/u);
+});
+
+/**
+ * The roles come from the same list the field property profiles condition on, so the two cannot
+ * drift - minus `*`, which is a wildcard for matching and not somebody who can approve a request.
+ */
+test('the roles are served, and the wildcard is not one of them', () => {
+  assert.match(serviceCds, /roles {8}: array of Option;/u);
+  assert.match(serviceJs, /roles: ROLES\.filter\(\(code\) => code !== '\*'\)/u);
+  const { ROLES } = require('../srv/checks/field-properties');
+  assert.ok(ROLES.includes('DataSteward'), 'DataSteward is one of them');
+  assert.ok(ROLES.includes('*'), 'and the wildcard is in the source list, which is why it is filtered');
+});
+
+// Added to what the cell holds, never replacing it: a dialog that wiped the two addresses already
+// typed in would be a trap.
+test('choosing roles adds to the cell rather than replacing it', () => {
+  const listCellSource = read(APP, 'ext', 'ListCell.js');
+  assert.match(listCellSource, /controller\.addListValues = function \(cell, values\)/u);
+  assert.match(listCellSource, /cell\.getTokens\(\)\.concat\(\(values \|\| \[\]\)/u);
+  assert.match(controller, /this\.addListValues\(this\._roleCell, codes\)/u);
+  // The codes are read off their binding contexts, for the reason onFieldChosen documents.
+  assert.match(controller, /getProperty\("code"\)/u);
+});
+
+/**
+ * A rule that seemed to clear itself, reported 2026-08-21. `hasPendingChanges` answers for one
+ * update group, so a create that never travelled leaves it false and the toast claims a save that
+ * did not happen - which from the outside is a rule vanishing. So the rows are asked directly.
+ */
+test('save cannot report success while a row is still local to the page', () => {
+  assert.match(controller, /_transientRows: function/u);
+  assert.match(controller, /context\.isTransient && context\.isTransient\(\)/u);
+  const save = controller.slice(controller.indexOf('onSave: async function'));
+  const body = save.slice(0, save.indexOf('onDiscard:'));
+  // Checked after the submit and before anything says "saved".
+  assert.ok(body.indexOf('submitBatch(UPDATE_GROUP)') < body.indexOf('_transientRows()'));
+  assert.ok(body.indexOf('_transientRows()') < body.indexOf('MessageToast.show'));
+  assert.match(body, /were not saved/u);
+});

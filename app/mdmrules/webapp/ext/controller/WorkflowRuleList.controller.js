@@ -143,6 +143,59 @@ sap.ui.define([
       this.getView().getModel("view").setProperty("/dirty", true);
     },
 
+    // --- The role value help -----------------------------------------------
+
+    /**
+     * The roles half of the approver cell. Typing an address is the other half and needs no dialog;
+     * a role has to be spelled exactly as SBPA knows it, so it is picked rather than remembered.
+     *
+     * `multiSelect`, so naming three roles is one trip through the dialog. The chosen codes are
+     * ADDED to whatever the cell already holds - an approver list is built up, not replaced, and a
+     * dialog that wiped the two addresses already in the cell would be a trap.
+     */
+    onRoleValueHelp: async function (event) {
+      this._roleCell = event.getSource();
+      if (!this._roleHelp) {
+        this._roleHelp = await Fragment.load({
+          id: this.getView().getId() + "-roles",
+          name: "mdm.md.mdmrules.manage.ext.fragment.RoleValueHelp",
+          controller: this
+        });
+        this.getView().addDependent(this._roleHelp);
+      }
+      // Cleared on the way IN, never on the way out - the same rule the field value help follows,
+      // and for the same reason: resetting a filtered list re-templates its rows.
+      var items = this._roleHelp.getBinding("items");
+      if (items) items.filter([]);
+      this._roleHelp.open("");
+    },
+
+    onRoleSearch: function (event) {
+      var query = event.getParameter("value") || event.getParameter("newValue") || "";
+      var items = event.getSource().getBinding("items");
+      if (!items) return;
+      items.filter(query ? new Filter({
+        filters: [
+          new Filter("text", FilterOperator.Contains, query),
+          new Filter("code", FilterOperator.Contains, query)
+        ],
+        and: false
+      }) : []);
+    },
+
+    // The codes are read off their binding contexts before anything touches the list, for the
+    // reason spelled out on onFieldChosen: a reset re-binds the items to different rows.
+    onRolesChosen: function (event) {
+      var selected = event.getParameter("selectedItems")
+        || (event.getParameter("selectedItem") ? [event.getParameter("selectedItem")] : []);
+      var codes = selected.map(function (item) {
+        var context = item.getBindingContext("opt");
+        return context && context.getProperty("code");
+      }).filter(Boolean);
+      if (!codes.length || !this._roleCell) return;
+      this.addListValues(this._roleCell, codes);
+    },
+
     // --- The field value help ----------------------------------------------
 
     // Opened from either condition field cell. The cell is identified by its own binding rather than
@@ -226,6 +279,16 @@ sap.ui.define([
       return problems;
     },
 
+    // Rows the page is still holding on its own. `isTransient` is guarded because a persisted
+    // context does not always carry it, depending on how the row got here.
+    _transientRows: function () {
+      var binding = this._table() && this._table().getBinding("items");
+      if (!binding) return [];
+      return (binding.getCurrentContexts() || []).filter(function (context) {
+        return context && context.isTransient && context.isTransient();
+      });
+    },
+
     _draftRules: function () {
       var binding = this._table().getBinding("items");
       if (!binding) return [];
@@ -249,6 +312,17 @@ sap.ui.define([
         // A rejected row leaves its change pending rather than silently vanishing.
         if (this._model().hasPendingChanges(UPDATE_GROUP)) {
           MessageBox.error("The service rejected at least one rule. Check the messages and correct the row.");
+          return;
+        }
+        // `hasPendingChanges` answers for ONE update group, so it cannot see a create that never
+        // travelled - a row added outside this group would leave it false and the toast would claim
+        // a save that never happened, which is indistinguishable from a rule clearing itself. So the
+        // rows are asked directly: a context still transient after a submit was never written.
+        var unsaved = this._transientRows();
+        if (unsaved.length) {
+          MessageBox.error(unsaved.length + " rule(s) were not saved: the service accepted nothing "
+            + "for them and they are still local to this page. Reload before trying again — "
+            + "leaving now loses them.");
           return;
         }
         view.setProperty("/dirty", false);
