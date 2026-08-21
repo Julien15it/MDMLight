@@ -2,7 +2,6 @@
   controllerName="mdm.md.mdmrules.manage.ext.controller.WorkflowRuleList"
   xmlns:mvc="sap.ui.core.mvc"
   xmlns:core="sap.ui.core"
-  xmlns:app="http://schemas.sap.com/sapui5/extension/sap.ui.core.CustomData/1"
   xmlns="sap.m"
   height="100%">
   <Page
@@ -28,8 +27,7 @@
         mode="SingleSelectMaster"
         busy="{view>/busy}"
         growing="true"
-        growingThreshold="100"
-        updateFinished=".onRowsRendered">
+        growingThreshold="100">
         <headerToolbar>
           <OverflowToolbar>
             <Title text="Rules" level="H2" />
@@ -46,9 +44,9 @@
           <Column width="10%"><Text text="CR Type" /></Column>
           <Column width="9%"><Text text="Step" /></Column>
           <Column width="14%"><Text text="Condition 1 Field" /></Column>
-          <Column width="14%"><Text text="Condition 1 Values" /></Column>
+          <Column width="14%"><Text text="Condition 1 Value" /></Column>
           <Column width="14%"><Text text="Condition 2 Field" /></Column>
-          <Column width="14%"><Text text="Condition 2 Values" /></Column>
+          <Column width="14%"><Text text="Condition 2 Value" /></Column>
           <Column width="20%"><Text text="Approvers" /></Column>
           <Column width="4rem" hAlign="Center"><Text text="Active" /></Column>
         </columns>
@@ -81,26 +79,12 @@
                 showValueHelp="true"
                 valueHelpRequest=".onFieldValueHelp"
                 change=".onCellChange" />
-              <!-- Tokens, one per value, and they are OR: one match is enough. Nobody types the
-                   delimiter the cell is stored with - see srv/checks/value-lists.js. -->
-              <VBox>
-                <MultiInput
-                  width="100%"
-                  placeholder="any"
-                  enabled="{= !!${dc>conditionField} }"
-                  app:listPath="conditionValues"
-                  tokenUpdate=".onListTokenUpdate"
-                  submit=".onListSubmit"
-                  change=".onListChange" />
-                <!-- The control that actually WRITES the column. The MultiInput above is the
-                     display: its tokens are an aggregation, and a `context.setProperty` write
-                     reached the client model but never the server (2026-08-21). Every column on
-                     this page that saves is written by a two-way binding, so this one is too. -->
-                <Input
-                  visible="false"
-                  value="{dc>conditionValues}"
-                  app:listSink="conditionValues" />
-              </VBox>
+              <Input
+                width="100%"
+                value="{dc>conditionValues}"
+                placeholder="any"
+                enabled="{= !!${dc>conditionField} }"
+                change=".onCellChange" />
               <Input
                 width="100%"
                 value="{dc>conditionField2}"
@@ -108,47 +92,23 @@
                 showValueHelp="true"
                 valueHelpRequest=".onFieldValueHelp"
                 change=".onCellChange" />
-              <VBox>
-                <MultiInput
-                  width="100%"
-                  placeholder="any"
-                  enabled="{= !!${dc>conditionField2} }"
-                  app:listPath="conditionValues2"
-                  tokenUpdate=".onListTokenUpdate"
-                  submit=".onListSubmit"
-                  change=".onListChange" />
-                <!-- The control that actually WRITES the column. The MultiInput above is the
-                     display: its tokens are an aggregation, and a `context.setProperty` write
-                     reached the client model but never the server (2026-08-21). Every column on
-                     this page that saves is written by a two-way binding, so this one is too. -->
-                <Input
-                  visible="false"
-                  value="{dc>conditionValues2}"
-                  app:listSink="conditionValues2" />
-              </VBox>
-              <!-- E-mail addresses, roles, or both. An entry carrying an `@` goes to SBPA as a user
-                   and anything else as a role; which roles RESOLVE to is SBPA's to know, not ours.
-                   An address is typed straight in; the value help is for the roles, so nobody has to
-                   remember how DataSteward is spelled. -->
-              <VBox>
-                <MultiInput
-                  width="100%"
-                  placeholder="e-mail or role"
-                  app:listPath="approvers"
-                  showValueHelp="true"
-                  valueHelpRequest=".onRoleValueHelp"
-                  tokenUpdate=".onListTokenUpdate"
-                  submit=".onListSubmit"
-                  change=".onListChange" />
-                <!-- The control that actually WRITES the column. The MultiInput above is the
-                     display: its tokens are an aggregation, and a `context.setProperty` write
-                     reached the client model but never the server (2026-08-21). Every column on
-                     this page that saves is written by a two-way binding, so this one is too. -->
-                <Input
-                  visible="false"
-                  value="{dc>approvers}"
-                  app:listSink="approvers" />
-              </VBox>
+              <Input
+                width="100%"
+                value="{dc>conditionValues2}"
+                placeholder="any"
+                enabled="{= !!${dc>conditionField2} }"
+                change=".onCellChange" />
+              <!-- ONE approver: an e-mail address or a role. An entry carrying an `@` goes to SBPA
+                   as a user and anything else as a role; which roles RESOLVE to is SBPA's to know,
+                   not ours. Several approvers means several rows - the engine merges them. The value
+                   help is for the roles, so nobody has to remember how DataSteward is spelled. -->
+              <Input
+                width="100%"
+                value="{dc>approvers}"
+                placeholder="e-mail or role"
+                showValueHelp="true"
+                valueHelpRequest=".onRoleValueHelp"
+                change=".onCellChange" />
               <CheckBox selected="{dc>isActive}" select=".onCellChange" />
             </cells>
           </ColumnListItem>

@@ -6,22 +6,24 @@ sap.ui.define([
   "sap/ui/model/Filter",
   "sap/ui/model/FilterOperator",
   "sap/m/MessageBox",
-  "sap/m/MessageToast",
-  "mdm/md/mdmrules/manage/ext/ListCell"
-], function (Controller, UIComponent, Fragment, JSONModel, Filter, FilterOperator, MessageBox, MessageToast, ListCell) {
+  "sap/m/MessageToast"
+], function (Controller, UIComponent, Fragment, JSONModel, Filter, FilterOperator, MessageBox, MessageToast) {
   "use strict";
 
   var UPDATE_GROUP = "ruleChanges";
 
   // Mirrors CONDITION_PAIRS in srv/checks/workflow-rules.js. The column names are part of the OData
-  // contract, so this is the one thing the page may hold a copy of. Values plural: they are lists.
+  // contract, so this is the one thing the page may hold a copy of. The `values` keys are PLURAL and
+  // hold one value each: multiple values were withdrawn on 2026-08-21 and `cds-deploy` cannot rename
+  // a column - see "Multiple values per condition" in CLAUDE.md.
   var CONDITION_PAIRS = [
     { field: "conditionField", values: "conditionValues" },
     { field: "conditionField2", values: "conditionValues2" }
   ];
 
   // Who approves what. Same page shape as the other three rule tables, because a steward should not
-  // have to learn two - the only new idea is a cell that holds a list.
+  // have to learn two: one value per cell, a field value help on the conditions and a role value
+  // help on the approver. Several approvers means several rows.
   return Controller.extend("mdm.md.mdmrules.manage.ext.controller.WorkflowRuleList", {
 
     onInit: function () {
@@ -32,12 +34,6 @@ sap.ui.define([
         skippedText: ""
       }), "view");
       this._router = UIComponent.getRouterFor(this);
-      // The condition value cells hold a LIST. The handlers behind them are shared rather than
-      // copied into every rule page - see app/mdmrules/webapp/ext/ListCell.js.
-      ListCell.mixin(this, {
-        getTable: this._table.bind(this),
-        onChanged: this._markDirty.bind(this)
-      });
       this._loadOptions();
     },
 
@@ -72,13 +68,6 @@ sap.ui.define([
       try {
         var options = await this._callAction("workflowRuleOptions", {});
         this.getView().setModel(new JSONModel(options || {}), "opt");
-        // A page splitting on a different character from the one the service stores would show one
-        // token where three are saved, so it is worth saying out loud rather than debugging twice.
-        if (options && options.listDelimiter && options.listDelimiter !== ListCell.DELIMITER) {
-          MessageBox.error("This page and the service disagree about how a list is stored ("
-            + options.listDelimiter + " against " + ListCell.DELIMITER
-            + "). Multi-value cells will be wrong.");
-        }
         this._reportSkipped(options);
         if (!options || !options.fields || !options.fields.length) {
           MessageBox.error("The field catalog came back empty, so no condition can be written. "
@@ -149,12 +138,17 @@ sap.ui.define([
      * The roles half of the approver cell. Typing an address is the other half and needs no dialog;
      * a role has to be spelled exactly as SBPA knows it, so it is picked rather than remembered.
      *
-     * `multiSelect`, so naming three roles is one trip through the dialog. The chosen codes are
-     * ADDED to whatever the cell already holds - an approver list is built up, not replaced, and a
-     * dialog that wiped the two addresses already in the cell would be a trap.
+     * One role, because the cell holds one approver: several approvers are several rows, which is
+     * what the Add button is for and what the engine merges.
      */
     onRoleValueHelp: async function (event) {
-      this._roleCell = event.getSource();
+      var input = event.getSource();
+      var binding = input.getBinding("value");
+      this._roleTarget = {
+        context: input.getBindingContext("dc"),
+        path: binding && binding.getPath()
+      };
+      if (!this._roleTarget.context || !this._roleTarget.path) return;
       if (!this._roleHelp) {
         this._roleHelp = await Fragment.load({
           id: this.getView().getId() + "-roles",
@@ -183,19 +177,17 @@ sap.ui.define([
       }) : []);
     },
 
-    // The codes are read off their binding contexts before anything touches the list, for the
-    // reason the field value help spells out - a reset re-binds the items to different rows.
+    // The code is read off its binding context before anything touches the list, for the reason
+    // the field value help spells out - a reset re-binds the items to different rows.
     // (Written without naming that handler and a colon: these tests find a method by that exact
     // string, so a comment carrying it sends the slice to the wrong function.)
     onRolesChosen: function (event) {
-      var selected = event.getParameter("selectedItems")
-        || (event.getParameter("selectedItem") ? [event.getParameter("selectedItem")] : []);
-      var codes = selected.map(function (item) {
-        var context = item.getBindingContext("opt");
-        return context && context.getProperty("code");
-      }).filter(Boolean);
-      if (!codes.length || !this._roleCell) return;
-      this.addListValues(this._roleCell, codes);
+      var selected = event.getParameter("selectedItem");
+      var context = selected && selected.getBindingContext("opt");
+      var code = context && context.getProperty("code");
+      if (!code || !this._roleTarget) return;
+      this._roleTarget.context.setProperty(this._roleTarget.path, code);
+      this._markDirty();
     },
 
     // --- The field value help ----------------------------------------------
@@ -264,16 +256,16 @@ sap.ui.define([
         if (!rule.requestType) problems.push(label + "choose the CR type this rule applies to.");
         if (!rule.step) problems.push(label + "choose the step.");
         // A step with nobody on it is the row that looks configured and stops a request dead.
-        if (!ListCell.parseList(rule.approvers).length) {
-          problems.push(label + "add at least one approver — an e-mail address or a role.");
+        if (!rule.approvers) {
+          problems.push(label + "name the approver — an e-mail address or a role.");
         }
         // Half a condition is the dangerous half: a field with no values would match everything.
         CONDITION_PAIRS.forEach(function (pair, position) {
           var name = "condition " + (position + 1);
-          if (rule[pair.field] && !ListCell.parseList(rule[pair.values]).length) {
-            problems.push(label + name + " needs at least one value, or clear its field.");
+          if (rule[pair.field] && !rule[pair.values]) {
+            problems.push(label + name + " needs a value, or clear its field.");
           }
-          if (ListCell.parseList(rule[pair.values]).length && !rule[pair.field]) {
+          if (rule[pair.values] && !rule[pair.field]) {
             problems.push(label + name + " needs a field.");
           }
         });
@@ -341,8 +333,6 @@ sap.ui.define([
     onDiscard: function () {
       this._model().resetChanges(UPDATE_GROUP);
       this.getView().getModel("view").setProperty("/dirty", false);
-      // The token cells are showing the abandoned lists, and nothing else redraws them.
-      this.resetListCells();
     },
 
     _callAction: async function (name, parameters) {

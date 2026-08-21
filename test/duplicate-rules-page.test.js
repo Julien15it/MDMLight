@@ -19,41 +19,11 @@ const controllerSource = fs.readFileSync(
 const routing = manifest['sap.ui5'].routing;
 const route = routing.routes.find((entry) => entry.name === 'DuplicateRuleList');
 
-/**
- * `ListCell` is a UI5 module, so the harness supplies the two functions the controller uses. Real
- * behaviour rather than a proxy: `_localProblems` counts the entries of a list, and a stub whose
- * `.length` answered truthy would make a half-filled condition look complete.
- */
-const listCell = {
-  DELIMITER: '|',
-  parseList: (raw) => String(raw === null || raw === undefined ? '' : raw)
-    .split('|')
-    .map((entry) => entry.trim())
-    .filter((entry, index, all) => entry && all.indexOf(entry) === index),
-  formatList: (values) => (values || []).join('|'),
-  mixin: () => {}
-};
-
 function loadController() {
   let definition;
   const base = { extend: (name, members) => ({ name, members }) };
   vm.runInNewContext(controllerSource, {
-    // One stub per dependency the controller DECLARES, rather than a fixed list positioned by
-    // hand: a seventh dependency would otherwise arrive undefined, which is the bug this line
-    // already had once. ListCell is real rather than empty because the validation below calls
-    // parseList on it - a bare {} makes it undefined and the page fails on "Cannot read
-    // properties of undefined", which is not what is under test here.
-    sap: {
-      ui: {
-        define: (dependencies, factory) => {
-          definition = factory(...dependencies.map((name, index) => {
-            if (index === 0) return base;
-            if (/ListCell$/u.test(name)) return listCell;
-            return function () {};
-          }));
-        }
-      }
-    }
+    sap: { ui: { define: (unused, factory) => { definition = factory(base, {}, function () {}, {}, {}); } } }
   });
   return definition.members;
 }
@@ -137,26 +107,10 @@ test('the grid asks only for what a steward has to decide', () => {
     assert.equal(view.includes(gone), false, `${gone} is still on the grid`);
   }
   assert.match(view, /\{dc>conditionField\}/u);
+  assert.match(view, /\{dc>conditionValue\}/u);
   // Two independent conditions, so a steward can write "Role = Vendor and Country = BE".
   assert.match(view, /\{dc>conditionField2\}/u);
-  // The values are a LIST since 2026-08-21, so they are token cells rather than bound Inputs: the
-  // column is one string and `tokens` is an aggregation, so the path travels as custom data.
-  // The column keeps its singular name: `cds-deploy` cannot rename an element any more than it can
-  // drop one, so the three older tables hold a list in `conditionValue` while the workflow table,
-  // written after the decision, has `conditionValues`.
-  for (const column of ['conditionValue', 'conditionValue2']) {
-    assert.match(view, new RegExp(`app:listPath="${column}"`, 'u'), `${column} is a token cell`);
-  }
-  // Every `value="{dc>conditionValue…}"` binding belongs to the hidden writer beside the token
-  // cell - that binding is what makes the list travel - and none of them is an editable cell.
-  for (const column of ['conditionValue', 'conditionValue2']) {
-    const bindings = (view.match(new RegExp(`value="\\{dc>${column}\\}"`, 'gu')) || []).length;
-    const sinks = (view.match(new RegExp(`app:listSink="${column}"`, 'gu')) || []).length;
-    assert.equal(bindings, sinks, `${column} is bound only by its writer`);
-    assert.equal(bindings, 1, `${column} has exactly one writer`);
-  }
-  assert.equal(/change="\.onCellChange"[\s\S]{0,80}app:listSink/u.test(view), false,
-    'the writer is not an editable cell');
+  assert.match(view, /\{dc>conditionValue2\}/u);
 });
 
 // Columns sized to the row, not to their content, and no standing explanation above the table.

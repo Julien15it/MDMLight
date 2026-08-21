@@ -12,9 +12,6 @@ const read = (...parts) => fs.readFileSync(path.join(...parts), 'utf8');
 
 const view = read(APP, 'ext', 'view', 'WorkflowRuleList.view.xml');
 const controller = read(APP, 'ext', 'controller', 'WorkflowRuleList.controller.js');
-// The token cells are shared by all four rule pages, so what they do is asserted against the module
-// rather than against this page - see quality-rules-page.test.js for the no-copies rule.
-const listCell = read(APP, 'ext', 'ListCell.js');
 const hub = read(APP, 'ext', 'view', 'MDMRuleHub.view.xml');
 const hubController = read(APP, 'ext', 'controller', 'MDMRuleHub.controller.js');
 const manifest = JSON.parse(read(APP, 'manifest.json'));
@@ -28,8 +25,8 @@ const changeRequestJs = read(ROOT, 'srv', 'change-request-service.js');
 test('the workflow table has the columns a rule needs, in order', () => {
   const columns = [...view.matchAll(/<Column[^>]*>\s*<Text text="([^"]+)"/gu)].map((match) => match[1]);
   assert.deepEqual(columns, [
-    'CR Type', 'Step', 'Condition 1 Field', 'Condition 1 Values',
-    'Condition 2 Field', 'Condition 2 Values', 'Approvers', 'Active'
+    'CR Type', 'Step', 'Condition 1 Field', 'Condition 1 Value',
+    'Condition 2 Field', 'Condition 2 Value', 'Approvers', 'Active'
   ]);
 });
 
@@ -97,72 +94,50 @@ test('a values cell is disabled until its field is chosen', () => {
 });
 
 /**
- * Three cells hold a list. A MultiInput's tokens are an aggregation and the column is one string,
- * so the page keeps the two in step itself - `tokens` cannot be bound to a string and a formatter
- * cannot create controls.
+ * One value per cell, like every other rule table. Multiple selection was built here first and
+ * withdrawn on 2026-08-21 after three failed attempts to make a token cell save reliably - see
+ * "Multiple values per condition" in CLAUDE.md for what it would take. Pinned so it does not creep
+ * back in by accident: a plain bound Input is the whole mechanism, and it is the one that works.
  */
-test('the two condition value cells and the approver cell take several values', () => {
-  const multiInputs = [...view.matchAll(/<MultiInput[\s\S]*?\/>/gu)].map((match) => match[0]);
-  assert.equal(multiInputs.length, 3);
-  assert.deepEqual(
-    multiInputs.map((cell) => (cell.match(/app:listPath="([^"]+)"/u) || [])[1]),
-    ['conditionValues', 'conditionValues2', 'approvers']
-  );
-  for (const cell of multiInputs) {
-    assert.match(cell, /tokenUpdate="\.onListTokenUpdate"/u);
-    // Enter commits a value, and so does leaving the cell: a token silently dropped on the way out
-    // is a rule quietly missing an approver.
-    assert.match(cell, /submit="\.onListSubmit"/u);
-    assert.match(cell, /change="\.onListChange"/u);
+test('every cell is a single bound value, and nothing tokenises', () => {
+  for (const column of ['conditionValues', 'conditionValues2', 'approvers']) {
+    assert.match(
+      view, new RegExp(`value="\\{dc>${column}\\}"`, 'u'), `${column} is a bound Input`
+    );
   }
-  // Rendered rows get their tokens from the stored value, and every edit writes the whole list back.
-  assert.match(view, /updateFinished="\.onRowsRendered"/u);
-  assert.match(listCell, /removeAllTokens\(\)/u);
-  assert.match(listCell, /new Token\(\{ key: value, text: value \}\)/u);
-  assert.match(controller, /ListCell\.mixin\(this, \{/u);
-});
-
-// `tokenUpdate` fires before the aggregation changes, so reading the control back would miss the
-// edit that triggered it.
-test('the new list is computed from the added and removed tokens', () => {
-  const handler = listCell.slice(listCell.indexOf('controller.onListTokenUpdate'));
-  const body = handler.slice(0, handler.indexOf('\n    };'));
-  assert.match(body, /removedTokens/u);
-  assert.match(body, /addedTokens/u);
-});
-
-/**
- * The page and the service have to agree on how a list is stored, and a page splitting on a
- * different character would show one token where three are saved. The service reports its delimiter
- * so the mismatch is said out loud rather than debugged twice.
- */
-test('the page and the service agree on the delimiter', () => {
-  const { DELIMITER } = require('../srv/checks/value-lists');
-  assert.match(listCell, new RegExp(`var DELIMITER = "\\${DELIMITER}"`, 'u'));
-  assert.match(serviceCds, /listDelimiter : String\(1\)/u);
-  assert.match(serviceJs, /listDelimiter: DELIMITER/u);
-  assert.match(controller, /options\.listDelimiter !== ListCell\.DELIMITER/u);
+  assert.equal(/MultiInput/u.test(view), false, 'no token cell is left');
+  assert.equal(/app:listPath|app:listSink/u.test(view), false, 'and no custom data driving one');
+  assert.equal(/updateFinished/u.test(view), false, 'nothing has to be redrawn after a render');
+  assert.equal(/ListCell/u.test(controller), false, 'the shared token module is gone');
+  assert.equal(
+    fs.existsSync(path.join(APP, 'ext', 'ListCell.js')),
+    false,
+    'and deleted rather than left behind'
+  );
 });
 
 // The service validates whatever a client sends; the page checks the same things at the keyboard so
 // a steward is not told by a rejected batch.
 test('the row is checked before it is sent, and again on the way in', () => {
   assert.match(controller, /choose the CR type this rule applies to/u);
-  assert.match(controller, /add at least one approver/u);
-  assert.match(controller, /needs at least one value, or clear its field/u);
+  assert.match(controller, /name the approver/u);
+  assert.match(controller, /needs a value, or clear its field/u);
   assert.match(serviceJs, /guard\('WorkflowRules', WORKFLOW_RULES, validateWorkflowRule/u);
   // Its own store, or a write would drop the quality cache and leave the approvers stale.
   assert.match(serviceJs, /workflowRuleStore\.markStale/u);
 });
 
 // Rows not columns, like every other table here: adding a step or an approver must be an INSERT,
-// because cds-deploy refuses to drop an element.
-test('the table is rows, and the lists are single columns', () => {
+// because cds-deploy refuses to drop an element. One value per column, so an extra approver is an
+// extra row - which is what the Add button is for and what resolveApprovers merges.
+test('the table is rows, and every column holds one value', () => {
   assert.match(rulesCds, /entity WorkflowRules : managed/u);
   for (const column of [
     'requestType', 'step', 'conditionField', 'conditionValues', 'conditionField2',
     'conditionValues2', 'approvers', 'isActive'
   ]) {
+    // The plural names are stuck: `cds-deploy` cannot rename an element any more than it can drop
+    // one, so these hold ONE value under a name that reads like several.
     assert.match(rulesCds, new RegExp(`\\b${column}\\b`, 'u'), `${column} is modelled`);
   }
   // No order column: rows are additive, so every matching row contributes and nothing is ranked.
@@ -203,17 +178,15 @@ test('the approvers are sent with the workflow context, and never absent', () =>
  * SBPA knows it. So the cell takes typing AND offers the roles.
  */
 test('the approver cell offers the roles and still takes a typed address', () => {
-  const cell = view.slice(view.indexOf('app:listPath="approvers"'));
+  const cell = view.slice(view.indexOf('value="{dc>approvers}"'));
   const body = cell.slice(0, cell.indexOf('/>'));
   assert.match(body, /showValueHelp="true"/u);
   assert.match(body, /valueHelpRequest="\.onRoleValueHelp"/u);
-  // Typing is unaffected: Enter and leaving the cell both still commit a value.
-  assert.match(body, /submit="\.onListSubmit"/u);
-  assert.match(body, /change="\.onListChange"/u);
-  // Against the whole view: the placeholder sits above the listPath the slice starts at.
+  // Typing is the other half and needs no dialog: an address is free text.
+  assert.match(body, /change="\.onCellChange"/u);
   assert.match(view, /placeholder="e-mail or role"/u);
   // The condition cells are NOT given the role list - a country is not a role.
-  const conditionCell = view.slice(view.indexOf('app:listPath="conditionValues"'));
+  const conditionCell = view.slice(view.indexOf('value="{dc>conditionValues}"'));
   assert.equal(
     /valueHelpRequest/u.test(conditionCell.slice(0, conditionCell.indexOf('/>'))),
     false,
@@ -221,12 +194,12 @@ test('the approver cell offers the roles and still takes a typed address', () =>
   );
 });
 
-// Its own fragment, and multiSelect: a step usually names more than one role, and picking three
-// should be one trip through the dialog rather than three.
-test('the role help is a multi-select dialog over the served roles', () => {
+// Its own fragment, and one role: the cell holds one approver, so several approvers are several
+// rows - which is what the Add button is for and what the engine merges.
+test('the role help is a single-select dialog over the served roles', () => {
   const fragment = read(APP, 'ext', 'fragment', 'RoleValueHelp.fragment.xml');
   assert.match(fragment, /<SelectDialog/u);
-  assert.match(fragment, /multiSelect="true"/u);
+  assert.equal(/multiSelect/u.test(fragment), false, 'one role per cell');
   assert.match(fragment, /items="\{ path: 'opt>\/roles'/u);
   assert.match(controller, /ext\.fragment\.RoleValueHelp/u);
   // Searchable over the code as well as the label, like the field help.
@@ -246,15 +219,14 @@ test('the roles are served, and the wildcard is not one of them', () => {
   assert.ok(ROLES.includes('*'), 'and the wildcard is in the source list, which is why it is filtered');
 });
 
-// Added to what the cell holds, never replacing it: a dialog that wiped the two addresses already
-// typed in would be a trap.
-test('choosing roles adds to the cell rather than replacing it', () => {
-  const listCellSource = read(APP, 'ext', 'ListCell.js');
-  assert.match(listCellSource, /controller\.addListValues = function \(cell, values\)/u);
-  assert.match(listCellSource, /cell\.getTokens\(\)\.concat\(\(values \|\| \[\]\)/u);
-  assert.match(controller, /this\.addListValues\(this\._roleCell, codes\)/u);
-  // The codes are read off their binding contexts, for the reason onFieldChosen documents.
-  assert.match(controller, /getProperty\("code"\)/u);
+// Written through the cell's own binding, like every other value help on these pages, and the code
+// is read off its binding context before anything touches the list.
+test('choosing a role writes it into the cell', () => {
+  const chosen = controller.slice(controller.indexOf('onRolesChosen:'));
+  const body = chosen.slice(0, chosen.indexOf('\n    },'));
+  assert.match(body, /getProperty\("code"\)/u);
+  assert.match(body, /this\._roleTarget\.context\.setProperty\(this\._roleTarget\.path, code\)/u);
+  assert.ok(body.indexOf('getProperty("code")') < body.indexOf('setProperty('));
 });
 
 /**

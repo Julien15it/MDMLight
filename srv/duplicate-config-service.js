@@ -22,7 +22,6 @@ const {
   STEPS, STEP_TEXT, validateWorkflowRule, runnableWorkflowRules
 } = require('./checks/workflow-rules');
 const workflowRuleStore = require('./checks/workflow-rule-store');
-const { DELIMITER } = require('./checks/value-lists');
 
 const RULES = 'mdmlight.config.DuplicateRules';
 const VALIDATIONS = 'mdmlight.config.ValidationRules';
@@ -127,8 +126,7 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
         roles: ROLES.filter((code) => code !== '*').map((code) => ({
           code, text: ROLE_TEXT[code] || code
         })),
-        ruleCount,
-        listDelimiter: DELIMITER
+        ruleCount
       };
     });
 

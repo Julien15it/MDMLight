@@ -29,8 +29,13 @@ entity WorkflowRules : managed {
 
       /**
        * Two independent pairs, same meaning as the other tables: an empty pair is "any", both
-       * filled is AND. Unlike the other tables the values are a LIST and hold as soon as ONE of
-       * them matches, so "Country is BE, NL, FR or DE" is one row rather than four.
+       * filled is AND. **One value each**, like every other rule table.
+       *
+       * The PLURAL names are stuck: multiple values were built here first and withdrawn on
+       * 2026-08-21, and `cds-deploy` cannot rename an element any more than it can drop one. So
+       * these two columns read like several values and hold one. The read path still tolerates a
+       * delimited list, for the rows written while the feature was live - see
+       * srv/checks/value-lists.js.
        *
        * A condition here is always a statement about the partner - this row targets no section of
        * its own - so any row of the named section satisfying it is enough.
@@ -41,10 +46,11 @@ entity WorkflowRules : managed {
       conditionValues2 : String(400);
 
       /**
-       * The approvers for this step, as a list: e-mail addresses, role names, or both. An entry
-       * carrying an `@` is passed on as a user, anything else as a role - SBPA resolves both, and
-       * CAP deliberately does not check that a role exists. See srv/checks/value-lists.js for the
-       * encoding, which is the same one the condition values use.
+       * ONE approver: an e-mail address or a role name. An entry carrying an `@` is passed on as a
+       * user, anything else as a role - SBPA resolves both, and CAP deliberately does not check
+       * that a role exists. **Several approvers means several rows**, which is what the table is
+       * for and what `resolveApprovers` merges. Wide enough for the list it used to hold, and the
+       * read path still parses one.
        */
       approvers       : String(1000) not null;
 

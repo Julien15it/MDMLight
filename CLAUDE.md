@@ -738,30 +738,52 @@ Still open on these tables, and not built:
 - Rules for object types other than the Business Partner. When MM arrives, **copy
   the tables** rather than adding an object-type column.
 
-#### Condition values are lists on every table (2026-08-21)
+#### Multiple values per condition — built, withdrawn, and what it would take
 
-All four rule tables take **several values per condition**, ORed: one match is enough, so
-"Country is BE, NL, FR or DE" is one row rather than four. The encoding is
-`srv/checks/value-lists.js` for all of them.
+**Every rule table takes ONE value per field.** Multiple values per condition were built on
+2026-08-21 across all four tables and **withdrawn the same day** on Maarten's instruction, after
+three deployed attempts failed. It is on the list for later; the notes below are what the next
+attempt needs, because the idea is fine and the implementation route was not.
 
-- **No migration, and no stored row changed.** The format was chosen so a single stored value is
-  already a valid one-entry list, which is the whole reason it went in as a shared module when the
-  workflow table needed it first.
-- **The columns keep their singular names.** `cds-deploy` cannot rename an element any more than it
-  can drop one, so the three older tables hold a list in `conditionValue` / `conditionValue2` while
-  `WorkflowRules`, written after the decision, has `conditionValues`. Do not "tidy" this.
-- **Conditions only.** A Validation's `value` (what the field is compared *against*) and a
-  Derivation's `value` (what the field is *filled with*) stay single: filling a field with four
-  values means nothing, and `<` against a list is not a comparison anyone can read. Field Properties
-  is untouched — its conditions are closed dropdowns where `*` already means "all".
-- **One implementation of the cell**, `app/mdmrules/webapp/ext/ListCell.js`, mixed into all four
-  controllers. Sixty lines of aggregation bookkeeping copied four times drifts the first time one
-  copy is fixed — the same reasoning that put the maintenance screen in `app/reuse`. The four
-  handler names (`onRowsRendered`, `onListTokenUpdate`, `onListSubmit`, `onListChange`) are part of
-  that contract, so a cell moved between pages keeps working.
-- **Where the matching changed**: `conditionHolds` in `srv/checks/rule-engine.js` and `holds` in
-  `srv/ai/duplicate-engine.js`, both now OR over the parsed list. An empty list still means "any",
-  and a value that normalises away still narrows nothing — the single-value behaviour, unchanged.
+What was tried, in order, and how each one failed **in the deployed app**:
+
+1. **A `MultiInput` whose tokens were written with `context.setProperty`.** The value reached the
+   client model and never the server. It looked saved while navigating inside the app — the model
+   cache was answering — and was gone the moment the app was left and re-entered.
+2. **A hidden bound `Input` beside the token cell, writing through the binding.** That fixed the
+   saving and broke the typing: the write path re-read the model to redraw the tokens, and through a
+   two-way binding that read does not reliably see what was just written, so it returned the
+   previous value and deleted the token a line after adding it.
+3. **Drawing what was written instead of re-reading.** That exposed the worst one: `removeAllTokens`
+   makes the control report every token as removed, the `tokenUpdate` handler computed the resulting
+   list as empty, and the write went through the bound sink — so **opening a page blanked every
+   stored condition value on it.** A `redrawing` guard stopped the loop and the cells still did not
+   work.
+
+The common thread, and the lesson for the next attempt: **a hand-managed aggregation alongside a
+bound column is the wrong shape.** Every column on these pages that saves is written by a plain
+two-way binding, and each fix above was another patch on the gap between the tokens and the
+binding. Whatever comes next should make the binding the only writer from the start — a child
+entity with one row per value and a real list binding, or `sap.ui.mdc`'s multi-value field, not a
+`MultiInput` synchronised by hand.
+
+What the withdrawal left behind, deliberately:
+
+- **`srv/checks/value-lists.js` stays as a READ path.** Rows written while the feature was live may
+  hold `BE|NL`, and `conditionHolds` (`srv/checks/rule-engine.js`), `holds`
+  (`srv/ai/duplicate-engine.js`) and `resolveApprovers` still parse a delimited list and OR across
+  it. A stored rule that silently stopped matching is the failure this codebase refuses everywhere
+  else. A single value is a one-entry list, so the tolerance costs nothing.
+- **`WorkflowRules.conditionValues` / `conditionValues2` keep their PLURAL names** and hold one
+  value. `cds-deploy` cannot rename an element any more than it can drop one — the same reason
+  `createsRow` and the four `cond*` columns are still in the model.
+- **`app/mdmrules/webapp/ext/ListCell.js` was deleted**, not left dormant. Half a mechanism nobody
+  calls is what the next person mistakes for a working one.
+
+**`WorkflowRules.approvers` therefore holds one approver**, and several approvers are **several
+rows** — which is what Maarten asked for originally ("an extra line can be used to add extra
+approvers") and what `resolveApprovers` already merges. The role value help stays: an address is
+typed, a role is picked, one per cell.
 
 ### Field property profiles (2026-08-20)
 
@@ -936,64 +958,21 @@ people***. The columns are CR type, step, two condition pairs, and the approvers
   (Supplier creation, Customer creation) with several steps each, and a step added
   later must not be a column added later.
 
-#### Two columns hold a list, and the encoding is shared
+#### One value per column
 
-`conditionValues`, `conditionValues2` and `approvers` are lists in a single
-column, separated by `|` (`srv/checks/value-lists.js`). So "Country is BE, NL, FR
-or DE" is **one row**, and the values are **OR** — one match is enough.
+Both condition values and the approver hold a single value, like every other rule table — see
+"Multiple values per condition" above for the version that was built and withdrawn, and what the
+next attempt would need. The columns keep their plural names because `cds-deploy` cannot rename an
+element.
 
-- **`|` rather than a comma or a semicolon**: company names carry commas
-  ("Acme, Inc") and address text carries semicolons, while neither appears in an
-  e-mail address, a country code or a role. Nobody types it either — the grid uses
-  tokens.
-- **A single stored value is already a valid one-entry list**, which is what lets
-  the other tables' single-value condition columns become multi-value later
-  without touching a stored row. That is the whole reason the encoding is a shared
-  module rather than two lines in this table's engine.
-- **A condition here is always a statement about the partner.** A row of this
-  table targets no section of its own, so any row of the named section satisfying
-  the condition is enough — unlike the validation and derivation tables, where a
-  condition on the rule's *own* section is evaluated per row.
-- **The page keeps tokens and the stored string in step by hand.** A
-  `MultiInput`'s `tokens` is an aggregation and the column is one string: `tokens`
-  cannot be bound to a string and a formatter cannot create controls. So rendered
-  rows are filled from the stored value (`updateFinished`) and every edit writes
-  the whole list back.
-- **A redraw must never write.** `applyTokens` calls `removeAllTokens()`, the control
-  reports those tokens as removed, and the `tokenUpdate` handler used to compute the
-  resulting list as empty and write `""` back — through the bound sink, so a real
-  change to a stored rule. **Opening a page blanked every condition value on it**
-  (2026-08-21), and typing one in re-entered the loop. A `redrawing` counter is
-  raised around the aggregation changes and every handler that writes stands aside
-  while it is up. It is a counter, not a boolean, because a redraw is reached from
-  inside a write; it is released in a `finally`, or one throwing token leaves a cell
-  silently read-only. This one destroys configuration silently, so
-  `test/quality-rules-page.test.js` pins the guard on all three handlers.
-- **The write path never reads the model back.** It draws the list it just wrote.
-  Re-reading is what stopped a typed address from sticking (2026-08-21): through a
-  two-way binding the read does not reliably see what was just written, so it came
-  back with the previous value and removed the token a line after adding it. The
-  earlier `context.setProperty` write had hidden this by updating the client cache
-  synchronously. `fillTokens` (the render path, on `updateFinished`) is the only
-  reader; `applyTokens` draws, and compares against the tokens **on screen** so a
-  stray one the control added itself is still cleaned up.
-- **A hidden bound `Input` is what writes the column** — the MultiInput is display
-  only. The first version wrote with `context.setProperty`, and the values were
-  **lost on the server while looking saved on screen** (fixed 2026-08-21): the row
-  was in the database with those two columns empty, and the value survived
-  navigating around inside the app only because it was sitting in the model cache.
-  Leaving for another tile and coming back is what exposed it. Every column on
-  these pages that does save is written by a **two-way binding**, so each token
-  cell now has an invisible `Input` bound to the same column beside it, and
-  `sink.setValue(stored)` is the write. A cell with no sink logs an error rather
-  than silently not saving, and `test/quality-rules-page.test.js` pins one writer
-  per token cell on all four pages. **Do not "simplify" the pair away.** Reading the stored value back after each write is what makes
-  it self-correcting — a token the control added itself for the same text is
-  de-duplicated by the round trip. `tokenUpdate` fires **before** the aggregation
-  changes, so the new list is computed from `addedTokens`/`removedTokens` rather
-  than read off the control.
-- Enter commits a value **and so does leaving the cell**: a token silently dropped
-  on the way out is a rule quietly missing an approver.
+- **A condition here is always a statement about the partner.** A row of this table targets no
+  section of its own, so any row of the named section satisfying the condition is enough — unlike
+  the validation and derivation tables, where a condition on the rule's *own* section is evaluated
+  per row.
+- **Several approvers means several rows.** `resolveApprovers` merges every matching row and
+  de-duplicates on step + value, so two rows naming the same person produce one approver.
+- **The read path still tolerates a delimited list**, for rows written while multiple values were
+  live.
 
 ##### What actually goes over the wire (fixed 2026-08-21)
 

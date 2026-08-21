@@ -2,7 +2,6 @@
   controllerName="mdm.md.mdmrules.manage.ext.controller.ValidationRuleList"
   xmlns:mvc="sap.ui.core.mvc"
   xmlns:core="sap.ui.core"
-  xmlns:app="http://schemas.sap.com/sapui5/extension/sap.ui.core.CustomData/1"
   xmlns="sap.m"
   height="100%">
   <Page
@@ -27,8 +26,7 @@
         mode="SingleSelectMaster"
         busy="{view>/busy}"
         growing="true"
-        growingThreshold="100"
-        updateFinished=".onRowsRendered">
+        growingThreshold="100">
         <headerToolbar>
           <OverflowToolbar>
             <Title text="Rules" level="H2" />
@@ -43,9 +41,9 @@
              scattered controls with gaps between them. -->
         <columns>
           <Column width="14%"><Text text="Condition 1 Field" /></Column>
-          <Column width="9%"><Text text="Condition 1 Values" /></Column>
+          <Column width="9%"><Text text="Condition 1 Value" /></Column>
           <Column width="14%"><Text text="Condition 2 Field" /></Column>
-          <Column width="9%"><Text text="Condition 2 Values" /></Column>
+          <Column width="9%"><Text text="Condition 2 Value" /></Column>
           <Column width="16%"><Text text="Field" /></Column>
           <Column width="13%"><Text text="Comparison" /></Column>
           <Column width="11%"><Text text="Value" /></Column>
@@ -65,27 +63,12 @@
                 showValueHelp="true"
                 valueHelpRequest=".onFieldValueHelp"
                 change=".onCellChange" />
-              <!-- A LIST of values, one token each, and they are OR: one match is enough, so
-                   "Country is BE, NL, FR or DE" is one rule rather than four. Nobody types the
-                   delimiter it is stored with - see app/mdmrules/webapp/ext/ListCell.js. -->
-              <VBox>
-                <MultiInput
-                  width="100%"
-                  placeholder="any"
-                  enabled="{= !!${dc>conditionField} }"
-                  app:listPath="conditionValue"
-                  tokenUpdate=".onListTokenUpdate"
-                  submit=".onListSubmit"
-                  change=".onListChange" />
-                <!-- The control that actually WRITES the column. The MultiInput above is the
-                     display: its tokens are an aggregation, and a `context.setProperty` write
-                     reached the client model but never the server (2026-08-21). Every column on
-                     this page that saves is written by a two-way binding, so this one is too. -->
-                <Input
-                  visible="false"
-                  value="{dc>conditionValue}"
-                  app:listSink="conditionValue" />
-              </VBox>
+              <Input
+                width="100%"
+                value="{dc>conditionValue}"
+                placeholder="any"
+                enabled="{= !!${dc>conditionField} }"
+                change=".onCellChange" />
               <Input
                 width="100%"
                 value="{dc>conditionField2}"
@@ -93,27 +76,12 @@
                 showValueHelp="true"
                 valueHelpRequest=".onFieldValueHelp"
                 change=".onCellChange" />
-              <!-- A LIST of values, one token each, and they are OR: one match is enough, so
-                   "Country is BE, NL, FR or DE" is one rule rather than four. Nobody types the
-                   delimiter it is stored with - see app/mdmrules/webapp/ext/ListCell.js. -->
-              <VBox>
-                <MultiInput
-                  width="100%"
-                  placeholder="any"
-                  enabled="{= !!${dc>conditionField2} }"
-                  app:listPath="conditionValue2"
-                  tokenUpdate=".onListTokenUpdate"
-                  submit=".onListSubmit"
-                  change=".onListChange" />
-                <!-- The control that actually WRITES the column. The MultiInput above is the
-                     display: its tokens are an aggregation, and a `context.setProperty` write
-                     reached the client model but never the server (2026-08-21). Every column on
-                     this page that saves is written by a two-way binding, so this one is too. -->
-                <Input
-                  visible="false"
-                  value="{dc>conditionValue2}"
-                  app:listSink="conditionValue2" />
-              </VBox>
+              <Input
+                width="100%"
+                value="{dc>conditionValue2}"
+                placeholder="any"
+                enabled="{= !!${dc>conditionField2} }"
+                change=".onCellChange" />
               <!-- The field being validated. The value help lists the whole staging model, so a
                    rule can only ever name a field a request can actually hold. -->
               <Input
