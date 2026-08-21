@@ -332,3 +332,35 @@ test('the write path draws what it wrote, and never re-reads the model', () => {
   // Still self-correcting: a stray token the control added is compared against and cleaned up.
   assert.match(shared, /var shown = formatList\(cell\.getTokens\(\)/u);
 });
+
+
+/**
+ * The module destroyed data, reported 2026-08-21: every existing condition value came back empty
+ * and could not be re-entered. `applyTokens` calls `removeAllTokens()` to redraw a cell, the
+ * control reports those tokens as removed, `onListTokenUpdate` computes the resulting list as empty
+ * and writes "" back - and since the write goes through the bound sink, that is a real change to a
+ * stored rule. Merely OPENING a page blanked every value on it.
+ *
+ * So the module tracks when it is redrawing, and every handler that writes stands aside. This is
+ * pinned hard because the failure is silent, immediate and destroys configuration.
+ */
+test('a redraw can never write, so opening a page cannot empty a stored rule', () => {
+  const shared = read(APP, 'ext', 'ListCell.js');
+
+  // The guard exists, is a counter rather than a boolean, and is released even on a throw.
+  assert.match(shared, /var redrawing = 0;/u);
+  const apply = shared.slice(shared.indexOf('var applyTokens = function'));
+  const body = apply.slice(0, apply.indexOf('\n    };'));
+  assert.match(body, /redrawing \+= 1;/u);
+  assert.match(body, /finally \{[\s\S]{0,120}redrawing -= 1;/u);
+  // Raised BEFORE the tokens are touched, or the first removal is already through the door.
+  assert.ok(body.indexOf('redrawing += 1') < body.indexOf('removeAllTokens'));
+
+  // Every handler that can write checks it. tokenUpdate is the one that did the damage; the other
+  // two are guarded so nothing has to reason about which events a redraw can raise.
+  for (const handler of ['onListTokenUpdate', 'onListSubmit', 'onListChange']) {
+    const from = shared.slice(shared.indexOf(`controller.${handler} = function`));
+    const handlerBody = from.slice(0, from.indexOf('\n    };'));
+    assert.match(handlerBody, /if \(redrawing\) return;/u, `${handler} stands aside during a redraw`);
+  }
+});

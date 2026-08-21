@@ -959,6 +959,16 @@ or DE" is **one row**, and the values are **OR** — one match is enough.
   cannot be bound to a string and a formatter cannot create controls. So rendered
   rows are filled from the stored value (`updateFinished`) and every edit writes
   the whole list back.
+- **A redraw must never write.** `applyTokens` calls `removeAllTokens()`, the control
+  reports those tokens as removed, and the `tokenUpdate` handler used to compute the
+  resulting list as empty and write `""` back — through the bound sink, so a real
+  change to a stored rule. **Opening a page blanked every condition value on it**
+  (2026-08-21), and typing one in re-entered the loop. A `redrawing` counter is
+  raised around the aggregation changes and every handler that writes stands aside
+  while it is up. It is a counter, not a boolean, because a redraw is reached from
+  inside a write; it is released in a `finally`, or one throwing token leaves a cell
+  silently read-only. This one destroys configuration silently, so
+  `test/quality-rules-page.test.js` pins the guard on all three handlers.
 - **The write path never reads the model back.** It draws the list it just wrote.
   Re-reading is what stopped a typed address from sticking (2026-08-21): through a
   two-way binding the read does not reliably see what was just written, so it came
