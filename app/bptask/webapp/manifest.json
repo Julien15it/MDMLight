@@ -11,7 +11,7 @@
     "description": "{{appDescription}}",
     "dataSources": {
       "mainService": {
-        "uri": "/mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/businesspartner/",
+        "uri": "/5db4d34d-4f01-4e6c-9b54-2f2350a5d153.mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/businesspartner/",
         "type": "OData",
         "settings": {
           "annotations": [],
@@ -19,7 +19,7 @@
         }
       },
       "changeRequestService": {
-        "uri": "/mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/changerequest/",
+        "uri": "/5db4d34d-4f01-4e6c-9b54-2f2350a5d153.mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/changerequest/",
         "type": "OData",
         "settings": {
           "annotations": [],

@@ -1303,6 +1303,26 @@ costs the same step.
   because the bundle at an unchanged version URL is still cached. Cost half an hour
   on 2026-08-21. To test a task-app change, disable the browser cache or move the
   app version; to check what is live, look at the URL the app actually requests.
+- **The OData `dataSources` carry the CONTENT-PROVIDER prefix, and that is what makes
+  the destination resolve** (2026-08-21). Proven by requesting the same resource two
+  ways from a launchpad session:
+
+  ```
+  /mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/businesspartner/$metadata      500
+  /5db4d34d-….mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/businesspartner/…   200
+  ```
+
+  Without the leading UUID the approuter cannot tell which provider's destination
+  namespace `mdm-businesspartner-srv-api` belongs to. `/api/` never needed it because
+  it resolves a **`service`** (`com.sap.spa.processautomation`) rather than a
+  **`destination`** — which is exactly why that one route worked throughout and sent
+  the diagnosis down two wrong paths (a stale app version, then browser cache).
+
+  **The UUID is landscape-specific.** It is the content provider of this subaccount,
+  it appears in the partner app's own URLs, and it is hard-coded in exactly one place
+  per data source with a test pinning that both agree. Deploying this MTA to another
+  subaccount needs it changed; parameterising it through `mta.yaml` is the obvious
+  follow-up and was not done because the id is not something the MTA knows.
 - **The OData `dataSources` are ABSOLUTE, on that same derived app path** (fixed
   2026-08-21) — `/mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/…/`, not
   `service/…/`. Embedded in My Inbox the app is served out of the HTML5 repository

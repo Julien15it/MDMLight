@@ -403,21 +403,37 @@ test('the task handover still loads the request from onInit', () => {
  *   …mdmmdbusinesspartnertask-1.2.0/service/changerequest/$metadata   500
  *   …mdmmdbusinesspartnertask/api/public/workflow/…/context           200
  *
- * The second is the proof: `Component.js` already builds that one absolutely from
- * `sap.cloud.service` + `sap.app.id`, dots stripped, and the approuter applies `xs-app.json`
- * there - route 1 proxies `/service/businesspartner/*` to the CAP destination. So the data
- * sources use the same prefix.
+ * Making them absolute on `/{service}.{appid}/` was necessary but NOT sufficient: the request
+ * then reached the approuter instead of static hosting, and got 500 from it. Proven by hand:
+ *
+ *   /mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/businesspartner/$metadata        500
+ *   /5db4d34d-….mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/businesspartner/…    200
+ *
+ * The leading UUID is the CONTENT PROVIDER, and without it the approuter cannot tell which
+ * provider's destination namespace `mdm-businesspartner-srv-api` belongs to. `/api/` needs no
+ * prefix because it resolves a `service`, not a `destination` - which is why that one route
+ * worked all along and sent us looking in the wrong place twice.
  *
  * Derived from the two ids rather than pinned as a literal, exactly as the runtime base URL test
  * above does: renaming either breaks both, and it should break here first.
  */
-test('the OData sources are absolute, on the same app path the workflow runtime uses', () => {
-  const prefix = `/${manifest['sap.cloud'].service.replaceAll('.', '')}`
-    + `.${manifest['sap.app'].id.replaceAll('.', '')}/`;
+test('the OData sources are absolute, on the content-provider app path', () => {
   const sources = manifest['sap.app'].dataSources;
+  // The provider id is the only literal; everything after it is derived, so renaming either id
+  // fails here rather than in My Inbox.
+  const provider = sources.mainService.uri.split('.')[0].replace('/', '');
+  assert.match(provider, /^[0-9a-f-]{36}$/u, 'the prefix starts with a content-provider id');
+  const prefix = `/${provider}`
+    + `.${manifest['sap.cloud'].service.replaceAll('.', '')}`
+    + `.${manifest['sap.app'].id.replaceAll('.', '')}/`;
 
   assert.equal(sources.mainService.uri, `${prefix}service/businesspartner/`);
   assert.equal(sources.changeRequestService.uri, `${prefix}service/changerequest/`);
+  // Both sources carry the SAME provider id: two would mean one of them was hand-edited.
+  assert.equal(
+    sources.changeRequestService.uri.split('.')[0],
+    sources.mainService.uri.split('.')[0]
+  );
 
   // Not relative: that is the whole bug, and a relative uri looks perfectly correct in review.
   for (const name of Object.keys(sources)) {
