@@ -184,7 +184,9 @@ sap.ui.define([
     },
 
     // The codes are read off their binding contexts before anything touches the list, for the
-    // reason spelled out on onFieldChosen: a reset re-binds the items to different rows.
+    // reason the field value help spells out - a reset re-binds the items to different rows.
+    // (Written without naming that handler and a colon: these tests find a method by that exact
+    // string, so a comment carrying it sends the slice to the wrong function.)
     onRolesChosen: function (event) {
       var selected = event.getParameter("selectedItems")
         || (event.getParameter("selectedItem") ? [event.getParameter("selectedItem")] : []);

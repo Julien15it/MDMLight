@@ -19,11 +19,35 @@ const controllerSource = fs.readFileSync(
 const routing = manifest['sap.ui5'].routing;
 const route = routing.routes.find((entry) => entry.name === 'DuplicateRuleList');
 
+/**
+ * `ListCell` is a UI5 module, so the harness supplies the two functions the controller uses. Real
+ * behaviour rather than a proxy: `_localProblems` counts the entries of a list, and a stub whose
+ * `.length` answered truthy would make a half-filled condition look complete.
+ */
+const listCell = {
+  parseList: (raw) => String(raw === null || raw === undefined ? '' : raw)
+    .split('|')
+    .map((entry) => entry.trim())
+    .filter((entry, index, all) => entry && all.indexOf(entry) === index),
+  mixin: () => {}
+};
+
 function loadController() {
   let definition;
   const base = { extend: (name, members) => ({ name, members }) };
   vm.runInNewContext(controllerSource, {
-    sap: { ui: { define: (unused, factory) => { definition = factory(base, {}, function () {}, {}, {}); } } }
+    sap: {
+      ui: {
+        define: (dependencies, factory) => {
+          definition = factory(...dependencies.map((name, index) => {
+            if (index === 0) return base;
+            // The one dependency whose behaviour the helpers under test actually use.
+            if (/ListCell$/u.test(name)) return listCell;
+            return function () {};
+          }));
+        }
+      }
+    }
   });
   return definition.members;
 }
@@ -117,7 +141,16 @@ test('the grid asks only for what a steward has to decide', () => {
   for (const column of ['conditionValue', 'conditionValue2']) {
     assert.match(view, new RegExp(`app:listPath="${column}"`, 'u'), `${column} is a token cell`);
   }
-  assert.equal(/value="\{dc>conditionValue2?\}"/u.test(view), false, 'no single-value cell is left');
+  // Every `value="{dc>conditionValue…}"` binding belongs to the hidden writer beside the token
+  // cell - that binding is what makes the list travel - and none of them is an editable cell.
+  for (const column of ['conditionValue', 'conditionValue2']) {
+    const bindings = (view.match(new RegExp(`value="\\{dc>${column}\\}"`, 'gu')) || []).length;
+    const sinks = (view.match(new RegExp(`app:listSink="${column}"`, 'gu')) || []).length;
+    assert.equal(bindings, sinks, `${column} is bound only by its writer`);
+    assert.equal(bindings, 1, `${column} has exactly one writer`);
+  }
+  assert.equal(/change="\.onCellChange"[\s\S]{0,80}app:listSink/u.test(view), false,
+    'the writer is not an editable cell');
 });
 
 // Columns sized to the row, not to their content, and no standing explanation above the table.

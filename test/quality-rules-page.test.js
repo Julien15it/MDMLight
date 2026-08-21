@@ -53,11 +53,14 @@ test('the conditions are the duplicate table conditions', () => {
     for (const column of ['conditionValue', 'conditionValue2']) {
       assert.match(source, new RegExp(`app:listPath="${column}"`, 'u'), `${name} tokenises ${column}`);
     }
-    assert.equal(
-      /value="\{dc>conditionValue2?\}"/u.test(source),
-      false,
-      `${name} has no single-value condition cell left`
-    );
+    // Every `value="{dc>conditionValue…}"` binding belongs to the hidden writer beside the token
+    // cell - that binding is what makes the list travel - and there is exactly one per column.
+    for (const column of ['conditionValue', 'conditionValue2']) {
+      const bindings = (source.match(new RegExp(`value="\\{dc>${column}\\}"`, 'gu')) || []).length;
+      const sinks = (source.match(new RegExp(`app:listSink="${column}"`, 'gu')) || []).length;
+      assert.equal(bindings, sinks, `${name}: ${column} is bound only by its writer`);
+      assert.equal(bindings, 1, `${name}: ${column} has exactly one writer`);
+    }
     assert.match(source, /placeholder="any"/u);
     // A value with no field would be half a condition; the cell is disabled until there is one.
     assert.match(source, /enabled="\{= !!\$\{dc>conditionField\} \}"/u);
