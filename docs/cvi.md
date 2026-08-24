@@ -184,3 +184,57 @@ Two things to know. It is a **proposal**: the requester presses Check and ticks 
 as every other derivation - nothing is written behind their back. And staging the node is
 what makes the company code, sales area and dunning sections reachable, which is the real
 point: they hang off the Customer/Supplier record.
+
+## MDG staging — the other place CVI can work, and it is reachable
+
+Read 2026-08-24. This is a different route from everything above and is not what the app does
+today; it is written down because it turned out to be possible, which was not obvious.
+
+MDG is live in this system, not dormant:
+
+| | |
+|---|---|
+| Data model `BP` | active, active area `PARTNER` |
+| MDG change requests in `USMD120C` | **876** |
+| BP request types in use | `BP1P1` (148), `BP2P1` (80), `BP5P1` (16), `BP6P1` (6), `BPF1P1` (7) |
+| MDG staging area | ~2200 generated `/SMD/` tables |
+
+In MDG a change request's ERP Customer / ERP Supplier data sits in that staging, and CVI
+writes it to `KNA1` / `LFA1` at activation. So CVI *does* work on staged data — just not on
+this app's staging, which is PostgreSQL and outside S/4 entirely.
+
+### It can be written over OData
+
+`MDG_BP_SRV` is registered and **active**. Its entity sets are writable — read out of
+`CL_MDG_BP_MPC`, which is generated from the service model:
+
+| Entity set | creatable | updatable | deletable |
+|---|---|---|---|
+| `ChangeRequests` | X | X | X |
+| `BusinessPartners` | X | X | X |
+
+`ChangeRequests` carries `ChangeRequestId`, `ChangeRequestType`, `AdditionalInformation`,
+`RequestReason`. `BusinessPartners` binds `/MDGBP/_S_BP_PP_BP_HEADER`, a generated MDG
+structure, so a write lands in staging rather than in `BUT000`. The service also models
+`CentralData`, `Address`, `Role`, `BankDetail`, `TaxNumber`, `Identification`, `Relation` and
+the contact-person entities.
+
+**So no ABAP is needed to reach MDG staging.** That was the open question and the answer is no.
+
+### Three things to weigh before using it
+
+- **`MDG_BP_SRV` is `NOT_RELEASED`.** It is the backend of SAP's own MDG Fiori app, not a
+  released API. SAP may change it in an upgrade without notice, and nothing obliges them to
+  keep it compatible. `MDG_CUSTOMER_SRV` and `MDG_SUPPLIER_SRV` are the same.
+- **It is a different model.** `BP_HEADER`, `BU_TYPE`, `TXTLG` — not `A_BusinessPartner`. Every
+  field this app maps today would need a second mapping to reach it.
+- **It brings MDG's lifecycle with it.** A CR in MDG staging is governed by MDG: its own
+  change request types, its own workflow, its own activation. That is the machinery this app
+  was built to replace, so adopting it is an architecture decision rather than a feature.
+
+### What was checked and found not to work
+
+- `ZUI_MDG_CHANGEREQUEST_O2` — the custom service here — is read-only reporting:
+  `ZC_MDG_ChangeRequest` over `ZI_MDG_ChangeRequest` joined to workflow agents, with no
+  behavior definition. It lists change requests and cannot create one. It also sits in `$TMP`.
+- The `MDG_BS_BP*` objects are DDIC structures and access classes, not a callable interface.
