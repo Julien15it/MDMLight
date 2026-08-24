@@ -310,6 +310,28 @@ test('the outcome labels are literal, not i18n placeholders', () => {
 });
 
 /**
+ * My Inbox does not render an embedded app's `sap.m.Page` footer. Every action in it was therefore
+ * invisible on a task - Resubmit and Withdraw on a rework task, and Check, Duplicate Check and Back
+ * on the approve task - while Approve/Reject survived because they come from inboxAPI.addAction.
+ * The header actions are page content, so they do render; that is where an embedded action belongs.
+ */
+test('the actions a task needs are in the header, not only in the footer', () => {
+  const actions = view.slice(
+    view.indexOf('<uxap:actions>'),
+    view.indexOf('</uxap:actions>')
+  );
+  for (const action of ['.onCheck', '.onDuplicateCheck', '.onSave', '.onWithdraw']) {
+    assert.ok(actions.includes('press="' + action + '"'), `${action} is not reachable in My Inbox`);
+  }
+  // Embedded only: standalone keeps its footer, and two rows of the same buttons is worse than none.
+  assert.match(actions, /visible="\{= \$\{env>\/embedded\} &amp;&amp; \$\{maintenance>\/showCheckButton\} \}"/u);
+  assert.match(actions, /visible="\{= \$\{env>\/embedded\} &amp;&amp; \$\{maintenance>\/showReworkButtons\} \}"/u);
+  // Approve/Reject stay out of it - the inbox renders those from sap.bpa.task.outcomes.
+  assert.equal(/press="\.onApprove"/u.test(actions), false);
+  assert.equal(/press="\.onReject"/u.test(actions), false);
+});
+
+/**
  * Pinned on request (2026-08-21). A process in SAP Build Process Automation points its UI5 task at
  * one app version, so every bump of `applicationVersion` means re-pointing the task - the workflow
  * has been rebuilt three times over 1.0.0 -> 1.1.0 -> 1.2.0 for no gain the process could see.

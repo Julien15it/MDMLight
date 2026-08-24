@@ -175,10 +175,16 @@ sap.ui.define(
             /**
              * Unlike approve/reject, Resubmit and Withdraw need the requester to actually edit and
              * confirm on the shared screen (checks, the duplicate-check confirmation dialog) - that
-             * cannot be reduced to a My Inbox outcome button. So no inboxAPI.addAction here: the
-             * screen keeps its own Resubmit/Withdraw buttons (they are not hidden by env>/embedded),
-             * and completeOutcome() below is called back from the shared controller once the action
-             * has already succeeded server-side.
+             * cannot be reduced to a My Inbox outcome button. So no inboxAPI.addAction here, and
+             * completeOutcome() below is called back from the shared controller once the action has
+             * already succeeded server-side.
+             *
+             * They are NOT in the screen's footer, whatever this comment used to claim: My Inbox does
+             * not render an embedded app's sap.m.Page footer, so every button in it was invisible here
+             * - Resubmit and Withdraw, and Check, Duplicate Check and Back on the approve task too.
+             * The shared view carries them in its object page header actions instead, gated on
+             * env>/embedded. Anything new that has to be pressable in the inbox goes there, or through
+             * addAction; the footer reaches nobody on this side.
              *
              * Routing embedded is broken for the same reason _openApprove works around it: the
              * hash belongs to the inbox shell, so a route pattern written into it matches nothing

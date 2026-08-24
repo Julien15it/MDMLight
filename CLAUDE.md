@@ -1416,8 +1416,17 @@ Decisions behind it, each of which has a cheaper wrong version:
   screen still has to cope with a link opened twice, for whichever entry point
   reopens it. Embedded, only Approve/Reject hide behind `env>/embedded` —
   Resubmit and Withdraw stay visible, because unlike a decision they need the
-  requester's own edits and cannot be reduced to a My Inbox outcome button; the
-  task completes itself only *after* `resubmitRequest`/`withdrawRequest` already
+  requester's own edits and cannot be reduced to a My Inbox outcome button.
+  **They are in the object page HEADER actions, not the footer** (fixed
+  2026-08-24): My Inbox does not render an embedded app's `sap.m.Page` footer, so
+  every button in it was invisible on a task - Resubmit and Withdraw on a rework
+  task, and Check, Duplicate Check and Back on the approve task too. Only
+  Approve/Reject worked, because those come from `inboxAPI.addAction`. The header
+  actions are page content and do render, so that is where an embedded action
+  goes; they are gated on `env>/embedded` so standalone keeps its footer rather
+  than growing a second row of the same buttons. `Component.js` asserted the
+  opposite in a comment for three days - it was never true. The task
+  completes itself only *after* `resubmitRequest`/`withdrawRequest` already
   succeeded, via `_completeEmbeddedOutcome` in the shared controller calling
   `completeOutcome` on the task app's Component — the same `PATCH task-instances`
   the approve path sends, without a `decideRequest` in front of it since that
@@ -1507,6 +1516,11 @@ keys went with them. `inputs` and `outputs` stay as they are; they declare the
 task context for the Lobby, while the runtime reads none of it — `Component.js`
 fetches `/task-instances/{id}/context` itself and PATCHes the whole context back.
 `test/task-form.test.js` pins the labels.
+
+**Nothing in the app's own footer reaches anybody in My Inbox.** That is the trap
+this section cost most time to: the footer renders standalone, the tests only read
+source, and the inbox chrome quietly drops it. Anything that must be pressable on a
+task goes in the header actions or through `inboxAPI.addAction`.
 
 **Verified end to end on 2026-08-20**: the partner app opens from the Work Zone
 tile (so `resourceRoots` resolves the shared screen at runtime), and Arthur
