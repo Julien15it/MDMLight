@@ -109,6 +109,82 @@ makes it transport-independent, as below.
 The cost is ABAP development rather than a wizard. But the wizard produced nothing, and this
 follows a pattern the team has already made work twice in this same package.
 
+## The interface, read from the system
+
+`FUPARAREF` for `RFC_CVI_EI_INBOUND_MAIN`, on 2026-08-24: **3 importing parameters, `CT_RETURN`,
+and 76 input tables.**
+
+| Importing | Type | Note |
+|---|---|---|
+| `IV_DOCOMMIT` | `SWO_COMMIT` | `' '` is the dry run; default is `'X'` |
+| `IV_CREATE_APPLOG` | `BOOLEAN` | writes an application log |
+| `IV_SUPPRESS_TAXJUR_CHECK` | `BOOLEAN` | |
+
+`CT_RETURN` is `CVIS_BP_RETURN` — the messages come back here.
+
+Every table carries `RUN_ID` first, which groups the tables of one call, and `OBJECT_TASK`, the
+change indicator — `C`/`U`/`D`, which is what `action` already is in the staging entities.
+
+## Staged node to CVI table
+
+26 of the app's 32 nodes have a counterpart. Verified against `DD03L` where the name alone was
+not enough.
+
+| Staged node | CVI table parameter |
+|---|---|
+| `General` | `IT_BP_GENERAL` |
+| `Addresses` | `IT_BP_ADDRESS`, plus `IT_BP_ADDRESS_TELENO` / `_FAXNO` / `_EMAIL` / `_URI` / `_USAGE` for the communication fields |
+| `BusinessPartnerRoles` | `IT_BP_ROLE` |
+| `TaxNumbers` | `IT_BP_TAX_NUMBER` |
+| `BankDetails` | `IT_BP_BANK_DETAILS` |
+| `Identifications` | `IT_BP_IDENT_NUMBERS` |
+| `Industries` | `IT_BP_INDUSTRY` |
+| `Customers` | `IT_CUST_GENERAL` |
+| `CustomerCompany` | `IT_CUST_COMPANY` |
+| `CustomerSalesArea` | `IT_CUST_SALES` |
+| `CustomerText` | `IT_CUST_GENERAL_TEXTS` |
+| `CustomerCompanyText` | `IT_CUST_COMPANY_TEXTS` |
+| `CustomerSalesAreaText` | `IT_CUST_SALES_TEXTS` |
+| `CustomerDunning` | `IT_CUST_COMP_DUNNING` |
+| `CustomerWithholdingTax` | `IT_CUST_COMPANY_WTAX` |
+| `CustomerTaxIndicators` | `IT_CUST_TAX_INDICATOR` — `ALAND`/`TATYP`/`TAXKD`, i.e. `KNVI` |
+| `CustomerSalesPartnerFunctions` | `IT_CUST_SALES_FUNCTIONS` |
+| `CustomerUnloadingPoint` | `IT_CUST_GENERAL_LOADING` — `ABLAD`/`KNFAK`/`WANID` plus opening times, i.e. `KNVA` |
+| `Suppliers` | `IT_SUP_GENERAL` |
+| `SupplierCompany` | `IT_SUP_COMPANY` |
+| `SupplierPurchasingOrg` | `IT_SUP_PURCHASING`, plus `IT_SUP_PURCHASING2` |
+| `SupplierText` | `IT_SUP_GENERAL_TEXTS` |
+| `SupplierCompanyText` | `IT_SUP_COMPANY_TEXTS` |
+| `SupplierPurchasingOrgText` | `IT_SUP_PURCHASING_TEXTS` |
+| `SupplierWithholdingTax` | `IT_SUP_COMPANY_WTAX` |
+| `SupplierPartnerFunctions` | `IT_SUP_PURCH_FUNCTIONS` |
+
+### Six nodes CVI cannot take
+
+Not an oversight in the mapping — the tables are not in the interface. Each was checked in
+`DD03L` rather than assumed from the name:
+
+| Staged node | Why |
+|---|---|
+| `CustomerTaxGrouping` | the near-miss is `IT_CUST_GENERAL_VAT`, but that is only `LAND1` + `STCEG` — `KNAS`, VAT registration per country, a different thing |
+| `CustomerAddressExtIdentifier` | no counterpart |
+| `CustomerAddressInfo` | no counterpart |
+| `CustomerSalesAreaAddressInfo` | no counterpart |
+| `CustomerUnloadingPointAddressInfo` | `CVIS_CUSTOMER_LOADING` has no address field, so the address-dependent variant has nowhere to go |
+| `SupplierDunning` | `CVIS_SUPPLIER_COMPANY` is `LFB1` in full — 86 fields, none of them dunning — and there is no `IT_SUP_DUNNING` |
+
+So CVI validates most of a request but not all of it. Those six stay on the app's own rules,
+and the check stage must not imply CVI cleared them.
+
+### CVI tables with no staged node
+
+Roughly forty, and worth knowing before someone reads a clean CVI result as complete coverage:
+contact persons (`IT_CUST_CONTACTS`, `IT_SUPPLIER_CONTACTS` and their ~26 address, phone, fax
+and email sub-tables), `IT_BP_RELATIONS`, `IT_BP_FINSERV`, `IT_BP_PAYMENT_CARD`,
+`IT_BP_TAX_NUMBER_COMMON`, the four alternative-payee tables, `IT_CUST_GENERAL_CREDITCARD`,
+`IT_CUST_GENERAL_EXPORT` and `IT_SUP_GENERAL_VAT`. The app does not maintain these, so they go
+out empty.
+
 ## Whichever route, build this first
 
 The payload mapping is the bulk of the work and it is **transport-independent**: turning
