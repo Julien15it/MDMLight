@@ -238,3 +238,78 @@ the contact-person entities.
   `ZC_MDG_ChangeRequest` over `ZI_MDG_ChangeRequest` joined to workflow agents, with no
   behavior definition. It lists change requests and cannot create one. It also sits in `$TMP`.
 - The `MDG_BS_BP*` objects are DDIC structures and access classes, not a callable interface.
+
+## Correction: CVI does have a staging phase, and it can be called
+
+Everything above that says "CVI only runs at save" is too coarse. Read 2026-08-24 out of
+`CVI_EI_ADAPTER=>do_start_inbound_main`, which is the CVI inbound engine:
+
+```
+process_partner_data      BP
+process_relation_data
+check_and_get_partner_ids
+process_customers         customer data built and checked
+process_vendors           vendor data built and checked
+validate                  XO validations
+finalize_ids              "replace temporary partner numbers and draw customer, vendor numbers"
+save                      "save data within business object"
+```
+
+So CVI runs in two phases: it builds and validates the customer and vendor data against
+**temporary** numbers, and only `finalize_ids` + `save` draw the real numbers and persist.
+The first phase is the staging phase, and it is where the derivations and checks happen.
+
+### The commit is a parameter
+
+`RFC_CVI_EI_INBOUND_MAIN` (package `MD_BP_MAINTAIN`, RFC-enabled — there is an `SRFC`
+service for it):
+
+```abap
+function rfc_cvi_ei_inbound_main
+  importing
+    value(iv_docommit) type swo_commit default 'X'
+    value(iv_create_applog) type boolean optional
+    value(iv_suppress_taxjur_check) type boolean optional
+  tables
+    it_bp_general, it_bp_role, it_bp_address, it_bp_bank_details, it_bp_tax_number, ...
+    it_cust_general, it_cust_company, it_cust_company_wtax, it_cust_comp_dunning,
+    it_cust_sales, it_cust_sales_texts, it_cust_sales_functions, it_cust_tax_indicator,
+    it_cust_general_loading, it_cust_general_texts, it_cust_general_alt_payee, ...
+```
+
+**`iv_docommit = ' '` runs the whole thing and does not persist.** Validation, derivation and
+number determination all happen; the messages come back in the return table. `'X'` activates.
+
+That is CVI in the staging, and activation at creation — one function module, one flag.
+
+### The parameter tables are this app's staging sections
+
+Almost node for node, which is not coincidence: both mirror the same CVI structure.
+
+| CVI table | Staging entity |
+|---|---|
+| `it_bp_general` | `StagedGeneral` |
+| `it_bp_role` | `StagedRoles` |
+| `it_bp_address` | `StagedAddresses` |
+| `it_bp_bank_details` / `it_bp_tax_number` / `it_bp_ident_numbers` | `StagedBankDetails` / `StagedTaxNumbers` / `StagedIdentifications` |
+| `it_cust_general` | `StagedCustomer` |
+| `it_cust_company` | `StagedCustomerCompany` |
+| `it_cust_company_wtax` | `StagedCustomerWithholdingTax` |
+| `it_cust_comp_dunning` | `StagedCustomerDunning` |
+| `it_cust_sales` | `StagedCustomerSalesArea` |
+| `it_cust_sales_texts` | `StagedCustomerSalesAreaText` |
+| `it_cust_sales_functions` | `StagedCustomerSalesPartnerFunc` |
+| `it_cust_tax_indicator` | `StagedCustomerTaxIndicators` |
+| `it_cust_general_loading` | `StagedCustomerUnloadingPoint` |
+| `it_cust_general_texts` | `StagedCustomerText` |
+
+### What it would take, and one thing to watch
+
+It is **RFC**, not OData. This app is CAP on BTP reaching S/4 through a destination and the
+Cloud Connector, OData only. So it needs either an RFC destination and an RFC client in the
+service, or a thin ABAP wrapper in S/4 that exposes the call - which is S/4-side development.
+
+And the caveat worth testing before relying on it: `finalize_ids` draws customer and vendor
+numbers from the number range. Number range draws are not generally rolled back by omitting
+the commit, so a dry run may **consume** numbers. `KREDITOR` `02` stood at 100119 on
+2026-08-24 - check it after a `iv_docommit = ' '` call to see whether it moved.
