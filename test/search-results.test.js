@@ -323,12 +323,21 @@ test('the view mode offers nothing to press', () => {
   );
 });
 
-// The one read that skips the partner page still has to count it, and asking for a single row
-// answered 32324 where every real page read of the same query answered 323.
-test('a count-only remote read borrows the client page size rather than asking for one row', () => {
+// `$count` arrives as a STRING from the V2 remote, and the staged rows are added to it: `"323" + 57`
+// is `"32358"`, which is what a 380-row list reported for a week. Both sides must be numbers.
+test('the total is added to the remote count, never concatenated onto it', () => {
   const service = root('srv', 'business-partner-service.js');
-  assert.match(service, /const rows = top === 0 \? Math\.max\(pageSize \|\| 1, 1\) : top;/u);
-  // Threaded from the client's own $top, not invented.
-  assert.match(service, /pageSize: top,/u);
-  assert.equal(/const rows = top === 0 \? 1 : top;/u.test(service), false);
+  assert.match(service, /const remoteCount = Number\(page\.\$count \?\? page\.length\);/u);
+  assert.match(service, /count: Number\.isFinite\(remoteCount\) \? remoteCount : page\.length/u);
+  assert.match(service, /rows\.\$count = Number\(partners\.count\) \+ pending\.length;/u);
+  // The bare `+` is what concatenated, so it must not come back.
+  assert.equal(/\$count = partners\.count \+ pending\.length/u.test(service), false);
+});
+
+// Tried while the string count was being blamed on `$top=1`, and reverted once the arithmetic
+// explained it: the remote counts the same whatever $top is, so one throwaway row is enough.
+test('a count-only read asks for one row, not a page', () => {
+  const service = root('srv', 'business-partner-service.js');
+  assert.match(service, /const rows = top === 0 \? 1 : top;/u);
+  assert.equal(/pageSize: top,/u.test(service), false);
 });

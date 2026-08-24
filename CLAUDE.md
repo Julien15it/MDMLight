@@ -216,26 +216,23 @@ The entity is `@cds.persistence.skip` — one READ handler in
 3. The remote read asks for a **fixed** column list (`PARTNER_FIELDS`). The
    client asks for status columns that exist only here, and one unknown field
    fails the whole remote read.
-4. `$count` is the remote count plus the matching staged rows. A page filled
-   entirely by staged rows still needs the total, so it asks S/4 for **a page**
-   and throws the rows away.
+4. `$count` is the remote count plus the matching staged rows, and **both sides
+   have to be numbers**. `$count` arrives from the V2 remote as a **string**, so
+   `partners.count + pending.length` was `"323" + 57` — string concatenation,
+   giving `"32358"` for a list of 380 rows. It reported a count two orders of
+   magnitude out for a week, and survived that long because 32,354 / 32,355 /
+   32,358 all look like a plausible partner population rather than a bug.
 
-   **It asked for one row until 2026-08-24, and that is where a wrong count came
-   from.** With 55 pending creates and a page size of 30, the staged rows filled
-   page 1, so that branch ran on the only read whose count the table header ever
-   shows — and the `$top=1` read answered `$count` **32324** where every real page
-   read of the same unfiltered query answered **323**. The list said 32,354 and
-   corrected itself to 378 once scrolling had loaded everything. Whatever the
-   gateway does with `$top=1` and a count, do not go back to being clever here:
-   ask with the page size the client asked for, which is the shape that
-   demonstrably counts right. The `[search]` log line is what pinned it — it
-   prints the incoming shape, `countOnly`, and the remote count per read.
+   What gave it away was the arithmetic, not the logs: the numbers were always
+   `"323"` with the staged count stuck on the end. Two wrong theories came first —
+   that an unfiltered read was simply correct, and then that the `$top=1` count-only
+   read made the gateway answer differently — and the `[search]` log line disproved
+   the second by printing `count 323` on exactly that read. The count-only read is
+   back to asking for one throwaway row; the page-size version was aimed at a bug
+   that was never there.
 
-   **Not yet confirmed fixed.** The list still showed 32,355 after the first
-   deploy of this change. Read the `[search]` line for `skip=0` /
-   `countOnly=true` before theorising further: if it now reports `count 323` the
-   client is caching, and if it still reports 32324 then the page size is not what
-   the gateway is reacting to.
+   A page filled entirely by staged rows still needs the total, which is why that
+   branch exists at all.
 
 Consequences worth knowing before changing this:
 
