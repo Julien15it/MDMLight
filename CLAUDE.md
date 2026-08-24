@@ -226,10 +226,16 @@ The entity is `@cds.persistence.skip` — one READ handler in
    What gave it away was the arithmetic, not the logs: the numbers were always
    `"323"` with the staged count stuck on the end. Two wrong theories came first —
    that an unfiltered read was simply correct, and then that the `$top=1` count-only
-   read made the gateway answer differently — and the `[search]` log line disproved
-   the second by printing `count 323` on exactly that read. The count-only read is
-   back to asking for one throwaway row; the page-size version was aimed at a bug
-   that was never there.
+   read made the gateway answer differently — and a per-read `[search]` log line
+   disproved the second by printing `count 323` on exactly that read. The count-only
+   read is back to asking for one throwaway row; the page-size version was aimed at a
+   bug that was never there.
+
+   **That per-read log line is gone** (2026-08-24), having settled this twice. The
+   two `[search]` warnings that remain are worth keeping: staging unavailable, and a
+   read arriving with no `$top` — the second is the one shape whose count nobody can
+   sanity-check. If a count ever looks wrong again, put the line back rather than
+   theorising: it prints the incoming shape, `countOnly`, and the remote count.
 
    A page filled entirely by staged rows still needs the total, which is why that
    branch exists at all.
@@ -1421,9 +1427,11 @@ Decisions behind it, each of which has a cheaper wrong version:
   Approve/Reject worked, because those come from `inboxAPI.addAction`. The header
   actions are page content and do render, so that is where an embedded action
   goes. Resubmit and Withdraw are gated on `env>/embedded`; **Check and Duplicate
-  Check are in both places on purpose** (Maarten, 2026-08-24) - on a long create
-  form the footer is a scroll away from the fields being filled in, and those two
-  get pressed while typing. The duplication is the point there, not an oversight. `Component.js` asserted the
+  Check are ONLY in the header** (Maarten, 2026-08-24) - on a long create form the
+  footer is a scroll away from the fields being filled in, and those two get pressed
+  while typing. They were in both places for an hour, which simply showed them twice;
+  the footer copies are gone. The primary action stays in the footer, where Fiori
+  puts it. `Component.js` asserted the
   opposite in a comment for three days - it was never true. The task
   completes itself only *after* `resubmitRequest`/`withdrawRequest` already
   succeeded, via `_completeEmbeddedOutcome` in the shared controller calling

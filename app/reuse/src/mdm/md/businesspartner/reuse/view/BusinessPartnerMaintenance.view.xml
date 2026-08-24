@@ -290,18 +290,10 @@
     <footer>
       <OverflowToolbar visible="{maintenance>/showFooter}">
         <ToolbarSpacer />
-        <!-- Two questions, two buttons: is this record right, and does it already exist? Submit
-             runs the duplicate check anyway, so neither is a gate. -->
-        <Button
-          text="Check"
-          icon="sap-icon://validate"
-          visible="{maintenance>/showCheckButton}"
-          press=".onCheck" />
-        <Button
-          text="Duplicate Check"
-          icon="sap-icon://duplicate"
-          visible="{maintenance>/showCheckButton}"
-          press=".onDuplicateCheck" />
+        <!-- Two questions, two buttons: is this record right, and does it already exist? Submit runs
+             the duplicate check anyway, so neither is a gate. They live in the HEADER actions, not
+             here: on a long form the footer is a scroll away from the fields being filled in, and
+             they were briefly in both places, which just showed them twice. -->
         <Button
           text="Save Request"
           icon="sap-icon://save"
