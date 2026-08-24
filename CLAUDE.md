@@ -1420,8 +1420,10 @@ Decisions behind it, each of which has a cheaper wrong version:
   task, and Check, Duplicate Check and Back on the approve task too. Only
   Approve/Reject worked, because those come from `inboxAPI.addAction`. The header
   actions are page content and do render, so that is where an embedded action
-  goes; they are gated on `env>/embedded` so standalone keeps its footer rather
-  than growing a second row of the same buttons. `Component.js` asserted the
+  goes. Resubmit and Withdraw are gated on `env>/embedded`; **Check and Duplicate
+  Check are in both places on purpose** (Maarten, 2026-08-24) - on a long create
+  form the footer is a scroll away from the fields being filled in, and those two
+  get pressed while typing. The duplication is the point there, not an oversight. `Component.js` asserted the
   opposite in a comment for three days - it was never true. The task
   completes itself only *after* `resubmitRequest`/`withdrawRequest` already
   succeeded, via `_completeEmbeddedOutcome` in the shared controller calling

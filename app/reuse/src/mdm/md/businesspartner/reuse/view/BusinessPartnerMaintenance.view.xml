@@ -134,25 +134,31 @@
                 type="Transparent"
                 visible="{= !${env>/embedded} }"
                 press=".onBackToList" />
-              <!-- The same actions as the footer, for My Inbox. Embedded, the Page's footer is not
-                   rendered by the inbox chrome at all - which took Check, Duplicate Check, Resubmit,
-                   Withdraw and Back with it, and left only the Approve/Reject that come from
-                   inboxAPI.addAction. Component.js used to state the opposite in a comment; it was
-                   never true. These live in the header actions instead, which are page content and
-                   therefore do render, and press the identical handlers. Standalone they stay hidden:
-                   the footer is where a Fiori object page puts its actions, and two rows of the same
-                   buttons is worse than none. -->
+              <!-- The same actions as the footer, pressing the identical handlers.
+                   Embedded, the Page's footer is not rendered by the inbox chrome at all - which took
+                   Check, Duplicate Check, Resubmit, Withdraw and Back with it, and left only the
+                   Approve/Reject that come from inboxAPI.addAction. The header actions are page
+                   content, so they do render. (Not the bottom of the content either: the approver
+                   comment box was cut off below the visible area down there.)
+
+                   Check and Duplicate Check are here in BOTH cases, on Maarten's ask (2026-08-24):
+                   on a long create form the footer is a scroll away from the fields somebody is
+                   filling in, and the two questions they answer - is this right, does it already
+                   exist - get asked while typing. So these two are deliberately in two places, and
+                   the duplication is the point rather than an oversight. Resubmit and Withdraw stay
+                   embedded-only: one is the primary action and belongs in the footer where Fiori puts
+                   it, and the other destroys the request. -->
               <Button
                 text="Check"
                 icon="sap-icon://validate"
                 type="Transparent"
-                visible="{= ${env>/embedded} &amp;&amp; ${maintenance>/showCheckButton} }"
+                visible="{maintenance>/showCheckButton}"
                 press=".onCheck" />
               <Button
                 text="Duplicate Check"
                 icon="sap-icon://duplicate"
                 type="Transparent"
-                visible="{= ${env>/embedded} &amp;&amp; ${maintenance>/showCheckButton} }"
+                visible="{maintenance>/showCheckButton}"
                 press=".onDuplicateCheck" />
               <Button
                 text="{maintenance>/saveButtonText}"

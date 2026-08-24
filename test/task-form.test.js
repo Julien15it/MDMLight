@@ -375,9 +375,18 @@ test('the actions a task needs are in the header, not only in the footer', () =>
   for (const action of ['.onCheck', '.onDuplicateCheck', '.onSave', '.onWithdraw']) {
     assert.ok(actions.includes('press="' + action + '"'), `${action} is not reachable in My Inbox`);
   }
-  // Embedded only: standalone keeps its footer, and two rows of the same buttons is worse than none.
-  assert.match(actions, /visible="\{= \$\{env>\/embedded\} &amp;&amp; \$\{maintenance>\/showCheckButton\} \}"/u);
+  // Check and Duplicate Check are in both places on purpose: on a long create form the footer is a
+  // scroll away from the fields being filled in. Resubmit and Withdraw stay embedded-only - one is
+  // the primary action and belongs where Fiori puts it, the other destroys the request.
+  const checkButtons = actions.match(/visible="\{maintenance>\/showCheckButton\}"/gu) || [];
+  assert.equal(checkButtons.length, 2, 'Check and Duplicate Check show standalone as well');
+  assert.equal(
+    /visible="\{= \$\{env>\/embedded\} &amp;&amp; \$\{maintenance>\/showCheckButton\} \}"/u.test(actions),
+    false,
+    'the check buttons are no longer embedded-only'
+  );
   assert.match(actions, /visible="\{= \$\{env>\/embedded\} &amp;&amp; \$\{maintenance>\/showReworkButtons\} \}"/u);
+  assert.match(actions, /visible="\{= \$\{env>\/embedded\} &amp;&amp; \$\{maintenance>\/showSaveButton\} \}"/u);
   // Approve/Reject stay out of it - the inbox renders those from sap.bpa.task.outcomes.
   assert.equal(/press="\.onApprove"/u.test(actions), false);
   assert.equal(/press="\.onReject"/u.test(actions), false);
