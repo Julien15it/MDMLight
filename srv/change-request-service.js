@@ -13,6 +13,7 @@ const { createRegistryStages } = require('./checks/registry-checks');
 const { configuredStages } = require('./checks/rule-store');
 const { fieldPropertyStages, resolvedProperties } = require('./checks/field-property-store');
 const { approversFor } = require('./checks/workflow-rule-store');
+const { currentProcessors } = require('./request-processors');
 const { proposeNormalisations } = require('./checks/normalise');
 const { aiAssistanceEnabled } = require('./ai/availability');
 const { PAYLOAD_NODES, ROOT_SECTION } = require('./checks/payload-fields');
@@ -388,6 +389,29 @@ class ChangeRequestService extends cds.ApplicationService {
         // this map comes off again.
         approvers: approvers.map((approver) => approver.value)
       };
+    };
+
+    /**
+     * Who is responsible for the request right now, for the strip at the top of the screen. The
+     * approvers come from the same `WorkflowRules` table `workflowContext` sends, resolved against
+     * the payload as it stands - so it is what CAP told the workflow, not who the workflow assigned
+     * the task to. Only read while a request is in approval; see srv/request-processors.js.
+     *
+     * Best-effort, like every other read of that table: a screen must still open if it fails.
+     */
+    const processorsFor = async (header, payload) => {
+      let approvers = [];
+      if (header.status === 'inApproval') {
+        try {
+          approvers = await approversFor({
+            requestType: header.requestType,
+            payload: { root: payload.root || {}, sections: payload.sections || {} }
+          });
+        } catch (error) {
+          console.warn(`[processors] Could not resolve the approvers of ${header.ID}:`, error.message);
+        }
+      }
+      return currentProcessors(header, approvers);
     };
 
     const persist = async (req) => {
@@ -847,6 +871,7 @@ class ChangeRequestService extends cds.ApplicationService {
         RejectionComment: header.rejectionComment,
         SubmittedBy: header.submittedBy,
         SubmittedAt: header.submittedAt,
+        ProcessorsJson: JSON.stringify(await processorsFor(header, { root, sections })),
         DataJson: JSON.stringify({ root, sections, deleted })
       };
     });

@@ -296,6 +296,39 @@ sap.ui.define([
       || "";
   }
 
+  /**
+   * `ProcessorsJson` from getRequestPayload, or an empty answer. Unparseable is treated as absent:
+   * a screen must open whatever the workflow rule table did.
+   */
+  function parseProcessors(json) {
+    if (!json) return null;
+    try {
+      var parsed = JSON.parse(json);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
+   * The strip at the top of a request: which step it is on and who is holding it. For a request in
+   * approval the names come from the WorkflowRules table - what CAP SENT the workflow, which is not
+   * the same as who the workflow gave the task to, so the note says "as sent to the workflow" rather
+   * than claiming to know. See srv/request-processors.js.
+   */
+  function processorMessage(processors) {
+    if (!processors || !processors.step) return null;
+    var names = (processors.processors || []).map(function (entry) {
+      return entry.role && entry.role !== "approver" ? entry.value + " (" + entry.role + ")" : entry.value;
+    });
+    return {
+      type: "Information",
+      text: "Current step: " + processors.step
+        + (names.length ? " - with " + names.join(", ") : "")
+        + (processors.note ? ". " + processors.note : "")
+    };
+  }
+
   function previewName(root) {
     if (root.BusinessPartnerCategory === "1") {
       return [root.FirstName, root.MiddleName, root.LastName].filter(Boolean).join(" ");
@@ -329,6 +362,7 @@ sap.ui.define([
           ["BusinessPartnerMaintain", this._onEditRoute],
           ["ChangeRequestApprove", this._onApproveRoute],
           ["ChangeRequestEdit", this._onRequestEditRoute],
+          ["ChangeRequestDisplay", this._onRequestDisplayRoute],
           ["ChangeRequestRework", this._onReworkRoute]
         ].forEach(function (entry) {
           var route = this._router.getRoute(entry[0]);
@@ -385,6 +419,8 @@ sap.ui.define([
           showReworkButtons: false,
           /** Why the approver sent it back. Empty except in rework mode. */
           rejectionComment: "",
+          /** `{ step, processors, note }` from getRequestPayload. Null outside a change request. */
+          processors: null,
           showCancelButton: true,
           showFooter: true,
           saveButtonText: "Submit Request",
@@ -2294,6 +2330,21 @@ sap.ui.define([
         );
       },
 
+      /**
+       * Read-only: what was requested, and nothing to press. Reached from a change request row in
+       * the search list, and open to anyone - seeing what has already been asked for is the point of
+       * showing the request in that list, and the list itself is open.
+       *
+       * Deliberately NOT the edit screen, even for a steward opening their own draft: editing a
+       * draft stays on the steward-gated Change Requests list, so this route widens what can be
+       * seen without widening what can be changed.
+       */
+      _onRequestDisplayRoute: function (event) {
+        return this._loadStagedRequest(
+          decodeURIComponent(event.getParameter("arguments").changeRequest), "view"
+        );
+      },
+
       // The requester's screen for a request sent back. Reached by the `reworkurl` deep link, or by
       // a My Inbox task carrying `tasktype: "rework"` - the list is steward-gated either way, so
       // neither path is reachable from there. Every field is editable, and the footer offers
@@ -2307,29 +2358,33 @@ sap.ui.define([
         );
       },
 
-      // `mode` is "approve", "edit" or "rework". It was a boolean until rework arrived, which needs a
-      // draft's editability and a footer of its own.
+      // `mode` is "approve", "edit", "rework" or "view". It was a boolean until rework arrived, which
+      // needs a draft's editability and a footer of its own; "view" needs neither and offers nothing.
       _loadStagedRequest: async function (changeRequest, mode) {
         var maintenanceModel = this.getView().getModel("maintenance");
         var reworking = mode === "rework";
+        var viewing = mode === "view";
         // Rework edits the payload, so it is an editing mode - it just does not save drafts.
         var editing = mode === "edit" || reworking;
         var state = this._emptyState();
         state.busy = true;
-        state.mode = reworking ? "rework" : (editing ? "edit" : "approve");
-        state.modeText = reworking ? "Rework" : (editing ? "Draft" : "Approval");
+        state.mode = viewing ? "view" : (reworking ? "rework" : (editing ? "edit" : "approve"));
+        state.modeText = viewing ? "Display" : (reworking ? "Rework" : (editing ? "Draft" : "Approval"));
         state.editing = editing;
         state.changeRequest = changeRequest;
         state.showEditButton = false;
         // Rework IS the draft view with one different primary action, so the buttons are the editing
         // ones in both modes and only the label and onSave's route change.
         // Both answer read-only questions, so the approver gets them too, not just the requester.
-        state.showCheckButton = true;
+        // Not in view mode: the screen is there to show what was asked for, not to re-run anything.
+        state.showCheckButton = !viewing;
         state.showSaveButton = editing;
         // No Save Request in rework: it drops the screen out of editing and offers Edit, which re-enters
         // "edit" mode - and onSave would then start a second workflow for an already-parked instance.
         state.showSaveRequestButton = editing && !reworking;
-        state.showDecisionButtons = !editing;
+        // A viewer is not an approver. Without this the decision buttons would appear on the view of
+        // any request that happens to be inApproval, which is most of them.
+        state.showDecisionButtons = !editing && !viewing;
         // Set properly once the status is known: a rework link outlives the state it was sent for.
         state.showReworkButtons = false;
         state.showFooter = true;
@@ -2356,18 +2411,21 @@ sap.ui.define([
 
           state.requestType = (payload && payload.RequestType) || "";
           state.requestStatus = (payload && payload.Status) || "";
+          state.processors = parseProcessors(payload && payload.ProcessorsJson);
           // The approve view is the approver's, the draft and rework views are the requester's own.
           // `hidden` is deliberately honoured on the approve view too: once approvals are split by
           // function, a sales approver has no business reading the bank details.
           await this._loadFieldProperties(state.requestType, mode === "approve" ? "Approver" : "Requester");
           state.businessPartner = (payload && payload.BusinessPartner) || "";
           state.rejectionComment = (payload && payload.RejectionComment) || "";
-          state.title = (reworking ? "Rework request " : (editing ? "Change request " : "Approve request "))
+          state.title = (viewing
+            ? "Change request "
+            : (reworking ? "Rework request " : (editing ? "Change request " : "Approve request ")))
             + changeRequest;
           state.headerTitle = previewName(state.root) || "Requested Business Partner";
           // Only a request still awaiting a decision can be decided on. Opening
           // an already-decided task must not offer the buttons again.
-          state.showDecisionButtons = !editing && state.requestStatus === "inApproval";
+          state.showDecisionButtons = !editing && !viewing && state.requestStatus === "inApproval";
 
           if (reworking) {
             // Still inApproval means SPA notified the requester without calling decideRequest, so CAP
@@ -2407,12 +2465,33 @@ sap.ui.define([
                 text: "The approver sent this request back. No reason was recorded with it."
               }];
             }
+          } else if (viewing) {
+            // Say which request this is and what state it is in, or a read-only screen with no
+            // buttons is indistinguishable from one that failed to load.
+            state.messages = [{
+              type: "Information",
+              text: "This is change request " + changeRequest + " (" + state.requestStatus
+                + "), shown read-only."
+            }];
           } else if (editing && state.requestStatus !== "draft") {
             // A submitted request is owned by the approval process from here on.
             state.editing = false;
             state.showSaveButton = false;
             state.showSaveRequestButton = false;
             state.modeText = state.requestStatus;
+          }
+
+          // Who has it now, at the top - the first question anyone opening a request asks. Added
+          // after the branches above so it cannot be overwritten by one of them, and it yields to a
+          // Warning: a rejection reason is what a requester is looking for and must still lead.
+          var processorStrip = processorMessage(state.processors);
+          if (processorStrip) {
+            var leadingWarning = (state.messages || []).some(function (message) {
+              return message.type === "Warning";
+            });
+            state.messages = leadingWarning
+              ? (state.messages || []).concat([processorStrip])
+              : [processorStrip].concat(state.messages || []);
           }
         } catch (error) {
           MessageBox.error(errorMessage(error, "The change request could not be loaded."));

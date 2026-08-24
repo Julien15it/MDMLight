@@ -295,3 +295,30 @@ test('the lock statuses stay wider than the in-progress statuses', () => {
   }
   assert.ok(ACTIVE_REQUEST_STATUSES.length > IN_PROGRESS_REQUEST_STATUSES.length);
 });
+
+// The route exists so a request can be READ. Editing a draft stays on the steward-gated list.
+test('a change request has a read-only route, and it is not the edit one', () => {
+  const manifest = JSON.parse(root('app', 'businesspartner', 'webapp', 'manifest.json'));
+  const routes = manifest['sap.ui5'].routing.routes;
+  const display = routes.find((route) => route.name === 'ChangeRequestDisplay');
+  assert.equal(display.pattern, 'ChangeRequests/{changeRequest}/display');
+  assert.equal(display.target, 'BusinessPartnerMaintenance');
+  assert.ok(routes.some((route) => route.name === 'ChangeRequestEdit'));
+});
+
+test('the view mode offers nothing to press', () => {
+  const controller = root(
+    'app', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse',
+    'controller', 'BusinessPartnerMaintenance.controller.js'
+  );
+  assert.match(controller, /\["ChangeRequestDisplay", this\._onRequestDisplayRoute\]/u);
+  assert.match(controller, /_loadStagedRequest\([\s\S]{0,140}?"view"/u);
+  assert.match(controller, /var viewing = mode === "view";/u);
+  // A viewer is not an approver, and view mode must not re-run a check either.
+  assert.match(controller, /state\.showCheckButton = !viewing;/u);
+  assert.match(controller, /state\.showDecisionButtons = !editing && !viewing;/u);
+  assert.match(
+    controller,
+    /state\.showDecisionButtons = !editing && !viewing && state\.requestStatus === "inApproval";/u
+  );
+});

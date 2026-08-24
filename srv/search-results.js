@@ -116,7 +116,10 @@ function pendingCreateEntry(entry = {}) {
 function partnerEntry(partner = {}, request = null) {
   const row = { ResultKey: `BP:${partner.BusinessPartner}`, IsChangeRequest: false };
   for (const field of PARTNER_FIELDS) row[field] = partner[field] ?? null;
-  return { row: { ...row, ...statusOf(request), ...requestFields(request) }, searchable: partner };
+  return {
+    row: { ...row, ...statusOf(request), ...requestFields(request) },
+    searchable: partner
+  };
 }
 
 // --- CQN filtering of the staged half -------------------------------------------------------

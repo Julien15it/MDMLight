@@ -69,17 +69,23 @@ sap.ui.define([
   }
 
   /**
-   * A change request row reports itself and leads nowhere. Deliberately: the search list is open to
-   * everyone, and the only route to a saved draft is the steward-gated Change Requests list. Making
-   * this row a link would hand every user someone else's draft, which is a permission change and not
-   * what showing the request in the list is for. An `inApproval` request is the approver's, opened
-   * from their inbox, so a decision is always taken against a real task.
+   * A change request row opens **read-only**, for anyone: seeing what has already been asked for is
+   * the point of showing the request in this list at all, and it is the whole list that is open.
+   *
+   * The DISPLAY route, never the edit one. Editing a draft stays on the steward-gated Change
+   * Requests list, and an `inApproval` request is decided from the approver's inbox against a real
+   * task - so this shows more without letting anyone change more.
    */
   function explainRequest(context) {
-    MessageBox.information(
-      describeRequest(context)
-      + " It is already in progress, so there is no need to request it again."
-    );
+    var request = context.getProperty("ChangeRequest");
+    if (!request) {
+      MessageBox.information(
+        describeRequest(context)
+        + " It is already in progress, so there is no need to request it again."
+      );
+      return;
+    }
+    navigate("ChangeRequests/" + encodeURIComponent(request) + "/display");
   }
 
   /** One sentence naming the request, so a blocked action says which one is in the way. */

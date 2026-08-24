@@ -84,6 +84,7 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
         ChangeRequestStatus      : String(20);
         RequestedBy              : String(120);
         RequestedAt              : Timestamp;
+
   }
 
   // Value-help lookups sourced from the custom S/4 value-help service

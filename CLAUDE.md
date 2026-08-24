@@ -233,11 +233,64 @@ Consequences worth knowing before changing this:
 - Because a marked partner is now reachable, `openEditPage` in
   `CustomActions.js` refuses to edit a partner that carries a `ChangeRequest`
   and names it. Hiding the row used to be what prevented that; a message is.
-- **A change request row leads nowhere** — it reports itself in a MessageBox and
-  is not a link. The search list is open to everyone while the only route to a
-  saved draft is the steward-gated Change Requests list, so making the row
-  navigable would hand every user somebody else's draft. That is a permission
-  change, not a visibility one, and it is not what this list is for.
+- **A change request row opens read-only, for anyone** (2026-08-24). Seeing what
+  has already been asked for is the point of showing the request in this list, and
+  the list itself is open — so a gate on the view would only have hidden the answer
+  it exists to give. A first version restricted it to a steward or the requester
+  (`CanViewRequest`, resolved from `req.user`); Maarten opened it to everyone and
+  that flag is gone rather than left dormant.
+- **The route is `ChangeRequests/{id}/display`, never the edit one.** `_loadStagedRequest(id, "view")`
+  renders the screen with `editing` false, no Check, no decision buttons and no
+  save — so this widened what can be *seen* without widening what can be
+  *changed*. Editing a draft still means the steward-gated Change Requests list,
+  and an `inApproval` request is still decided from the approver's inbox against a
+  real task. `onSave` refuses an unrecognised mode, so `view` cannot write.
+- **Nothing authorises the staged payload, and this did not change that.**
+  `getRequestPayload` has no check in front of it and neither does the `@readonly
+  ChangeRequests` entity — the whole payload is already readable by any
+  authenticated user through `$expand`, which is how the "reading staged data"
+  recipe further down works. Closing that needs the role model this file keeps
+  deferring: restricting `getRequestPayload` to steward-or-requester today would
+  **break every approval**, because an approver is neither.
+
+### Who has it now — the processors strip (2026-08-24)
+
+Every change request screen leads with one Information strip saying which step the
+request is on and who is holding it: `Current step: Approval - with
+julien@alluvion.eu, Sales Approver`. `getRequestPayload` returns it as
+`ProcessorsJson`; `srv/request-processors.js` maps a status to a step, a list and a
+sentence.
+
+**The approvers are what CAP SENT the workflow, not who the workflow gave the task
+to.** They are re-resolved from the `WorkflowRules` table against the payload as it
+stands, so two things can make them wrong: the table may have been edited since the
+submit, and — today — **Arthur's process ignores `approvers` entirely** (see
+"Workflow rules"). That is why the strip says *as sent to the workflow* rather than
+naming a task owner, and why it becomes the real answer only once the process routes
+on the list. Do not relabel it as SBPA's assignment before that lands.
+
+The rest is deliberate:
+
+- **Approvers are resolved only while the status is `inApproval`.** For a draft they
+  would name people who are responsible for nothing yet.
+- **A requester is always `kind: 'user'`**, whatever their user id looks like. Only
+  the approver half of the rules table can name a role, and the `@` rule that tells
+  them apart is the same one the wire uses.
+- **`submittedBy` outranks `createdBy`** — whoever sent it is who it is with.
+- **The steps nobody holds say so.** `approved` is waiting on the workflow to post,
+  not on a person; `failed` says a steward has to pick it up and that it will not
+  retry itself. Naming somebody who cannot act would be worse than naming nobody.
+- **An empty approver list is a legitimate answer**, as everywhere else that table
+  is read: it says the workflow routes it itself and that the holder is only visible
+  in the approver's inbox.
+- **`rejected` reads as the rework it has become.** Nothing writes it any more, but
+  it cannot be dropped from the enum, so it must not fall through to "nobody".
+- **The strip yields to a Warning.** A rejection reason is the first thing a
+  requester looks for, so on the rework screen the processors line goes below it;
+  everywhere else it leads. It is added after every mode branch has set its own
+  messages, or one of them would overwrite it.
+- Best-effort, like every other read of the workflow rules: a table that cannot be
+  read costs the strip, never the screen.
 
 ### The check pipeline — `srv/checks/pipeline.js`
 

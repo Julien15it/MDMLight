@@ -167,36 +167,43 @@ test('object-page edit action uses its context or current object-page hash', () 
 
 // --- The merged search list ---------------------------------------------------------------
 
-// The search list is open to everyone and the only route to a saved draft is the steward-gated
-// Change Requests list. A link here would hand every user someone else's draft.
-test('a pending create reports itself and leads nowhere', () => {
+// Seeing what has already been asked for is the point of showing the request in the list at all,
+// and the list is open to everyone - so the read-only view is too.
+test('a change request row opens read-only', () => {
   const runtime = loadActions();
   runtime.actions.openDisplayPage(searchRow({
     IsChangeRequest: true,
     ChangeRequest: 'req-1',
-    ChangeRequestStatus: 'draft',
-    RecordStatus: 'Create draft',
-    RequestedBy: 'maarten'
+    ChangeRequestStatus: 'inApproval'
+  }));
+  assert.equal(runtime.getHash(), 'ChangeRequests/req-1/display');
+  assert.deepEqual(runtime.information, []);
+  assert.deepEqual(runtime.errors, []);
+});
+
+// Viewing is not editing: the edit and approve routes stay where they were.
+test('even a draft opens on the display route, never the edit one', () => {
+  const runtime = loadActions();
+  runtime.actions.openDisplayPage(searchRow({
+    IsChangeRequest: true,
+    ChangeRequest: 'req-2',
+    ChangeRequestStatus: 'draft'
+  }));
+  assert.equal(runtime.getHash(), 'ChangeRequests/req-2/display');
+  assert.equal(/\/edit|\/approve/u.test(runtime.getHash()), false);
+});
+
+// Nothing to open. Says what the row is instead of navigating to a route with no id in it.
+test('a request row with no id reports itself rather than navigating', () => {
+  const runtime = loadActions();
+  runtime.actions.openDisplayPage(searchRow({
+    IsChangeRequest: true,
+    ChangeRequest: null,
+    RecordStatus: 'Create draft'
   }));
   assert.equal(runtime.getHash(), '');
   assert.equal(runtime.information.length, 1);
   assert.match(runtime.information[0], /Create draft/u);
-  assert.match(runtime.information[0], /maarten/u);
-  assert.match(runtime.information[0], /no need to request it again/u);
-  assert.deepEqual(runtime.errors, []);
-});
-
-test('a request with the approver is explained, never opened on the approve screen', () => {
-  const runtime = loadActions();
-  runtime.actions.openDisplayPage(searchRow({
-    IsChangeRequest: true,
-    ChangeRequest: 'req-3',
-    ChangeRequestStatus: 'inApproval',
-    RecordStatus: 'Create in approval'
-  }));
-  assert.equal(runtime.getHash(), '');
-  assert.equal(runtime.information.length, 1);
-  assert.equal(/ChangeRequests/u.test(runtime.getHash()), false);
 });
 
 test('a partner marked with a pending request still opens its own display page', () => {
@@ -229,7 +236,8 @@ test('editing a partner under a request in flight is refused and names the reque
   assert.deepEqual(runtime.errors, []);
 });
 
-test('editing a pending create is refused too - there is no partner to edit yet', () => {
+// There is no partner to edit yet, so Edit shows what there is: the request, read-only.
+test('editing a pending create opens it read-only instead', () => {
   const runtime = loadActions();
   runtime.actions.openEditPage(null, [searchRow({
     IsChangeRequest: true,
@@ -237,8 +245,8 @@ test('editing a pending create is refused too - there is no partner to edit yet'
     ChangeRequestStatus: 'draft',
     RecordStatus: 'Create draft'
   })]);
-  assert.equal(runtime.getHash(), '');
-  assert.equal(runtime.information.length, 1);
+  assert.equal(runtime.getHash(), 'ChangeRequests/req-6/display');
+  assert.deepEqual(runtime.warnings, []);
 });
 
 test('a partner with no request in flight is edited exactly as before', () => {
