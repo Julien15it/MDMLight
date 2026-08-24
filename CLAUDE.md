@@ -171,6 +171,239 @@ The flow, with create as the example:
 5. On approve, CAP posts to `API_BUSINESS_PARTNER` — the SPA never writes to
    S/4 itself.
 
+### The merged search list (2026-08-24)
+
+The list report reads **`BusinessPartnerSearchResults`**, not `BusinessPartners`:
+the live S/4 partners and the change requests still in flight, in one result set.
+Without it a requester could not see that the company they are about to request
+is already being created by somebody else — and worse, a partner under an
+in-flight request was filtered **out** of the list by
+`applyChangeRequestExclusion`, which is now deleted.
+
+Two kinds of row, and the difference matters:
+
+- A **pending create** has no partner number yet, so it can only be seen as its
+  own row (`ResultKey: 'CR:<id>'`, `IsChangeRequest: true`), named by
+  `stagedFullName` because S/4 is the one that derives
+  `BusinessPartnerFullName` and staging only has the fields it was typed into.
+- A **change/block/delete** request over an existing partner is that partner's
+  own row (`ResultKey: 'BP:4711'`), marked via `RecordStatus` /
+  `RecordStatusCriticality` and carrying `ChangeRequest`. Its staged copy is
+  never listed: staging holds a second copy of the same company, and showing
+  both would report one company twice — the same reason `stagedEntries` in
+  `srv/ai/duplicate-check.js` feeds creates only to the duplicate check.
+
+`IN_PROGRESS_REQUEST_STATUSES` (`srv/search-results.js`) is `draft`,
+`inApproval`, `reworkRequired`. It is deliberately **narrower** than
+`ACTIVE_REQUEST_STATUSES`, which is a lock and covers `approved` and `failed`
+too. Do not collapse the two: one answers "may this partner be edited", the
+other "is a human still holding this request".
+
+The entity is `@cds.persistence.skip` — one READ handler in
+`srv/business-partner-service.js` merges a remote read with staging:
+
+1. Staging is read **first**. The staged rows always take the top of the list: a
+   pending create has no number, so that is where the default sort puts it, and
+   fixing their position is what makes `pageSplit` exact rather than
+   approximate — page 2 skips the staged rows it already showed and resumes the
+   remote read at `skip - pendingCount`.
+2. Staged rows are filtered **in memory** by `matchesWhere` (enough CQN for what
+   the filter bar and the `$search` rewrite emit) and `matchesTerms` (every term
+   must hit a field, matching the remote rule). An expression `matchesWhere`
+   cannot evaluate **keeps** the row and logs `[search]`: a staged request
+   wrongly shown is a nuisance, one wrongly hidden is the failure this list
+   exists to prevent.
+3. The remote read asks for a **fixed** column list (`PARTNER_FIELDS`). The
+   client asks for status columns that exist only here, and one unknown field
+   fails the whole remote read.
+4. `$count` is the remote count plus the matching staged rows, and **both sides
+   have to be numbers**. `$count` arrives from the V2 remote as a **string**, so
+   `partners.count + pending.length` was `"323" + 57` — string concatenation,
+   giving `"32358"` for a list of 380 rows. It reported a count two orders of
+   magnitude out for a week, and survived that long because 32,354 / 32,355 /
+   32,358 all look like a plausible partner population rather than a bug.
+
+   What gave it away was the arithmetic, not the logs: the numbers were always
+   `"323"` with the staged count stuck on the end. Two wrong theories came first —
+   that an unfiltered read was simply correct, and then that the `$top=1` count-only
+   read made the gateway answer differently — and the `[search]` log line disproved
+   the second by printing `count 323` on exactly that read. The count-only read is
+   back to asking for one throwaway row; the page-size version was aimed at a bug
+   that was never there.
+
+   A page filled entirely by staged rows still needs the total, which is why that
+   branch exists at all.
+
+Consequences worth knowing before changing this:
+
+- The computed columns are declared **non-filterable and non-sortable**
+  (`@Capabilities.FilterRestrictions` / `SortRestrictions`). Sorting on a
+  computed column would silently sort one half of the list only.
+- Sorting on a field S/4 *can* sort still leaves the staged rows on top —
+  `remoteOrderBy` drops what S/4 has never heard of, `ResultKey` included.
+- The **object page and the maintenance screens still read `BusinessPartners`**,
+  which is why the exclusion had to go rather than move: a hidden partner could
+  not be opened for display either.
+- Because a marked partner is now reachable, `openEditPage` in
+  `CustomActions.js` refuses to edit a partner that carries a `ChangeRequest`
+  and names it. Hiding the row used to be what prevented that; a message is.
+- **A change request row opens read-only, for anyone** (2026-08-24). Seeing what
+  has already been asked for is the point of showing the request in this list, and
+  the list itself is open — so a gate on the view would only have hidden the answer
+  it exists to give. A first version restricted it to a steward or the requester
+  (`CanViewRequest`, resolved from `req.user`); Maarten opened it to everyone and
+  that flag is gone rather than left dormant.
+- **The route is `ChangeRequests/{id}/display`, never the edit one.** `_loadStagedRequest(id, "view")`
+  renders the screen with `editing` false, no Check, no decision buttons and no
+  save — so this widened what can be *seen* without widening what can be
+  *changed*. Editing a draft still means the steward-gated Change Requests list,
+  and an `inApproval` request is still decided from the approver's inbox against a
+  real task. `onSave` refuses an unrecognised mode, so `view` cannot write.
+- **Nothing authorises the staged payload, and this did not change that.**
+  `getRequestPayload` has no check in front of it and neither does the `@readonly
+  ChangeRequests` entity — the whole payload is already readable by any
+  authenticated user through `$expand`, which is how the "reading staged data"
+  recipe further down works. Closing that needs the role model this file keeps
+  deferring: restricting `getRequestPayload` to steward-or-requester today would
+  **break every approval**, because an approver is neither.
+
+### The request screen's message area (2026-08-24)
+
+**The strips live in a collapsible `Panel`** (`maintenanceMessagePanel`), like the
+duplicate findings below them. A submit reports several at once and the processors
+strip added one more; information-only noise must not push the form off screen.
+
+- The **header carries the leading message**, elided to one line, with `(+N more)`
+  for the rest — so a collapsed panel still says what it holds. The strips are
+  ordered so a Warning leads, which is what makes that worth reading.
+- **Anything above Information opens the panel itself** (`messagesNeedAttention`).
+  A blocked submit or an approver's rejection reason is not something to make
+  somebody click for; an Information-only set stays shut, which is the case the
+  panel exists for.
+- `expanded` is bound **one-way**, so a render re-applies it: expanding an
+  information-only panel and then editing a field collapses it again. Accepted
+  deliberately over a state flag that all thirteen `state.messages = …` sites would
+  have to remember to set — that is the version that goes stale. If the re-collapse
+  ever annoys somebody, the fix is the flag plus a fingerprint, not a formatter.
+
+**The duplicate findings follow the request into the approval task.** They were
+written to `CheckFindings` at submit and **never read back**: the approve screen
+built its panel only from a check it ran itself, which it does not, so an approver
+opening a task saw an empty panel — indistinguishable from "no duplicate was
+found", which is the one wrong answer this whole feature refuses to give.
+`getRequestPayload` now returns `FindingsJson` and `_loadStagedRequest` feeds it to
+the same `_setDuplicatePanel`, so the requester's panel and the approver's are one
+piece of code. Two details:
+
+- **`duplicate_check` findings only**, and the same `isStale` filter the exposed
+  `CheckFindings` view applies — `CheckFindings` also holds the validation and
+  registry findings, which are a different report, and a resubmit's superseded
+  verdicts would otherwise come back alongside the current ones and make one pair
+  read as several.
+- The approver's rows carry **no candidate name**: `candidateName` is not a
+  staging column, so the title is the partner number (or `pending request <id>`)
+  and the stored `message` carries the sentence. Add the column if the name matters
+  more than that.
+
+### `BusinessPartnerFullName` is derived, never stored (2026-08-24)
+
+It is a **standard S/4 field**, not one this app added, and
+`srv/external/API_BUSINESS_PARTNER.edmx` marks it
+`sap:creatable="false" sap:updatable="false"` — S/4 composes it from the name
+components and refuses to be told it. That is why the maintenance screen shows it
+uneditable (`generate-maintenance-metadata.js` carries the flags through) and why
+making it editable would gain nothing.
+
+It is also absent from the **Field Properties** catalog, correctly:
+`payload-fields.js` is generated from `db/staging.cds`, which has no such column,
+and a profile cannot govern a field nobody can fill.
+
+The gap that mattered: a **pending create** has no such name anywhere. S/4 has
+never seen the partner and staging does not hold the field, so the approver's task
+was being handed a blank where the partner's name belongs. `srv/partner-name.js`
+composes it — the category decides which fields to read (1 person, 2 organisation,
+3 group), because S/4 discards name fields that do not match the category, and an
+empty answer falls through the other groups rather than leaving a request unnamed
+for a human to read.
+
+**One composed name, two consumers**, so the search list and the approver's task
+can never name the same requested partner differently: `stagedFullName` in
+`srv/search-results.js` *is* `fullNameOf`, and `buildBusinessPartnerInput` wraps
+the root row in `withFullName`.
+
+**Never write it into a request payload**, and this is the trap worth remembering:
+`sanitizeEntityPayload` excluded it on **update** all along and excluded *nothing*
+on create, so a value sitting on the staged root would have been forwarded to S/4
+on the post and rejected — a request that fails at the last step. It cost nothing
+while nothing could produce such a value; composing one is exactly that. Hence
+`ROOT_CREATE_EXCLUDED_FIELDS`, which is the create-path counterpart and holds
+`BusinessPartnerFullName` and `BusinessPartnerName`. Other derived root fields
+(`BusinessPartnerUUID`, `CreatedByUser`, `CreationDate`, …) are still unguarded on
+create; nothing produces them today, and the same reasoning applies if anything
+ever does.
+
+**On the screen it is filled by `_refreshFullName`**, from `previewName` — the same
+category-driven composition, client-side. Two rules make it safe and honest:
+
+- **A committed name field recomposes it** (`_onFieldCommitted`, `recompose: true`),
+  so it fills in as soon as Name 1 is typed rather than waiting for a post.
+- **An existing value is otherwise left alone.** On a partner read from S/4 that
+  value is S/4's own derivation, and replacing it with a composition would show
+  something S/4 does not say. A staged request always arrives without one, so
+  loading a request composes it.
+
+Writing it onto `state.root` is safe on both counts that matter: staging has no such
+column so `stageable()` drops it, and `ROOT_CREATE_EXCLUDED_FIELDS` keeps it out of
+the create S/4 would reject. A value to show, never one to store.
+
+### Who has it now — the processors strip (2026-08-24)
+
+Every change request screen leads with one Information strip saying which step the
+request is on and who is holding it: `Current step: Approval - with
+julien@alluvion.eu, Sales Approver`. `getRequestPayload` returns it as
+`ProcessorsJson`; `srv/request-processors.js` maps a status to a step, a list and a
+sentence.
+
+**The approvers are what CAP SENT the workflow, not who the workflow gave the task
+to.** They are re-resolved from the `WorkflowRules` table against the payload as it
+stands, so two things can make them wrong: the table may have been edited since the
+submit, and — today — **Arthur's process ignores `approvers` entirely** (see
+"Workflow rules"). It becomes the real answer only once the process routes on the
+list, and it must never be labelled as SBPA's assignment before that lands.
+
+**That caveat belongs in the code, not in the strip.** It was in the strip until
+2026-08-24 — *"With the approvers below, as sent to the workflow."* — and Maarten had
+it removed: the names are already in the same sentence, so "below" was wrong, and
+"as sent to the workflow" told a requester nothing they could act on while reading as
+a hedge. A note is now shown **only when there is something a reader can do with it**,
+which is the empty case: no rule named an approver, so look in the inbox.
+
+The rest is deliberate:
+
+- **Approvers are resolved only while the status is `inApproval`.** For a draft they
+  would name people who are responsible for nothing yet.
+- **A requester is always `kind: 'user'`**, whatever their user id looks like. Only
+  the approver half of the rules table can name a role, and the `@` rule that tells
+  them apart is the same one the wire uses.
+- **`submittedBy` outranks `createdBy`** — whoever sent it is who it is with.
+- **The steps nobody holds say so.** `approved` is waiting on the workflow to post,
+  not on a person; `failed` says a steward has to pick it up and that it will not
+  retry itself. Naming somebody who cannot act would be worse than naming nobody.
+- **An empty approver list is a legitimate answer**, as everywhere else that table
+  is read: it says the workflow routes it itself and that the holder is only visible
+  in the approver's inbox.
+- **`rejected` reads as the rework it has become.** Nothing writes it any more, but
+  it cannot be dropped from the enum, so it must not fall through to "nobody".
+- **The strip goes LAST**, after every mode branch has set its own messages — both
+  so none of them can overwrite it, and because each of those messages explains the
+  screen the requester is looking at: why a rework link offers nothing, why a
+  request is read-only, what a rejection said. The panel header shows the *leading*
+  message, so leading with the step collapses the explanation out of sight. It was
+  prepended for half a day and that is exactly what it did. It leads on its own
+  when nothing else spoke, which is the plain approve screen.
+- Best-effort, like every other read of the workflow rules: a table that cannot be
+  read costs the strip, never the screen.
+
 ### The check pipeline — `srv/checks/pipeline.js`
 
 **validate → derive → duplicate check**, and the order is the design. Data that
@@ -454,14 +687,13 @@ compositions (`general`, `customer`, `supplier`) need an `ON` condition too**.
 Without it CAP puts a foreign key on the header instead of using the backlink,
 which both duplicates the link and creates a schema that later fails to migrate.
 
-A partner with an in-flight change request is hidden from the Business Partner
-list, so two people cannot edit it at once (`applyChangeRequestExclusion` in
-`srv/business-partner-service.js`). `ACTIVE_REQUEST_STATUSES` decides what
-counts as in-flight; `failed` is in that list on purpose, because a failed post
-is not atomic and may have left the partner half-written. The exclusion is a
-filter on the remote query, not post-filtering, so `$top`/`$skip`/`$count` stay
-correct — but it is capped at `MAX_EXCLUDED_PARTNERS` to keep the OData URL
-sane, and logs a warning rather than silently under-hiding.
+A partner with an in-flight change request used to be **hidden** from the
+Business Partner list so two people could not edit it at once. Since 2026-08-24
+it is listed and **marked** instead — see "The merged search list" above.
+`ACTIVE_REQUEST_STATUSES` still decides what counts as in-flight, and `failed`
+is in that list on purpose, because a failed post is not atomic and may have
+left the partner half-written. What it now governs is the **refusal to edit**
+(`openEditPage` in `CustomActions.js`) rather than what the list shows.
 
 Change requests have their own list (`ext/view/ChangeRequestList.view.xml`),
 reached from the Change Requests button on the list report. **The button is
@@ -1181,8 +1413,17 @@ Decisions behind it, each of which has a cheaper wrong version:
   screen still has to cope with a link opened twice, for whichever entry point
   reopens it. Embedded, only Approve/Reject hide behind `env>/embedded` —
   Resubmit and Withdraw stay visible, because unlike a decision they need the
-  requester's own edits and cannot be reduced to a My Inbox outcome button; the
-  task completes itself only *after* `resubmitRequest`/`withdrawRequest` already
+  requester's own edits and cannot be reduced to a My Inbox outcome button.
+  **They are in the object page HEADER actions, not the footer** (fixed
+  2026-08-24): My Inbox does not render an embedded app's `sap.m.Page` footer, so
+  every button in it was invisible on a task - Resubmit and Withdraw on a rework
+  task, and Check, Duplicate Check and Back on the approve task too. Only
+  Approve/Reject worked, because those come from `inboxAPI.addAction`. The header
+  actions are page content and do render, so that is where an embedded action
+  goes; they are gated on `env>/embedded` so standalone keeps its footer rather
+  than growing a second row of the same buttons. `Component.js` asserted the
+  opposite in a comment for three days - it was never true. The task
+  completes itself only *after* `resubmitRequest`/`withdrawRequest` already
   succeeded, via `_completeEmbeddedOutcome` in the shared controller calling
   `completeOutcome` on the task app's Component — the same `PATCH task-instances`
   the approve path sends, without a `decideRequest` in front of it since that
@@ -1272,6 +1513,11 @@ keys went with them. `inputs` and `outputs` stay as they are; they declare the
 task context for the Lobby, while the runtime reads none of it — `Component.js`
 fetches `/task-instances/{id}/context` itself and PATCHes the whole context back.
 `test/task-form.test.js` pins the labels.
+
+**Nothing in the app's own footer reaches anybody in My Inbox.** That is the trap
+this section cost most time to: the footer renders standalone, the tests only read
+source, and the inbox chrome quietly drops it. Anything that must be pressable on a
+task goes in the header actions or through `inboxAPI.addAction`.
 
 **Verified end to end on 2026-08-20**: the partner app opens from the Work Zone
 tile (so `resourceRoots` resolves the shared screen at runtime), and Arthur

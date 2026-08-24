@@ -32,6 +32,61 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
   }
   entity BusinessPartners as projection on S4.A_BusinessPartner;
 
+  /**
+   * What the search list reads: the live S/4 partners **and** the change requests still in flight,
+   * in one result set. A pending create has no partner number yet, so it can only be seen here as
+   * its own row; a change/block/delete request over an existing partner is that partner's row,
+   * marked. Before this existed the requests were invisible - worse, a partner under an in-flight
+   * request was filtered *out* of the list - so two people could request the same company twice
+   * over without either seeing the other.
+   *
+   * Not persisted and not a projection: one READ handler merges the remote read with staging.
+   * `ResultKey` exists because a pending create has no key of its own to be listed under.
+   */
+  @cds.persistence.skip
+  @Capabilities: {
+    SearchRestrictions: { Searchable: true },
+    InsertRestrictions: { Insertable: false },
+    UpdateRestrictions: { Updatable: false },
+    DeleteRestrictions: { Deletable: false },
+    // The staged half of the list is filtered and sorted in memory, so only the fields S/4 itself
+    // can filter on are offered. Sorting on a computed column would silently sort one half only.
+    FilterRestrictions: { NonFilterableProperties: [
+      ResultKey, RecordStatus, RecordStatusCriticality, IsChangeRequest,
+      ChangeRequest, ChangeRequestType, ChangeRequestStatus, RequestedBy, RequestedAt
+    ] },
+    SortRestrictions: { NonSortableProperties: [
+      ResultKey, RecordStatus, RecordStatusCriticality, IsChangeRequest,
+      ChangeRequest, ChangeRequestType, ChangeRequestStatus, RequestedBy, RequestedAt
+    ] }
+  }
+  @readonly entity BusinessPartnerSearchResults {
+    /** `BP:4711` or `CR:<request id>`. A pending create has no number to be keyed by. */
+    key ResultKey                : String(45);
+        BusinessPartner          : String(10);
+        BusinessPartnerFullName  : String(81);
+        BusinessPartnerCategory  : String(1);
+        BusinessPartnerGrouping  : String(4);
+        SearchTerm1              : String(20);
+        BusinessPartnerIsBlocked : Boolean;
+
+        /** What the row is, in words: 'Active', 'Create in approval', 'Change rework required'.
+         *  Composed server-side so the list and the request can never disagree about a status. */
+        RecordStatus             : String(40);
+        /** UI.Criticality: 0 neutral, 2 critical-warning for anything in flight. */
+        RecordStatusCriticality  : Integer;
+
+        /** True for a pending create, which is a request and not yet a partner. */
+        IsChangeRequest          : Boolean;
+        /** The request in flight - whether this row IS that request, or is a partner marked by it. */
+        ChangeRequest            : UUID;
+        ChangeRequestType        : String(10);
+        ChangeRequestStatus      : String(20);
+        RequestedBy              : String(120);
+        RequestedAt              : Timestamp;
+
+  }
+
   // Value-help lookups sourced from the custom S/4 value-help service
   // ZSRVB_MDMLIGHT_VH — API_BUSINESS_PARTNER itself exposes none of these.
   // Referenced from srv/annotations.cds via @Common.ValueList and, in the

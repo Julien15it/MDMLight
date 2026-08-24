@@ -14,6 +14,8 @@ const { createRelationStages } = require('./checks/relation-checks');
 const { configuredStages } = require('./checks/rule-store');
 const { fieldPropertyStages, resolvedProperties } = require('./checks/field-property-store');
 const { approversFor } = require('./checks/workflow-rule-store');
+const { currentProcessors } = require('./request-processors');
+const { withFullName } = require('./partner-name');
 const { proposeNormalisations } = require('./checks/normalise');
 const { aiAssistanceEnabled } = require('./ai/availability');
 const { PAYLOAD_NODES, ROOT_SECTION } = require('./checks/payload-fields');
@@ -311,7 +313,11 @@ async function buildBusinessPartnerInput(db, s4, header) {
   const industries = await activeStagedRows(db, NODES.Industries.entity, changeRequest);
 
   const rowsByEntity = {
-    A_BusinessPartner: withBusinessPartner(general),
+    // The composed name, because a pending create has none: S/4 derives BusinessPartnerFullName and
+    // staging has no column for it, so the workflow was being handed a blank where the partner's name
+    // should be. Composed onto the workflow row ONLY - see srv/partner-name.js for why it must never
+    // reach the staged payload. A change request over an existing partner keeps S/4's own value.
+    A_BusinessPartner: withFullName(withBusinessPartner(general)),
     A_BusinessPartnerAddress: (await activeStagedRows(db, NODES.Addresses.entity, changeRequest)).map(withBusinessPartner),
     A_BusinessPartnerRole: (await activeStagedRows(db, NODES.BusinessPartnerRoles.entity, changeRequest)).map(withBusinessPartner),
     A_BusinessPartnerBank: (await activeStagedRows(db, NODES.BankDetails.entity, changeRequest)).map(withBusinessPartner),
@@ -429,6 +435,53 @@ class ChangeRequestService extends cds.ApplicationService {
         // this map comes off again.
         approvers: approvers.map((approver) => approver.value)
       };
+    };
+
+    /**
+     * Who is responsible for the request right now, for the strip at the top of the screen. The
+     * approvers come from the same `WorkflowRules` table `workflowContext` sends, resolved against
+     * the payload as it stands - so it is what CAP told the workflow, not who the workflow assigned
+     * the task to. Only read while a request is in approval; see srv/request-processors.js.
+     *
+     * Best-effort, like every other read of that table: a screen must still open if it fails.
+     */
+    const processorsFor = async (header, payload) => {
+      let approvers = [];
+      if (header.status === 'inApproval') {
+        try {
+          approvers = await approversFor({
+            requestType: header.requestType,
+            payload: { root: payload.root || {}, sections: payload.sections || {} }
+          });
+        } catch (error) {
+          console.warn(`[processors] Could not resolve the approvers of ${header.ID}:`, error.message);
+        }
+      }
+      return currentProcessors(header, approvers);
+    };
+
+    /**
+     * The duplicate findings still standing on a request, so the approver sees what the requester was
+     * warned about. They were written at submit and never read back: the approve screen built its
+     * panel only from a check it ran itself, which it does not, so the panel was empty on every task.
+     *
+     * `duplicate_check` only - CheckFindings also holds the validation and registry findings, which
+     * are a different report - and the same `isStale` filter the exposed view applies, or a resubmit's
+     * superseded verdicts come back alongside the current ones and one pair reads as several.
+     */
+    const currentDuplicateFindings = async (changeRequest) => {
+      try {
+        return await db.run(
+          cds.ql.SELECT.from(FINDINGS)
+            .where`request_ID = ${changeRequest} and checkName = 'duplicate_check'
+                   and (isStale is null or isStale = false)`
+            .orderBy({ score: 'desc' })
+        );
+      } catch (error) {
+        // Best-effort like the rest of this screen's extras: no panel beats no request.
+        console.warn(`[findings] Could not read the findings of ${changeRequest}:`, error.message);
+        return [];
+      }
     };
 
     const persist = async (req) => {
@@ -903,6 +956,8 @@ class ChangeRequestService extends cds.ApplicationService {
         RejectionComment: header.rejectionComment,
         SubmittedBy: header.submittedBy,
         SubmittedAt: header.submittedAt,
+        ProcessorsJson: JSON.stringify(await processorsFor(header, { root, sections })),
+        FindingsJson: JSON.stringify(await currentDuplicateFindings(changeRequest)),
         DataJson: JSON.stringify({ root, sections, deleted })
       };
     });

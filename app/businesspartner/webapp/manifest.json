@@ -5,7 +5,7 @@
     "type": "application",
     "i18n": "i18n/i18n.properties",
     "applicationVersion": {
-      "version": "1.18.0"
+      "version": "1.22.0"
     },
     "title": "{{appTitle}}",
     "description": "{{appDescription}}",
@@ -173,6 +173,11 @@
           "target": "BusinessPartnerMaintenance"
         },
         {
+          "pattern": "ChangeRequests/{changeRequest}/display",
+          "name": "ChangeRequestDisplay",
+          "target": "BusinessPartnerMaintenance"
+        },
+        {
           "pattern": "ChangeRequests/{changeRequest}/rework",
           "name": "ChangeRequestRework",
           "target": "BusinessPartnerMaintenance"
@@ -195,10 +200,10 @@
           "name": "sap.fe.templates.ListReport",
           "options": {
             "settings": {
-              "contextPath": "/BusinessPartners",
+              "contextPath": "/BusinessPartnerSearchResults",
               "variantManagement": "Page",
               "navigation": {
-                "BusinessPartners": {
+                "BusinessPartnerSearchResults": {
                   "detail": {
                     "route": "BusinessPartnerDisplay"
                   }

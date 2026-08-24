@@ -381,8 +381,10 @@ test('rework is the draft view with Resubmit in place of Submit', () => {
   assert.match(head, /state\.saveButtonText = reworking \? "Resubmit" : "Submit Request"/u);
   assert.match(head, /state\.showSaveButton = editing/u);
   assert.match(controller, /if \(state\.mode === "rework"\)\s*\{\s*return this\._sendChangeRequest\("resubmitRequest"\)/u);
-  // Check stays: the requester has to be able to ask whether the record will pass on resubmit.
-  assert.match(head, /state\.showCheckButton = reworking/u);
+  // Check stays, and since 2026-08-21 it is on the approve view too - both buttons only read. The
+  // one screen it is off is the read-only view of a request, which re-runs nothing.
+  assert.match(head, /state\.showCheckButton = !viewing;/u);
+  assert.doesNotMatch(head, /state\.showCheckButton = reworking/u);
 });
 
 /**

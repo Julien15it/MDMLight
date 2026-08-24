@@ -35,7 +35,14 @@ const s4Mock = {
     A_BusinessPartner: {
       elements: {
         BusinessPartner: { type: 'cds.String' },
-        OrganizationBPName1: { type: 'cds.String' }
+        BusinessPartnerCategory: { type: 'cds.String' },
+        OrganizationBPName1: { type: 'cds.String' },
+        FirstName: { type: 'cds.String' },
+        LastName: { type: 'cds.String' },
+        // The shape is driven by the REMOTE entity's elements, so a field missing from this mock can
+        // never appear however the row is built. The live A_BusinessPartner has it, and has been
+        // sending it as a blank all along - which is the whole point of composing a value for it.
+        BusinessPartnerFullName: { type: 'cds.String' }
       }
     },
     A_BusinessPartnerAddress: {
@@ -104,6 +111,27 @@ test('buildBusinessPartnerInput shapes staged rows for a create request (no Busi
   assert.equal(result.A_BusinessPartnerAddress[0].cityName, 'Gent');
   assert.equal(result.A_BusinessPartnerAddress[0].businessPartner, '');
   assert.equal(result.A_BusinessPartnerRole[0].businessPartnerRole, 'FLVN00');
+  // S/4 derives the full name and has never seen this partner, and staging holds no such column -
+  // so it is composed here, or the approver's task shows a blank where the name should be.
+  assert.equal(result.A_BusinessPartner.businessPartnerFullName, 'Test 0608');
+});
+
+test('the composed full name follows the category, and survives an empty record', async () => {
+  const person = await buildBusinessPartnerInput(stagingDb({
+    StagedGeneral: [{
+      BusinessPartnerCategory: '1',
+      FirstName: 'Maarten',
+      LastName: 'Eylenbosch',
+      OrganizationBPName1: 'Ignored For A Person'
+    }]
+  }), s4Mock, { ID: 'cr-3', businessPartner: null });
+  assert.equal(person.A_BusinessPartner.businessPartnerFullName, 'Maarten Eylenbosch');
+
+  // Nothing to compose from is still a blank, not a crash or a stray space.
+  const empty = await buildBusinessPartnerInput(stagingDb({ StagedGeneral: [{}] }), s4Mock, {
+    ID: 'cr-4', businessPartner: null
+  });
+  assert.equal(empty.A_BusinessPartner.businessPartnerFullName, '');
 });
 
 test('buildBusinessPartnerInput backfills the known BusinessPartner onto staged child rows for a change request', async () => {

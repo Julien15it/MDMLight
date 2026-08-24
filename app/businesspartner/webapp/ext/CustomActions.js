@@ -68,6 +68,33 @@ sap.ui.define([
     navigate("BusinessPartners/" + encodeURIComponent(businessPartner) + "/display");
   }
 
+  /**
+   * A change request row opens **read-only**, for anyone: seeing what has already been asked for is
+   * the point of showing the request in this list at all, and it is the whole list that is open.
+   *
+   * The DISPLAY route, never the edit one. Editing a draft stays on the steward-gated Change
+   * Requests list, and an `inApproval` request is decided from the approver's inbox against a real
+   * task - so this shows more without letting anyone change more.
+   */
+  function explainRequest(context) {
+    var request = context.getProperty("ChangeRequest");
+    if (!request) {
+      MessageBox.information(
+        describeRequest(context)
+        + " It is already in progress, so there is no need to request it again."
+      );
+      return;
+    }
+    navigate("ChangeRequests/" + encodeURIComponent(request) + "/display");
+  }
+
+  /** One sentence naming the request, so a blocked action says which one is in the way. */
+  function describeRequest(context) {
+    var status = context.getProperty("RecordStatus") || "A change request";
+    var by = context.getProperty("RequestedBy");
+    return status + (by ? ", requested by " + by + "." : ".");
+  }
+
   function modelFrom(value) {
     if (value && typeof value.getModel === "function") return value.getModel();
     var context = contextFrom(value);
@@ -122,18 +149,46 @@ sap.ui.define([
       BusinessPartnerAssistant.open(model, null);
     },
 
+    /**
+     * A partner under a request in flight is not editable: a second request over the same partner
+     * would post over the first one's staged values. The list used to hide such a partner outright,
+     * which is why nothing checked here before.
+     */
     openEditPage: function (bindingContext, selectedContexts) {
       var selected = contextsFrom(bindingContext, selectedContexts);
       if (selected.length !== 1) {
         MessageBox.error("Select exactly one Business Partner to edit.");
         return;
       }
-      navigateToEdit(selected[0].getProperty("BusinessPartner"));
+      var context = selected[0];
+      if (context.getProperty("IsChangeRequest")) {
+        explainRequest(context);
+        return;
+      }
+      if (context.getProperty("ChangeRequest")) {
+        MessageBox.warning(
+          "This Business Partner already has a change request in flight. " + describeRequest(context)
+        );
+        return;
+      }
+      navigateToEdit(context.getProperty("BusinessPartner"));
     },
 
+    /**
+     * A row in the merged search list is either a partner or a pending create. The create has no
+     * partner number, so there is no display page to open - it says what it is instead.
+     */
     openDisplayPage: function (bindingContext) {
       var context = contextFrom(bindingContext);
-      navigateToDisplay(context && context.getProperty("BusinessPartner"));
+      if (!context) {
+        navigateToDisplay("");
+        return;
+      }
+      if (context.getProperty("IsChangeRequest")) {
+        explainRequest(context);
+        return;
+      }
+      navigateToDisplay(context.getProperty("BusinessPartner"));
     },
 
     openEditCurrentPage: function (bindingContext) {

@@ -78,6 +78,9 @@ sap.ui.define([
     "IsMarkedForArchiving"
   ];
 
+  /** Panel headers are one line; past this the lead message is elided rather than wrapped away. */
+  var MESSAGE_HEADER_LIMIT = 110;
+
   var NAME_FIELDS = [
     "FirstName",
     "MiddleName",
@@ -296,6 +299,44 @@ sap.ui.define([
       || "";
   }
 
+  /**
+   * `ProcessorsJson` from getRequestPayload, or an empty answer. Unparseable is treated as absent:
+   * a screen must open whatever the workflow rule table did.
+   */
+  function parseProcessors(json) {
+    if (!json) return null;
+    try {
+      var parsed = JSON.parse(json);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
+   * The strip at the top of a request: which step it is on and who is holding it. For a request in
+   * approval the names come from the WorkflowRules table - what CAP SENT the workflow, which is not
+   * the same as who the workflow gave the task to, so the note says "as sent to the workflow" rather
+   * than claiming to know. See srv/request-processors.js.
+   */
+  function processorMessage(processors) {
+    if (!processors || !processors.step) return null;
+    var names = (processors.processors || []).map(function (entry) {
+      return entry.role && entry.role !== "approver" ? entry.value + " (" + entry.role + ")" : entry.value;
+    });
+    return {
+      type: "Information",
+      text: "Current step: " + processors.step
+        + (names.length ? " - with " + names.join(", ") : "")
+        + (processors.note ? ". " + processors.note : "")
+    };
+  }
+
+  /** Everything below Warning; an Information-only set is what the panel may start collapsed on. */
+  function isSevere(message) {
+    return message && message.type !== "Information" && message.type !== "None";
+  }
+
   function previewName(root) {
     if (root.BusinessPartnerCategory === "1") {
       return [root.FirstName, root.MiddleName, root.LastName].filter(Boolean).join(" ");
@@ -329,6 +370,7 @@ sap.ui.define([
           ["BusinessPartnerMaintain", this._onEditRoute],
           ["ChangeRequestApprove", this._onApproveRoute],
           ["ChangeRequestEdit", this._onRequestEditRoute],
+          ["ChangeRequestDisplay", this._onRequestDisplayRoute],
           ["ChangeRequestRework", this._onReworkRoute]
         ].forEach(function (entry) {
           var route = this._router.getRoute(entry[0]);
@@ -362,6 +404,32 @@ sap.ui.define([
         if (pendingRework) this._loadStagedRequest(pendingRework, "rework");
       },
 
+      /**
+       * One line for the message panel's header, so a collapsed panel still says what it holds. The
+       * leading message is the one that matters - the strips are ordered so a Warning leads - and the
+       * rest are counted rather than concatenated.
+       */
+      messagesHeader: function (messages) {
+        var list = messages || [];
+        if (!list.length) return "";
+        var lead = String(list[0].text || "").replace(/\s+/gu, " ").trim();
+        if (lead.length > MESSAGE_HEADER_LIMIT) lead = lead.slice(0, MESSAGE_HEADER_LIMIT - 1) + "…";
+        return list.length > 1 ? lead + " (+" + (list.length - 1) + " more)" : lead;
+      },
+
+      /**
+       * Whether the panel opens itself. Anything above Information does - a validation that blocked a
+       * submit, or an approver's rejection reason, is not something to make somebody click for -
+       * while an Information-only set stays out of the way, which is what this panel is for.
+       *
+       * Bound one-way, so a render can re-apply it: expanding an Information-only panel and then
+       * editing a field collapses it again. Accepted over a state flag that 13 assignment sites would
+       * each have to remember to set, which is the version that goes stale.
+       */
+      messagesNeedAttention: function (messages) {
+        return (messages || []).some(isSevere);
+      },
+
       _emptyState: function () {
         // Declines belong to the record on screen: this runs exactly when the screen is reset to
         // another one, which is exactly when they stop meaning anything.
@@ -385,6 +453,8 @@ sap.ui.define([
           showReworkButtons: false,
           /** Why the approver sent it back. Empty except in rework mode. */
           rejectionComment: "",
+          /** `{ step, processors, note }` from getRequestPayload. Null outside a change request. */
+          processors: null,
           showCancelButton: true,
           showFooter: true,
           saveButtonText: "Submit Request",
@@ -1808,6 +1878,13 @@ sap.ui.define([
       },
 
       _onFieldCommitted: function (section, field) {
+        // S/4 derives the full name from these and will not be told it, so nothing fills the field
+        // until the partner exists. Recomposed here instead, as soon as a name is typed - the same
+        // composition srv/partner-name.js sends to the workflow, so the screen and the approver's
+        // task agree. Display only: staging has no such column and the create path excludes it.
+        if (section.kind === "root" && NAME_FIELDS.indexOf(field.name) !== -1) {
+          this._refreshFullName(true);
+        }
         // A tax number is worth the register on its own, and only the register: Propose false so
         // no AI Core call rides along with it.
         if (REGISTRY_TRIGGER_FIELDS[field.name]) {
@@ -1821,6 +1898,28 @@ sap.ui.define([
         this._pendingScope = scope;
         clearTimeout(this._idleTimer);
         this._idleTimer = setTimeout(this._flushPendingScope.bind(this), TRIGGER_IDLE_MS);
+      },
+
+      /**
+       * Puts the composed name into the read-only BusinessPartnerFullName field. `previewName` is the
+       * same category-driven composition `fullNameOf` performs server-side for the workflow row.
+       *
+       * Writing it onto `state.root` is safe on both counts that matter: staging has no
+       * `BusinessPartnerFullName` column so `stageable()` drops it, and `ROOT_CREATE_EXCLUDED_FIELDS`
+       * keeps it out of the create S/4 would reject. It is a value to show, never one to store.
+       */
+      _refreshFullName: function (recompose) {
+        var model = this.getView().getModel("maintenance");
+        var state = model.getData();
+        var root = state.root || {};
+        // Without `recompose` an existing value is left alone: on a partner read from S/4 that value
+        // is S/4's own derivation and replacing it with a guess would show something S/4 does not
+        // say. A committed name field passes true - what it will become is the useful answer then.
+        if (!recompose && String(root.BusinessPartnerFullName || "").trim()) return;
+        var composed = previewName(root);
+        if (!composed || root.BusinessPartnerFullName === composed) return;
+        root.BusinessPartnerFullName = composed;
+        model.refresh(true);
       },
 
       _flushPendingScope: function () {
@@ -2294,6 +2393,21 @@ sap.ui.define([
         );
       },
 
+      /**
+       * Read-only: what was requested, and nothing to press. Reached from a change request row in
+       * the search list, and open to anyone - seeing what has already been asked for is the point of
+       * showing the request in that list, and the list itself is open.
+       *
+       * Deliberately NOT the edit screen, even for a steward opening their own draft: editing a
+       * draft stays on the steward-gated Change Requests list, so this route widens what can be
+       * seen without widening what can be changed.
+       */
+      _onRequestDisplayRoute: function (event) {
+        return this._loadStagedRequest(
+          decodeURIComponent(event.getParameter("arguments").changeRequest), "view"
+        );
+      },
+
       // The requester's screen for a request sent back. Reached by the `reworkurl` deep link, or by
       // a My Inbox task carrying `tasktype: "rework"` - the list is steward-gated either way, so
       // neither path is reachable from there. Every field is editable, and the footer offers
@@ -2307,28 +2421,33 @@ sap.ui.define([
         );
       },
 
-      // `mode` is "approve", "edit" or "rework". It was a boolean until rework arrived, which needs a
-      // draft's editability and a footer of its own.
+      // `mode` is "approve", "edit", "rework" or "view". It was a boolean until rework arrived, which
+      // needs a draft's editability and a footer of its own; "view" needs neither and offers nothing.
       _loadStagedRequest: async function (changeRequest, mode) {
         var maintenanceModel = this.getView().getModel("maintenance");
         var reworking = mode === "rework";
+        var viewing = mode === "view";
         // Rework edits the payload, so it is an editing mode - it just does not save drafts.
         var editing = mode === "edit" || reworking;
         var state = this._emptyState();
         state.busy = true;
-        state.mode = reworking ? "rework" : (editing ? "edit" : "approve");
-        state.modeText = reworking ? "Rework" : (editing ? "Draft" : "Approval");
+        state.mode = viewing ? "view" : (reworking ? "rework" : (editing ? "edit" : "approve"));
+        state.modeText = viewing ? "Display" : (reworking ? "Rework" : (editing ? "Draft" : "Approval"));
         state.editing = editing;
         state.changeRequest = changeRequest;
         state.showEditButton = false;
         // Rework IS the draft view with one different primary action, so the buttons are the editing
         // ones in both modes and only the label and onSave's route change.
-        state.showCheckButton = reworking;
+        // Both answer read-only questions, so the approver gets them too, not just the requester.
+        // Not in view mode: the screen is there to show what was asked for, not to re-run anything.
+        state.showCheckButton = !viewing;
         state.showSaveButton = editing;
         // No Save Request in rework: it drops the screen out of editing and offers Edit, which re-enters
         // "edit" mode - and onSave would then start a second workflow for an already-parked instance.
         state.showSaveRequestButton = editing && !reworking;
-        state.showDecisionButtons = !editing;
+        // A viewer is not an approver. Without this the decision buttons would appear on the view of
+        // any request that happens to be inApproval, which is most of them.
+        state.showDecisionButtons = !editing && !viewing;
         // Set properly once the status is known: a rework link outlives the state it was sent for.
         state.showReworkButtons = false;
         state.showFooter = true;
@@ -2355,18 +2474,27 @@ sap.ui.define([
 
           state.requestType = (payload && payload.RequestType) || "";
           state.requestStatus = (payload && payload.Status) || "";
+          state.processors = parseProcessors(payload && payload.ProcessorsJson);
+          // What the requester was warned about, into the same collapsible panel the create screen
+          // uses. Written at submit and, until 2026-08-24, never read back - so an approver opening
+          // the task saw nothing, which is indistinguishable from "no duplicate was found".
+          this._setDuplicatePanel(state, this._parseJsonArray(payload && payload.FindingsJson));
+          // Staging has no BusinessPartnerFullName column, so a request always arrives without one.
+          this._refreshFullName();
           // The approve view is the approver's, the draft and rework views are the requester's own.
           // `hidden` is deliberately honoured on the approve view too: once approvals are split by
           // function, a sales approver has no business reading the bank details.
           await this._loadFieldProperties(state.requestType, mode === "approve" ? "Approver" : "Requester");
           state.businessPartner = (payload && payload.BusinessPartner) || "";
           state.rejectionComment = (payload && payload.RejectionComment) || "";
-          state.title = (reworking ? "Rework request " : (editing ? "Change request " : "Approve request "))
+          state.title = (viewing
+            ? "Change request "
+            : (reworking ? "Rework request " : (editing ? "Change request " : "Approve request ")))
             + changeRequest;
           state.headerTitle = previewName(state.root) || "Requested Business Partner";
           // Only a request still awaiting a decision can be decided on. Opening
           // an already-decided task must not offer the buttons again.
-          state.showDecisionButtons = !editing && state.requestStatus === "inApproval";
+          state.showDecisionButtons = !editing && !viewing && state.requestStatus === "inApproval";
 
           if (reworking) {
             // Still inApproval means SPA notified the requester without calling decideRequest, so CAP
@@ -2380,7 +2508,9 @@ sap.ui.define([
             var awaitingRework = state.requestStatus === "reworkRequired";
             state.showReworkButtons = awaitingRework;
             state.editing = awaitingRework;
-            state.showCheckButton = awaitingRework;
+            // Not awaitingRework: asking whether the record passes is still a fair question on a
+            // request that has already gone back.
+            state.showCheckButton = true;
             state.showSaveButton = awaitingRework;
             if (!awaitingRework) {
               state.modeText = state.requestStatus;
@@ -2404,6 +2534,14 @@ sap.ui.define([
                 text: "The approver sent this request back. No reason was recorded with it."
               }];
             }
+          } else if (viewing) {
+            // Say which request this is and what state it is in, or a read-only screen with no
+            // buttons is indistinguishable from one that failed to load.
+            state.messages = [{
+              type: "Information",
+              text: "This is change request " + changeRequest + " (" + state.requestStatus
+                + "), shown read-only."
+            }];
           } else if (editing && state.requestStatus !== "draft") {
             // A submitted request is owned by the approval process from here on.
             state.editing = false;
@@ -2411,6 +2549,14 @@ sap.ui.define([
             state.showSaveRequestButton = false;
             state.modeText = state.requestStatus;
           }
+
+          // Who has it now. Added after the branches above so none of them can overwrite it, and
+          // added LAST: every message a branch sets explains the screen the requester is looking at -
+          // why a rework link offers nothing, why a request is read-only, what a rejection said - and
+          // the panel header shows the leading message, so putting this first would collapse the
+          // explanation behind "Current step: ...". It leads on its own when nothing else spoke.
+          var processorStrip = processorMessage(state.processors);
+          if (processorStrip) state.messages = (state.messages || []).concat([processorStrip]);
         } catch (error) {
           MessageBox.error(errorMessage(error, "The change request could not be loaded."));
         } finally {

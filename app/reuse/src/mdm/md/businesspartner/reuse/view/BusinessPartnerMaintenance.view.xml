@@ -12,18 +12,28 @@
       <!-- Message area, MDG-style: the result of a submit is reported here and the request header
            stays on screen, rather than the user being returned to the list with a toast. Duplicate
            findings land here, and so will any future validation. -->
-      <VBox
-        id="maintenanceMessages"
+      <!-- Collapsible, like the duplicate findings below: a submit reports several strips and an
+           information-only set must not push the form off screen. The header carries the leading
+           message, so a collapsed panel still says what it holds, and anything above Information
+           opens the panel itself rather than making somebody click for it. -->
+      <Panel
+        id="maintenanceMessagePanel"
         class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
+        expandable="true"
+        expanded="{ path: 'maintenance>/messages', formatter: '.messagesNeedAttention' }"
         visible="{= ${maintenance>/messages}.length > 0 }"
-        items="{ path: 'maintenance>/messages', templateShareable: false }">
-        <MessageStrip
-          text="{maintenance>text}"
-          type="{maintenance>type}"
-          showIcon="true"
-          showCloseButton="false"
-          class="sapUiTinyMarginBottom" />
-      </VBox>
+        headerText="{ path: 'maintenance>/messages', formatter: '.messagesHeader' }">
+        <VBox
+          id="maintenanceMessages"
+          items="{ path: 'maintenance>/messages', templateShareable: false }">
+          <MessageStrip
+            text="{maintenance>text}"
+            type="{maintenance>type}"
+            showIcon="true"
+            showCloseButton="false"
+            class="sapUiTinyMarginBottom" />
+        </VBox>
+      </Panel>
       <!-- One section that failed to load, or had nothing to resolve its Customer/Supplier
            relation to, must never be silent - a blank section otherwise looks identical to
            "this Business Partner genuinely has no data here". -->
@@ -108,6 +118,37 @@
                 type="Transparent"
                 visible="{= !${env>/embedded} }"
                 press=".onBackToList" />
+              <!-- The same actions as the footer, for My Inbox. Embedded, the Page's footer is not
+                   rendered by the inbox chrome at all - which took Check, Duplicate Check, Resubmit,
+                   Withdraw and Back with it, and left only the Approve/Reject that come from
+                   inboxAPI.addAction. Component.js used to state the opposite in a comment; it was
+                   never true. These live in the header actions instead, which are page content and
+                   therefore do render, and press the identical handlers. Standalone they stay hidden:
+                   the footer is where a Fiori object page puts its actions, and two rows of the same
+                   buttons is worse than none. -->
+              <Button
+                text="Check"
+                icon="sap-icon://validate"
+                type="Transparent"
+                visible="{= ${env>/embedded} &amp;&amp; ${maintenance>/showCheckButton} }"
+                press=".onCheck" />
+              <Button
+                text="Duplicate Check"
+                icon="sap-icon://duplicate"
+                type="Transparent"
+                visible="{= ${env>/embedded} &amp;&amp; ${maintenance>/showCheckButton} }"
+                press=".onDuplicateCheck" />
+              <Button
+                text="{maintenance>/saveButtonText}"
+                type="Emphasized"
+                visible="{= ${env>/embedded} &amp;&amp; ${maintenance>/showSaveButton} }"
+                press=".onSave" />
+              <Button
+                text="Withdraw"
+                icon="sap-icon://delete"
+                type="Reject"
+                visible="{= ${env>/embedded} &amp;&amp; ${maintenance>/showReworkButtons} }"
+                press=".onWithdraw" />
               <!-- Gone, not degraded, when a steward has switched AI assistance off: an
                    installation that may not use AI should not be offered it. The server
                    refuses the action too - see srv/business-partner-service.js. -->

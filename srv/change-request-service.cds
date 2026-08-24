@@ -67,6 +67,18 @@ service ChangeRequestService @(path: '/service/changerequest') {
     RejectionComment : String(250);
     SubmittedBy     : String(120);
     SubmittedAt     : Timestamp;
+    /**
+     * Who is responsible right now, as `{ step, processors: [{ value, kind, role }], note }`, for
+     * the strip at the top of the screen. For a request in approval the approvers come from the
+     * `WorkflowRules` table - what CAP **sent** the workflow, not who the workflow assigned the task
+     * to. The two are not the same thing yet; srv/request-processors.js says why.
+     */
+    ProcessorsJson  : LargeString;
+    /**
+     * The duplicate findings still standing on the request, so the approver's screen shows what the
+     * requester was warned about. `duplicate_check` findings only, superseded ones left out.
+     */
+    FindingsJson    : LargeString;
     DataJson        : LargeString;
   };
 
