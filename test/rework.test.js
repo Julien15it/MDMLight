@@ -206,17 +206,42 @@ test('resubmit signals the parked instance and never starts a new one', () => {
   assert.match(resubmit, /before\.status !== 'reworkRequired'/u);
 });
 
-// Same reasoning as a failed start leaving a submit in `draft`: a request in `inApproval` that no
-// process is waiting on sits in nobody's inbox, and the requester could not try again.
-test('a failed signal leaves the request reworkable rather than stranded', () => {
+/**
+ * Reversed 2026-08-24: this used to be `req.reject(502)`, leaving a genuinely reworked, valid
+ * request stuck at `reworkRequired` whenever the parked instance was not (or not yet) waiting on
+ * this exact message - a BPA-side gap, not a problem with the data. Best-effort now, like
+ * `withdrawRequest`'s own callback: the rework task itself completing (the PATCH
+ * _completeEmbeddedOutcome sends once this action returns, carrying ContextJson as the task's
+ * businesspartnerinput output) is what resumes the process, so a failed signal must not block it.
+ */
+test('a failed signal is logged and does not block the resubmit', () => {
   const resubmit = serviceJs.slice(
     serviceJs.indexOf("this.on('resubmitRequest'"),
     serviceJs.indexOf("this.on('withdrawRequest'")
   );
   const signalAt = resubmit.indexOf('triggerRequesterCallback');
   const statusAt = resubmit.indexOf("status: 'inApproval'");
-  assert.ok(signalAt < statusAt, 'the signal is sent before the status moves');
-  assert.match(resubmit.slice(signalAt, statusAt), /req\.reject\(502/u);
+  assert.ok(signalAt < statusAt, 'the signal is attempted before the status moves regardless');
+  assert.match(resubmit.slice(signalAt, statusAt), /console\.error\(/u);
+  assert.equal(
+    /req\.reject\(502/u.test(resubmit), false,
+    'a signal failure no longer blocks the resubmit'
+  );
+});
+
+// The reworked businesspartnerinput, so the rework task can carry it back to BPA as its own
+// output on completion instead of solely through the (now best-effort) signal above.
+test('resubmitRequest returns the rebuilt context as an output for the task to carry', () => {
+  const resubmit = serviceJs.slice(
+    serviceJs.indexOf("this.on('resubmitRequest'"),
+    serviceJs.indexOf("this.on('withdrawRequest'")
+  );
+  assert.match(resubmit, /ContextJson: JSON\.stringify\(context\)/u);
+  assert.match(serviceCds, /action resubmitRequest\(/u);
+  const action = serviceCds.slice(
+    serviceCds.indexOf('action resubmitRequest('), serviceCds.indexOf('action withdrawRequest(')
+  );
+  assert.match(action, /ContextJson\s*:\s*LargeString/u);
 });
 
 // --- The missing reject callback --------------------------------------------------------
@@ -400,7 +425,11 @@ test('rework offers no Save Request', () => {
 
 test('withdraw is confirmed, and the confirmation says it cannot be undone', () => {
   assert.match(view, /text="Withdraw"[\s\S]{0,160}press="\.onWithdraw"/u);
-  assert.match(view, /visible="\{maintenance>\/showReworkButtons\}"/u);
+  // Embedded, this button hides in favour of the inbox-rendered one (2026-08-21) - see
+  // test/task-form.test.js - but the binding still gates on showReworkButtons underneath that.
+  assert.match(
+    view, /visible="\{= \$\{maintenance>\/showReworkButtons\} &amp;&amp; !\$\{env>\/embedded\} \}"/u
+  );
   const withdraw = controller.slice(controller.indexOf('onWithdraw: function'));
   assert.match(withdraw.slice(0, withdraw.indexOf('_withdraw: ')), /cannot be undone/u);
   assert.match(withdraw, /MessageBox\.Action\.DELETE/u);

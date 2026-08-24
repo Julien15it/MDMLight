@@ -176,6 +176,10 @@
         "comment": {
           "type": "string",
           "title": "Comment"
+        },
+        "businesspartnerinput": {
+          "type": "object",
+          "title": "Business Partner Data"
         }
       }
     }

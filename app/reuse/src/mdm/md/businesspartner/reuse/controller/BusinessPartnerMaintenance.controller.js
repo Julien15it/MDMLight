@@ -402,6 +402,18 @@ sap.ui.define([
         }, this);
         var pendingRework = component.getModel("env").getProperty("/taskReworkChangeRequest");
         if (pendingRework) this._loadStagedRequest(pendingRework, "rework");
+
+        // Resubmit/Withdraw cannot complete a My Inbox task directly the way Approve/Reject do -
+        // they need this screen's own Check/duplicate-confirm/submit flow to run first. So the
+        // task app's inbox buttons only ask for that flow over the event bus; the outcome still
+        // only reaches BPA through _completeEmbeddedOutcome, after onSave/onWithdraw actually
+        // succeed. A no-op outside app/bptask: nothing there ever publishes on this channel.
+        component.getEventBus().subscribe("taskform", "resubmit", function () {
+          this.onSave();
+        }, this);
+        component.getEventBus().subscribe("taskform", "withdraw", function () {
+          this.onWithdraw();
+        }, this);
       },
 
       /**
@@ -1590,10 +1602,13 @@ sap.ui.define([
        * workflow side effect here - the staged data is already right by the time this runs, and a
        * BPA hiccup must not turn a successful resubmit/withdraw into an error the requester sees.
        */
-      _completeEmbeddedOutcome: function (outcomeId) {
+      // `freshContext` (resubmit only) is the rebuilt businesspartnerinput from the action's own
+      // ContextJson - what completeOutcome merges into the task's PATCH so BPA reads the reworked
+      // data off the completed task rather than the stale context the task opened with.
+      _completeEmbeddedOutcome: function (outcomeId, freshContext) {
         if (!this.getView().getModel("env").getProperty("/embedded")) return;
         var component = this.getOwnerComponent();
-        if (component && component.completeOutcome) component.completeOutcome(outcomeId);
+        if (component && component.completeOutcome) component.completeOutcome(outcomeId, freshContext);
       },
 
       // Withdraw deletes the request and its staging rows. Confirmed first and worded plainly: it is
@@ -1857,7 +1872,15 @@ sap.ui.define([
           state.duplicatesHeader = "";
           // Deliberately no navigation: the request header and its messages stay on screen, the
           // way Save already behaves and the way MDG reports a submit.
-          if (action === "resubmitRequest") this._completeEmbeddedOutcome("resubmit");
+          if (action === "resubmitRequest") {
+            var freshContext = null;
+            try {
+              freshContext = JSON.parse((result && result.ContextJson) || "null");
+            } catch (parseError) {
+              freshContext = null;
+            }
+            this._completeEmbeddedOutcome("resubmit", freshContext);
+          }
         } catch (error) {
           MessageBox.error(errorMessage(error, "The request could not be saved."));
         } finally {

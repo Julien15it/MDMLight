@@ -62,10 +62,9 @@ test('the workflow base url is built from sap.cloud.service and sap.app.id', () 
 
 test('the inbox actions match the outcomes declared in sap.bpa.task', () => {
   const declared = manifest['sap.bpa.task'].outcomes.map((outcome) => outcome.id).sort();
-  // approve/reject go through inboxAPI.addAction, same as ever. resubmit/withdraw are declared
-  // outcomes too - the workflow runtime has to accept them on completion - but are reported by
-  // completeOutcome() after the shared screen's own Resubmit/Withdraw buttons already succeeded,
-  // never by an inbox button: unlike a decision, resubmitRequest needs the requester's edits.
+  // All four are registered with inboxAPI.addAction now (2026-08-21): an app's own footer is
+  // not guaranteed room inside the My Inbox chrome, so Resubmit/Withdraw need a host-rendered
+  // button too, same as Approve/Reject always did.
   assert.deepEqual(declared, ['approve', 'reject', 'resubmit', 'withdraw']);
   // Registered with the same ids, or the completion is rejected by the runtime.
   assert.match(component, /\{ id: "reject", label: "Reject", type: "reject" \}/u);
@@ -73,10 +72,37 @@ test('the inbox actions match the outcomes declared in sap.bpa.task', () => {
   assert.match(component, /inbox\.addAction\(/u);
 });
 
-test('resubmit/withdraw are never wired to an inbox button', () => {
-  assert.equal(/id: "resubmit"/u.test(component), false);
-  assert.equal(/id: "withdraw"/u.test(component), false);
-  assert.match(component, /completeOutcome: async function \(outcomeId\)/u);
+// Unlike Approve/Reject, pressing these must NOT complete the task directly - resubmitRequest
+// needs the requester's own edits, which only the shared screen's Check/duplicate-confirm/submit
+// flow can produce. So the handler only publishes onto the event bus; completeOutcome() is
+// reached afterwards, from the controller, only once that flow actually succeeded.
+test('resubmit/withdraw are registered, but only publish - never complete the task directly', () => {
+  assert.match(component, /_addReworkInboxActions: function \(\)/u);
+  const body = component.slice(
+    component.indexOf('_addReworkInboxActions: function'),
+    component.indexOf('_workflowRuntimeBaseUrl: function')
+  );
+  assert.match(body, /\{ id: "withdraw", label: "Withdraw", type: "reject" \}/u);
+  assert.match(body, /\{ id: "resubmit", label: "Resubmit", type: "accept" \}/u);
+  assert.match(body, /eventBus\.publish\("taskform", outcome\.id\)/u);
+  assert.equal(/_completeTask\(outcome\.id\)/u.test(body), false, 'no direct completion here');
+  assert.match(component, /completeOutcome: async function \(outcomeId, freshContext\)/u);
+  // Registered from the rework branch of _initTaskForm, so a task with no changerequestid still
+  // gets buttons - pressing Withdraw on an empty task is still a valid way out.
+  assert.match(component, /this\._addReworkInboxActions\(\);\s*\n\s*return;/u);
+});
+
+// The shared controller answers a press by running its own onSave/onWithdraw - the same flow
+// the in-page buttons ran, Check and the duplicate-check dialog included - never a shortcut.
+test('the shared controller runs the real resubmit/withdraw flow when asked over the event bus', () => {
+  assert.match(reuseController, /subscribe\("taskform", "resubmit"/u);
+  assert.match(reuseController, /subscribe\("taskform", "withdraw"/u);
+  const resubmitAt = reuseController.indexOf('subscribe("taskform", "resubmit"');
+  const withdrawAt = reuseController.indexOf('subscribe("taskform", "withdraw"');
+  const resubmitBody = reuseController.slice(resubmitAt, resubmitAt + 120);
+  const withdrawBody = reuseController.slice(withdrawAt, withdrawAt + 120);
+  assert.match(resubmitBody, /this\.onSave\(\)/u);
+  assert.match(withdrawBody, /this\.onWithdraw\(\)/u);
 });
 
 // A task with no tasktype (every task built before rework-via-My-Inbox existed) must still open
@@ -113,15 +139,33 @@ test('the rework page picks the request up by model and by event, on its own cha
 });
 
 test('resubmit and withdraw report back to an embedded rework task, only after they succeed', () => {
-  assert.match(reuseController, /_completeEmbeddedOutcome: function \(outcomeId\)/u);
+  assert.match(reuseController, /_completeEmbeddedOutcome: function \(outcomeId, freshContext\)/u);
   // A no-op outside app/bptask: only that host's Component implements completeOutcome.
   assert.match(
     reuseController, /if \(!this\.getView\(\)\.getModel\("env"\)\.getProperty\("\/embedded"\)\) return;/u
   );
-  assert.match(reuseController, /component\.completeOutcome/u);
+  assert.match(reuseController, /component\.completeOutcome\(outcomeId, freshContext\)/u);
   // Wired into each action's own success path, not called unconditionally.
   assert.match(reuseController, /_completeEmbeddedOutcome\("withdraw"\)/u);
-  assert.match(reuseController, /if \(action === "resubmitRequest"\) this\._completeEmbeddedOutcome\("resubmit"\)/u);
+  assert.match(reuseController, /if \(action === "resubmitRequest"\) \{/u);
+  assert.match(reuseController, /this\._completeEmbeddedOutcome\("resubmit", freshContext\)/u);
+});
+
+// The reworked businesspartnerinput, not the stale context the task opened with - resubmitRequest's
+// own ContextJson output, parsed and carried through rather than re-derived on the client.
+test('a resubmit carries its own fresh businesspartnerinput back to the task, not a stale one', () => {
+  const send = reuseController.slice(
+    reuseController.indexOf('_sendChangeRequest: async function')
+  );
+  const body = send.slice(0, send.indexOf('if (action === "resubmitRequest") {') + 500);
+  assert.match(body, /JSON\.parse\(\(result && result\.ContextJson\) \|\| "null"\)/u);
+
+  const merge = component.slice(component.indexOf('_patchTaskInstance: async function'));
+  const patchBody = merge.slice(0, merge.indexOf('completeOutcome: async function'));
+  assert.match(patchBody, /Object\.assign\(\s*\{\}/u);
+  assert.match(patchBody, /overrides \|\| \{\}/u);
+  assert.match(component, /completeOutcome: async function \(outcomeId, freshContext\)/u);
+  assert.match(component, /this\._patchTaskInstance\(outcomeId, freshContext\)/u);
 });
 
 test('the task is completed by patching the task instance', () => {
@@ -205,6 +249,13 @@ test('a context that cannot be loaded is reported, not left as an empty create s
   assert.match(component, /The task could not be loaded/u);
 });
 
+// The reworked data, declared so BPA can map it off the completed task - the same way `comment`
+// already was for a decision.
+test('businesspartnerinput is a declared output, for the rework task to carry it back', () => {
+  assert.ok(manifest['sap.bpa.task'].outputs.properties.businesspartnerinput, 'declared as an output');
+  assert.equal(manifest['sap.bpa.task'].outputs.properties.businesspartnerinput.type, 'object');
+});
+
 // Standalone the component must behave exactly as before: the router owns the hash.
 test('nothing task-related happens when the component is not embedded', () => {
   assert.match(component, /if \(!startup\.inboxAPI \|\| !startup\.taskModel\)/u);
@@ -219,6 +270,33 @@ test('the app hides its own decision buttons while embedded', () => {
   assert.equal(guarded.length, 2, 'both Approve and Reject');
   // Navigating to the partner list from inside a task form is a dead end.
   assert.match(view, /text="Business Partners"[\s\S]{0,140}visible="\{= !\$\{env>\/embedded\} \}"/u);
+});
+
+// Reversed 2026-08-21: these used to stay visible embedded on the theory that Resubmit/Withdraw
+// cannot be reduced to an inbox button. My Inbox not giving the app's own footer room to render
+// at all - confirmed live, the buttons simply did not appear - is what the theory got wrong, not
+// whether the interactive flow can run from an inbox press (it still does, over the event bus).
+test('rework buttons hide embedded too, now that the inbox chrome renders them instead', () => {
+  assert.match(
+    view,
+    /text="\{maintenance>\/saveButtonText\}"[\s\S]{0,120}visible="\{= \$\{maintenance>\/showSaveButton\} &amp;&amp; !\$\{env>\/embedded\} \}"/u
+  );
+  assert.match(
+    view,
+    /text="Withdraw"[\s\S]{0,160}visible="\{= \$\{maintenance>\/showReworkButtons\} &amp;&amp; !\$\{env>\/embedded\} \}"/u
+  );
+});
+
+// The approver's note to the requester, bound to context>/comment - the exact property
+// _decideOnServer already reads for decideRequest's Comment, so nothing server-side changed.
+test('the approve screen offers a comment box for the rejection reason', () => {
+  const box = view.slice(
+    view.indexOf('id="approverCommentBox"') - 20,
+    view.indexOf('id="approverCommentBox"') + 600
+  );
+  // Approve mode only, and embedded only - context is a model only app/bptask's Component sets.
+  assert.match(box, /visible="\{= \$\{env>\/embedded\} &amp;&amp; \$\{maintenance>\/mode\} === 'approve' \}"/u);
+  assert.match(box, /<TextArea[\s\S]{0,60}value="\{context>\/comment\}"/u);
 });
 
 // An unhandled rejection in init can abort the shell's app creation and have it retried, which

@@ -754,15 +754,18 @@ class ChangeRequestService extends cds.ApplicationService {
       const header = await db.run(cds.ql.SELECT.one.from(HEADER).where({ ID: changeRequest }));
       const context = await workflowContext(req, changeRequest, header, findings);
 
-      // Left in `reworkRequired` on failure: `inApproval` with no process waiting sits in nobody's inbox.
+      // Best-effort, like `withdrawRequest`'s own callback (2026-08-24) - it used to block the whole
+      // resubmit on this succeeding, which meant a rejected request stayed stuck at `reworkRequired`
+      // whenever the parked instance was not (yet, or ever) actually waiting on this exact message.
+      // The rework task itself completing - the PATCH to task-instances that _completeEmbeddedOutcome
+      // sends once this action returns - is what resumes the process now; this signal is a second,
+      // optional path for a process that still listens for it, not the one CAP depends on.
       try {
         // The requester's own trigger, not the approver's. Context goes flat inside `inputs` next to
         // `result`; `executionId` is the parked process instance, which Arthur calls the CR id.
         await triggerRequesterCallback(before.processInstanceId, RESUBMITTED_SIGNAL, context);
       } catch (error) {
-        return req.reject(502,
-          `The reworked request was saved but the approval process could not be notified:`
-          + ` ${error.message}`);
+        console.error(`Could not signal the approval process that ${changeRequest} was resubmitted:`, error);
       }
 
       await db.run(cds.ql.UPDATE(HEADER).set({
@@ -780,7 +783,11 @@ class ChangeRequestService extends cds.ApplicationService {
         NeedsConfirmation: false,
         Valid: true,
         ValidationsJson: JSON.stringify(validations),
-        MessagesJson: JSON.stringify(findings)
+        MessagesJson: JSON.stringify(findings),
+        // The reworked businesspartnerinput, so the requester's rework task can carry it back to
+        // BPA as an output on completion instead of only through the signal above - see
+        // _completeEmbeddedOutcome in the shared controller and sap.bpa.task.outputs in app/bptask.
+        ContextJson: JSON.stringify(context)
       };
     });
 

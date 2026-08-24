@@ -190,6 +190,9 @@ service ChangeRequestService @(path: '/service/changerequest') {
     Valid             : Boolean;
     ValidationsJson   : LargeString;
     MessagesJson      : LargeString;
+    // The rebuilt workflow context (businesspartnerinput included), so a My Inbox rework task can
+    // carry it back to BPA as its own output on completion - see ContextJson in change-request-service.js.
+    ContextJson       : LargeString;
   };
 
   /**

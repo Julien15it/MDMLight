@@ -121,6 +121,7 @@ sap.ui.define(
                             + "task inputs declared in sap.bpa.task - changerequestid is the required one."
                         );
                     }
+                    this._addReworkInboxActions();
                     return;
                 }
 
@@ -175,10 +176,16 @@ sap.ui.define(
             /**
              * Unlike approve/reject, Resubmit and Withdraw need the requester to actually edit and
              * confirm on the shared screen (checks, the duplicate-check confirmation dialog) - that
-             * cannot be reduced to a My Inbox outcome button. So no inboxAPI.addAction here: the
-             * screen keeps its own Resubmit/Withdraw buttons (they are not hidden by env>/embedded),
-             * and completeOutcome() below is called back from the shared controller once the action
-             * has already succeeded server-side.
+             * cannot be reduced to inbox.addAction completing the task directly the way approve/
+             * reject do. My Inbox's own action bar is still what has to draw the buttons, though:
+             * an app's own footer is not guaranteed room inside the My Inbox chrome (confirmed
+             * 2026-08-21 - the in-page Resubmit/Withdraw simply did not appear), unlike the
+             * assumption the original design made. So _addReworkInboxActions below registers them
+             * too, but each handler only *asks* the shared controller to run its normal onSave/
+             * onWithdraw flow over the event bus - the full check/duplicate-confirm/submit flow
+             * still runs, and completeOutcome() still only fires after that flow actually succeeds.
+             * The in-page buttons hide on env>/embedded now, same as Approve/Reject: one place to
+             * press, and this time an inbox-chrome place that is reliably rendered.
              *
              * Routing embedded is broken for the same reason _openApprove works around it: the
              * hash belongs to the inbox shell, so a route pattern written into it matches nothing
@@ -224,6 +231,29 @@ sap.ui.define(
                         { action: outcome.id, label: outcome.label, type: outcome.type },
                         function () { this._completeTask(outcome.id); },
                         this
+                    );
+                }, this);
+            },
+
+            /**
+             * Unlike _addInboxActions, pressing these does not complete the task directly - it
+             * only publishes a request onto the same "taskform" event bus channel Julien's inbox-
+             * loading fix uses, which the shared controller (subscribed in onInit) answers by
+             * running the exact onSave/onWithdraw flow the in-page buttons would have run: Check,
+             * the duplicate-check confirmation dialog if one is needed, then the actual resubmit/
+             * withdraw. completeOutcome() only fires afterwards, from _completeEmbeddedOutcome in
+             * the controller, and only once that flow actually succeeded.
+             */
+            _addReworkInboxActions: function () {
+                var inbox = this._startupParameters().inboxAPI;
+                var eventBus = this.getEventBus();
+                [
+                    { id: "withdraw", label: "Withdraw", type: "reject" },
+                    { id: "resubmit", label: "Resubmit", type: "accept" }
+                ].forEach(function (outcome) {
+                    inbox.addAction(
+                        { action: outcome.id, label: outcome.label, type: outcome.type },
+                        function () { eventBus.publish("taskform", outcome.id); }
                     );
                 }, this);
             },
@@ -276,14 +306,26 @@ sap.ui.define(
                 }
             },
 
-            _patchTaskInstance: async function (outcomeId) {
+            /**
+             * `overrides` (resubmit only) is the rebuilt businesspartnerinput from resubmitRequest's
+             * own ContextJson - merged in so the context this PATCH sends is the reworked data, not
+             * the stale one the task opened with. The task's own completion is what BPA reads it
+             * from now (2026-08-24): the signal resubmitRequest also tries is best-effort and no
+             * longer what this depends on - see the comment on that action in
+             * srv/change-request-service.js.
+             */
+            _patchTaskInstance: async function (outcomeId, overrides) {
                 var token = await fetch(this._workflowRuntimeBaseUrl() + "/xsrf-token", {
                     method: "GET",
                     credentials: "same-origin",
                     headers: { "X-CSRF-Token": "Fetch" }
                 }).then(function (response) { return response.headers.get("X-CSRF-Token"); });
 
-                var context = (this.getModel("context") && this.getModel("context").getData()) || {};
+                var context = Object.assign(
+                    {},
+                    (this.getModel("context") && this.getModel("context").getData()) || {},
+                    overrides || {}
+                );
                 var response = await fetch(this._taskInstanceUrl(), {
                     method: "PATCH",
                     credentials: "same-origin",
@@ -307,9 +349,9 @@ sap.ui.define(
              * so this is purely telling the workflow runtime the outcome - the same PATCH the
              * approve path sends, just without a decideRequest call in front of it.
              */
-            completeOutcome: async function (outcomeId) {
+            completeOutcome: async function (outcomeId, freshContext) {
                 try {
-                    await this._patchTaskInstance(outcomeId);
+                    await this._patchTaskInstance(outcomeId, freshContext);
                     this._startupParameters().inboxAPI.updateTask("NA", this._taskInstanceId());
                 } catch (error) {
                     MessageBox.error(

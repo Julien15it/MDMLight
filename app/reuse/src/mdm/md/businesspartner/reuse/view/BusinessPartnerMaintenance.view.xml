@@ -34,6 +34,22 @@
             class="sapUiTinyMarginBottom" />
         </VBox>
       </Panel>
+      <!-- The approver's note to the requester, sent back only if rejected - see
+           _decideOnServer in app/bptask's Component.js, which already reads context>/comment
+           for decideRequest's Comment. `context` is a model only app/bptask's Component sets,
+           so this is embedded-only; a standalone approve (dev testing only, per CLAUDE.md) has
+           no comment path either way. Approve mode only - a rework/edit screen has nothing to
+           decide yet. Kept near the top, beside the message panel, rather than at the bottom of
+           the content: My Inbox does not reliably give an embedded app's own lower content room
+           either (confirmed 2026-08-24 - it rendered, cut off below the visible area), the same
+           lesson the footer buttons already taught. -->
+      <VBox
+        id="approverCommentBox"
+        class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
+        visible="{= ${env>/embedded} &amp;&amp; ${maintenance>/mode} === 'approve' }">
+        <Label text="Comment for the requester (sent back if rejected)" labelFor="approverCommentInput" />
+        <TextArea id="approverCommentInput" width="100%" rows="2" value="{context>/comment}" />
+      </VBox>
       <!-- One section that failed to load, or had nothing to resolve its Customer/Supplier
            relation to, must never be silent - a blank section otherwise looks identical to
            "this Business Partner genuinely has no data here". -->
@@ -254,19 +270,25 @@
           icon="sap-icon://save"
           visible="{maintenance>/showSaveRequestButton}"
           press=".onSaveRequest" />
+        <!-- In rework mode this is "Resubmit" (see saveButtonText). Hidden embedded like
+             Approve/Reject below: My Inbox does not reliably give an app's own footer room
+             (confirmed 2026-08-21, the button simply did not render), so the task app's inbox
+             actions ask for this same onSave flow over the event bus instead - see
+             _addReworkInboxActions in app/bptask's Component.js. Create/edit modes never run
+             embedded, so this guard only ever bites in rework. -->
         <Button
           text="{maintenance>/saveButtonText}"
           type="Emphasized"
-          visible="{maintenance>/showSaveButton}"
+          visible="{= ${maintenance>/showSaveButton} &amp;&amp; !${env>/embedded} }"
           press=".onSave" />
-        <!-- Rework's second button. The primary one next to it is the draft view's, relabelled
-             "Resubmit" - see saveButtonText. Withdraw is the only action on this screen that
-             destroys data, hence Reject styling and a confirm. -->
+        <!-- Rework's second button. Withdraw is the only action on this screen that destroys
+             data, hence Reject styling and a confirm. Hidden embedded for the same reason as
+             the button above. -->
         <Button
           text="Withdraw"
           icon="sap-icon://delete"
           type="Reject"
-          visible="{maintenance>/showReworkButtons}"
+          visible="{= ${maintenance>/showReworkButtons} &amp;&amp; !${env>/embedded} }"
           press=".onWithdraw" />
         <Button
           text="Approve"

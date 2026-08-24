@@ -1395,16 +1395,26 @@ Decisions behind it, each of which has a cheaper wrong version:
   list stays steward-gated either way, so neither path is a substitute for the
   other existing; a workflow can use one, both, or keep only `reworkurl`. The
   screen still has to cope with a link opened twice, for whichever entry point
-  reopens it. Embedded, only Approve/Reject hide behind `env>/embedded` —
-  Resubmit and Withdraw stay visible, because unlike a decision they need the
-  requester's own edits and cannot be reduced to a My Inbox outcome button; the
-  task completes itself only *after* `resubmitRequest`/`withdrawRequest` already
-  succeeded, via `_completeEmbeddedOutcome` in the shared controller calling
-  `completeOutcome` on the task app's Component — the same `PATCH task-instances`
-  the approve path sends, without a `decideRequest` in front of it since that
-  action already recorded the outcome server-side. `resubmit`/`withdraw` were
-  added to `sap.bpa.task.outcomes` in `app/bptask` for this; they are never wired
-  to `inboxAPI.addAction`, unlike `approve`/`reject`.
+  reopens it. **Embedded, Resubmit and Withdraw hide behind `env>/embedded`
+  exactly like Approve/Reject** — reversed 2026-08-21 from the original design,
+  which left them visible on the theory that unlike a decision they need the
+  requester's own edits and cannot be reduced to a My Inbox outcome button. That
+  theory was wrong about what "reduced to an outcome button" has to mean: My
+  Inbox does not reliably give an embedded app's own footer room to render at
+  all (confirmed live — the in-page buttons simply did not appear), so
+  `resubmit`/`withdraw` **are** now wired to `inboxAPI.addAction` in
+  `_addReworkInboxActions`, but pressing one does not complete the task the way
+  Approve/Reject do. It only publishes onto the same `"taskform"` event-bus
+  channel Julien's inbox-loading fix uses; the shared controller (subscribed in
+  `onInit`) answers by running the exact `onSave`/`onWithdraw` flow the in-page
+  button would have run — Check, the duplicate-check confirmation dialog if one
+  is needed, then the actual resubmit/withdraw. The task completes itself only
+  *after* that flow actually succeeds, via `_completeEmbeddedOutcome` in the
+  shared controller calling `completeOutcome` on the task app's Component — the
+  same `PATCH task-instances` the approve path sends, without a `decideRequest`
+  in front of it since `resubmitRequest`/`withdrawRequest` already recorded the
+  outcome server-side. So the full interactive flow still runs; only *where the
+  button lives* changed.
 - **Resubmit resumes, it does not restart.** The process instance stays parked
   through the rejection, and `resubmitRequest` signals it with
   `RESUBMITTED_SIGNAL` (`'resubmitted'`). One instance per change request means one
@@ -1414,15 +1424,40 @@ Decisions behind it, each of which has a cheaper wrong version:
 - **Resubmit runs every gate a first submit runs** — validations and the duplicate
   check with its confirming second press. The requester may have changed the very
   fields the duplicate check reads. Derivations still do not run on a submit path.
-- **A failed signal leaves it `reworkRequired`**, exactly as a failed start leaves
-  a submit in `draft`: a request in `inApproval` that no process is waiting on sits
-  in nobody's inbox and could never be retried.
+- **A failed signal no longer blocks the resubmit (reversed 2026-08-24).** It used
+  to leave the request stuck at `reworkRequired`, on the same reasoning as a failed
+  start leaving a submit in `draft` — but live testing showed the signal failing
+  with `bpm.workflowruntime.rest.message.no.match` even for a genuinely reworked,
+  valid request, because the parked instance was not (or not yet) actually waiting
+  on `requesterCallBack`. That is a BPA-side gap (see "Not built on Arthur's side
+  yet" below), not a reason to strand a correct rework. The signal is now
+  best-effort, like `withdrawRequest`'s own callback always was: logged on failure,
+  never blocking. **What resumes the process is the rework task itself completing**
+  — the `PATCH task-instances` `_completeEmbeddedOutcome` sends once this action
+  returns — the same way completing the approver's decision task resumes the main
+  approval, no separate signal needed. `resubmitRequest` now returns `ContextJson`
+  (the rebuilt `businesspartnerinput` included) so that PATCH can carry the
+  reworked data as the task's own output, declared in `app/bptask`'s
+  `sap.bpa.task.outputs`, rather than only through the signal above.
 - **The approver's comment goes to `rejectionComment`, never over `reason`.**
   Overwriting was harmless while a rejection was terminal; now the requester
   reopens this record and would find their own justification replaced by the
   verdict on it — and then resubmit the approver's words as their reason. The
   comment leads the screen as a Warning strip, because "rejected" with no why is
   not something anyone can act on.
+- **Where that comment comes from (2026-08-21): a `TextArea` at the bottom of
+  the approve screen's content**, bound to `context>/comment` — the same
+  property `_decideOnServer` in `app/bptask`'s Component.js already reads for
+  `decideRequest`'s `Comment`, so nothing on the server side changed. `context`
+  is a model only `app/bptask`'s Component sets, so this only appears embedded;
+  a standalone approve (dev testing only) has no comment path either way, same
+  as before. Visible only in approve mode — a rework/edit screen has nothing to
+  decide yet, and there is no equivalent field for it.
+  **Moved to the top of the content, beside the message panel, the same day**:
+  at the bottom it rendered but was cut off below the visible area — My Inbox
+  does not reliably give an embedded app's own lower content room either, the
+  same lesson the footer buttons already taught. The binding is unchanged, only
+  its position in the view.
 - **`claimRework` is a stopgap for the missing reject callback (2026-08-20).** The
   approver presses Reject in My Inbox, SPA notifies the requester with the
   `reworkurl` — and never calls `decideRequest`, so the request is still
