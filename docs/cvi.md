@@ -149,3 +149,38 @@ arrived on the vendor.
 2. `CVI_CUST_LINK` / `CVI_VEND_LINK` for the partner's GUID — no row means CVI did not run.
 3. `MDSC_CTRL_OPT_A` — the direction may have been switched off.
 4. The grouping's range in `TB001` → `NRIV` — external means this app cannot create it.
+
+## Making the staging anticipate CVI
+
+CVI itself cannot run against a staged request: the request is rows in PostgreSQL, and CVI
+only reacts to a real BP write. What the staging *can* do is anticipate it — so that adding
+role `FLCU01` puts the Customer node into the request there and then, rather than leaving the
+approver to find out at posting time that a customer is coming.
+
+That needs **no code**. Two derivation rules do it, because a rule whose target section holds
+no rows proposes the row, and one whose section has rows fills its gaps:
+
+| | Customer | Supplier |
+|---|---|---|
+| Condition 1 Field | `BusinessPartnerRoles.BusinessPartnerRole` | `BusinessPartnerRoles.BusinessPartnerRole` |
+| Condition 1 Value | `FLCU00\|FLCU01` | `FLVN00\|FLVN01` |
+| Field | `Customers.CustomerAccountGroup` | `Suppliers.SupplierAccountGroup` |
+| Value | `DEBI` | `KRED` |
+
+A condition on another section is an "any row" test, so this reads as *this partner has a
+customer role*. `DEBI` and `KRED` are what CVI actually assigns in this system — read off the
+existing masters, not off customizing, because there is no grouping → account group mapping
+here to read.
+
+Verified against the engine, all eight cases:
+
+- either customer role stages `Customers` with `DEBI`; either supplier role stages
+  `Suppliers` with `KRED`; both roles stage both
+- no role stages nothing
+- a requester who already filled the account group in is left alone
+- a row that exists but has no account group gets one filled
+
+Two things to know. It is a **proposal**: the requester presses Check and ticks it, the same
+as every other derivation - nothing is written behind their back. And staging the node is
+what makes the company code, sales area and dunning sections reachable, which is the real
+point: they hang off the Customer/Supplier record.
