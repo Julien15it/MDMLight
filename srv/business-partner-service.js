@@ -16,6 +16,10 @@ const { createNameIndex } = require('./ai/name-index');
 const { createCapReaders, createMcpPartnerReader } = require('./ai/partner-readers');
 const { createMcpToolCaller } = require('./ai/mcp-client');
 const { checkMetadataDrift } = require('./metadata-drift');
+const {
+  IN_PROGRESS_REQUEST_STATUSES, PARTNER_FIELDS, pendingCreateEntry, partnerEntry,
+  matchesWhere, matchesTerms, pageSplit, byRequestedAtDesc, remoteOrderBy
+} = require('./search-results');
 const { executeHttpRequest } = require('@sap-cloud-sdk/http-client');
 
 const assistantCache = createCache();
@@ -694,28 +698,6 @@ function joinExpressions(expressions, operator) {
  * requester is about to edit and resubmit, so leaving it out would unlock the partner mid-rework.
  */
 const ACTIVE_REQUEST_STATUSES = ['draft', 'inApproval', 'approved', 'reworkRequired', 'failed'];
-
-/** Beyond this the `ne` chain makes the remote OData URL unreasonably long. */
-const MAX_EXCLUDED_PARTNERS = 200;
-
-// A filter on the remote query rather than post-filtering, so $top/$skip and $count stay correct.
-function applyChangeRequestExclusion(query, blockedPartners) {
-  const select = query && query.SELECT;
-  if (!select || !blockedPartners || blockedPartners.length === 0) return query;
-
-  const exclusion = joinExpressions(
-    blockedPartners.map((partner) => ({
-      xpr: [{ ref: ['BusinessPartner'] }, '!=', { val: String(partner).replaceAll("'", "''") }]
-    })),
-    'and'
-  );
-
-  select.where = select.where && select.where.length
-    ? [{ xpr: select.where }, 'and', { xpr: exclusion }]
-    : exclusion;
-
-  return query;
-}
 
 function applyBusinessPartnerSearch(query) {
   const select = query && query.SELECT;
@@ -1581,23 +1563,70 @@ class BusinessPartnerService extends cds.ApplicationService {
       log: cds.log('metadata')
     }).catch((error) => cds.log('metadata').debug('The drift check did not run:', error.message));
 
-    /** Partner numbers currently locked by an in-flight change request. */
-    const lockedPartners = async () => {
-      const rows = await db.run(
-        cds.ql.SELECT.from('mdmlight.staging.ChangeRequests')
-          .columns('businessPartner')
-          .where({ status: { in: ACTIVE_REQUEST_STATUSES }, businessPartner: { '!=': null } })
-      );
-      const partners = [...new Set(rows.map((row) => row.businessPartner).filter(Boolean))];
-      if (partners.length > MAX_EXCLUDED_PARTNERS) {
-        // Truncating silently would quietly show partners that are locked.
-        console.warn(
-          `${partners.length} partners are locked by change requests; only the first `
-          + `${MAX_EXCLUDED_PARTNERS} are hidden from the list.`
+    /**
+     * The change requests in flight, for the merged search list. Best-effort: staging unavailable
+     * degrades the list to S/4 alone rather than failing the search outright.
+     *
+     * Only creates need their staged names read - a request over an existing partner is shown as a
+     * mark on that partner's own row, so the staged copy is never displayed.
+     */
+    const inProgressRequests = async () => {
+      try {
+        const requests = await db.run(
+          cds.ql.SELECT.from('mdmlight.staging.ChangeRequests')
+            .columns(
+              'ID', 'status', 'requestType', 'businessPartner',
+              'createdAt', 'createdBy', 'submittedAt', 'submittedBy'
+            )
+            .where({ status: { in: IN_PROGRESS_REQUEST_STATUSES } })
         );
-        return partners.slice(0, MAX_EXCLUDED_PARTNERS);
+        const creates = requests.filter((request) => request.requestType === 'create');
+        const general = creates.length
+          ? await db.run(
+            cds.ql.SELECT.from('mdmlight.staging.StagedGeneral')
+              .where({ request_ID: { in: creates.map((request) => request.ID) } })
+          )
+          : [];
+        return { requests, general };
+      } catch (error) {
+        console.warn('[search] Change requests in flight are unavailable, listing S/4 only:', error.message);
+        return { requests: [], general: [] };
       }
-      return partners;
+    };
+
+    /**
+     * The remote half of the merged list. The columns are fixed rather than the client's: it asks
+     * for status columns that exist only here, and one unknown field fails the whole remote read.
+     */
+    const readPartnerPage = async ({ where, search, orderBy, skip, top, count }) => {
+      if (top === 0 && !count) return { rows: [], count: 0 };
+
+      const query = cds.ql.SELECT.from(this.entities.BusinessPartners).columns(...PARTNER_FIELDS);
+      if (where && where.length) query.SELECT.where = where;
+      if (search) query.SELECT.search = search;
+
+      const ordering = remoteOrderBy(orderBy);
+      if (ordering.length) query.SELECT.orderBy = ordering;
+
+      // A page already filled by staged rows still needs the total, and a count-only remote read is
+      // not something this service can express - so it asks for one row and throws it away.
+      const rows = top === 0 ? 1 : top;
+      const limit = {
+        ...(rows === undefined ? {} : { rows: { val: rows } }),
+        ...(skip ? { offset: { val: skip } } : {})
+      };
+      // An empty limit is not the same as no limit: CAP reads the object and would page on nothing.
+      if (Object.keys(limit).length) query.SELECT.limit = limit;
+      if (count) query.SELECT.count = true;
+
+      applyBusinessPartnerSearch(query);
+
+      const result = await s4.run(query);
+      const page = Array.isArray(result) ? result : [];
+      return {
+        rows: top === 0 ? [] : page,
+        count: page.$count ?? page.length
+      };
     };
 
     // Any write invalidates this instance's cached assistant reads.
@@ -1607,9 +1636,74 @@ class BusinessPartnerService extends cds.ApplicationService {
       nameIndex.markStale();
     });
 
-    this.before('READ', 'BusinessPartners', async (req) => {
+    // Partners under an in-flight request used to be filtered out here. They are listed and marked
+    // now instead: hiding one meant the display and edit screens could not open it either, and a
+    // partner that vanishes teaches nobody that a request is already running over it.
+    this.before('READ', 'BusinessPartners', (req) => {
       applyBusinessPartnerSearch(req.query);
-      applyChangeRequestExclusion(req.query, await lockedPartners());
+    });
+
+    /**
+     * The one search list: the live partners and the requests in flight over them. Staging is read
+     * first because the staged rows take the top of the list - a pending create has no partner
+     * number, so that is where the default sort puts it, and fixing their position is what makes
+     * the paging arithmetic exact instead of approximate.
+     */
+    this.on('READ', 'BusinessPartnerSearchResults', async (req) => {
+      const select = req.query.SELECT || {};
+      const top = select.limit?.rows?.val;
+      const skip = select.limit?.offset?.val || 0;
+      const terms = extractSearchTerms(select.search || []);
+
+      let unsupported = null;
+      const report = (expression) => { unsupported = unsupported ?? expression; };
+
+      const { requests, general } = await inProgressRequests();
+      const generalByRequest = new Map(general.map((row) => [row.request_ID, row]));
+
+      /** Requests over an existing partner, so that partner's row can carry the mark. */
+      const requestByPartner = new Map();
+      for (const request of requests) {
+        if (request.requestType !== 'create' && request.businessPartner) {
+          requestByPartner.set(String(request.businessPartner), request);
+        }
+      }
+
+      const pending = requests
+        .filter((request) => request.requestType === 'create')
+        .map((request) => pendingCreateEntry({ request, general: generalByRequest.get(request.ID) }))
+        .filter((entry) => matchesWhere(entry.searchable, select.where, report)
+          && matchesTerms(entry.searchable, terms, SEARCHABLE_FIELDS))
+        .sort(byRequestedAtDesc);
+
+      if (unsupported) {
+        console.warn(
+          '[search] A filter the staged rows cannot evaluate was kept rather than applied:',
+          JSON.stringify(unsupported)
+        );
+      }
+
+      const split = pageSplit({ pendingCount: pending.length, skip, top });
+      const partners = await readPartnerPage({
+        where: select.where,
+        search: select.search,
+        orderBy: select.orderBy,
+        skip: split.partnerSkip,
+        top: split.partnerTop,
+        count: Boolean(select.count)
+      });
+
+      const rows = [
+        ...pending
+          .slice(split.pendingSkip, split.pendingSkip + split.pendingTaken)
+          .map((entry) => entry.row),
+        ...partners.rows.map((partner) => partnerEntry(
+          partner, requestByPartner.get(String(partner.BusinessPartner))
+        ).row)
+      ];
+
+      if (select.count) rows.$count = partners.count + pending.length;
+      return rows;
     });
 
     this.before('CREATE', 'BusinessPartners', (req) => {
@@ -2039,7 +2133,6 @@ BusinessPartnerService._internals = {
   ASSISTANT_ADDRESS_CHUNK,
   ASSISTANT_MAX_ROWS,
   applyBusinessPartnerSearch,
-  applyChangeRequestExclusion,
   ACTIVE_REQUEST_STATUSES,
   assistantAddressFilter,
   assistantSearchFilter,

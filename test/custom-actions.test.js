@@ -10,6 +10,8 @@ function loadActions(initialHash = '', { assistantAvailable = true } = {}) {
   let actions;
   let hash = initialHash;
   const errors = [];
+  const warnings = [];
+  const information = [];
   const assistantCalls = [];
   const hashChanger = {
     getHash: () => hash,
@@ -26,7 +28,13 @@ function loadActions(initialHash = '', { assistantAvailable = true } = {}) {
         define: (_dependencies, factory) => {
           actions = factory(
             { getInstance: () => hashChanger },
-            { error: (message) => errors.push(message) },
+            {
+              error: (message) => errors.push(message),
+              // A row under a change request is refused rather than opened, so the module needs
+              // more of MessageBox than the one method the error paths used.
+              warning: (message) => warnings.push(message),
+              information: (message) => information.push(message)
+            },
             {
               open: (model, view) => assistantCalls.push({ model, view }),
               // Part of the module's interface, not an extra: openAssistant asks before it
@@ -44,6 +52,8 @@ function loadActions(initialHash = '', { assistantAvailable = true } = {}) {
     actions,
     assistantCalls,
     errors,
+    warnings,
+    information,
     getHash: () => hash
   };
 }
@@ -52,6 +62,11 @@ function context(number) {
   return {
     getProperty: (name) => name === 'BusinessPartner' ? number : undefined
   };
+}
+
+/** A row of the merged search list: either a pending create or a partner carrying a request. */
+function searchRow(properties) {
+  return { getProperty: (name) => properties[name] };
 }
 
 test('create action navigates directly to the maintenance route', () => {
@@ -148,4 +163,91 @@ test('object-page edit action uses its context or current object-page hash', () 
   fallback.actions.openEditCurrentPage();
   assert.equal(fallback.getHash(), 'BusinessPartners/191/maintain');
   assert.deepEqual(fallback.errors, []);
+});
+
+// --- The merged search list ---------------------------------------------------------------
+
+// The search list is open to everyone and the only route to a saved draft is the steward-gated
+// Change Requests list. A link here would hand every user someone else's draft.
+test('a pending create reports itself and leads nowhere', () => {
+  const runtime = loadActions();
+  runtime.actions.openDisplayPage(searchRow({
+    IsChangeRequest: true,
+    ChangeRequest: 'req-1',
+    ChangeRequestStatus: 'draft',
+    RecordStatus: 'Create draft',
+    RequestedBy: 'maarten'
+  }));
+  assert.equal(runtime.getHash(), '');
+  assert.equal(runtime.information.length, 1);
+  assert.match(runtime.information[0], /Create draft/u);
+  assert.match(runtime.information[0], /maarten/u);
+  assert.match(runtime.information[0], /no need to request it again/u);
+  assert.deepEqual(runtime.errors, []);
+});
+
+test('a request with the approver is explained, never opened on the approve screen', () => {
+  const runtime = loadActions();
+  runtime.actions.openDisplayPage(searchRow({
+    IsChangeRequest: true,
+    ChangeRequest: 'req-3',
+    ChangeRequestStatus: 'inApproval',
+    RecordStatus: 'Create in approval'
+  }));
+  assert.equal(runtime.getHash(), '');
+  assert.equal(runtime.information.length, 1);
+  assert.equal(/ChangeRequests/u.test(runtime.getHash()), false);
+});
+
+test('a partner marked with a pending request still opens its own display page', () => {
+  const runtime = loadActions();
+  runtime.actions.openDisplayPage(searchRow({
+    IsChangeRequest: false,
+    BusinessPartner: '4711',
+    ChangeRequest: 'req-4',
+    ChangeRequestStatus: 'inApproval'
+  }));
+  assert.equal(runtime.getHash(), 'BusinessPartners/4711/display');
+  assert.deepEqual(runtime.information, []);
+});
+
+// Hiding the row used to be what prevented a second request over the same partner. A message is now.
+test('editing a partner under a request in flight is refused and names the request', () => {
+  const runtime = loadActions();
+  runtime.actions.openEditPage(null, [searchRow({
+    IsChangeRequest: false,
+    BusinessPartner: '4711',
+    ChangeRequest: 'req-5',
+    ChangeRequestStatus: 'inApproval',
+    RecordStatus: 'Change in approval',
+    RequestedBy: 'julien'
+  })]);
+  assert.equal(runtime.getHash(), '');
+  assert.equal(runtime.warnings.length, 1);
+  assert.match(runtime.warnings[0], /Change in approval/u);
+  assert.match(runtime.warnings[0], /julien/u);
+  assert.deepEqual(runtime.errors, []);
+});
+
+test('editing a pending create is refused too - there is no partner to edit yet', () => {
+  const runtime = loadActions();
+  runtime.actions.openEditPage(null, [searchRow({
+    IsChangeRequest: true,
+    ChangeRequest: 'req-6',
+    ChangeRequestStatus: 'draft',
+    RecordStatus: 'Create draft'
+  })]);
+  assert.equal(runtime.getHash(), '');
+  assert.equal(runtime.information.length, 1);
+});
+
+test('a partner with no request in flight is edited exactly as before', () => {
+  const runtime = loadActions();
+  runtime.actions.openEditPage(null, [searchRow({
+    IsChangeRequest: false,
+    BusinessPartner: '4711',
+    ChangeRequest: null
+  })]);
+  assert.equal(runtime.getHash(), 'BusinessPartners/4711/maintain');
+  assert.deepEqual(runtime.warnings, []);
 });

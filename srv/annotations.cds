@@ -395,3 +395,32 @@ annotate service.Suppliers with {
     ]
   };
 };
+
+// The merged search list. Deliberately the same columns as BusinessPartners plus one status column:
+// the point is that a pending create reads as a partner, so nobody requests it a second time.
+annotate service.BusinessPartnerSearchResults with @(
+  UI.HeaderInfo: {
+    TypeName      : 'Business Partner',
+    TypeNamePlural: 'Business Partners',
+    Title         : { Value: BusinessPartnerFullName },
+    Description   : { Value: RecordStatus }
+  },
+
+  UI.SelectionFields: [
+    BusinessPartner,
+    BusinessPartnerCategory,
+    BusinessPartnerGrouping,
+    BusinessPartnerIsBlocked
+  ],
+
+  UI.LineItem: [
+    { Value: BusinessPartner,          Label: 'Business Partner' },
+    { Value: BusinessPartnerFullName,  Label: 'Full Name' },
+    { Value: BusinessPartnerCategory,  Label: 'Category' },
+    { Value: BusinessPartnerGrouping,  Label: 'Grouping' },
+    { Value: SearchTerm1,              Label: 'Search Term' },
+    { Value: BusinessPartnerIsBlocked, Label: 'Blocked' },
+    // Criticality colours it, so an in-flight request is visible without reading the text.
+    { Value: RecordStatus, Label: 'Status', Criticality: RecordStatusCriticality }
+  ]
+);

@@ -171,6 +171,74 @@ The flow, with create as the example:
 5. On approve, CAP posts to `API_BUSINESS_PARTNER` — the SPA never writes to
    S/4 itself.
 
+### The merged search list (2026-08-24)
+
+The list report reads **`BusinessPartnerSearchResults`**, not `BusinessPartners`:
+the live S/4 partners and the change requests still in flight, in one result set.
+Without it a requester could not see that the company they are about to request
+is already being created by somebody else — and worse, a partner under an
+in-flight request was filtered **out** of the list by
+`applyChangeRequestExclusion`, which is now deleted.
+
+Two kinds of row, and the difference matters:
+
+- A **pending create** has no partner number yet, so it can only be seen as its
+  own row (`ResultKey: 'CR:<id>'`, `IsChangeRequest: true`), named by
+  `stagedFullName` because S/4 is the one that derives
+  `BusinessPartnerFullName` and staging only has the fields it was typed into.
+- A **change/block/delete** request over an existing partner is that partner's
+  own row (`ResultKey: 'BP:4711'`), marked via `RecordStatus` /
+  `RecordStatusCriticality` and carrying `ChangeRequest`. Its staged copy is
+  never listed: staging holds a second copy of the same company, and showing
+  both would report one company twice — the same reason `stagedEntries` in
+  `srv/ai/duplicate-check.js` feeds creates only to the duplicate check.
+
+`IN_PROGRESS_REQUEST_STATUSES` (`srv/search-results.js`) is `draft`,
+`inApproval`, `reworkRequired`. It is deliberately **narrower** than
+`ACTIVE_REQUEST_STATUSES`, which is a lock and covers `approved` and `failed`
+too. Do not collapse the two: one answers "may this partner be edited", the
+other "is a human still holding this request".
+
+The entity is `@cds.persistence.skip` — one READ handler in
+`srv/business-partner-service.js` merges a remote read with staging:
+
+1. Staging is read **first**. The staged rows always take the top of the list: a
+   pending create has no number, so that is where the default sort puts it, and
+   fixing their position is what makes `pageSplit` exact rather than
+   approximate — page 2 skips the staged rows it already showed and resumes the
+   remote read at `skip - pendingCount`.
+2. Staged rows are filtered **in memory** by `matchesWhere` (enough CQN for what
+   the filter bar and the `$search` rewrite emit) and `matchesTerms` (every term
+   must hit a field, matching the remote rule). An expression `matchesWhere`
+   cannot evaluate **keeps** the row and logs `[search]`: a staged request
+   wrongly shown is a nuisance, one wrongly hidden is the failure this list
+   exists to prevent.
+3. The remote read asks for a **fixed** column list (`PARTNER_FIELDS`). The
+   client asks for status columns that exist only here, and one unknown field
+   fails the whole remote read.
+4. `$count` is the remote count plus the matching staged rows. A page filled
+   entirely by staged rows still needs the total, so it asks S/4 for one row and
+   throws it away.
+
+Consequences worth knowing before changing this:
+
+- The computed columns are declared **non-filterable and non-sortable**
+  (`@Capabilities.FilterRestrictions` / `SortRestrictions`). Sorting on a
+  computed column would silently sort one half of the list only.
+- Sorting on a field S/4 *can* sort still leaves the staged rows on top —
+  `remoteOrderBy` drops what S/4 has never heard of, `ResultKey` included.
+- The **object page and the maintenance screens still read `BusinessPartners`**,
+  which is why the exclusion had to go rather than move: a hidden partner could
+  not be opened for display either.
+- Because a marked partner is now reachable, `openEditPage` in
+  `CustomActions.js` refuses to edit a partner that carries a `ChangeRequest`
+  and names it. Hiding the row used to be what prevented that; a message is.
+- **A change request row leads nowhere** — it reports itself in a MessageBox and
+  is not a link. The search list is open to everyone while the only route to a
+  saved draft is the steward-gated Change Requests list, so making the row
+  navigable would hand every user somebody else's draft. That is a permission
+  change, not a visibility one, and it is not what this list is for.
+
 ### The check pipeline — `srv/checks/pipeline.js`
 
 **validate → derive → duplicate check**, and the order is the design. Data that
@@ -454,14 +522,13 @@ compositions (`general`, `customer`, `supplier`) need an `ON` condition too**.
 Without it CAP puts a foreign key on the header instead of using the backlink,
 which both duplicates the link and creates a schema that later fails to migrate.
 
-A partner with an in-flight change request is hidden from the Business Partner
-list, so two people cannot edit it at once (`applyChangeRequestExclusion` in
-`srv/business-partner-service.js`). `ACTIVE_REQUEST_STATUSES` decides what
-counts as in-flight; `failed` is in that list on purpose, because a failed post
-is not atomic and may have left the partner half-written. The exclusion is a
-filter on the remote query, not post-filtering, so `$top`/`$skip`/`$count` stay
-correct — but it is capped at `MAX_EXCLUDED_PARTNERS` to keep the OData URL
-sane, and logs a warning rather than silently under-hiding.
+A partner with an in-flight change request used to be **hidden** from the
+Business Partner list so two people could not edit it at once. Since 2026-08-24
+it is listed and **marked** instead — see "The merged search list" above.
+`ACTIVE_REQUEST_STATUSES` still decides what counts as in-flight, and `failed`
+is in that list on purpose, because a failed post is not atomic and may have
+left the partner half-written. What it now governs is the **refusal to edit**
+(`openEditPage` in `CustomActions.js`) rather than what the list shows.
 
 Change requests have their own list (`ext/view/ChangeRequestList.view.xml`),
 reached from the Change Requests button on the list report. **The button is
