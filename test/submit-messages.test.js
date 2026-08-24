@@ -661,3 +661,26 @@ test('a persisted finding renders without the candidate name staging never store
   assert.match(state.duplicates[0].description, /matches on TaxNumber/u);
   assert.match(state.duplicatesHeader, /1 possible duplicate/u);
 });
+
+// --- The read-only full name ------------------------------------------------------------------
+
+// S/4 derives it and refuses to be told it, so nothing fills the field until the partner exists.
+test('a committed name field recomposes the read-only full name', () => {
+  const source = controllerSource;
+  assert.match(
+    source,
+    /section\.kind === "root" && NAME_FIELDS\.indexOf\(field\.name\) !== -1/u
+  );
+  assert.match(source, /this\._refreshFullName\(true\);/u);
+  // And a request that arrives without one gets it: staging has no such column.
+  assert.match(source, /this\._refreshFullName\(\);/u);
+});
+
+// On a partner read from S/4 that value is S/4's own derivation; replacing it with a composition
+// would show something S/4 does not say.
+test('an existing value is only recomposed when a name was actually edited', () => {
+  assert.match(
+    controllerSource,
+    /if \(!recompose && String\(root\.BusinessPartnerFullName \|\| ""\)\.trim\(\)\) return;/u
+  );
+});

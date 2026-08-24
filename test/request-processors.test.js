@@ -126,12 +126,19 @@ test('the approvers are only resolved while a request is in approval', () => {
   assert.match(service, /if \(header\.status === 'inApproval'\) \{\s*try \{\s*approvers = await approversFor/u);
 });
 
-test('the strip yields to a warning, so a rejection reason still leads', () => {
+// It goes last. Every message a mode branch sets explains the screen - why a rework link offers
+// nothing, why a request is read-only, what a rejection said - and the panel header shows the
+// LEADING message, so leading with the step would collapse the explanation out of sight.
+test('the strip goes last, so a message explaining the screen still leads', () => {
   const controller = root(
     'app', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse',
     'controller', 'BusinessPartnerMaintenance.controller.js'
   );
   assert.match(controller, /var processorStrip = processorMessage\(state\.processors\);/u);
-  assert.match(controller, /return message\.type === "Warning";/u);
-  assert.match(controller, /leadingWarning\s*\?\s*\(state\.messages \|\| \[\]\)\.concat\(\[processorStrip\]\)/u);
+  assert.match(
+    controller,
+    /if \(processorStrip\) state\.messages = \(state\.messages \|\| \[\]\)\.concat\(\[processorStrip\]\);/u
+  );
+  // Never prepended: that is the version that hid the "nothing to rework" note behind the step.
+  assert.equal(/\[processorStrip\]\.concat/u.test(controller), false);
 });

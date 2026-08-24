@@ -1731,7 +1731,8 @@ class BusinessPartnerService extends cds.ApplicationService {
         `[search] top=${top} skip=${skip} count=${Boolean(select.count)} `
         + `terms=${terms.length} filtered=${Boolean(select.where && select.where.length)} `
         + `columns=${(select.columns || []).length} -> `
-        + `${rows.length} rows (${pending.length} staged), s4 count ${partners.count}`
+        + `${rows.length} rows (${pending.length} staged), s4 top=${split.partnerTop} `
+        + `countOnly=${split.partnerTop === 0} count ${partners.count}`
       );
 
       // An unbounded read of this list is a full read of S/4's partner population, and its count is

@@ -229,7 +229,13 @@ The entity is `@cds.persistence.skip` — one READ handler in
    gateway does with `$top=1` and a count, do not go back to being clever here:
    ask with the page size the client asked for, which is the shape that
    demonstrably counts right. The `[search]` log line is what pinned it — it
-   prints the incoming shape and the remote count per read.
+   prints the incoming shape, `countOnly`, and the remote count per read.
+
+   **Not yet confirmed fixed.** The list still showed 32,355 after the first
+   deploy of this change. Read the `[search]` line for `skip=0` /
+   `countOnly=true` before theorising further: if it now reports `count 323` the
+   client is caching, and if it still reports 32324 then the page size is not what
+   the gateway is reacting to.
 
 Consequences worth knowing before changing this:
 
@@ -339,9 +345,19 @@ while nothing could produce such a value; composing one is exactly that. Hence
 create; nothing produces them today, and the same reasoning applies if anything
 ever does.
 
-The composed name is **not** put on the screen's read-only field, and does not need
-to be: `previewName` already composes the object page's own header title from the
-same components, so the requester sees the name at the top of the request.
+**On the screen it is filled by `_refreshFullName`**, from `previewName` — the same
+category-driven composition, client-side. Two rules make it safe and honest:
+
+- **A committed name field recomposes it** (`_onFieldCommitted`, `recompose: true`),
+  so it fills in as soon as Name 1 is typed rather than waiting for a post.
+- **An existing value is otherwise left alone.** On a partner read from S/4 that
+  value is S/4's own derivation, and replacing it with a composition would show
+  something S/4 does not say. A staged request always arrives without one, so
+  loading a request composes it.
+
+Writing it onto `state.root` is safe on both counts that matter: staging has no such
+column so `stageable()` drops it, and `ROOT_CREATE_EXCLUDED_FIELDS` keeps it out of
+the create S/4 would reject. A value to show, never one to store.
 
 ### Who has it now — the processors strip (2026-08-24)
 
@@ -381,10 +397,13 @@ The rest is deliberate:
   in the approver's inbox.
 - **`rejected` reads as the rework it has become.** Nothing writes it any more, but
   it cannot be dropped from the enum, so it must not fall through to "nobody".
-- **The strip yields to a Warning.** A rejection reason is the first thing a
-  requester looks for, so on the rework screen the processors line goes below it;
-  everywhere else it leads. It is added after every mode branch has set its own
-  messages, or one of them would overwrite it.
+- **The strip goes LAST**, after every mode branch has set its own messages — both
+  so none of them can overwrite it, and because each of those messages explains the
+  screen the requester is looking at: why a rework link offers nothing, why a
+  request is read-only, what a rejection said. The panel header shows the *leading*
+  message, so leading with the step collapses the explanation out of sight. It was
+  prepended for half a day and that is exactly what it did. It leads on its own
+  when nothing else spoke, which is the plain approve screen.
 - Best-effort, like every other read of the workflow rules: a table that cannot be
   read costs the strip, never the screen.
 
