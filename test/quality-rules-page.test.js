@@ -153,11 +153,15 @@ test('saving a rule invalidates the rules the pipeline is holding', () => {
  * The field property validations joined the head of the validation list on 2026-08-20, ahead of the
  * configured rules for the same reason they lead: they are offline, and "this field is required" is
  * the most basic complaint there is.
+ *
+ * The relation stage joined the tail on 2026-08-24, and last for the mirror of that reason: it is
+ * the only validation that goes to S/4 - it reads CVI's business-partner-to-customer/vendor
+ * assignment - so the offline complaints are the ones a requester reads first.
  */
 test('the configured stages join the registry stages, configured first', () => {
   assert.match(
     changeRequestJs,
-    /validations: \[\.\.\.properties\.validations, \.\.\.configured\.validations, \.\.\.registry\.validations\]/u
+    /validations: \[\.\.\.properties\.validations, \.\.\.configured\.validations, \.\.\.registry\.validations,\s*\.\.\.relationStages\([^)]*\)\.validations\]/u
   );
   assert.match(changeRequestJs, /derivations: \[\.\.\.configured\.derivations, \.\.\.registry\.derivations\]/u);
 });

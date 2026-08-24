@@ -10,6 +10,7 @@ const {
 const { candidateFromStagedRequest, duplicateSummary } = require('./ai/duplicate-check');
 const { runChecks, runValidations, BLOCKING } = require('./checks/pipeline');
 const { createRegistryStages } = require('./checks/registry-checks');
+const { createRelationStages } = require('./checks/relation-checks');
 const { configuredStages } = require('./checks/rule-store');
 const { fieldPropertyStages, resolvedProperties } = require('./checks/field-property-store');
 const { approversFor } = require('./checks/workflow-rule-store');
@@ -71,6 +72,46 @@ const RELATION_NAVIGATION = Object.freeze({
   Customer: { navigation: 'to_Customer', keyField: 'Customer' },
   Supplier: { navigation: 'to_Supplier', keyField: 'Supplier' }
 });
+
+const isNotFound = (error) => [404, 400].includes(Number(error?.statusCode ?? error?.status ?? error?.code));
+
+/**
+ * The same lookup as resolveRelationNumber, but it tells "no such record" apart from "could not
+ * ask". The check at submit needs that distinction: resolveRelationNumber answers null for both,
+ * which is right while posting - there is nothing to post onto either way - but at submit it
+ * would turn an S/4 hiccup into a blocking error on every request.
+ */
+async function readRelationNumber(s4, businessPartner, relationField) {
+  const relation = RELATION_NAVIGATION[relationField];
+  if (!relation) return businessPartner;
+
+  let plainFailed = false;
+  try {
+    const root = await s4.run(
+      cds.ql.SELECT.one.from('API_BUSINESS_PARTNER.A_BusinessPartner')
+        .columns(relation.keyField)
+        .where({ BusinessPartner: businessPartner })
+    );
+    if (root?.[relation.keyField]) return root[relation.keyField];
+  } catch {
+    // The field may simply not be selectable; the navigation below is the real answer.
+    plainFailed = true;
+  }
+
+  try {
+    const path = businessPartnerNavigationPath(
+      { navigation: relation.navigation },
+      { BusinessPartner: businessPartner }
+    );
+    const result = normalizeRemoteResult(await s4.send({ method: 'GET', path }));
+    return result?.[relation.keyField] || null;
+  } catch (error) {
+    // A 404 on to_Customer is the honest "this partner has no customer record". Anything else -
+    // a timeout, a 500, an unreachable destination - is not an answer and must not read as one.
+    if (isNotFound(error)) return null;
+    throw error;
+  }
+}
 
 // CVI does not guarantee Customer/Supplier == BusinessPartner, so posting under the BP number could
 // hit a record that does not exist. Plain field first, navigation as fallback, null if neither.
@@ -485,6 +526,18 @@ class ChangeRequestService extends cds.ApplicationService {
       return findings;
     };
 
+    // CVI's business-partner-to-customer/vendor assignment, asked at submit rather than while
+    // posting. See srv/checks/relation-checks.js for why that timing is the whole point.
+    const relationStages = (businessPartner) => createRelationStages({
+      relationFields: RELATION_FIELDS,
+      roleNodes: ROLE_NODES,
+      businessPartner: businessPartner || null,
+      resolve: async (relationField, partner) => {
+        const s4 = await cds.connect.to('API_BUSINESS_PARTNER');
+        return readRelationNumber(s4, partner, relationField);
+      }
+    });
+
     // Both buttons, one pipeline: each runs only the stages its answer needs, and neither stages
     // anything. Derivations run for both — a rule needs them even when the screen never shows them.
     const runRequestChecks = async (req, { propose, duplicates, scope = null }) => {
@@ -501,7 +554,8 @@ class ChangeRequestService extends cds.ApplicationService {
       return runChecks(
         { root: data.root || {}, sections: data.sections || {} },
         {
-          validations: [...properties.validations, ...configured.validations, ...registry.validations],
+          validations: [...properties.validations, ...configured.validations, ...registry.validations,
+            ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations],
           derivations: [...configured.derivations, ...registry.derivations],
           // Check is where a human is looking, which is the only place a proposal to rewrite
           // what someone typed makes sense. The register never proposes: it validates and derives.
@@ -580,7 +634,8 @@ class ChangeRequestService extends cds.ApplicationService {
       const properties = await fieldPropertyStages(requesterContext(req));
       const validations = await runValidations(
         { root: data.root || {}, sections: data.sections || {} },
-        [...properties.validations, ...configured.validations, ...registry.validations]
+        [...properties.validations, ...configured.validations, ...registry.validations,
+        ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations]
       );
       if (validations.some((message) => message.severity === BLOCKING)) {
         return {
@@ -670,7 +725,8 @@ class ChangeRequestService extends cds.ApplicationService {
       const properties = await fieldPropertyStages(requesterContext(req));
       const validations = await runValidations(
         { root: data.root || {}, sections: data.sections || {} },
-        [...properties.validations, ...configured.validations, ...registry.validations]
+        [...properties.validations, ...configured.validations, ...registry.validations,
+        ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations]
       );
       if (validations.some((message) => message.severity === BLOCKING)) {
         return {
