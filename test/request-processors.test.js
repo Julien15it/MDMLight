@@ -37,8 +37,9 @@ test('a request in approval names the approvers the rules resolved', () => {
     { value: 'julien@alluvion.eu', kind: 'user', role: 'approver' },
     { value: 'Sales Approver', kind: 'role', role: 'approver' }
   ]);
-  // The honest label: this is what CAP sent the workflow, not who the workflow gave the task to.
-  assert.match(current.note, /as sent to the workflow/u);
+  // No note: the names are in the strip already, and where they come from is a caveat for whoever
+  // maintains this rather than something a requester reading the screen can act on.
+  assert.equal(current.note, '');
 });
 
 // Empty is a legitimate answer everywhere else in this table's code, so it is one here too.

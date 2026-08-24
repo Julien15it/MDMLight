@@ -9,8 +9,12 @@
  * resolves for the current payload - which is what CAP *sent* SBPA, not who SBPA actually assigned
  * the task to. Today those cannot even agree: Arthur's process ignores `approvers` entirely (see
  * CLAUDE.md, "Workflow rules"), and the rules table may have been edited since the submit. It is
- * therefore labelled as sent to the workflow rather than as the task's owner, and it becomes the
- * real answer only once the process routes on the list. Do not present it as SBPA's assignment.
+ * the real answer only once the process routes on the list, and it must never be presented to a
+ * user as SBPA's assignment.
+ *
+ * That caveat belongs HERE and not in the strip. It was in the strip until 2026-08-24, as "as sent
+ * to the workflow", where it told a requester nothing they could act on and read as a hedge next to
+ * a list of names it had already given them.
  */
 
 /** `step` is the request's own lifecycle step, not an SBPA task name - SBPA owns however many. */
@@ -62,8 +66,11 @@ function currentProcessors(header = {}, approvers = []) {
     return {
       step: STEPS.approval,
       processors,
+      // No note when they are named: the strip already lists them, and the caveat about where the
+      // list comes from is for whoever maintains this - see the header - not for a requester
+      // reading the screen. An empty list is the case that does need a sentence.
       note: processors.length
-        ? 'With the approvers below, as sent to the workflow.'
+        ? ''
         : 'No workflow rule names an approver for this request, so the workflow routes it itself'
           + ' - who holds the task is only visible in the approver\'s inbox.'
     };

@@ -265,9 +265,15 @@ sentence.
 to.** They are re-resolved from the `WorkflowRules` table against the payload as it
 stands, so two things can make them wrong: the table may have been edited since the
 submit, and — today — **Arthur's process ignores `approvers` entirely** (see
-"Workflow rules"). That is why the strip says *as sent to the workflow* rather than
-naming a task owner, and why it becomes the real answer only once the process routes
-on the list. Do not relabel it as SBPA's assignment before that lands.
+"Workflow rules"). It becomes the real answer only once the process routes on the
+list, and it must never be labelled as SBPA's assignment before that lands.
+
+**That caveat belongs in the code, not in the strip.** It was in the strip until
+2026-08-24 — *"With the approvers below, as sent to the workflow."* — and Maarten had
+it removed: the names are already in the same sentence, so "below" was wrong, and
+"as sent to the workflow" told a requester nothing they could act on while reading as
+a hedge. A note is now shown **only when there is something a reader can do with it**,
+which is the empty case: no rule named an approver, so look in the inbox.
 
 The rest is deliberate:
 
