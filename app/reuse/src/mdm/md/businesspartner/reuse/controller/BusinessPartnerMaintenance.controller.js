@@ -2323,7 +2323,8 @@ sap.ui.define([
         state.showEditButton = false;
         // Rework IS the draft view with one different primary action, so the buttons are the editing
         // ones in both modes and only the label and onSave's route change.
-        state.showCheckButton = reworking;
+        // Both answer read-only questions, so the approver gets them too, not just the requester.
+        state.showCheckButton = true;
         state.showSaveButton = editing;
         // No Save Request in rework: it drops the screen out of editing and offers Edit, which re-enters
         // "edit" mode - and onSave would then start a second workflow for an already-parked instance.
@@ -2380,7 +2381,9 @@ sap.ui.define([
             var awaitingRework = state.requestStatus === "reworkRequired";
             state.showReworkButtons = awaitingRework;
             state.editing = awaitingRework;
-            state.showCheckButton = awaitingRework;
+            // Not awaitingRework: asking whether the record passes is still a fair question on a
+            // request that has already gone back.
+            state.showCheckButton = true;
             state.showSaveButton = awaitingRework;
             if (!awaitingRework) {
               state.modeText = state.requestStatus;
