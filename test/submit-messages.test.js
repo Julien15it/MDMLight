@@ -129,6 +129,13 @@ test('both check buttons are wired to their own action', () => {
   assert.match(view, /visible="\{maintenance>\/showCheckButton\}"/u);
   assert.match(controllerSource, /_executeAction\("checkRequest"/u);
   assert.match(controllerSource, /_executeAction\("duplicateCheckRequest"/u);
+
+  // In the header, and NOT in the footer: on a long form the footer is a scroll away from the
+  // fields being filled in, and they were briefly in both places, which just showed them twice.
+  const footer = view.slice(view.indexOf('<footer>'));
+  assert.equal(/press="\.onCheck"/u.test(footer), false, 'Check belongs to the header now');
+  assert.equal(/press="\.onDuplicateCheck"/u.test(footer), false);
+  assert.match(footer, /press="\.onSave"/u, 'the primary action stays in the footer');
 });
 
 // Check answers about the record, not about other partners.

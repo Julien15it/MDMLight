@@ -134,30 +134,38 @@
                 type="Transparent"
                 visible="{= !${env>/embedded} }"
                 press=".onBackToList" />
-              <!-- Check/Duplicate Check as header actions, for My Inbox. Embedded, the Page's footer
-                   is not rendered by the inbox chrome at all, which took Check and Duplicate Check
-                   with it, along with Resubmit/Withdraw/Back - Component.js used to state the
-                   opposite in a comment; it was never true. These two stay here because neither is
-                   a My Inbox outcome: there is nothing to declare in sap.bpa.task.outcomes for
-                   "run a check", so the header action is the only way to reach them embedded.
-                   Standalone they stay hidden: the footer is where a Fiori object page puts its
-                   actions, and two rows of the same buttons is worse than none.
+              <!-- Check/Duplicate Check as header actions, pressing the identical handlers as the
+                   footer. Embedded, the Page's footer is not rendered by the inbox chrome at all -
+                   which took Check, Duplicate Check, Resubmit, Withdraw and Back with it, and left
+                   only the Approve/Reject that come from inboxAPI.addAction. The header actions are
+                   page content, so they do render. (Not the bottom of the content either: the
+                   approver comment box was cut off below the visible area down there.)
 
-                   Resubmit and Withdraw are NOT here (reverted 2026-08-24): both ARE outcomes
-                   (declared in sap.bpa.task.outcomes), so they go through inboxAPI.addAction
-                   instead, in _addReworkInboxActions - the same native action-bar location as
-                   Approve/Reject, rather than a second, differently-styled button up here. -->
+                   Check and Duplicate Check are here regardless of env>/embedded, on Maarten's ask
+                   (2026-08-24): on a long create form the footer is a scroll away from the fields
+                   somebody is filling in, and the two questions they answer - is this right, does it
+                   already exist - get asked while typing. The footer's own copies of these two are
+                   gone, not merely hidden standalone: they were in both places for an hour, which
+                   just showed them twice.
+
+                   Resubmit and Withdraw are NOT header actions (reverted 2026-08-24, after a brief
+                   detour through here): both ARE declared outcomes (sap.bpa.task.outcomes), so they
+                   go through inboxAPI.addAction instead, in _addReworkInboxActions - the same native
+                   action-bar location Approve/Reject already render in, rather than a second,
+                   differently-styled button up here. The footer's own Resubmit/Withdraw stay
+                   embedded-only, unlike Check/Duplicate Check: one is the primary action and belongs
+                   in the footer where Fiori puts it, and the other destroys the request. -->
               <Button
                 text="Check"
                 icon="sap-icon://validate"
                 type="Transparent"
-                visible="{= ${env>/embedded} &amp;&amp; ${maintenance>/showCheckButton} }"
+                visible="{maintenance>/showCheckButton}"
                 press=".onCheck" />
               <Button
                 text="Duplicate Check"
                 icon="sap-icon://duplicate"
                 type="Transparent"
-                visible="{= ${env>/embedded} &amp;&amp; ${maintenance>/showCheckButton} }"
+                visible="{maintenance>/showCheckButton}"
                 press=".onDuplicateCheck" />
               <!-- Gone, not degraded, when a steward has switched AI assistance off: an
                    installation that may not use AI should not be offered it. The server
@@ -278,18 +286,10 @@
     <footer>
       <OverflowToolbar visible="{maintenance>/showFooter}">
         <ToolbarSpacer />
-        <!-- Two questions, two buttons: is this record right, and does it already exist? Submit
-             runs the duplicate check anyway, so neither is a gate. -->
-        <Button
-          text="Check"
-          icon="sap-icon://validate"
-          visible="{maintenance>/showCheckButton}"
-          press=".onCheck" />
-        <Button
-          text="Duplicate Check"
-          icon="sap-icon://duplicate"
-          visible="{maintenance>/showCheckButton}"
-          press=".onDuplicateCheck" />
+        <!-- Two questions, two buttons: is this record right, and does it already exist? Submit runs
+             the duplicate check anyway, so neither is a gate. They live in the HEADER actions, not
+             here: on a long form the footer is a scroll away from the fields being filled in, and
+             they were briefly in both places, which just showed them twice. -->
         <Button
           text="Save Request"
           icon="sap-icon://save"

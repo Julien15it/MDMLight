@@ -226,10 +226,16 @@ The entity is `@cds.persistence.skip` — one READ handler in
    What gave it away was the arithmetic, not the logs: the numbers were always
    `"323"` with the staged count stuck on the end. Two wrong theories came first —
    that an unfiltered read was simply correct, and then that the `$top=1` count-only
-   read made the gateway answer differently — and the `[search]` log line disproved
-   the second by printing `count 323` on exactly that read. The count-only read is
-   back to asking for one throwaway row; the page-size version was aimed at a bug
-   that was never there.
+   read made the gateway answer differently — and a per-read `[search]` log line
+   disproved the second by printing `count 323` on exactly that read. The count-only
+   read is back to asking for one throwaway row; the page-size version was aimed at a
+   bug that was never there.
+
+   **That per-read log line is gone** (2026-08-24), having settled this twice. The
+   two `[search]` warnings that remain are worth keeping: staging unavailable, and a
+   read arriving with no `$top` — the second is the one shape whose count nobody can
+   sanity-check. If a count ever looks wrong again, put the line back rather than
+   theorising: it prints the incoming shape, `countOnly`, and the remote count.
 
    A page filled entirely by staged rows still needs the total, which is why that
    branch exists at all.
@@ -1418,12 +1424,14 @@ Decisions behind it, each of which has a cheaper wrong version:
   Approve/Reject worked, because those come from `inboxAPI.addAction` rather than
   from anything the footer draws. Two different fixes for two different kinds of
   button, same day:
-  - **Check/Duplicate Check moved into the object page header actions**, gated on
-    `env>/embedded`. Neither is a declared outcome - there is nothing to put in
-    `sap.bpa.task.outcomes` for "run a check" - so the header, which is page
-    content and therefore does render, is the only place left for them. Standalone
-    they stay hidden: the footer is where a Fiori object page puts its actions,
-    and two rows of the same buttons is worse than none.
+  - **Check/Duplicate Check moved into the object page header actions, and stayed
+    there regardless of `env>/embedded`** (Maarten, later the same day): on a long
+    create form the footer is a scroll away from the fields being filled in, and
+    those two get pressed while typing. So unlike everything else on this list
+    they are deliberately in the header standalone too, and the footer's own
+    copies are gone rather than merely hidden there. Neither is a declared outcome
+    either way - there is nothing to put in `sap.bpa.task.outcomes` for "run a
+    check" - so the header was always the only way to reach them embedded.
   - **Resubmit/Withdraw went through the header too, briefly, then back out**:
     both ARE declared outcomes, so `_addReworkInboxActions` in `Component.js`
     wires them to `inboxAPI.addAction` instead - the same native action-bar
@@ -1439,8 +1447,10 @@ Decisions behind it, each of which has a cheaper wrong version:
     the same `PATCH task-instances` the approve path sends, without a
     `decideRequest` in front of it since `resubmitRequest`/`withdrawRequest`
     already recorded the outcome server-side. The footer's own Resubmit/Withdraw
-    hide on `env>/embedded`, same as Approve/Reject always did: one place to
-    press, and this time an inbox-chrome place that is reliably rendered.
+    hide on `env>/embedded`, same as Approve/Reject always did — unlike
+    Check/Duplicate Check, there is nowhere they need to stay doubled up: one
+    place to press, and this time an inbox-chrome place that is reliably
+    rendered.
 - **Resubmit resumes, it does not restart.** The process instance stays parked
   through the rejection, and `resubmitRequest` signals it with
   `RESUBMITTED_SIGNAL` (`'resubmitted'`). One instance per change request means one

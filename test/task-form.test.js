@@ -412,10 +412,19 @@ test('check and duplicate check are in the header, not only in the footer', () =
   for (const action of ['.onCheck', '.onDuplicateCheck']) {
     assert.ok(actions.includes('press="' + action + '"'), `${action} is not reachable in My Inbox`);
   }
-  // Embedded only: standalone keeps its footer, and two rows of the same buttons is worse than none.
-  assert.match(actions, /visible="\{= \$\{env>\/embedded\} &amp;&amp; \$\{maintenance>\/showCheckButton\} \}"/u);
-  // Resubmit/Withdraw are NOT header actions - they go through inboxAPI.addAction instead, like
-  // Approve/Reject, so pressing one behaves and looks the same as every other outcome.
+  // Check and Duplicate Check are in both places on purpose (Maarten, 2026-08-24): on a long create
+  // form the footer is a scroll away from the fields being filled in, so these two show regardless
+  // of env>/embedded - not gated the way every other header action here is.
+  const checkButtons = actions.match(/visible="\{maintenance>\/showCheckButton\}"/gu) || [];
+  assert.equal(checkButtons.length, 2, 'Check and Duplicate Check show standalone as well');
+  assert.equal(
+    /visible="\{= \$\{env>\/embedded\} &amp;&amp; \$\{maintenance>\/showCheckButton\} \}"/u.test(actions),
+    false,
+    'the check buttons are no longer embedded-only'
+  );
+  // Resubmit/Withdraw are NOT header actions (reverted 2026-08-24) - they go through
+  // inboxAPI.addAction instead, like Approve/Reject, so pressing one behaves and looks the same as
+  // every other outcome rather than a second, differently-styled button up here.
   assert.equal(/press="\.onSave"/u.test(actions), false, 'Resubmit is not a header action');
   assert.equal(/press="\.onWithdraw"/u.test(actions), false, 'Withdraw is not a header action');
   // Approve/Reject stay out of it too - the inbox renders those from sap.bpa.task.outcomes.

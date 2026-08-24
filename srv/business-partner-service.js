@@ -1723,18 +1723,6 @@ class BusinessPartnerService extends cds.ApplicationService {
       // side turns this into concatenation, which is how a 380-row list came to report 32,358.
       if (select.count) rows.$count = Number(partners.count) + pending.length;
 
-      // The count is what the table header shows, and a header that says 32,784 and then 377 is a
-      // read whose filter did not travel. Logged per read - the incoming shape, and both halves of
-      // the total - because which request produced the wrong number cannot be told apart afterwards.
-      // Remove once the count is trusted; it is one line per page of one list.
-      console.log(
-        `[search] top=${top} skip=${skip} count=${Boolean(select.count)} `
-        + `terms=${terms.length} filtered=${Boolean(select.where && select.where.length)} `
-        + `columns=${(select.columns || []).length} -> `
-        + `${rows.length} rows (${pending.length} staged), s4 top=${split.partnerTop} `
-        + `countOnly=${split.partnerTop === 0} count ${partners.count}`
-      );
-
       // An unbounded read of this list is a full read of S/4's partner population, and its count is
       // the one number nobody can sanity-check. Served rather than refused - a client that legitimately
       // asks for everything must still get it - but never silently.
