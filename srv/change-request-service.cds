@@ -74,6 +74,11 @@ service ChangeRequestService @(path: '/service/changerequest') {
      * to. The two are not the same thing yet; srv/request-processors.js says why.
      */
     ProcessorsJson  : LargeString;
+    /**
+     * The duplicate findings still standing on the request, so the approver's screen shows what the
+     * requester was warned about. `duplicate_check` findings only, superseded ones left out.
+     */
+    FindingsJson    : LargeString;
     DataJson        : LargeString;
   };
 

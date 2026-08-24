@@ -12,18 +12,28 @@
       <!-- Message area, MDG-style: the result of a submit is reported here and the request header
            stays on screen, rather than the user being returned to the list with a toast. Duplicate
            findings land here, and so will any future validation. -->
-      <VBox
-        id="maintenanceMessages"
+      <!-- Collapsible, like the duplicate findings below: a submit reports several strips and an
+           information-only set must not push the form off screen. The header carries the leading
+           message, so a collapsed panel still says what it holds, and anything above Information
+           opens the panel itself rather than making somebody click for it. -->
+      <Panel
+        id="maintenanceMessagePanel"
         class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
+        expandable="true"
+        expanded="{ path: 'maintenance>/messages', formatter: '.messagesNeedAttention' }"
         visible="{= ${maintenance>/messages}.length > 0 }"
-        items="{ path: 'maintenance>/messages', templateShareable: false }">
-        <MessageStrip
-          text="{maintenance>text}"
-          type="{maintenance>type}"
-          showIcon="true"
-          showCloseButton="false"
-          class="sapUiTinyMarginBottom" />
-      </VBox>
+        headerText="{ path: 'maintenance>/messages', formatter: '.messagesHeader' }">
+        <VBox
+          id="maintenanceMessages"
+          items="{ path: 'maintenance>/messages', templateShareable: false }">
+          <MessageStrip
+            text="{maintenance>text}"
+            type="{maintenance>type}"
+            showIcon="true"
+            showCloseButton="false"
+            class="sapUiTinyMarginBottom" />
+        </VBox>
+      </Panel>
       <!-- One section that failed to load, or had nothing to resolve its Customer/Supplier
            relation to, must never be silent - a blank section otherwise looks identical to
            "this Business Partner genuinely has no data here". -->

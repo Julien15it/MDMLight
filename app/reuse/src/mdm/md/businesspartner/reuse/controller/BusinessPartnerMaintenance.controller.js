@@ -78,6 +78,9 @@ sap.ui.define([
     "IsMarkedForArchiving"
   ];
 
+  /** Panel headers are one line; past this the lead message is elided rather than wrapped away. */
+  var MESSAGE_HEADER_LIMIT = 110;
+
   var NAME_FIELDS = [
     "FirstName",
     "MiddleName",
@@ -329,6 +332,11 @@ sap.ui.define([
     };
   }
 
+  /** Everything below Warning; an Information-only set is what the panel may start collapsed on. */
+  function isSevere(message) {
+    return message && message.type !== "Information" && message.type !== "None";
+  }
+
   function previewName(root) {
     if (root.BusinessPartnerCategory === "1") {
       return [root.FirstName, root.MiddleName, root.LastName].filter(Boolean).join(" ");
@@ -394,6 +402,32 @@ sap.ui.define([
         }, this);
         var pendingRework = component.getModel("env").getProperty("/taskReworkChangeRequest");
         if (pendingRework) this._loadStagedRequest(pendingRework, "rework");
+      },
+
+      /**
+       * One line for the message panel's header, so a collapsed panel still says what it holds. The
+       * leading message is the one that matters - the strips are ordered so a Warning leads - and the
+       * rest are counted rather than concatenated.
+       */
+      messagesHeader: function (messages) {
+        var list = messages || [];
+        if (!list.length) return "";
+        var lead = String(list[0].text || "").replace(/\s+/gu, " ").trim();
+        if (lead.length > MESSAGE_HEADER_LIMIT) lead = lead.slice(0, MESSAGE_HEADER_LIMIT - 1) + "…";
+        return list.length > 1 ? lead + " (+" + (list.length - 1) + " more)" : lead;
+      },
+
+      /**
+       * Whether the panel opens itself. Anything above Information does - a validation that blocked a
+       * submit, or an approver's rejection reason, is not something to make somebody click for -
+       * while an Information-only set stays out of the way, which is what this panel is for.
+       *
+       * Bound one-way, so a render can re-apply it: expanding an Information-only panel and then
+       * editing a field collapses it again. Accepted over a state flag that 13 assignment sites would
+       * each have to remember to set, which is the version that goes stale.
+       */
+      messagesNeedAttention: function (messages) {
+        return (messages || []).some(isSevere);
       },
 
       _emptyState: function () {
@@ -2412,6 +2446,10 @@ sap.ui.define([
           state.requestType = (payload && payload.RequestType) || "";
           state.requestStatus = (payload && payload.Status) || "";
           state.processors = parseProcessors(payload && payload.ProcessorsJson);
+          // What the requester was warned about, into the same collapsible panel the create screen
+          // uses. Written at submit and, until 2026-08-24, never read back - so an approver opening
+          // the task saw nothing, which is indistinguishable from "no duplicate was found".
+          this._setDuplicatePanel(state, this._parseJsonArray(payload && payload.FindingsJson));
           // The approve view is the approver's, the draft and rework views are the requester's own.
           // `hidden` is deliberately honoured on the approve view too: once approvals are split by
           // function, a sales approver has no business reading the bank details.

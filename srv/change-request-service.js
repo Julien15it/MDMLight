@@ -419,6 +419,30 @@ class ChangeRequestService extends cds.ApplicationService {
       return currentProcessors(header, approvers);
     };
 
+    /**
+     * The duplicate findings still standing on a request, so the approver sees what the requester was
+     * warned about. They were written at submit and never read back: the approve screen built its
+     * panel only from a check it ran itself, which it does not, so the panel was empty on every task.
+     *
+     * `duplicate_check` only - CheckFindings also holds the validation and registry findings, which
+     * are a different report - and the same `isStale` filter the exposed view applies, or a resubmit's
+     * superseded verdicts come back alongside the current ones and one pair reads as several.
+     */
+    const currentDuplicateFindings = async (changeRequest) => {
+      try {
+        return await db.run(
+          cds.ql.SELECT.from(FINDINGS)
+            .where`request_ID = ${changeRequest} and checkName = 'duplicate_check'
+                   and (isStale is null or isStale = false)`
+            .orderBy({ score: 'desc' })
+        );
+      } catch (error) {
+        // Best-effort like the rest of this screen's extras: no panel beats no request.
+        console.warn(`[findings] Could not read the findings of ${changeRequest}:`, error.message);
+        return [];
+      }
+    };
+
     const persist = async (req) => {
       const payload = parseJsonObject(req.data.DataJson, 'DataJson');
       const requestType = req.data.RequestType;
@@ -877,6 +901,7 @@ class ChangeRequestService extends cds.ApplicationService {
         SubmittedBy: header.submittedBy,
         SubmittedAt: header.submittedAt,
         ProcessorsJson: JSON.stringify(await processorsFor(header, { root, sections })),
+        FindingsJson: JSON.stringify(await currentDuplicateFindings(changeRequest)),
         DataJson: JSON.stringify({ root, sections, deleted })
       };
     });

@@ -1609,7 +1609,7 @@ class BusinessPartnerService extends cds.ApplicationService {
      * The remote half of the merged list. The columns are fixed rather than the client's: it asks
      * for status columns that exist only here, and one unknown field fails the whole remote read.
      */
-    const readPartnerPage = async ({ where, search, orderBy, skip, top, count }) => {
+    const readPartnerPage = async ({ where, search, orderBy, skip, top, pageSize, count }) => {
       if (top === 0 && !count) return { rows: [], count: 0 };
 
       const query = cds.ql.SELECT.from(this.entities.BusinessPartners).columns(...PARTNER_FIELDS);
@@ -1620,8 +1620,14 @@ class BusinessPartnerService extends cds.ApplicationService {
       if (ordering.length) query.SELECT.orderBy = ordering;
 
       // A page already filled by staged rows still needs the total, and a count-only remote read is
-      // not something this service can express - so it asks for one row and throws it away.
-      const rows = top === 0 ? 1 : top;
+      // not something this service can express - so it asks for a page and throws the rows away.
+      //
+      // It asked for ONE row until 2026-08-24, and that row came back with a count of 32324 where
+      // every real page read of the same unfiltered query answered 323 - so the first page of the
+      // list, the only one where this branch runs, showed a total two orders of magnitude out.
+      // Whatever the gateway does with `$top=1` and a count, the fix is to stop being clever: ask
+      // with the page size the client asked for, which is the shape that demonstrably counts right.
+      const rows = top === 0 ? Math.max(pageSize || 1, 1) : top;
       const limit = {
         ...(rows === undefined ? {} : { rows: { val: rows } }),
         ...(skip ? { offset: { val: skip } } : {})
@@ -1701,6 +1707,8 @@ class BusinessPartnerService extends cds.ApplicationService {
         orderBy: select.orderBy,
         skip: split.partnerSkip,
         top: split.partnerTop,
+        // What the client asked for, so a count-only read can borrow it rather than invent a size.
+        pageSize: top,
         count: Boolean(select.count)
       });
 

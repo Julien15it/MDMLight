@@ -322,3 +322,13 @@ test('the view mode offers nothing to press', () => {
     /state\.showDecisionButtons = !editing && !viewing && state\.requestStatus === "inApproval";/u
   );
 });
+
+// The one read that skips the partner page still has to count it, and asking for a single row
+// answered 32324 where every real page read of the same query answered 323.
+test('a count-only remote read borrows the client page size rather than asking for one row', () => {
+  const service = root('srv', 'business-partner-service.js');
+  assert.match(service, /const rows = top === 0 \? Math\.max\(pageSize \|\| 1, 1\) : top;/u);
+  // Threaded from the client's own $top, not invented.
+  assert.match(service, /pageSize: top,/u);
+  assert.equal(/const rows = top === 0 \? 1 : top;/u.test(service), false);
+});

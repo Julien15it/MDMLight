@@ -572,3 +572,93 @@ test('the key is the value that was proposed, not the value that was typed over 
   rows[0].proposed = 'Something Else Entirely';
   assert.equal(rows[0].key, stamped, 'editing the cell does not move the key');
 });
+
+// --- The message area collapses ----------------------------------------------------------------
+
+test('the message area is a panel whose header carries the leading message', () => {
+  const controller = loadController();
+  assert.equal(controller.messagesHeader([]), '');
+  assert.equal(
+    controller.messagesHeader([{ type: 'Information', text: 'Current step: Approval - with a@b.eu' }]),
+    'Current step: Approval - with a@b.eu'
+  );
+  // The rest are counted, not concatenated: a panel header is one line.
+  assert.equal(
+    controller.messagesHeader([
+      { type: 'Warning', text: 'Sent back by the approver: wrong VAT number' },
+      { type: 'Information', text: 'Current step: Rework' }
+    ]),
+    'Sent back by the approver: wrong VAT number (+1 more)'
+  );
+});
+
+test('a long message is elided rather than wrapped out of the header', () => {
+  const controller = loadController();
+  const header = controller.messagesHeader([{ type: 'Error', text: 'x'.repeat(400) }]);
+  assert.ok(header.length < 130, `header was ${header.length} characters`);
+  assert.match(header, /…$/u);
+});
+
+test('newlines in a message do not break the one-line header', () => {
+  const controller = loadController();
+  assert.equal(
+    controller.messagesHeader([{ type: 'Error', text: 'Enter a Country.
+  Enter a City.' }]),
+    'Enter a Country. Enter a City.'
+  );
+});
+
+// A blocked submit or a rejection reason is not something to make somebody click for.
+test('anything above Information opens the panel by itself', () => {
+  const controller = loadController();
+  assert.equal(controller.messagesNeedAttention([{ type: 'Error', text: 'x' }]), true);
+  assert.equal(controller.messagesNeedAttention([{ type: 'Warning', text: 'x' }]), true);
+  assert.equal(controller.messagesNeedAttention([{ type: 'Success', text: 'x' }]), true);
+  assert.equal(controller.messagesNeedAttention([
+    { type: 'Information', text: 'x' },
+    { type: 'Warning', text: 'y' }
+  ]), true);
+});
+
+// Which is the case this panel exists for: the processors strip and the read-only note.
+test('an information-only set stays out of the way', () => {
+  const controller = loadController();
+  assert.equal(controller.messagesNeedAttention([
+    { type: 'Information', text: 'Current step: Approval' },
+    { type: 'Information', text: 'Shown read-only.' }
+  ]), false);
+  assert.equal(controller.messagesNeedAttention([]), false);
+  assert.equal(controller.messagesNeedAttention(), false);
+});
+
+test('the panel is wired to those two formatters, and still holds the strips', () => {
+  assert.match(view, /id="maintenanceMessagePanel"/u);
+  assert.match(view, /expanded="\{ path: 'maintenance>\/messages', formatter: '\.messagesNeedAttention' \}"/u);
+  assert.match(view, /headerText="\{ path: 'maintenance>\/messages', formatter: '\.messagesHeader' \}"/u);
+  // The strips themselves are unchanged, inside the panel now.
+  assert.match(view, /id="maintenanceMessages"[\s\S]{0,200}<MessageStrip/u);
+});
+
+// --- The findings follow the request ------------------------------------------------------------
+
+// Written at submit and never read back, so an approver opening the task saw nothing - which is
+// indistinguishable from "no duplicate was found".
+test('the approve screen fills the duplicate panel from the request own findings', () => {
+  assert.match(
+    controllerSource,
+    /this\._setDuplicatePanel\(state, this\._parseJsonArray\(payload && payload\.FindingsJson\)\)/u
+  );
+});
+
+test('a persisted finding renders without the candidate name staging never stored', () => {
+  const controller = loadController();
+  const state = { duplicates: [], duplicatesHeader: '' };
+  // The shape CheckFindings actually holds: no candidateName column exists.
+  controller._setDuplicatePanel.call(controller, state, [
+    { verdict: 'duplicate', candidateBP: '4711', message: 'Duplicate: Business Partner 4711 matches on TaxNumber.' }
+  ]);
+  assert.equal(state.duplicates.length, 1);
+  assert.equal(state.duplicates[0].title, '4711');
+  assert.match(state.duplicates[0].description, /matches on TaxNumber/u);
+  assert.match(state.duplicatesHeader, /1 possible duplicate/u);
+});

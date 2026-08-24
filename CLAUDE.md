@@ -217,8 +217,19 @@ The entity is `@cds.persistence.skip` — one READ handler in
    client asks for status columns that exist only here, and one unknown field
    fails the whole remote read.
 4. `$count` is the remote count plus the matching staged rows. A page filled
-   entirely by staged rows still needs the total, so it asks S/4 for one row and
-   throws it away.
+   entirely by staged rows still needs the total, so it asks S/4 for **a page**
+   and throws the rows away.
+
+   **It asked for one row until 2026-08-24, and that is where a wrong count came
+   from.** With 55 pending creates and a page size of 30, the staged rows filled
+   page 1, so that branch ran on the only read whose count the table header ever
+   shows — and the `$top=1` read answered `$count` **32324** where every real page
+   read of the same unfiltered query answered **323**. The list said 32,354 and
+   corrected itself to 378 once scrolling had loaded everything. Whatever the
+   gateway does with `$top=1` and a count, do not go back to being clever here:
+   ask with the page size the client asked for, which is the shape that
+   demonstrably counts right. The `[search]` log line is what pinned it — it
+   prints the incoming shape and the remote count per read.
 
 Consequences worth knowing before changing this:
 
@@ -252,6 +263,44 @@ Consequences worth knowing before changing this:
   recipe further down works. Closing that needs the role model this file keeps
   deferring: restricting `getRequestPayload` to steward-or-requester today would
   **break every approval**, because an approver is neither.
+
+### The request screen's message area (2026-08-24)
+
+**The strips live in a collapsible `Panel`** (`maintenanceMessagePanel`), like the
+duplicate findings below them. A submit reports several at once and the processors
+strip added one more; information-only noise must not push the form off screen.
+
+- The **header carries the leading message**, elided to one line, with `(+N more)`
+  for the rest — so a collapsed panel still says what it holds. The strips are
+  ordered so a Warning leads, which is what makes that worth reading.
+- **Anything above Information opens the panel itself** (`messagesNeedAttention`).
+  A blocked submit or an approver's rejection reason is not something to make
+  somebody click for; an Information-only set stays shut, which is the case the
+  panel exists for.
+- `expanded` is bound **one-way**, so a render re-applies it: expanding an
+  information-only panel and then editing a field collapses it again. Accepted
+  deliberately over a state flag that all thirteen `state.messages = …` sites would
+  have to remember to set — that is the version that goes stale. If the re-collapse
+  ever annoys somebody, the fix is the flag plus a fingerprint, not a formatter.
+
+**The duplicate findings follow the request into the approval task.** They were
+written to `CheckFindings` at submit and **never read back**: the approve screen
+built its panel only from a check it ran itself, which it does not, so an approver
+opening a task saw an empty panel — indistinguishable from "no duplicate was
+found", which is the one wrong answer this whole feature refuses to give.
+`getRequestPayload` now returns `FindingsJson` and `_loadStagedRequest` feeds it to
+the same `_setDuplicatePanel`, so the requester's panel and the approver's are one
+piece of code. Two details:
+
+- **`duplicate_check` findings only**, and the same `isStale` filter the exposed
+  `CheckFindings` view applies — `CheckFindings` also holds the validation and
+  registry findings, which are a different report, and a resubmit's superseded
+  verdicts would otherwise come back alongside the current ones and make one pair
+  read as several.
+- The approver's rows carry **no candidate name**: `candidateName` is not a
+  staging column, so the title is the partner number (or `pending request <id>`)
+  and the stored `message` carries the sentence. Add the column if the name matters
+  more than that.
 
 ### `BusinessPartnerFullName` is derived, never stored (2026-08-24)
 
