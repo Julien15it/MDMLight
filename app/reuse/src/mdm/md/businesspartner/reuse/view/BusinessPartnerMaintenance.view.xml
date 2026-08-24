@@ -134,14 +134,19 @@
                 type="Transparent"
                 visible="{= !${env>/embedded} }"
                 press=".onBackToList" />
-              <!-- The same actions as the footer, for My Inbox. Embedded, the Page's footer is not
-                   rendered by the inbox chrome at all - which took Check, Duplicate Check, Resubmit,
-                   Withdraw and Back with it, and left only the Approve/Reject that come from
-                   inboxAPI.addAction. Component.js used to state the opposite in a comment; it was
-                   never true. These live in the header actions instead, which are page content and
-                   therefore do render, and press the identical handlers. Standalone they stay hidden:
-                   the footer is where a Fiori object page puts its actions, and two rows of the same
-                   buttons is worse than none. -->
+              <!-- Check/Duplicate Check as header actions, for My Inbox. Embedded, the Page's footer
+                   is not rendered by the inbox chrome at all, which took Check and Duplicate Check
+                   with it, along with Resubmit/Withdraw/Back - Component.js used to state the
+                   opposite in a comment; it was never true. These two stay here because neither is
+                   a My Inbox outcome: there is nothing to declare in sap.bpa.task.outcomes for
+                   "run a check", so the header action is the only way to reach them embedded.
+                   Standalone they stay hidden: the footer is where a Fiori object page puts its
+                   actions, and two rows of the same buttons is worse than none.
+
+                   Resubmit and Withdraw are NOT here (reverted 2026-08-24): both ARE outcomes
+                   (declared in sap.bpa.task.outcomes), so they go through inboxAPI.addAction
+                   instead, in _addReworkInboxActions - the same native action-bar location as
+                   Approve/Reject, rather than a second, differently-styled button up here. -->
               <Button
                 text="Check"
                 icon="sap-icon://validate"
@@ -154,17 +159,6 @@
                 type="Transparent"
                 visible="{= ${env>/embedded} &amp;&amp; ${maintenance>/showCheckButton} }"
                 press=".onDuplicateCheck" />
-              <Button
-                text="{maintenance>/saveButtonText}"
-                type="Emphasized"
-                visible="{= ${env>/embedded} &amp;&amp; ${maintenance>/showSaveButton} }"
-                press=".onSave" />
-              <Button
-                text="Withdraw"
-                icon="sap-icon://delete"
-                type="Reject"
-                visible="{= ${env>/embedded} &amp;&amp; ${maintenance>/showReworkButtons} }"
-                press=".onWithdraw" />
               <!-- Gone, not degraded, when a steward has switched AI assistance off: an
                    installation that may not use AI should not be offered it. The server
                    refuses the action too - see srv/business-partner-service.js. -->

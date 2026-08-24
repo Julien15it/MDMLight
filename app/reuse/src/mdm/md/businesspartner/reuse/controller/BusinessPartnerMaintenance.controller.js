@@ -402,6 +402,18 @@ sap.ui.define([
         }, this);
         var pendingRework = component.getModel("env").getProperty("/taskReworkChangeRequest");
         if (pendingRework) this._loadStagedRequest(pendingRework, "rework");
+
+        // Resubmit/Withdraw cannot complete a My Inbox task directly the way Approve/Reject do -
+        // they need this screen's own Check/duplicate-confirm/submit flow to run first. So the
+        // task app's inbox buttons only ask for that flow over the event bus; the outcome still
+        // only reaches BPA through _completeEmbeddedOutcome, after onSave/onWithdraw actually
+        // succeed. A no-op outside app/bptask: nothing there ever publishes on this channel.
+        component.getEventBus().subscribe("taskform", "resubmit", function () {
+          this.onSave();
+        }, this);
+        component.getEventBus().subscribe("taskform", "withdraw", function () {
+          this.onWithdraw();
+        }, this);
       },
 
       /**

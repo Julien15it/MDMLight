@@ -62,18 +62,50 @@ test('the workflow base url is built from sap.cloud.service and sap.app.id', () 
 
 test('the inbox actions match the outcomes declared in sap.bpa.task', () => {
   const declared = manifest['sap.bpa.task'].outcomes.map((outcome) => outcome.id).sort();
-  // resubmit/withdraw stay declared - the PATCH completeOutcome sends needs the workflow runtime
-  // to accept `decision: 'resubmit'|'withdraw'` - but are never wired to inboxAPI.addAction: they
-  // reach the requester through the header actions instead (2026-08-24), because pressing one has
-  // to run the shared screen's own Check/duplicate-confirm/submit flow, not complete the task
-  // directly the way Approve/Reject do.
+  // All four go through inboxAPI.addAction (reverted 2026-08-24 to this, from a brief detour
+  // through the object page header actions): both ARE declared outcomes, so pressing one belongs
+  // in My Inbox's own action bar, the same native location as Approve/Reject - not a header
+  // button that looks and behaves differently for what is, from BPA's point of view, the same
+  // kind of thing. Check/Duplicate Check stay in the header: neither is an outcome, so there is
+  // nowhere else for them to go.
   assert.deepEqual(declared, ['approve', 'reject', 'resubmit', 'withdraw']);
   // Registered with the same ids, or the completion is rejected by the runtime.
   assert.match(component, /\{ id: "reject", label: "Reject", type: "reject" \}/u);
   assert.match(component, /\{ id: "approve", label: "Approve", type: "accept" \}/u);
   assert.match(component, /inbox\.addAction\(/u);
-  assert.equal(/id: "resubmit"/u.test(component), false, 'never wired to an inbox button');
-  assert.equal(/id: "withdraw"/u.test(component), false, 'never wired to an inbox button');
+});
+
+// Unlike Approve/Reject, pressing these must NOT complete the task directly - resubmitRequest
+// needs the requester's own edits, which only the shared screen's Check/duplicate-confirm/submit
+// flow can produce. So the handler only publishes onto the event bus; completeOutcome() is
+// reached afterwards, from the controller, only once that flow actually succeeded.
+test('resubmit/withdraw are registered, but only publish - never complete the task directly', () => {
+  assert.match(component, /_addReworkInboxActions: function \(\)/u);
+  const body = component.slice(
+    component.indexOf('_addReworkInboxActions: function'),
+    component.indexOf('_workflowRuntimeBaseUrl: function')
+  );
+  assert.match(body, /\{ id: "withdraw", label: "Withdraw", type: "reject" \}/u);
+  assert.match(body, /\{ id: "resubmit", label: "Resubmit", type: "accept" \}/u);
+  assert.match(body, /eventBus\.publish\("taskform", outcome\.id\)/u);
+  assert.equal(/_completeTask\(outcome\.id\)/u.test(body), false, 'no direct completion here');
+  assert.match(component, /completeOutcome: async function \(outcomeId, freshContext\)/u);
+  // Registered from the rework branch of _initTaskForm, so a task with no changerequestid still
+  // gets buttons - pressing Withdraw on an empty task is still a valid way out.
+  assert.match(component, /this\._addReworkInboxActions\(\);\s*\n\s*return;/u);
+});
+
+// The shared controller answers a press by running its own onSave/onWithdraw - the same flow
+// the in-page buttons ran, Check and the duplicate-check dialog included - never a shortcut.
+test('the shared controller runs the real resubmit/withdraw flow when asked over the event bus', () => {
+  assert.match(reuseController, /subscribe\("taskform", "resubmit"/u);
+  assert.match(reuseController, /subscribe\("taskform", "withdraw"/u);
+  const resubmitAt = reuseController.indexOf('subscribe("taskform", "resubmit"');
+  const withdrawAt = reuseController.indexOf('subscribe("taskform", "withdraw"');
+  const resubmitBody = reuseController.slice(resubmitAt, resubmitAt + 120);
+  const withdrawBody = reuseController.slice(withdrawAt, withdrawAt + 120);
+  assert.match(resubmitBody, /this\.onSave\(\)/u);
+  assert.match(withdrawBody, /this\.onWithdraw\(\)/u);
 });
 
 // A task with no tasktype (every task built before rework-via-My-Inbox existed) must still open
@@ -249,8 +281,9 @@ test('the app hides its own decision buttons while embedded', () => {
 // whether the interactive flow can run from an inbox press (it still does, over the event bus).
 // The footer's own Save/Withdraw hide embedded, same as Approve/Reject - not because the footer
 // is invisible there too (it is, but the binding does not know that), but so standalone and
-// embedded never both draw a set of controls for the same action.
-test('rework buttons hide in the footer embedded, now that the header carries them instead', () => {
+// embedded never both draw a set of controls for the same action. Embedded, inboxAPI.addAction
+// carries them instead (_addReworkInboxActions).
+test('rework buttons hide in the footer embedded, now that the inbox action bar carries them', () => {
   assert.match(
     view,
     /text="\{maintenance>\/saveButtonText\}"[\s\S]{0,120}visible="\{= \$\{maintenance>\/showSaveButton\} &amp;&amp; !\$\{env>\/embedded\} \}"/u
@@ -363,22 +396,29 @@ test('the outcome labels are literal, not i18n placeholders', () => {
 
 /**
  * My Inbox does not render an embedded app's `sap.m.Page` footer. Every action in it was therefore
- * invisible on a task - Resubmit and Withdraw on a rework task, and Check, Duplicate Check and Back
- * on the approve task - while Approve/Reject survived because they come from inboxAPI.addAction.
- * The header actions are page content, so they do render; that is where an embedded action belongs.
+ * invisible on a task - Check and Duplicate Check on the approve task, Resubmit and Withdraw on a
+ * rework task, and Back - while Approve/Reject survived because they come from inboxAPI.addAction.
+ * Check/Duplicate Check move to the header actions (page content, so it does render) because
+ * neither is a declared outcome and there is nowhere else for them to go. Resubmit/Withdraw went
+ * there too on 2026-08-21, then back out on 2026-08-24: both ARE outcomes, so they belong in My
+ * Inbox's own action bar via inboxAPI.addAction, the same place Approve/Reject already render -
+ * not a second, differently-styled button up here for what is the same kind of thing to BPA.
  */
-test('the actions a task needs are in the header, not only in the footer', () => {
+test('check and duplicate check are in the header, not only in the footer', () => {
   const actions = view.slice(
     view.indexOf('<uxap:actions>'),
     view.indexOf('</uxap:actions>')
   );
-  for (const action of ['.onCheck', '.onDuplicateCheck', '.onSave', '.onWithdraw']) {
+  for (const action of ['.onCheck', '.onDuplicateCheck']) {
     assert.ok(actions.includes('press="' + action + '"'), `${action} is not reachable in My Inbox`);
   }
   // Embedded only: standalone keeps its footer, and two rows of the same buttons is worse than none.
   assert.match(actions, /visible="\{= \$\{env>\/embedded\} &amp;&amp; \$\{maintenance>\/showCheckButton\} \}"/u);
-  assert.match(actions, /visible="\{= \$\{env>\/embedded\} &amp;&amp; \$\{maintenance>\/showReworkButtons\} \}"/u);
-  // Approve/Reject stay out of it - the inbox renders those from sap.bpa.task.outcomes.
+  // Resubmit/Withdraw are NOT header actions - they go through inboxAPI.addAction instead, like
+  // Approve/Reject, so pressing one behaves and looks the same as every other outcome.
+  assert.equal(/press="\.onSave"/u.test(actions), false, 'Resubmit is not a header action');
+  assert.equal(/press="\.onWithdraw"/u.test(actions), false, 'Withdraw is not a header action');
+  // Approve/Reject stay out of it too - the inbox renders those from sap.bpa.task.outcomes.
   assert.equal(/press="\.onApprove"/u.test(actions), false);
   assert.equal(/press="\.onReject"/u.test(actions), false);
 });

@@ -1411,25 +1411,36 @@ Decisions behind it, each of which has a cheaper wrong version:
   list stays steward-gated either way, so neither path is a substitute for the
   other existing; a workflow can use one, both, or keep only `reworkurl`. The
   screen still has to cope with a link opened twice, for whichever entry point
-  reopens it. Embedded, only Approve/Reject hide behind `env>/embedded` —
-  Resubmit and Withdraw stay visible, because unlike a decision they need the
-  requester's own edits and cannot be reduced to a My Inbox outcome button.
-  **They are in the object page HEADER actions, not the footer** (fixed
-  2026-08-24): My Inbox does not render an embedded app's `sap.m.Page` footer, so
-  every button in it was invisible on a task - Resubmit and Withdraw on a rework
-  task, and Check, Duplicate Check and Back on the approve task too. Only
-  Approve/Reject worked, because those come from `inboxAPI.addAction`. The header
-  actions are page content and do render, so that is where an embedded action
-  goes; they are gated on `env>/embedded` so standalone keeps its footer rather
-  than growing a second row of the same buttons. `Component.js` asserted the
-  opposite in a comment for three days - it was never true. The task
-  completes itself only *after* `resubmitRequest`/`withdrawRequest` already
-  succeeded, via `_completeEmbeddedOutcome` in the shared controller calling
-  `completeOutcome` on the task app's Component — the same `PATCH task-instances`
-  the approve path sends, without a `decideRequest` in front of it since that
-  action already recorded the outcome server-side. `resubmit`/`withdraw` were
-  added to `sap.bpa.task.outcomes` in `app/bptask` for this; they are never wired
-  to `inboxAPI.addAction`, unlike `approve`/`reject`.
+  reopens it. **My Inbox does not render an embedded app's `sap.m.Page` footer at
+  all** (found 2026-08-24, `Component.js` had asserted the opposite in a comment
+  for three days): every button in it was invisible on a task - Check, Duplicate
+  Check and Back on the approve task, Resubmit and Withdraw on a rework task. Only
+  Approve/Reject worked, because those come from `inboxAPI.addAction` rather than
+  from anything the footer draws. Two different fixes for two different kinds of
+  button, same day:
+  - **Check/Duplicate Check moved into the object page header actions**, gated on
+    `env>/embedded`. Neither is a declared outcome - there is nothing to put in
+    `sap.bpa.task.outcomes` for "run a check" - so the header, which is page
+    content and therefore does render, is the only place left for them. Standalone
+    they stay hidden: the footer is where a Fiori object page puts its actions,
+    and two rows of the same buttons is worse than none.
+  - **Resubmit/Withdraw went through the header too, briefly, then back out**:
+    both ARE declared outcomes, so `_addReworkInboxActions` in `Component.js`
+    wires them to `inboxAPI.addAction` instead - the same native action-bar
+    location Approve/Reject already render in, rather than a second,
+    differently-styled button. Pressing one does not complete the task directly
+    the way Approve/Reject do: it only publishes onto the `"taskform"` event-bus
+    channel Julien's inbox-loading fix uses, and the shared controller (subscribed
+    in `onInit`) answers by running the exact `onSave`/`onWithdraw` flow the
+    footer button would have run — Check, the duplicate-check confirmation dialog
+    if one is needed, then the actual resubmit/withdraw. The task completes itself
+    only *after* that flow actually succeeds, via `_completeEmbeddedOutcome` in
+    the shared controller calling `completeOutcome` on the task app's Component —
+    the same `PATCH task-instances` the approve path sends, without a
+    `decideRequest` in front of it since `resubmitRequest`/`withdrawRequest`
+    already recorded the outcome server-side. The footer's own Resubmit/Withdraw
+    hide on `env>/embedded`, same as Approve/Reject always did: one place to
+    press, and this time an inbox-chrome place that is reliably rendered.
 - **Resubmit resumes, it does not restart.** The process instance stays parked
   through the rejection, and `resubmitRequest` signals it with
   `RESUBMITTED_SIGNAL` (`'resubmitted'`). One instance per change request means one
