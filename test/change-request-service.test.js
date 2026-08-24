@@ -35,7 +35,14 @@ const s4Mock = {
     A_BusinessPartner: {
       elements: {
         BusinessPartner: { type: 'cds.String' },
-        OrganizationBPName1: { type: 'cds.String' }
+        BusinessPartnerCategory: { type: 'cds.String' },
+        OrganizationBPName1: { type: 'cds.String' },
+        FirstName: { type: 'cds.String' },
+        LastName: { type: 'cds.String' },
+        // The shape is driven by the REMOTE entity's elements, so a field missing from this mock can
+        // never appear however the row is built. The live A_BusinessPartner has it, and has been
+        // sending it as a blank all along - which is the whole point of composing a value for it.
+        BusinessPartnerFullName: { type: 'cds.String' }
       }
     },
     A_BusinessPartnerAddress: {

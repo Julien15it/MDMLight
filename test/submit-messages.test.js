@@ -602,8 +602,7 @@ test('a long message is elided rather than wrapped out of the header', () => {
 test('newlines in a message do not break the one-line header', () => {
   const controller = loadController();
   assert.equal(
-    controller.messagesHeader([{ type: 'Error', text: 'Enter a Country.
-  Enter a City.' }]),
+    controller.messagesHeader([{ type: 'Error', text: 'Enter a Country.\n  Enter a City.' }]),
     'Enter a Country. Enter a City.'
   );
 });
