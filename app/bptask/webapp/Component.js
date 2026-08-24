@@ -121,7 +121,6 @@ sap.ui.define(
                             + "task inputs declared in sap.bpa.task - changerequestid is the required one."
                         );
                     }
-                    this._addReworkInboxActions();
                     return;
                 }
 
@@ -176,16 +175,16 @@ sap.ui.define(
             /**
              * Unlike approve/reject, Resubmit and Withdraw need the requester to actually edit and
              * confirm on the shared screen (checks, the duplicate-check confirmation dialog) - that
-             * cannot be reduced to inbox.addAction completing the task directly the way approve/
-             * reject do. My Inbox's own action bar is still what has to draw the buttons, though:
-             * an app's own footer is not guaranteed room inside the My Inbox chrome (confirmed
-             * 2026-08-21 - the in-page Resubmit/Withdraw simply did not appear), unlike the
-             * assumption the original design made. So _addReworkInboxActions below registers them
-             * too, but each handler only *asks* the shared controller to run its normal onSave/
-             * onWithdraw flow over the event bus - the full check/duplicate-confirm/submit flow
-             * still runs, and completeOutcome() still only fires after that flow actually succeeds.
-             * The in-page buttons hide on env>/embedded now, same as Approve/Reject: one place to
-             * press, and this time an inbox-chrome place that is reliably rendered.
+             * cannot be reduced to a My Inbox outcome button. So no inboxAPI.addAction here, and
+             * completeOutcome() below is called back from the shared controller once the action has
+             * already succeeded server-side.
+             *
+             * They are NOT in the screen's footer, whatever this comment used to claim: My Inbox does
+             * not render an embedded app's sap.m.Page footer, so every button in it was invisible here
+             * - Resubmit and Withdraw, and Check, Duplicate Check and Back on the approve task too.
+             * The shared view carries them in its object page header actions instead, gated on
+             * env>/embedded. Anything new that has to be pressable in the inbox goes there, or through
+             * addAction; the footer reaches nobody on this side.
              *
              * Routing embedded is broken for the same reason _openApprove works around it: the
              * hash belongs to the inbox shell, so a route pattern written into it matches nothing
@@ -231,29 +230,6 @@ sap.ui.define(
                         { action: outcome.id, label: outcome.label, type: outcome.type },
                         function () { this._completeTask(outcome.id); },
                         this
-                    );
-                }, this);
-            },
-
-            /**
-             * Unlike _addInboxActions, pressing these does not complete the task directly - it
-             * only publishes a request onto the same "taskform" event bus channel Julien's inbox-
-             * loading fix uses, which the shared controller (subscribed in onInit) answers by
-             * running the exact onSave/onWithdraw flow the in-page buttons would have run: Check,
-             * the duplicate-check confirmation dialog if one is needed, then the actual resubmit/
-             * withdraw. completeOutcome() only fires afterwards, from _completeEmbeddedOutcome in
-             * the controller, and only once that flow actually succeeded.
-             */
-            _addReworkInboxActions: function () {
-                var inbox = this._startupParameters().inboxAPI;
-                var eventBus = this.getEventBus();
-                [
-                    { id: "withdraw", label: "Withdraw", type: "reject" },
-                    { id: "resubmit", label: "Resubmit", type: "accept" }
-                ].forEach(function (outcome) {
-                    inbox.addAction(
-                        { action: outcome.id, label: outcome.label, type: outcome.type },
-                        function () { eventBus.publish("taskform", outcome.id); }
                     );
                 }, this);
             },

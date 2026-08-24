@@ -402,18 +402,6 @@ sap.ui.define([
         }, this);
         var pendingRework = component.getModel("env").getProperty("/taskReworkChangeRequest");
         if (pendingRework) this._loadStagedRequest(pendingRework, "rework");
-
-        // Resubmit/Withdraw cannot complete a My Inbox task directly the way Approve/Reject do -
-        // they need this screen's own Check/duplicate-confirm/submit flow to run first. So the
-        // task app's inbox buttons only ask for that flow over the event bus; the outcome still
-        // only reaches BPA through _completeEmbeddedOutcome, after onSave/onWithdraw actually
-        // succeed. A no-op outside app/bptask: nothing there ever publishes on this channel.
-        component.getEventBus().subscribe("taskform", "resubmit", function () {
-          this.onSave();
-        }, this);
-        component.getEventBus().subscribe("taskform", "withdraw", function () {
-          this.onWithdraw();
-        }, this);
       },
 
       /**
@@ -1901,6 +1889,13 @@ sap.ui.define([
       },
 
       _onFieldCommitted: function (section, field) {
+        // S/4 derives the full name from these and will not be told it, so nothing fills the field
+        // until the partner exists. Recomposed here instead, as soon as a name is typed - the same
+        // composition srv/partner-name.js sends to the workflow, so the screen and the approver's
+        // task agree. Display only: staging has no such column and the create path excludes it.
+        if (section.kind === "root" && NAME_FIELDS.indexOf(field.name) !== -1) {
+          this._refreshFullName(true);
+        }
         // A tax number is worth the register on its own, and only the register: Propose false so
         // no AI Core call rides along with it.
         if (REGISTRY_TRIGGER_FIELDS[field.name]) {
@@ -1914,6 +1909,28 @@ sap.ui.define([
         this._pendingScope = scope;
         clearTimeout(this._idleTimer);
         this._idleTimer = setTimeout(this._flushPendingScope.bind(this), TRIGGER_IDLE_MS);
+      },
+
+      /**
+       * Puts the composed name into the read-only BusinessPartnerFullName field. `previewName` is the
+       * same category-driven composition `fullNameOf` performs server-side for the workflow row.
+       *
+       * Writing it onto `state.root` is safe on both counts that matter: staging has no
+       * `BusinessPartnerFullName` column so `stageable()` drops it, and `ROOT_CREATE_EXCLUDED_FIELDS`
+       * keeps it out of the create S/4 would reject. It is a value to show, never one to store.
+       */
+      _refreshFullName: function (recompose) {
+        var model = this.getView().getModel("maintenance");
+        var state = model.getData();
+        var root = state.root || {};
+        // Without `recompose` an existing value is left alone: on a partner read from S/4 that value
+        // is S/4's own derivation and replacing it with a guess would show something S/4 does not
+        // say. A committed name field passes true - what it will become is the useful answer then.
+        if (!recompose && String(root.BusinessPartnerFullName || "").trim()) return;
+        var composed = previewName(root);
+        if (!composed || root.BusinessPartnerFullName === composed) return;
+        root.BusinessPartnerFullName = composed;
+        model.refresh(true);
       },
 
       _flushPendingScope: function () {
@@ -2473,6 +2490,8 @@ sap.ui.define([
           // uses. Written at submit and, until 2026-08-24, never read back - so an approver opening
           // the task saw nothing, which is indistinguishable from "no duplicate was found".
           this._setDuplicatePanel(state, this._parseJsonArray(payload && payload.FindingsJson));
+          // Staging has no BusinessPartnerFullName column, so a request always arrives without one.
+          this._refreshFullName();
           // The approve view is the approver's, the draft and rework views are the requester's own.
           // `hidden` is deliberately honoured on the approve view too: once approvals are split by
           // function, a sales approver has no business reading the bank details.
@@ -2542,18 +2561,13 @@ sap.ui.define([
             state.modeText = state.requestStatus;
           }
 
-          // Who has it now, at the top - the first question anyone opening a request asks. Added
-          // after the branches above so it cannot be overwritten by one of them, and it yields to a
-          // Warning: a rejection reason is what a requester is looking for and must still lead.
+          // Who has it now. Added after the branches above so none of them can overwrite it, and
+          // added LAST: every message a branch sets explains the screen the requester is looking at -
+          // why a rework link offers nothing, why a request is read-only, what a rejection said - and
+          // the panel header shows the leading message, so putting this first would collapse the
+          // explanation behind "Current step: ...". It leads on its own when nothing else spoke.
           var processorStrip = processorMessage(state.processors);
-          if (processorStrip) {
-            var leadingWarning = (state.messages || []).some(function (message) {
-              return message.type === "Warning";
-            });
-            state.messages = leadingWarning
-              ? (state.messages || []).concat([processorStrip])
-              : [processorStrip].concat(state.messages || []);
-          }
+          if (processorStrip) state.messages = (state.messages || []).concat([processorStrip]);
         } catch (error) {
           MessageBox.error(errorMessage(error, "The change request could not be loaded."));
         } finally {

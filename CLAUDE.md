@@ -216,20 +216,23 @@ The entity is `@cds.persistence.skip` — one READ handler in
 3. The remote read asks for a **fixed** column list (`PARTNER_FIELDS`). The
    client asks for status columns that exist only here, and one unknown field
    fails the whole remote read.
-4. `$count` is the remote count plus the matching staged rows. A page filled
-   entirely by staged rows still needs the total, so it asks S/4 for **a page**
-   and throws the rows away.
+4. `$count` is the remote count plus the matching staged rows, and **both sides
+   have to be numbers**. `$count` arrives from the V2 remote as a **string**, so
+   `partners.count + pending.length` was `"323" + 57` — string concatenation,
+   giving `"32358"` for a list of 380 rows. It reported a count two orders of
+   magnitude out for a week, and survived that long because 32,354 / 32,355 /
+   32,358 all look like a plausible partner population rather than a bug.
 
-   **It asked for one row until 2026-08-24, and that is where a wrong count came
-   from.** With 55 pending creates and a page size of 30, the staged rows filled
-   page 1, so that branch ran on the only read whose count the table header ever
-   shows — and the `$top=1` read answered `$count` **32324** where every real page
-   read of the same unfiltered query answered **323**. The list said 32,354 and
-   corrected itself to 378 once scrolling had loaded everything. Whatever the
-   gateway does with `$top=1` and a count, do not go back to being clever here:
-   ask with the page size the client asked for, which is the shape that
-   demonstrably counts right. The `[search]` log line is what pinned it — it
-   prints the incoming shape and the remote count per read.
+   What gave it away was the arithmetic, not the logs: the numbers were always
+   `"323"` with the staged count stuck on the end. Two wrong theories came first —
+   that an unfiltered read was simply correct, and then that the `$top=1` count-only
+   read made the gateway answer differently — and the `[search]` log line disproved
+   the second by printing `count 323` on exactly that read. The count-only read is
+   back to asking for one throwaway row; the page-size version was aimed at a bug
+   that was never there.
+
+   A page filled entirely by staged rows still needs the total, which is why that
+   branch exists at all.
 
 Consequences worth knowing before changing this:
 
@@ -339,9 +342,19 @@ while nothing could produce such a value; composing one is exactly that. Hence
 create; nothing produces them today, and the same reasoning applies if anything
 ever does.
 
-The composed name is **not** put on the screen's read-only field, and does not need
-to be: `previewName` already composes the object page's own header title from the
-same components, so the requester sees the name at the top of the request.
+**On the screen it is filled by `_refreshFullName`**, from `previewName` — the same
+category-driven composition, client-side. Two rules make it safe and honest:
+
+- **A committed name field recomposes it** (`_onFieldCommitted`, `recompose: true`),
+  so it fills in as soon as Name 1 is typed rather than waiting for a post.
+- **An existing value is otherwise left alone.** On a partner read from S/4 that
+  value is S/4's own derivation, and replacing it with a composition would show
+  something S/4 does not say. A staged request always arrives without one, so
+  loading a request composes it.
+
+Writing it onto `state.root` is safe on both counts that matter: staging has no such
+column so `stageable()` drops it, and `ROOT_CREATE_EXCLUDED_FIELDS` keeps it out of
+the create S/4 would reject. A value to show, never one to store.
 
 ### Who has it now — the processors strip (2026-08-24)
 
@@ -381,10 +394,13 @@ The rest is deliberate:
   in the approver's inbox.
 - **`rejected` reads as the rework it has become.** Nothing writes it any more, but
   it cannot be dropped from the enum, so it must not fall through to "nobody".
-- **The strip yields to a Warning.** A rejection reason is the first thing a
-  requester looks for, so on the rework screen the processors line goes below it;
-  everywhere else it leads. It is added after every mode branch has set its own
-  messages, or one of them would overwrite it.
+- **The strip goes LAST**, after every mode branch has set its own messages — both
+  so none of them can overwrite it, and because each of those messages explains the
+  screen the requester is looking at: why a rework link offers nothing, why a
+  request is read-only, what a rejection said. The panel header shows the *leading*
+  message, so leading with the step collapses the explanation out of sight. It was
+  prepended for half a day and that is exactly what it did. It leads on its own
+  when nothing else spoke, which is the plain approve screen.
 - Best-effort, like every other read of the workflow rules: a table that cannot be
   read costs the strip, never the screen.
 
@@ -1395,26 +1411,25 @@ Decisions behind it, each of which has a cheaper wrong version:
   list stays steward-gated either way, so neither path is a substitute for the
   other existing; a workflow can use one, both, or keep only `reworkurl`. The
   screen still has to cope with a link opened twice, for whichever entry point
-  reopens it. **Embedded, Resubmit and Withdraw hide behind `env>/embedded`
-  exactly like Approve/Reject** — reversed 2026-08-21 from the original design,
-  which left them visible on the theory that unlike a decision they need the
-  requester's own edits and cannot be reduced to a My Inbox outcome button. That
-  theory was wrong about what "reduced to an outcome button" has to mean: My
-  Inbox does not reliably give an embedded app's own footer room to render at
-  all (confirmed live — the in-page buttons simply did not appear), so
-  `resubmit`/`withdraw` **are** now wired to `inboxAPI.addAction` in
-  `_addReworkInboxActions`, but pressing one does not complete the task the way
-  Approve/Reject do. It only publishes onto the same `"taskform"` event-bus
-  channel Julien's inbox-loading fix uses; the shared controller (subscribed in
-  `onInit`) answers by running the exact `onSave`/`onWithdraw` flow the in-page
-  button would have run — Check, the duplicate-check confirmation dialog if one
-  is needed, then the actual resubmit/withdraw. The task completes itself only
-  *after* that flow actually succeeds, via `_completeEmbeddedOutcome` in the
-  shared controller calling `completeOutcome` on the task app's Component — the
-  same `PATCH task-instances` the approve path sends, without a `decideRequest`
-  in front of it since `resubmitRequest`/`withdrawRequest` already recorded the
-  outcome server-side. So the full interactive flow still runs; only *where the
-  button lives* changed.
+  reopens it. Embedded, only Approve/Reject hide behind `env>/embedded` —
+  Resubmit and Withdraw stay visible, because unlike a decision they need the
+  requester's own edits and cannot be reduced to a My Inbox outcome button.
+  **They are in the object page HEADER actions, not the footer** (fixed
+  2026-08-24): My Inbox does not render an embedded app's `sap.m.Page` footer, so
+  every button in it was invisible on a task - Resubmit and Withdraw on a rework
+  task, and Check, Duplicate Check and Back on the approve task too. Only
+  Approve/Reject worked, because those come from `inboxAPI.addAction`. The header
+  actions are page content and do render, so that is where an embedded action
+  goes; they are gated on `env>/embedded` so standalone keeps its footer rather
+  than growing a second row of the same buttons. `Component.js` asserted the
+  opposite in a comment for three days - it was never true. The task
+  completes itself only *after* `resubmitRequest`/`withdrawRequest` already
+  succeeded, via `_completeEmbeddedOutcome` in the shared controller calling
+  `completeOutcome` on the task app's Component — the same `PATCH task-instances`
+  the approve path sends, without a `decideRequest` in front of it since that
+  action already recorded the outcome server-side. `resubmit`/`withdraw` were
+  added to `sap.bpa.task.outcomes` in `app/bptask` for this; they are never wired
+  to `inboxAPI.addAction`, unlike `approve`/`reject`.
 - **Resubmit resumes, it does not restart.** The process instance stays parked
   through the rejection, and `resubmitRequest` signals it with
   `RESUBMITTED_SIGNAL` (`'resubmitted'`). One instance per change request means one
@@ -1523,6 +1538,11 @@ keys went with them. `inputs` and `outputs` stay as they are; they declare the
 task context for the Lobby, while the runtime reads none of it — `Component.js`
 fetches `/task-instances/{id}/context` itself and PATCHes the whole context back.
 `test/task-form.test.js` pins the labels.
+
+**Nothing in the app's own footer reaches anybody in My Inbox.** That is the trap
+this section cost most time to: the footer renders standalone, the tests only read
+source, and the inbox chrome quietly drops it. Anything that must be pressable on a
+task goes in the header actions or through `inboxAPI.addAction`.
 
 **Verified end to end on 2026-08-20**: the partner app opens from the Work Zone
 tile (so `resourceRoots` resolves the shared screen at runtime), and Arthur

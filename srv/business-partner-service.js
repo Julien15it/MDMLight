@@ -1609,7 +1609,7 @@ class BusinessPartnerService extends cds.ApplicationService {
      * The remote half of the merged list. The columns are fixed rather than the client's: it asks
      * for status columns that exist only here, and one unknown field fails the whole remote read.
      */
-    const readPartnerPage = async ({ where, search, orderBy, skip, top, pageSize, count }) => {
+    const readPartnerPage = async ({ where, search, orderBy, skip, top, count }) => {
       if (top === 0 && !count) return { rows: [], count: 0 };
 
       const query = cds.ql.SELECT.from(this.entities.BusinessPartners).columns(...PARTNER_FIELDS);
@@ -1620,14 +1620,10 @@ class BusinessPartnerService extends cds.ApplicationService {
       if (ordering.length) query.SELECT.orderBy = ordering;
 
       // A page already filled by staged rows still needs the total, and a count-only remote read is
-      // not something this service can express - so it asks for a page and throws the rows away.
-      //
-      // It asked for ONE row until 2026-08-24, and that row came back with a count of 32324 where
-      // every real page read of the same unfiltered query answered 323 - so the first page of the
-      // list, the only one where this branch runs, showed a total two orders of magnitude out.
-      // Whatever the gateway does with `$top=1` and a count, the fix is to stop being clever: ask
-      // with the page size the client asked for, which is the shape that demonstrably counts right.
-      const rows = top === 0 ? Math.max(pageSize || 1, 1) : top;
+      // not something this service can express - so it asks for one row and throws it away. The
+      // remote counts the same whatever `$top` is; a page-size read was tried here while the string
+      // `$count` above was being blamed on `$top=1`, and reverted once the arithmetic explained it.
+      const rows = top === 0 ? 1 : top;
       const limit = {
         ...(rows === undefined ? {} : { rows: { val: rows } }),
         ...(skip ? { offset: { val: skip } } : {})
@@ -1640,9 +1636,13 @@ class BusinessPartnerService extends cds.ApplicationService {
 
       const result = await s4.run(query);
       const page = Array.isArray(result) ? result : [];
+      // `$count` arrives as a STRING from the V2 remote ("323"), and the caller adds the staged rows
+      // to it. `"323" + 57` is `"32358"`, which is exactly what the list reported for a week - a
+      // count two orders of magnitude out that still looked like a plausible partner population.
+      const remoteCount = Number(page.$count ?? page.length);
       return {
         rows: top === 0 ? [] : page,
-        count: page.$count ?? page.length
+        count: Number.isFinite(remoteCount) ? remoteCount : page.length
       };
     };
 
@@ -1707,8 +1707,6 @@ class BusinessPartnerService extends cds.ApplicationService {
         orderBy: select.orderBy,
         skip: split.partnerSkip,
         top: split.partnerTop,
-        // What the client asked for, so a count-only read can borrow it rather than invent a size.
-        pageSize: top,
         count: Boolean(select.count)
       });
 
@@ -1721,7 +1719,9 @@ class BusinessPartnerService extends cds.ApplicationService {
         ).row)
       ];
 
-      if (select.count) rows.$count = partners.count + pending.length;
+      // Both sides are numbers by the time they meet here - see readPartnerPage. A string on either
+      // side turns this into concatenation, which is how a 380-row list came to report 32,358.
+      if (select.count) rows.$count = Number(partners.count) + pending.length;
 
       // The count is what the table header shows, and a header that says 32,784 and then 377 is a
       // read whose filter did not travel. Logged per read - the incoming shape, and both halves of
@@ -1731,7 +1731,8 @@ class BusinessPartnerService extends cds.ApplicationService {
         `[search] top=${top} skip=${skip} count=${Boolean(select.count)} `
         + `terms=${terms.length} filtered=${Boolean(select.where && select.where.length)} `
         + `columns=${(select.columns || []).length} -> `
-        + `${rows.length} rows (${pending.length} staged), s4 count ${partners.count}`
+        + `${rows.length} rows (${pending.length} staged), s4 top=${split.partnerTop} `
+        + `countOnly=${split.partnerTop === 0} count ${partners.count}`
       );
 
       // An unbounded read of this list is a full read of S/4's partner population, and its count is

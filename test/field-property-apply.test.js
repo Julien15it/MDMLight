@@ -241,7 +241,9 @@ test('the enforcing context is the requester, never a role the client named', ()
 
 test('the property validations run alongside the configured ones, on every gate', () => {
   assert.equal(
-    (serviceJs.match(/\[\.\.\.properties\.validations, \.\.\.configured\.validations, \.\.\.registry\.validations\]/gu) || []).length,
+    (serviceJs.match(
+      /\[\.\.\.properties\.validations, \.\.\.configured\.validations, \.\.\.registry\.validations,\s*\.\.\.relationStages\([^)]*\)\.validations\]/gu
+    ) || []).length,
     3,
     'check/duplicate-check, submit and resubmit'
   );
