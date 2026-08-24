@@ -8,6 +8,8 @@
  * copy of the same company, and listing both would report one company twice.
  */
 
+const { fullNameOf } = require('./partner-name');
+
 /**
  * In progress for this list: a request a human still owns. `approved` (waiting to post) and
  * `failed` are out - those belong to the post, not to somebody deciding whether to raise a request.
@@ -69,18 +71,10 @@ function requestFields(request) {
 }
 
 /**
- * The name a staged create should be listed under. S/4 derives BusinessPartnerFullName; staging has
- * only the fields it was typed into, so the same order of preference is applied here by hand.
+ * The name a staged create is listed under. Shared with the workflow input, so the list and the
+ * approver's task cannot name the same requested partner differently.
  */
-function stagedFullName(general = {}) {
-  const organisation = [general.OrganizationBPName1, general.OrganizationBPName2]
-    .filter(Boolean).join(' ').trim();
-  const person = [general.FirstName, general.MiddleName, general.LastName]
-    .filter(Boolean).join(' ').trim();
-  const group = [general.GroupBusinessPartnerName1, general.GroupBusinessPartnerName2]
-    .filter(Boolean).join(' ').trim();
-  return organisation || person || group || String(general.SearchTerm1 || '').trim();
-}
+const stagedFullName = fullNameOf;
 
 /** A pending create as a row, plus the staged record it is matched against. */
 function pendingCreateEntry(entry = {}) {

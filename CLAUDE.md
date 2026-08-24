@@ -253,6 +253,47 @@ Consequences worth knowing before changing this:
   deferring: restricting `getRequestPayload` to steward-or-requester today would
   **break every approval**, because an approver is neither.
 
+### `BusinessPartnerFullName` is derived, never stored (2026-08-24)
+
+It is a **standard S/4 field**, not one this app added, and
+`srv/external/API_BUSINESS_PARTNER.edmx` marks it
+`sap:creatable="false" sap:updatable="false"` — S/4 composes it from the name
+components and refuses to be told it. That is why the maintenance screen shows it
+uneditable (`generate-maintenance-metadata.js` carries the flags through) and why
+making it editable would gain nothing.
+
+It is also absent from the **Field Properties** catalog, correctly:
+`payload-fields.js` is generated from `db/staging.cds`, which has no such column,
+and a profile cannot govern a field nobody can fill.
+
+The gap that mattered: a **pending create** has no such name anywhere. S/4 has
+never seen the partner and staging does not hold the field, so the approver's task
+was being handed a blank where the partner's name belongs. `srv/partner-name.js`
+composes it — the category decides which fields to read (1 person, 2 organisation,
+3 group), because S/4 discards name fields that do not match the category, and an
+empty answer falls through the other groups rather than leaving a request unnamed
+for a human to read.
+
+**One composed name, two consumers**, so the search list and the approver's task
+can never name the same requested partner differently: `stagedFullName` in
+`srv/search-results.js` *is* `fullNameOf`, and `buildBusinessPartnerInput` wraps
+the root row in `withFullName`.
+
+**Never write it into a request payload**, and this is the trap worth remembering:
+`sanitizeEntityPayload` excluded it on **update** all along and excluded *nothing*
+on create, so a value sitting on the staged root would have been forwarded to S/4
+on the post and rejected — a request that fails at the last step. It cost nothing
+while nothing could produce such a value; composing one is exactly that. Hence
+`ROOT_CREATE_EXCLUDED_FIELDS`, which is the create-path counterpart and holds
+`BusinessPartnerFullName` and `BusinessPartnerName`. Other derived root fields
+(`BusinessPartnerUUID`, `CreatedByUser`, `CreationDate`, …) are still unguarded on
+create; nothing produces them today, and the same reasoning applies if anything
+ever does.
+
+The composed name is **not** put on the screen's read-only field, and does not need
+to be: `previewName` already composes the object page's own header title from the
+same components, so the requester sees the name at the top of the request.
+
 ### Who has it now — the processors strip (2026-08-24)
 
 Every change request screen leads with one Information strip saying which step the

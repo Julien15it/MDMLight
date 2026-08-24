@@ -104,6 +104,27 @@ test('buildBusinessPartnerInput shapes staged rows for a create request (no Busi
   assert.equal(result.A_BusinessPartnerAddress[0].cityName, 'Gent');
   assert.equal(result.A_BusinessPartnerAddress[0].businessPartner, '');
   assert.equal(result.A_BusinessPartnerRole[0].businessPartnerRole, 'FLVN00');
+  // S/4 derives the full name and has never seen this partner, and staging holds no such column -
+  // so it is composed here, or the approver's task shows a blank where the name should be.
+  assert.equal(result.A_BusinessPartner.businessPartnerFullName, 'Test 0608');
+});
+
+test('the composed full name follows the category, and survives an empty record', async () => {
+  const person = await buildBusinessPartnerInput(stagingDb({
+    StagedGeneral: [{
+      BusinessPartnerCategory: '1',
+      FirstName: 'Maarten',
+      LastName: 'Eylenbosch',
+      OrganizationBPName1: 'Ignored For A Person'
+    }]
+  }), s4Mock, { ID: 'cr-3', businessPartner: null });
+  assert.equal(person.A_BusinessPartner.businessPartnerFullName, 'Maarten Eylenbosch');
+
+  // Nothing to compose from is still a blank, not a crash or a stray space.
+  const empty = await buildBusinessPartnerInput(stagingDb({ StagedGeneral: [{}] }), s4Mock, {
+    ID: 'cr-4', businessPartner: null
+  });
+  assert.equal(empty.A_BusinessPartner.businessPartnerFullName, '');
 });
 
 test('buildBusinessPartnerInput backfills the known BusinessPartner onto staged child rows for a change request', async () => {

@@ -453,6 +453,17 @@ const MAINTENANCE_ENTITIES = Object.freeze({
   })
 });
 
+/**
+ * S/4 derives these and refuses to be told them (`sap:creatable="false"`), so they must not travel on
+ * a create either - the update path has excluded them all along, the create path excluded nothing.
+ * It cost nothing while nobody could produce a value; the composed full name (srv/partner-name.js)
+ * is exactly such a value, and a create rejected by S/4 is a request that fails at the post.
+ */
+const ROOT_CREATE_EXCLUDED_FIELDS = Object.freeze(new Set([
+  'BusinessPartnerFullName',
+  'BusinessPartnerName'
+]));
+
 const ROOT_UPDATE_EXCLUDED_FIELDS = Object.freeze(new Set([
   'BusinessPartner',
   'BusinessPartnerCategory',
@@ -1802,7 +1813,7 @@ class BusinessPartnerService extends cds.ApplicationService {
       const entity = this.entities.BusinessPartners;
       const payload = sanitizeEntityPayload(data, entity, {
         isCreate,
-        excluded: isCreate ? new Set() : ROOT_UPDATE_EXCLUDED_FIELDS
+        excluded: isCreate ? ROOT_CREATE_EXCLUDED_FIELDS : ROOT_UPDATE_EXCLUDED_FIELDS
       });
 
       if (isCreate) {
@@ -2150,6 +2161,7 @@ BusinessPartnerService._internals = {
   UPDATE_FIELDS,
   MAINTENANCE_ENTITIES,
   VALUE_HELP_ENTITIES,
+  ROOT_CREATE_EXCLUDED_FIELDS,
   ROOT_UPDATE_EXCLUDED_FIELDS,
   ASSISTANT_PAGE_SIZE,
   ASSISTANT_ADDRESS_CHUNK,

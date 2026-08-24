@@ -14,6 +14,7 @@ const { configuredStages } = require('./checks/rule-store');
 const { fieldPropertyStages, resolvedProperties } = require('./checks/field-property-store');
 const { approversFor } = require('./checks/workflow-rule-store');
 const { currentProcessors } = require('./request-processors');
+const { withFullName } = require('./partner-name');
 const { proposeNormalisations } = require('./checks/normalise');
 const { aiAssistanceEnabled } = require('./ai/availability');
 const { PAYLOAD_NODES, ROOT_SECTION } = require('./checks/payload-fields');
@@ -271,7 +272,11 @@ async function buildBusinessPartnerInput(db, s4, header) {
   const industries = await activeStagedRows(db, NODES.Industries.entity, changeRequest);
 
   const rowsByEntity = {
-    A_BusinessPartner: withBusinessPartner(general),
+    // The composed name, because a pending create has none: S/4 derives BusinessPartnerFullName and
+    // staging has no column for it, so the workflow was being handed a blank where the partner's name
+    // should be. Composed onto the workflow row ONLY - see srv/partner-name.js for why it must never
+    // reach the staged payload. A change request over an existing partner keeps S/4's own value.
+    A_BusinessPartner: withFullName(withBusinessPartner(general)),
     A_BusinessPartnerAddress: (await activeStagedRows(db, NODES.Addresses.entity, changeRequest)).map(withBusinessPartner),
     A_BusinessPartnerRole: (await activeStagedRows(db, NODES.BusinessPartnerRoles.entity, changeRequest)).map(withBusinessPartner),
     A_BusinessPartnerBank: (await activeStagedRows(db, NODES.BankDetails.entity, changeRequest)).map(withBusinessPartner),
