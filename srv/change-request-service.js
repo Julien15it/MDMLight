@@ -484,6 +484,20 @@ class ChangeRequestService extends cds.ApplicationService {
       }
     };
 
+    /** Everything the request was submitted with EXCEPT the duplicates, which have their own panel. */
+    const currentValidationFindings = async (changeRequest) => {
+      try {
+        return await db.run(
+          cds.ql.SELECT.from(FINDINGS)
+            .where`request_ID = ${changeRequest} and checkName != 'duplicate_check'
+                   and (isStale is null or isStale = false)`
+        );
+      } catch (error) {
+        console.warn(`[findings] Could not read the validations of ${changeRequest}:`, error.message);
+        return [];
+      }
+    };
+
     const persist = async (req) => {
       const payload = parseJsonObject(req.data.DataJson, 'DataJson');
       const requestType = req.data.RequestType;
@@ -577,6 +591,36 @@ class ChangeRequestService extends cds.ApplicationService {
         }];
       }
       return findings;
+    };
+
+    /**
+     * The validations a submit passed WITH warnings - a VAT number VIES could not confirm, a
+     * register name that disagrees with the one typed, a configured rule set to `warning`. They were
+     * returned to the requester and then dropped on the floor: `CheckFindings` only ever held
+     * `duplicate_check` rows, so an approver judged a request without the findings it was submitted
+     * with. Nothing blocking can be here by construction - a blocking validation leaves the request
+     * a draft and this is only reached once that gate has passed.
+     *
+     * Superseded rather than deleted on a resubmit, the same way the duplicates are, so an earlier
+     * verdict stays auditable. Best-effort: a request that reached the workflow must not be undone
+     * because its findings could not be written.
+     */
+    const recordValidationFindings = async (changeRequest, validations) => {
+      try {
+        await db.run(cds.ql.UPDATE(FINDINGS)
+          .set({ isStale: true })
+          .where`request_ID = ${changeRequest} and checkName != 'duplicate_check'`);
+        const rows = (validations || []).filter((finding) => finding && finding.message);
+        if (!rows.length) return;
+        await db.run(cds.ql.INSERT.into(FINDINGS).entries(rows.map((finding) => ({
+          ID: cds.utils.uuid(),
+          request_ID: changeRequest,
+          // A validation stage names itself; a row with no name would be unfilterable afterwards.
+          ...stagedFinding({ checkName: 'validation', ...finding })
+        }))));
+      } catch (error) {
+        console.warn(`[findings] Could not record the validations of ${changeRequest}:`, error.message);
+      }
     };
 
     // CVI's business-partner-to-customer/vendor assignment, asked at submit rather than while
@@ -701,6 +745,10 @@ class ChangeRequestService extends cds.ApplicationService {
         };
       }
 
+      // After the gate, so nothing blocking is ever stored - and before the duplicate check, so an
+      // outage in that check cannot cost the warnings this submit already produced.
+      await recordValidationFindings(changeRequest, validations);
+
       const findings = await recordDuplicateFindings(changeRequest, req.data.BusinessPartner);
       // Only a verdict-bearing finding asks for a second press. A check that could not run reports
       // itself but must not hold the request hostage to an outage.
@@ -791,6 +839,10 @@ class ChangeRequestService extends cds.ApplicationService {
           MessagesJson: JSON.stringify([])
         };
       }
+
+      // After the gate, so nothing blocking is ever stored - and before the duplicate check, so an
+      // outage in that check cannot cost the warnings this submit already produced.
+      await recordValidationFindings(changeRequest, validations);
 
       const findings = await recordDuplicateFindings(changeRequest, req.data.BusinessPartner);
       const duplicates = findings.filter((finding) => finding.verdict);
@@ -965,6 +1017,7 @@ class ChangeRequestService extends cds.ApplicationService {
         SubmittedAt: header.submittedAt,
         ProcessorsJson: JSON.stringify(await processorsFor(header, { root, sections })),
         FindingsJson: JSON.stringify(await currentDuplicateFindings(changeRequest)),
+        ValidationsJson: JSON.stringify(await currentValidationFindings(changeRequest)),
         DataJson: JSON.stringify({ root, sections, deleted })
       };
     });

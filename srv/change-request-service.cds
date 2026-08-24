@@ -79,6 +79,12 @@ service ChangeRequestService @(path: '/service/changerequest') {
      * requester was warned about. `duplicate_check` findings only, superseded ones left out.
      */
     FindingsJson    : LargeString;
+    /**
+     * The validations the request was submitted WITH - a VAT number VIES could not confirm, a
+     * register name that disagrees with the one typed - so the approver sees what the requester was
+     * warned about. Nothing blocking can be here: that leaves a request a draft.
+     */
+    ValidationsJson : LargeString;
     DataJson        : LargeString;
   };
 

@@ -306,6 +306,28 @@ piece of code. Two details:
   registry findings, which are a different report, and a resubmit's superseded
   verdicts would otherwise come back alongside the current ones and make one pair
   read as several.
+**And the validations follow it too** (2026-08-24). `CheckFindings` only ever held
+`duplicate_check` rows, so a VIES name mismatch, a VAT number VIES could not
+confirm, a GLEIF statement or a `warning`-level configured rule was reported to the
+requester at submit and then dropped — the approver judged the request without the
+findings it was submitted with. `recordValidationFindings` stores them on both
+submit paths and `getRequestPayload` returns them as `ValidationsJson`.
+
+- **Written after the blocking gate**, so nothing blocking is ever stored: a
+  blocking validation leaves the request a draft and never reaches this point.
+- **Written before the duplicate check**, so an outage in that check cannot cost the
+  warnings the submit already produced.
+- **Superseded, not deleted**, on a resubmit — same as the duplicates, so an earlier
+  verdict stays auditable.
+- **Rendered as strips, not in the duplicate panel**: they are statements about this
+  record, not a list of other partners to compare it against. `_validationMessages`
+  is the shared mapper, so the approver's strips and the requester's Check strips
+  cannot drift.
+- **Appended after the mode branches.** Every branch *assigns* `state.messages`, so
+  setting them earlier puts them where the next branch wipes them. Order is: the
+  branch's own message (it explains the screen, and the collapsed panel header shows
+  the first one), then the submitted warnings, then who has it now.
+
 - The approver's rows carry **no candidate name**: `candidateName` is not a
   staging column, so the title is the partner number (or `pending request <id>`)
   and the stored `message` carries the sentence. Add the column if the name matters
