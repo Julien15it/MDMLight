@@ -1667,26 +1667,35 @@ costs the same step.
   because the bundle at an unchanged version URL is still cached. Cost half an hour
   on 2026-08-21. To test a task-app change, disable the browser cache or move the
   app version; to check what is live, look at the URL the app actually requests.
-- **The OData `dataSources` carry the CONTENT-PROVIDER prefix, and that is what makes
-  the destination resolve** (2026-08-21). Proven by requesting the same resource two
-  ways from a launchpad session:
+- **The OData `dataSources` carry the DESTINATION SERVICE INSTANCE GUID as a prefix,
+  and that is what makes the destination resolve** (2026-08-21, identified 2026-08-25).
+  Proven by requesting the same resource two ways from a launchpad session:
 
   ```
   /mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/businesspartner/$metadata      500
   /5db4d34d-….mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/businesspartner/…   200
   ```
 
-  Without the leading UUID the approuter cannot tell which provider's destination
-  namespace `mdm-businesspartner-srv-api` belongs to. `/api/` never needed it because
-  it resolves a **`service`** (`com.sap.spa.processautomation`) rather than a
-  **`destination`** — which is exactly why that one route worked throughout and sent
-  the diagnosis down two wrong paths (a stale app version, then browser cache).
+  Without the leading UUID the approuter cannot tell WHICH DESTINATION SERVICE INSTANCE
+  to resolve `mdm-businesspartner-srv-api` from. `/api/` never needed it because it
+  resolves a **`service`** (`com.sap.spa.processautomation`) rather than a
+  **`destination`**, so no destination lookup happens at all — which is exactly why that
+  one route worked throughout and sent the diagnosis down two wrong paths (a stale app
+  version, then browser cache).
 
-  **The UUID is landscape-specific.** It is the content provider of this subaccount,
-  it appears in the partner app's own URLs, and it is hard-coded in exactly one place
-  per data source with a test pinning that both agree. Deploying this MTA to another
-  subaccount needs it changed; parameterising it through `mta.yaml` is the obvious
-  follow-up and was not done because the id is not something the MTA knows.
+  **It is the instance GUID of `mdm-businesspartner-destination-service`** — confirmed
+  2026-08-25 with `cf service mdm-businesspartner-destination-service --guid`. It is NOT
+  a Work Zone content provider id, which is what this file called it for four days and
+  what sent the next search to Channel Manager: a content provider ID is "up to 20
+  alphanumeric characters, dots, or underscores" (SAP Help, *Multi-Tenancy
+  Consumption*), so a 36-character hyphenated UUID can never be one. Nor is it the
+  app-host GUID, the other plausible candidate.
+
+  **It is landscape-specific and created by this MTA**, so it does not exist until the
+  first deploy of a given subaccount finishes. That is what makes build-time
+  substitution awkward: `mbt build` fixes `manifest.json` inside the app zip before any
+  resource exists. Shipping this to a customer needs one of the routes under "Deriving
+  it" below, not a literal.
 - **The OData `dataSources` are ABSOLUTE, on that same derived app path** (fixed
   2026-08-21) — `/mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/…/`, not
   `service/…/`. Embedded in My Inbox the app is served out of the HTML5 repository
@@ -1730,11 +1739,31 @@ costs the same step.
   anything; the unelided URL has no UUID in it. When an abbreviated URL is the evidence
   for a claim about a URL, get the full one.
 
-  So the runtime knows the version and the app id and never the provider. Parameterising
-  it at **build time** — a token in `manifest.json` that `tools/package-html5.js`
-  substitutes from an env var supplied by `mta.yaml` — is the remaining route, and it
-  needs one thing settled first: where the id comes from at deploy time, given the MTA
-  does not know it today. Not built.
+  So the runtime knows the version and the app id, and never the destination service
+  instance. Nothing the app can read tells it.
+
+  **Deriving it — the routes still open (2026-08-25, none built).** Ranked by how much
+  they would actually be worth:
+
+  1. **Route `/service/*` so no GUID is needed at all.** The prefix exists only to pick a
+     destination service instance. `/api/` avoids it entirely by resolving a `service`,
+     and the CAP backend already has a `sap.cloud.service` of its own. If the task app's
+     `xs-app.json` can reach CAP the way it reaches SBPA, the whole problem disappears
+     rather than being parameterised. **Read the approuter business-service routing docs
+     before assuming either way** — this has not been tested, and it is the only option
+     that leaves nothing landscape-specific behind.
+  2. **Carry the prefix in the task context.** The task app already loads
+     `/api/public/workflow/rest/v1/task-instances/{id}/context` **before it needs any
+     OData**, and that route needs no prefix. CAP can read its own destination service
+     instance GUID out of `VCAP_SERVICES` and put it in `workflowContext()`, so the app
+     is told its path by the only backend call it can make unaided. Costs a reordering:
+     the OData models would have to be built after the context resolves, which
+     `_loadPermissions` currently runs before. Embedded-only, which is the only case that
+     needs it — standalone stays relative. **Unverified: that `VCAP_SERVICES` exposes
+     `instance_guid` for the destination binding.** Check before building.
+  3. **Two-pass install.** Deploy, read the GUID, set it as an MTA parameter, redeploy.
+     No source literal, but it makes every customer installation a two-step with a
+     manual copy in the middle. The fallback if 1 and 2 both fail, not a goal.
 - My Inbox renders the buttons. `Component.js` registers them with
   `inboxAPI.addAction`, ids matching `sap.bpa.task.outcomes`, and the app's own
   footer Approve/Reject hide on `env>/embedded` so there is one place to press.
