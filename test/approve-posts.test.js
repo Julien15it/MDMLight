@@ -1,0 +1,211 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert');
+const fs = require('fs');
+const path = require('path');
+
+const read = (...parts) => fs.readFileSync(path.join(__dirname, '..', ...parts), 'utf8');
+
+const serviceJs = read('srv', 'change-request-service.js');
+const serviceCds = read('srv', 'change-request-service.cds');
+const automation = read('srv', 'wf', 'processAutomation.js');
+const taskComponent = read('app', 'bptask', 'webapp', 'Component.js');
+const approveController = read(
+  'app', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse',
+  'controller', 'BusinessPartnerMaintenance.controller.js'
+);
+
+const decideBody = serviceJs.slice(
+  serviceJs.indexOf("this.on('decideRequest'"), serviceJs.indexOf("this.on('completeRequest'")
+);
+const approveBranch = decideBody.slice(decideBody.indexOf('// Approved'));
+const postAndRecord = serviceJs.slice(
+  serviceJs.indexOf('const postAndRecord ='), serviceJs.indexOf("this.on('decideRequest'")
+);
+
+/**
+ * Pressing Approve creates the business partner (changed 2026-08-25). It used to stop at `approved`
+ * and leave the S/4 write to SPA calling completeRequest — while the approve screen already told the
+ * approver the partner had been created, and its confirmation dialog already promised it would be.
+ */
+test('approving posts to S/4 rather than only recording the decision', () => {
+  assert.match(approveBranch, /status: 'approved'/u, 'the decision is still recorded first');
+  assert.match(approveBranch, /return postAndRecord\(req, \{ \.\.\.header, status: 'approved' \}\)/u);
+  // The screen's promise, which the server now keeps.
+  assert.match(approveController, /Approve this request and create the Business Partner in S\/4HANA\?/u);
+});
+
+test('the approver comment is still appended before anything is posted', () => {
+  const commentAt = approveBranch.indexOf('appendComment');
+  const postAt = approveBranch.indexOf('postAndRecord');
+  assert.ok(commentAt > -1 && postAt > -1);
+  assert.ok(commentAt < postAt, 'the comment is part of the decision, not of the post');
+});
+
+test('a successful post is recorded as posted, with the number and no error', () => {
+  const success = postAndRecord.slice(0, postAndRecord.indexOf('} catch (error)'));
+  assert.match(success, /status: 'posted'/u);
+  assert.match(success, /postedBP: businessPartner/u);
+  assert.match(success, /postError: null/u);
+  assert.match(success, /signalPostResult\(header, \{ businessPartner \}\)/u);
+});
+
+test('a failed post sends the request back to rework, not to failed', () => {
+  const failure = postAndRecord.slice(postAndRecord.indexOf('} catch (error)'));
+  assert.match(failure, /status: 'reworkRequired'/u);
+  assert.match(failure, /postError: message\.slice\(0, 1000\)/u);
+  assert.match(failure, /signalPostResult\(header, \{ errorMessage: message \}\)/u);
+  assert.match(failure, /ErrorMessage: message\.slice\(0, 1000\)/u);
+});
+
+/**
+ * The trap this replaced. `req.reject` throws, CAP rolls the transaction back with it, and the
+ * status write goes down with the rollback — so `completeRequest` used to set `failed` immediately
+ * before rejecting, and the request stayed `approved` with nothing saying why. Reporting the failure
+ * in the return value is what makes "back to rework" actually stick.
+ */
+test('the failure is returned, never rejected, so the status write survives', () => {
+  assert.equal(
+    /req\.reject/u.test(postAndRecord), false,
+    'rejecting here would roll back the reworkRequired write'
+  );
+  assert.match(serviceCds, /ErrorMessage {4}: String\(1000\)/u);
+  assert.equal((serviceCds.match(/ErrorMessage {4}: String\(1000\)/gu) || []).length, 2,
+    'decideRequest and completeRequest both carry it');
+});
+
+/**
+ * Both entry points run the one step. completeRequest is still reachable — a request approved
+ * before this change, or one whose approve handler died between the status write and the post — and
+ * two copies of "write the status, send the signal" would drift.
+ */
+test('completeRequest shares the post step instead of repeating it', () => {
+  const complete = serviceJs.slice(serviceJs.indexOf("this.on('completeRequest'"));
+  const body = complete.slice(0, complete.indexOf('await super.init()'));
+  assert.match(body, /return postAndRecord\(req, header\)/u);
+  assert.equal(/postToS4\(/u.test(body), false, 'the post itself lives in the shared step');
+});
+
+/**
+ * `notifyWorkflow` is declared with `const` inside the decideRequest handler. completeRequest
+ * referenced it anyway, so every completion threw a ReferenceError *after* creating the partner in
+ * S/4 — on the success path and on the failure path both. Fixed by the shared step; pinned here so
+ * a future edit cannot reintroduce a cross-handler reference.
+ */
+test('notifyWorkflow is only used where it is declared', () => {
+  const declaredIn = serviceJs.indexOf('const notifyWorkflow =');
+  assert.ok(declaredIn > -1);
+  const decideEnd = serviceJs.indexOf("this.on('completeRequest'");
+  for (const match of serviceJs.matchAll(/notifyWorkflow\(/gu)) {
+    assert.ok(
+      match.index > declaredIn && match.index < decideEnd,
+      `notifyWorkflow is called at ${match.index}, outside the handler that declares it`
+    );
+  }
+});
+
+// --- The signal ---------------------------------------------------------------------------------
+
+test('the post result goes to its own trigger, with no result key', () => {
+  assert.match(
+    automation,
+    /POST_RESULT_TRIGGER_ID = "eu10\.alluvion-dev-cf\.mdmlightapproval\.waitForResult"/u
+  );
+  const fn = automation.slice(automation.indexOf('async function triggerPostResult'));
+  // To the closing brace of the function, not to the first one inside the payload literal.
+  const body = fn.slice(0, fn.indexOf('\n}'));
+  assert.match(body, /postTrigger\(POST_RESULT_TRIGGER_ID, "post result", \{ executionId, inputs \}\)/u);
+  assert.equal(/result/u.test(body.replace(/POST_RESULT|"post result"/gu, '')), false,
+    'inputs are passed through, never spread over a result');
+});
+
+/** executionId is the process instance from our own header, not the change request UUID. */
+test('the execution id is the stored process instance', () => {
+  const signal = serviceJs.slice(
+    serviceJs.indexOf('const signalPostResult ='), serviceJs.indexOf('const postAndRecord =')
+  );
+  assert.match(signal, /if \(!header\.processInstanceId\) return;/u);
+  assert.match(signal, /triggerPostResult\(header\.processInstanceId, \{/u);
+  assert.match(/** the four declared inputs, and only those */ signal, /businesspartnerid:/u);
+  assert.match(signal, /businesspartnerfullname:/u);
+  assert.match(signal, /status: errorMessage \? 'error' : 'success'/u);
+  assert.match(signal, /errormessage: errorMessage \? String\(errorMessage\)\.slice\(0, 1000\) : ''/u);
+});
+
+/**
+ * Staging has no BusinessPartnerFullName column — the screen's read-only field is composed there
+ * too — so the name has to be composed here rather than read.
+ */
+test('the full name is composed, because nothing stores it', () => {
+  const staging = read('db', 'staging.cds');
+  assert.equal(/BusinessPartnerFullName/u.test(staging), false);
+  assert.match(serviceJs, /const \{ withFullName, fullNameOf \} = require\('\.\/partner-name'\)/u);
+  assert.match(serviceJs, /businesspartnerfullname: fullNameOf\(general\) \|\| ''/u);
+});
+
+/** A signalling failure must not lose a partner that already exists in S/4. */
+test('signalling the result never throws', () => {
+  const signal = serviceJs.slice(
+    serviceJs.indexOf('const signalPostResult ='), serviceJs.indexOf('const postAndRecord =')
+  );
+  assert.match(signal, /catch \(error\) \{/u);
+  assert.match(signal, /console\.error\('Could not signal the workflow with the result/u);
+});
+
+/**
+ * SignalWorkflow false is the task form saying "completing the task already delivers the decision".
+ * It must not silence the post result: that is a different wait, and the process needs it whichever
+ * way the decision arrived.
+ */
+test('the post result is not gated by SignalWorkflow', () => {
+  const signal = serviceJs.slice(
+    serviceJs.indexOf('const signalPostResult ='), serviceJs.indexOf('const postAndRecord =')
+  );
+  assert.equal(/SignalWorkflow/u.test(signal), false);
+});
+
+// --- Not creating the partner twice -------------------------------------------------------------
+
+/**
+ * The risk the rework path introduces. A create whose post half-succeeded leaves a real partner in
+ * S/4; the requester then reworks and resubmits, and a second approve would create another one
+ * unless the number is remembered and the retry stops being a create.
+ */
+test('a create that already has a number is a retry, not a second create', () => {
+  const post = serviceJs.slice(serviceJs.indexOf('const postToS4 ='));
+  assert.match(
+    post, /const isCreate = header\.requestType === 'create' && !header\.businessPartner;/u
+  );
+});
+
+test('the number is persisted before the child nodes can fail', () => {
+  const post = serviceJs.slice(serviceJs.indexOf('const postToS4 ='));
+  const persistAt = post.indexOf('UPDATE(HEADER).set({ businessPartner })');
+  const loopAt = post.indexOf('for (const [section, config] of Object.entries(NODES))');
+  assert.ok(persistAt > -1, 'the number S/4 handed over is written to the header');
+  assert.ok(loopAt > -1);
+  assert.ok(persistAt < loopAt, 'and written before anything else can throw');
+});
+
+// --- What the approver is told -------------------------------------------------------------------
+
+/**
+ * An empty BusinessPartner used to mean "rejected" and nothing else. Now it can also mean "approved
+ * and the post failed", and both screens have to tell those apart.
+ */
+test('the approve screen reports a failed post as a failure, not as a rejection', () => {
+  const decide = approveController.slice(approveController.indexOf('_decide: async function'));
+  const body = decide.slice(0, decide.indexOf('onApprove:'));
+  assert.match(body, /if \(result && result\.ErrorMessage\)/u);
+  assert.match(body, /MessageBox\.error\(/u);
+  assert.match(body, /sent back to the requester for rework/u);
+  // And the rejection toast is still there, on the branch that really is a rejection.
+  assert.match(body, /MessageToast\.show\("Request rejected\."\)/u);
+});
+
+test('the inbox task form surfaces the same failure', () => {
+  assert.match(taskComponent, /var decision = await this\._decideOnServer\(outcomeId\)/u);
+  assert.match(taskComponent, /if \(decision && decision\.ErrorMessage\)/u);
+  assert.match(taskComponent, /return value \? value\.getObject\(\) : null;/u);
+});

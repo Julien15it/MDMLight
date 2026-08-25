@@ -167,6 +167,10 @@ service ChangeRequestService @(path: '/service/changerequest') {
     ChangeRequest   : UUID;
     Status          : String(20);
     BusinessPartner : String(10);
+    /** Why the S/4 post failed, when it did. The approve path creates the partner, so a failure
+     *  sends the request to `reworkRequired` and says so here rather than rejecting the action —
+     *  a rejected action rolls the status write back with it. */
+    ErrorMessage    : String(1000);
   };
 
   /**
@@ -180,6 +184,8 @@ service ChangeRequestService @(path: '/service/changerequest') {
     ChangeRequest   : UUID;
     Status          : String(20);
     BusinessPartner : String(10);
+    /** Same as on decideRequest: both run the one post-and-record step. */
+    ErrorMessage    : String(1000);
   };
 
   // The requester's two ways out of `reworkRequired` - one back into approval, one out of existence.

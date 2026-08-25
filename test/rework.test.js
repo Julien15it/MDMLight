@@ -252,11 +252,16 @@ test('the requester actions use their own trigger, the approver actions keep the
   // token that `sbpa-destination` provides.
   assert.equal(/spa-api-gateway/u.test(wf), false, 'the gateway host is not hardcoded');
   assert.match(wf, /path: `\/unified\/v1\/triggers\/api\/\$\{triggerId\}\?environmentId=bpapprovalpoc`/u);
-  // Approve and reject are untouched by the rework work.
-  for (const call of ["notifyWorkflow('rejected')", "notifyWorkflow('approved')"]) {
-    assert.ok(serviceJs.includes(call), `${call} is unchanged`);
-  }
+  // A rejection still signals the decision, and still through the approver's trigger.
+  assert.ok(serviceJs.includes("notifyWorkflow('rejected')"), 'the rejection signal is unchanged');
   assert.match(serviceJs, /triggerApprovalDecision\(header\.processInstanceId, workflowResult\)/u);
+  // An approve no longer does (changed 2026-08-25). It creates the business partner and the
+  // instance is told the *outcome* through `waitForResult`, which is a different wait with a
+  // different payload — see test/approve-posts.test.js. The `notifyWorkflow('approved')` this used
+  // to pin lived in completeRequest, referencing a const declared inside the decideRequest handler,
+  // so it threw a ReferenceError on every completion rather than signalling anything.
+  assert.equal(serviceJs.includes("notifyWorkflow('approved')"), false);
+  assert.match(wf, /POST_RESULT_TRIGGER_ID = "eu10\.alluvion-dev-cf\.mdmlightapproval\.waitForResult"/u);
   // Following his `Resubmitted` convention, not his instruction - he never specified this one.
   assert.equal(WITHDRAWN_SIGNAL, 'Withdrawn');
   assert.equal(RESUBMITTED_SIGNAL, 'Resubmitted');
