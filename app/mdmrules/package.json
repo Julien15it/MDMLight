@@ -1,7 +1,7 @@
 {
   "name": "mdm.md.mdmrules.manage",
   "version": "1.0.0",
-  "description": "MDM Rules - duplicate, validation and derivation rule configuration",
+  "description": "MDM Configuration Panel - duplicate, validation and derivation rule configuration",
   "keywords": [
     "ui5",
     "openui5",

@@ -44,7 +44,7 @@ npm run int-tests         # OPA5 integration tests via fiori run
 npm run build:cf          # generate metadata + ui5 build preload for Cloud Foundry
 ```
 
-UI (`app/mdmrules`, the MDM Rules tile — again a separate npm project):
+UI (`app/mdmrules`, the MDM Configuration Panel tile — again a separate npm project):
 ```bash
 cd app/mdmrules
 npm install
@@ -870,12 +870,20 @@ reached from the Change Requests button on the list report. **The button is
 steward-only** (`{perm>/isDataSteward}`), and since the rules moved to their own
 tile it is the last steward-gated action on the list report.
 
-### The MDM Rules tile — its own app (`app/mdmrules`, 2026-08-17)
+### The MDM Configuration Panel tile — its own app (`app/mdmrules`, 2026-08-17)
 
 Rule configuration left the Maintain BP app's toolbar and became its own tile.
 `app/mdmrules/webapp/ext/view/MDMRuleHub.view.xml` is the landing page: five
 `GenericTile`s for **Duplicate Check Rules**, **Validation Rules**,
-**Field Properties**, **Derivation Rules** and **Workflow Rules**.
+**Field Properties**, **Derivation Rules** and **Workflow Agent Determination**.
+
+**Renamed on the screen 2026-08-25, not in the code.** The tile and page titles are now
+"MDM Configuration Panel" and "Workflow Agent Determination"; every technical id is unchanged -
+`app/mdmrules`, `sap.app.id` `mdm.md.mdmrules.manage`, the `MDMRules-manage` inbound and its
+`MDMRules` semantic object, the `WorkflowRules` entity, the `WorkflowRuleList` route and the
+`/service/duplicateconfig` path. Renaming any of those costs a re-point, a route change or a
+migration for nothing a user can see - the same reasoning that keeps the service path named
+`duplicateconfig` after it grew four more tables.
 
 **It is a second HTML5 app, not a second inbound.** The first attempt declared
 `MDMRules-manage` alongside `BusinessPartner-manage` in one manifest and told
@@ -1320,7 +1328,7 @@ take the maintenance screen down over a control that is not a verdict on the dat
 
 
 
-### Workflow rules — who approves what (2026-08-21)
+### Workflow Agent Determination — who approves what (2026-08-21)
 
 `db/workflow-rules.cds` adds `WorkflowRules`, the fifth table on the MDM Rules
 tile and the first one that is **not a check on the data**: it produces the

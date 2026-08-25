@@ -5,7 +5,7 @@
   xmlns="sap.m"
   height="100%">
   <Page
-    title="Workflow Rules"
+    title="Workflow Agent Determination"
     showNavButton="true"
     navButtonPress=".onBackToHub">
     <content>

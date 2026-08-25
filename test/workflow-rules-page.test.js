@@ -31,7 +31,10 @@ test('the workflow table has the columns a rule needs, in order', () => {
 });
 
 test('the fifth tile leads to it, and the route exists', () => {
-  assert.ok(hub.includes('header="Workflow Rules"'), 'the hub offers Workflow Rules');
+  assert.ok(
+    hub.includes('header="Workflow Agent Determination"'),
+    'the hub offers Workflow Agent Determination'
+  );
   assert.equal((hub.match(/<GenericTile/gu) || []).length, 5);
   assert.match(hubController, /navTo\("WorkflowRuleList"\)/u);
   const route = manifest['sap.ui5'].routing.routes.find((entry) => entry.name === 'WorkflowRuleList');

@@ -76,7 +76,7 @@ test('each rule screen has a route, a target and a view that exists', () => {
 test('the hub offers exactly the five rule kinds, each wired to its page', () => {
   for (const header of [
     'Duplicate Check Rules', 'Validation Rules', 'Derivation Rules', 'Field Properties',
-    'Workflow Rules'
+    'Workflow Agent Determination'
   ]) {
     assert.ok(hub.includes(`header="${header}"`), `${header} is offered`);
   }

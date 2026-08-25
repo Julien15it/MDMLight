@@ -4,7 +4,7 @@
   xmlns="sap.m"
   height="100%">
   <Page
-    title="MDM Rules"
+    title="MDM Configuration Panel"
     showNavButton="true"
     navButtonPress=".onBackToSite">
     <content>
@@ -47,7 +47,7 @@
           </GenericTile>
           <GenericTile
             class="sapUiTinyMargin"
-            header="Workflow Rules"
+            header="Workflow Agent Determination"
             subheader="Who approves which change request, and under what conditions"
             press=".onWorkflowRules">
             <TileContent>
