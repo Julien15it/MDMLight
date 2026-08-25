@@ -125,7 +125,11 @@ test('the execution id is the stored process instance', () => {
   const signal = serviceJs.slice(
     serviceJs.indexOf('const signalPostResult ='), serviceJs.indexOf('const postAndRecord =')
   );
-  assert.match(signal, /if \(!header\.processInstanceId\) return;/u);
+  assert.match(signal, /if \(!header\.processInstanceId\) \{/u);
+  // And a missing instance is logged, not swallowed: "nothing arrived in BPA" with a silent
+  // return is the hardest version of this to diagnose.
+  assert.match(signal, /console\.warn\(/u);
+  assert.match(signal, /has no processInstanceId, so the post result was not sent to BPA/u);
   assert.match(signal, /triggerPostResult\(header\.processInstanceId, \{/u);
   assert.match(/** the four declared inputs, and only those */ signal, /businesspartnerid:/u);
   assert.match(signal, /businesspartnerfullname:/u);

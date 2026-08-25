@@ -1175,7 +1175,16 @@ class ChangeRequestService extends cds.ApplicationService {
      * such column -- the screen's read-only field is composed there too.
      */
     const signalPostResult = async (header, { businessPartner, errorMessage } = {}) => {
-      if (!header.processInstanceId) return;
+      // Said out loud rather than returned silently. A request submitted while startWorkflow
+      // answered a shape `result?.id || result?.data?.id` does not recognise lands here with a null
+      // instance and no process to signal -- and "nothing arrived in BPA" with nothing in the log
+      // is the hardest version of that to diagnose.
+      if (!header.processInstanceId) {
+        console.warn(
+          `Change request ${header.ID} has no processInstanceId, so the post result was not sent to BPA.`
+        );
+        return;
+      }
       const general = await db.run(
         cds.ql.SELECT.one.from(GENERAL).where({ request_ID: header.ID })
       ) || {};
