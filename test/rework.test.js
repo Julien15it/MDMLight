@@ -144,7 +144,7 @@ test('submit and resubmit send the same BP context, built once', () => {
     serviceJs.indexOf('const workflowContext ='), serviceJs.indexOf('const persist =')
   );
   assert.equal((builder.match(/changerequestid:/gu) || []).length, 1, 'one context literal');
-  for (const key of ['businesspartnerinput', 'bpduplicates', 'bpurl', 'reworkurl', 'requesttype']) {
+  for (const key of ['businesspartnerinput', 'bpduplicates', 'bpurl', 'reworkurl', 'requesttype', 'prefix']) {
     assert.match(builder, new RegExp(`${key}:`, 'u'), `${key} is in the context`);
   }
 });

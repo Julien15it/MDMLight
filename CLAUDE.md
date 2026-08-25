@@ -1715,62 +1715,49 @@ costs the same step.
   which is why the task context loaded while the data did not. **`app/businesspartner`
   keeps its relative uris** — it is served at the approuter app path with a
   cachebuster, where relative resolves correctly. Do not "make them consistent".
-- **The UUID cannot be derived at runtime, and this was tried and reverted (2026-08-25).**
-  The provider prefix is a real shipping defect — it is landscape-specific, so every
-  customer subaccount would need a source edit — and the obvious fix is to read it back
-  off the URL the component itself loaded from. **It is not there.** `_appPath()` built
-  from `sap.ui.require.toUrl(getComponentName())`, stripped the version stamp and
-  prefixed the still-relative `dataSources` uri; the models moved out of `manifest.json`
-  into `Component.js`. Deployed, every OData call 404'd against the launchpad host root,
-  because the derived path had no provider id to find and the standalone fallback took
-  over. The resource root is:
+- **The prefix is carried in the TASK CONTEXT, because nothing else can carry it** (2026-08-25).
+  `workflowContext()` sends `prefix` (the destination service instance GUID, read out of
+  `VCAP_SERVICES` by `srv/ui-prefix.js`); `_initTaskForm` reads it off the loaded task context and
+  `_appPath()` composes `/{prefix}.{sap.cloud.service}.{sap.app.id}/` in front of the still-relative
+  `dataSources` uri. **`manifest.json` declares no OData model**, because a `dataSource`-backed one
+  is built at init, long before any context exists.
 
-  ```
-  /mdmmdbusinesspartner.mdmmdbusinesspartnertask-1.2.0/i18n/i18n.properties
-  ```
+  **Only the GUID crosses the wire, not the whole path.** The app already derives
+  `{service}.{appid}` for its `/api/` URL, so CAP never has to know which of the three UI apps a
+  task belongs to, and renaming the task app costs no CAP change.
 
-  Versioned, and **unprefixed**. So the app is served from a path that does not name its
-  content provider, while `/service/*` is only routed on one that does — the two paths
-  are not the same string with a version on the end, which is what the attempt assumed.
+  **The ordering is the design.** `_loadPermissions` and `getRouter().initialize()` moved out of
+  `init()` into `_begin()`, which runs only once the prefix is known: both read models, and the
+  models cannot exist earlier. Standalone calls `_begin("")` — no prefix, relative uri, which is
+  what `ui5.yaml`'s `fiori-tools-proxy` serves.
 
-  **What made it look derivable was an ellipsis.** The evidence above is written
-  `…mdmmdbusinesspartnertask-1.2.0/reuse/view/…view.xml`, and the `…` sits exactly where
-  a provider id would be. It was read as proof the prefix was present. It is not proof of
-  anything; the unelided URL has no UUID in it. When an abbreviated URL is the evidence
-  for a claim about a URL, get the full one.
+  **A task with no `prefix` is reported, never guessed.** Falling back to relative would resolve
+  against the launchpad root and 404 every call, which reads as a broken service rather than an
+  unmapped task input — the exact misreading that cost 2026-08-25.
 
-  So the runtime knows the version and the app id, and never the destination service
-  instance. Nothing the app can read tells it.
+  Three routes were considered; the other two are recorded so nobody re-runs them:
 
-  **Deriving it — the routes still open (2026-08-25, none built).** Ranked by how much
-  they would actually be worth:
+  1. **Derive it from the URL the component loaded from — TRIED AND REVERTED.** `_appPath()` built
+     from `sap.ui.require.toUrl(getComponentName())` with the version stamp stripped. Deployed,
+     every call 404'd: the resource root is `/mdmmdbusinesspartner.mdmmdbusinesspartnertask-1.2.0/`
+     — versioned and **unprefixed**. The app is served from a path that does not name the
+     destination service instance, while `/service/*` is only routed on one that does.
 
-  1. **Route `/service/*` so no GUID is needed at all.** The prefix exists only to pick a
-     destination service instance. `/api/` avoids it entirely by resolving a `service`,
-     and the CAP backend already has a `sap.cloud.service` of its own. If the task app's
-     `xs-app.json` can reach CAP the way it reaches SBPA, the whole problem disappears
-     rather than being parameterised. **Researched 2026-08-25 and RULED OUT.** A route may
-     reference a `sap.cloud.service`, but only for a *Business Service*: one whose
-     VCAP_SERVICES credentials publish `sap.cloud.service` and `endpoints`, "provided via
-     the `onBind` hook in the service-broker implementation" (SAP Help, *Integration with
-     Business Services*). SBPA qualifies as a subscribed SaaS that registers itself; our
-     CAP app is a plain CF app behind a destination, so this needs a service broker and a
-     SaaS-registry registration. Disproportionate for one GUID.
-  2. **Carry the prefix in the task context.** The task app already loads
-     `/api/public/workflow/rest/v1/task-instances/{id}/context` **before it needs any
-     OData**, and that route needs no prefix. CAP can read its own destination service
-     instance GUID out of `VCAP_SERVICES` and put it in `workflowContext()`, so the app
-     is told its path by the only backend call it can make unaided. `VCAP_SERVICES` does
-     expose it — `cf env mdm-businesspartner-srv | grep instance_guid` lists the GUID
-     (confirmed 2026-08-25). Costs a reordering: the OData models would have to be built
-     after the context resolves, which `_loadPermissions` currently runs before.
-     Embedded-only, which is the only case that needs it — standalone stays relative.
-     **This is a SPA CONTRACT CHANGE, not a local one.** Undeclared keys never become
-     context (see "SBPA process inputs"), so Arthur has to declare the extra input and
-     release the process before the app can read it. Agree it first.
-  3. **Two-pass install.** Deploy, read the GUID, set it as an MTA parameter, redeploy.
-     No source literal, but it makes every customer installation a two-step with a
-     manual copy in the middle. The fallback if 1 and 2 both fail, not a goal.
+     **What made it look derivable was an ellipsis.** The 2026-08-21 evidence is written
+     `…mdmmdbusinesspartnertask-1.2.0/reuse/view/…view.xml`, and the `…` sits exactly where a GUID
+     would be. It was read as proof the prefix was present. When an abbreviated URL is the evidence
+     for a claim about a URL, get the full one.
+  2. **Route `/service/*` as a business service so no GUID is needed — RULED OUT.** A route may
+     reference a `sap.cloud.service`, but only for a *Business Service*: one whose VCAP_SERVICES
+     credentials publish `sap.cloud.service` and `endpoints`, "provided via the `onBind` hook in the
+     service-broker implementation" (SAP Help, *Integration with Business Services*). SBPA qualifies
+     as a subscribed SaaS that registers itself; this CAP app is a plain CF app behind a destination,
+     so it would need a service broker and a SaaS-registry registration.
+  3. **Build-time substitution — not possible in one pass.** The destination service instance is a
+     resource of this same MTA, so its GUID does not exist until the first deploy of a subaccount
+     finishes, and `mbt build` has already sealed `manifest.json` inside the app zip by then.
+
+  `UI_PATH_PREFIX` overrides the lookup if a landscape ever needs it named by hand.
 - My Inbox renders the buttons. `Component.js` registers them with
   `inboxAPI.addAction`, ids matching `sap.bpa.task.outcomes`, and the app's own
   footer Approve/Reject hide on `env>/embedded` so there is one place to press.
@@ -1814,7 +1801,13 @@ host, so the variable was renamed rather than reused - unset now yields `''`, an
 diagnosable where a 404 is not. The intent must match the `BusinessPartner-manage` inbound.
 - Workflow context sent at submit:
   `{ changerequestid, requesttype, businesspartner, emailadressinitiator, bpurl, reworkurl,
-  businesspartnerinput, bpduplicates, approvers }`
+  prefix, businesspartnerinput, bpduplicates, approvers }`
+- **`prefix` must be mapped onto the approval AND rework task inputs** (added 2026-08-25, agreed
+  with Maarten). It is the destination service instance GUID, and it is the only way the task UI
+  can learn its own OData path — see "The task app". Declared in `app/bptask`'s `sap.bpa.task.inputs`
+  as an optional string, so a task built before it existed still opens; the app then reports the
+  missing input rather than 404ing every call. **An undeclared key never becomes task context**, so
+  sending it is not enough on its own — the process definition has to declare and map it.
 - `approvers` is an **array of strings** from the `WorkflowRules` table — e-mail
   addresses and role names mixed, `kind` derivable from the `@`. It is **not** an
   array of objects: see "What actually goes over the wire" under "Workflow rules".
