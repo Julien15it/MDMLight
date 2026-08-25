@@ -16,6 +16,10 @@ service ChangeRequestService @(path: '/service/changerequest') {
     select from staging.CheckFindings
     where isStale is null or isStale = false;
 
+  /** The requester/approver conversation. Never written to directly - decideRequest and
+   *  resubmitRequest append to it. */
+  @readonly entity ChangeRequestComments as projection on staging.ChangeRequestComments;
+
   /** Creates or updates a request and its staged nodes from the screen's own `{ root, sections }`
    *  shape, and leaves it in `draft` - no workflow starts. */
   action saveRequest(
@@ -79,6 +83,9 @@ service ChangeRequestService @(path: '/service/changerequest') {
      * requester was warned about. `duplicate_check` findings only, superseded ones left out.
      */
     FindingsJson    : LargeString;
+    /** The full requester/approver thread, oldest first - `RejectionComment` above only ever held
+     *  the latest one. */
+    CommentsJson    : LargeString;
     DataJson        : LargeString;
   };
 
@@ -144,6 +151,8 @@ service ChangeRequestService @(path: '/service/changerequest') {
   action decideRequest(
     ChangeRequest : UUID not null,
     Decision      : String(10) not null,
+    /** The approver's note, appended to ChangeRequestComments as their side of the conversation
+     *  on top of the legacy single-value rejectionComment/reason fields it still writes. */
     Comment       : String(250),
     /** Default true. The task form sets it false: completing the task already resumes the workflow,
      *  so signalling here too would deliver the same decision twice. */
@@ -179,6 +188,8 @@ service ChangeRequestService @(path: '/service/changerequest') {
     ChangeRequest : UUID not null,
     RequestType   : String(10) not null,
     BusinessPartner : String(10),
+    /** The requester's own note on this round, appended to ChangeRequestComments as their side of
+     *  the conversation. Optional - a resubmit needs no explanation, only the edit itself. */
     Reason        : String(250),
     DataJson      : LargeString not null,
     Confirm       : Boolean

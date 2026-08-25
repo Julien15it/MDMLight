@@ -77,6 +77,7 @@ entity ChangeRequests : cuid, managed {
   supplierPurchasingOrg : Composition of many StagedSupplierPurchasingOrg on supplierPurchasingOrg.request = $self;
 
   findings          : Composition of many CheckFindings        on findings.request       = $self;
+  comments          : Composition of many ChangeRequestComments on comments.request      = $self;
 }
 
 // --- Staged nodes ----------------------------------------------------------
@@ -348,6 +349,24 @@ entity CheckFindings : cuid, managed {
 
   /** Set when a re-check supersedes this finding rather than deleting it. */
   isStale     : Boolean default false;
+}
+
+/**
+ * The requester/approver conversation, one row per message. `reason` and `rejectionComment` on the
+ * header only ever held the latest side's word, which is fine for a request rejected once but not
+ * for a rework loop that can run several rounds - this is the running thread both screens read, and
+ * nothing here is ever overwritten or deleted, unlike those two fields which keep working exactly as
+ * before for whatever still reads them.
+ */
+entity ChangeRequestComments : cuid, managed {
+  request : Association to ChangeRequests;
+  /** Who is speaking, not who is logged in - a steward reworking someone else's draft is still
+   *  the requester's side of the conversation. */
+  role    : String(20) enum { Requester; Approver } not null;
+  /** The actual identity, for display next to `role` - two rejections from two different
+   *  approvers should not read as the same person twice. */
+  author  : String(120);
+  text    : String(1000) not null;
 }
 
 /**

@@ -1494,6 +1494,28 @@ Decisions behind it, each of which has a cheaper wrong version:
   does not reliably give an embedded app's own lower content room either, the
   same lesson the footer buttons already taught. The binding is unchanged, only
   its position in the view.
+- **The full conversation, not just the latest word (2026-08-24).** `reason` and
+  `rejectionComment` on the header are unchanged — both still work exactly as
+  before, and every existing reader of them still reads them — but they only ever
+  held one side's latest message, which reads as amnesia the second round a
+  request comes back. `ChangeRequestComments` is a new, append-only child entity
+  (one row per message, `role` + `author` + `text`), and `decideRequest` /
+  `resubmitRequest` both write to it *in addition to* the legacy fields.
+  `getRequestPayload` returns it as `CommentsJson`; the screen renders it as a
+  collapsible `Panel` (`commentsPanel`, oldest first, `StandardListItem` per
+  message naming who said it) right below the message panel, on **every** mode
+  that has a thread to show — approve, rework, view, draft.
+- **Rework gets its own comment box, separate from the approver's.**
+  `approverCommentBox` is embedded-only (`context>/comment`, a model only
+  `app/bptask`'s Component sets) because approve is only ever reached that way in
+  practice. Rework is not — the `reworkurl` deep link opens it standalone too
+  (see below) — so `reworkCommentBox` binds to `maintenance>/reworkComment`
+  instead, works in both, and is sent as `resubmitRequest`'s existing `Reason`
+  parameter (declared since the action was written, never previously populated
+  from the UI). Optional: a resubmit needs no explanation, only the edit itself.
+  Echoed into the panel locally right after a successful resubmit, since the
+  request becomes read-only from there and nothing reloads it again to pick the
+  server's own copy up.
 - **`claimRework` is a stopgap for the missing reject callback (2026-08-20).** The
   approver presses Reject in My Inbox, SPA notifies the requester with the
   `reworkurl` — and never calls `decideRequest`, so the request is still
