@@ -405,7 +405,7 @@ test('the outcome labels are literal, not i18n placeholders', () => {
  * Inbox's own action bar via inboxAPI.addAction, the same place Approve/Reject already render -
  * not a second, differently-styled button up here for what is the same kind of thing to BPA.
  */
-test('check and duplicate check are in the header, not only in the footer', () => {
+test('check and duplicate check are in the header, and only there', () => {
   const actions = view.slice(
     view.indexOf('<uxap:actions>'),
     view.indexOf('</uxap:actions>')
@@ -413,9 +413,10 @@ test('check and duplicate check are in the header, not only in the footer', () =
   for (const action of ['.onCheck', '.onDuplicateCheck']) {
     assert.ok(actions.includes('press="' + action + '"'), `${action} is not reachable in My Inbox`);
   }
-  // Check and Duplicate Check are in both places on purpose (Maarten, 2026-08-24): on a long create
-  // form the footer is a scroll away from the fields being filled in, so these two show regardless
-  // of env>/embedded - not gated the way every other header action here is.
+  // They show regardless of env>/embedded - not gated the way every other header action here is -
+  // because on a long create form the footer is a scroll away from the fields being filled in
+  // (Maarten, 2026-08-24). The footer copies are GONE rather than hidden standalone: they were in
+  // both places for an hour and simply showed twice. test/submit-messages.test.js pins that half.
   const checkButtons = actions.match(/visible="\{maintenance>\/showCheckButton\}"/gu) || [];
   assert.equal(checkButtons.length, 2, 'Check and Duplicate Check show standalone as well');
   assert.equal(

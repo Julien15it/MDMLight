@@ -10,6 +10,7 @@ const {
 const { candidateFromStagedRequest, duplicateSummary } = require('./ai/duplicate-check');
 const { runChecks, runValidations, BLOCKING } = require('./checks/pipeline');
 const { createRegistryStages } = require('./checks/registry-checks');
+const { createCviStages } = require('./checks/cvi-checks');
 const { createRelationStages } = require('./checks/relation-checks');
 const { configuredStages } = require('./checks/rule-store');
 const { fieldPropertyStages, resolvedProperties } = require('./checks/field-property-store');
@@ -502,6 +503,20 @@ class ChangeRequestService extends cds.ApplicationService {
       }
     };
 
+    /** Everything the request was submitted with EXCEPT the duplicates, which have their own panel. */
+    const currentValidationFindings = async (changeRequest) => {
+      try {
+        return await db.run(
+          cds.ql.SELECT.from(FINDINGS)
+            .where`request_ID = ${changeRequest} and checkName != 'duplicate_check'
+                   and (isStale is null or isStale = false)`
+        );
+      } catch (error) {
+        console.warn(`[findings] Could not read the validations of ${changeRequest}:`, error.message);
+        return [];
+      }
+    };
+
     const persist = async (req) => {
       const payload = parseJsonObject(req.data.DataJson, 'DataJson');
       const requestType = req.data.RequestType;
@@ -597,6 +612,36 @@ class ChangeRequestService extends cds.ApplicationService {
       return findings;
     };
 
+    /**
+     * The validations a submit passed WITH warnings - a VAT number VIES could not confirm, a
+     * register name that disagrees with the one typed, a configured rule set to `warning`. They were
+     * returned to the requester and then dropped on the floor: `CheckFindings` only ever held
+     * `duplicate_check` rows, so an approver judged a request without the findings it was submitted
+     * with. Nothing blocking can be here by construction - a blocking validation leaves the request
+     * a draft and this is only reached once that gate has passed.
+     *
+     * Superseded rather than deleted on a resubmit, the same way the duplicates are, so an earlier
+     * verdict stays auditable. Best-effort: a request that reached the workflow must not be undone
+     * because its findings could not be written.
+     */
+    const recordValidationFindings = async (changeRequest, validations) => {
+      try {
+        await db.run(cds.ql.UPDATE(FINDINGS)
+          .set({ isStale: true })
+          .where`request_ID = ${changeRequest} and checkName != 'duplicate_check'`);
+        const rows = (validations || []).filter((finding) => finding && finding.message);
+        if (!rows.length) return;
+        await db.run(cds.ql.INSERT.into(FINDINGS).entries(rows.map((finding) => ({
+          ID: cds.utils.uuid(),
+          request_ID: changeRequest,
+          // A validation stage names itself; a row with no name would be unfilterable afterwards.
+          ...stagedFinding({ checkName: 'validation', ...finding })
+        }))));
+      } catch (error) {
+        console.warn(`[findings] Could not record the validations of ${changeRequest}:`, error.message);
+      }
+    };
+
     // CVI's business-partner-to-customer/vendor assignment, asked at submit rather than while
     // posting. See srv/checks/relation-checks.js for why that timing is the whole point.
     const relationStages = (businessPartner) => createRelationStages({
@@ -625,7 +670,11 @@ class ChangeRequestService extends cds.ApplicationService {
       return runChecks(
         { root: data.root || {}, sections: data.sections || {} },
         {
-          validations: [...properties.validations, ...configured.validations, ...registry.validations,
+          // CVI before the registry: its configuration is cached for 60s, so it is effectively
+          // offline after the first read, and a role this partner's category cannot carry is worth
+          // saying before spending a VIES call on an address that will never synchronise anyway.
+          validations: [...properties.validations, ...configured.validations,
+            ...createCviStages().validations, ...registry.validations,
             ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations],
           derivations: [...configured.derivations, ...registry.derivations],
           // Check is where a human is looking, which is the only place a proposal to rewrite
@@ -705,7 +754,8 @@ class ChangeRequestService extends cds.ApplicationService {
       const properties = await fieldPropertyStages(requesterContext(req));
       const validations = await runValidations(
         { root: data.root || {}, sections: data.sections || {} },
-        [...properties.validations, ...configured.validations, ...registry.validations,
+        [...properties.validations, ...configured.validations,
+        ...createCviStages().validations, ...registry.validations,
         ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations]
       );
       if (validations.some((message) => message.severity === BLOCKING)) {
@@ -718,6 +768,10 @@ class ChangeRequestService extends cds.ApplicationService {
           MessagesJson: JSON.stringify([])
         };
       }
+
+      // After the gate, so nothing blocking is ever stored - and before the duplicate check, so an
+      // outage in that check cannot cost the warnings this submit already produced.
+      await recordValidationFindings(changeRequest, validations);
 
       const findings = await recordDuplicateFindings(changeRequest, req.data.BusinessPartner);
       // Only a verdict-bearing finding asks for a second press. A check that could not run reports
@@ -796,7 +850,8 @@ class ChangeRequestService extends cds.ApplicationService {
       const properties = await fieldPropertyStages(requesterContext(req));
       const validations = await runValidations(
         { root: data.root || {}, sections: data.sections || {} },
-        [...properties.validations, ...configured.validations, ...registry.validations,
+        [...properties.validations, ...configured.validations,
+        ...createCviStages().validations, ...registry.validations,
         ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations]
       );
       if (validations.some((message) => message.severity === BLOCKING)) {
@@ -809,6 +864,10 @@ class ChangeRequestService extends cds.ApplicationService {
           MessagesJson: JSON.stringify([])
         };
       }
+
+      // After the gate, so nothing blocking is ever stored - and before the duplicate check, so an
+      // outage in that check cannot cost the warnings this submit already produced.
+      await recordValidationFindings(changeRequest, validations);
 
       const findings = await recordDuplicateFindings(changeRequest, req.data.BusinessPartner);
       const duplicates = findings.filter((finding) => finding.verdict);
@@ -988,6 +1047,7 @@ class ChangeRequestService extends cds.ApplicationService {
         SubmittedAt: header.submittedAt,
         ProcessorsJson: JSON.stringify(await processorsFor(header, { root, sections })),
         FindingsJson: JSON.stringify(await currentDuplicateFindings(changeRequest)),
+        ValidationsJson: JSON.stringify(await currentValidationFindings(changeRequest)),
         CommentsJson: JSON.stringify(comments.map((comment) => ({
           role: comment.role,
           author: comment.author,

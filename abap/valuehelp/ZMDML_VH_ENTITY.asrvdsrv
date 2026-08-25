@@ -40,4 +40,12 @@ define service ZMDML_VH_ENTITY {
   expose I_CustomerClassification       as CustomerClassifications;
   expose I_CustomerClassificationText   as CustomerClassificationTexts;
   expose I_SupplierAccountGroupStdVH    as SupplierAccountGroups;
+  expose Z_I_CVI_ROLE_CATEGORY          as CviRoleCategories;
+  expose Z_I_CVI_BP_ROLE                as CviBusinessPartnerRoles;
+  expose Z_I_CVI_CONTACT_MAPPING        as CviContactMapping;
+  expose Z_I_CVI_PPO_CONTROL            as CviPostprocessingControl;
+  expose Z_I_CVI_NUMBER_RANGE           as CviNumberRanges;
+  expose Z_I_CVI_NUM_ASGN_CUSTOMER      as CviCustomerNumberAssignments;
+  expose Z_I_CVI_NUM_ASGN_VENDOR        as CviSupplierNumberAssignments;
+  expose Z_I_CVI_SYNC_DIRECTION         as CviSyncDirections;
 }

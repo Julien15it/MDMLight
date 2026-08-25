@@ -161,7 +161,7 @@ test('saving a rule invalidates the rules the pipeline is holding', () => {
 test('the configured stages join the registry stages, configured first', () => {
   assert.match(
     changeRequestJs,
-    /validations: \[\.\.\.properties\.validations, \.\.\.configured\.validations, \.\.\.registry\.validations,\s*\.\.\.relationStages\([^)]*\)\.validations\]/u
+    /validations: \[\.\.\.properties\.validations, \.\.\.configured\.validations,\s*\.\.\.createCviStages\(\)\.validations, \.\.\.registry\.validations,\s*\.\.\.relationStages\([^)]*\)\.validations\]/u
   );
   assert.match(changeRequestJs, /derivations: \[\.\.\.configured\.derivations, \.\.\.registry\.derivations\]/u);
 });

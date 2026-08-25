@@ -15,16 +15,20 @@ const path = require('path');
 
 // Only what the app actually reads. A full diff of API_BUSINESS_PARTNER is 65 entity sets of which
 // it touches nine, and a report nobody finishes reading is the same as no report.
-function watchedSets({ maintenanceEntities = {}, valueHelpEntities = [] } = {}) {
+function watchedSets({ maintenanceEntities = {}, valueHelpEntities = [], cviConfigSets = [] } = {}) {
   return {
     API_BUSINESS_PARTNER: [
       'A_BusinessPartner',
       ...Object.values(maintenanceEntities).map((entry) => entry.remote)
     ].filter(Boolean),
     // The projection is renamed to avoid a clash; the remote set is the one to ask about.
-    ZSRVB_MDMLIGHT_VH: valueHelpEntities.map(
-      (name) => (name === 'BusinessPartnerRoleCodes' ? 'BusinessPartnerRoles' : name)
-    )
+    // CviConfigService projects on the same service; its sets are already remote names.
+    ZSRVB_MDMLIGHT_VH: [
+      ...valueHelpEntities.map(
+        (name) => (name === 'BusinessPartnerRoleCodes' ? 'BusinessPartnerRoles' : name)
+      ),
+      ...cviConfigSets
+    ]
   };
 }
 
@@ -210,12 +214,13 @@ async function checkMetadataDrift({
   requires = {},
   maintenanceEntities,
   valueHelpEntities,
+  cviConfigSets,
   executeHttpRequest,
   readFile,
   log = console,
   timeout = 30000
 } = {}) {
-  const targets = serviceTargets(requires, watchedSets({ maintenanceEntities, valueHelpEntities }));
+  const targets = serviceTargets(requires, watchedSets({ maintenanceEntities, valueHelpEntities, cviConfigSets }));
   const results = [];
   for (const target of targets) {
     try {

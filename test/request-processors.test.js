@@ -135,10 +135,51 @@ test('the strip goes last, so a message explaining the screen still leads', () =
     'controller', 'BusinessPartnerMaintenance.controller.js'
   );
   assert.match(controller, /var processorStrip = processorMessage\(state\.processors\);/u);
+  // Widened 2026-08-24 to fold in the submitted-validations findings too, but the processor strip
+  // is still the LAST thing concatenated - the property this test exists to pin.
   assert.match(
     controller,
-    /if \(processorStrip\) state\.messages = \(state\.messages \|\| \[\]\)\.concat\(\[processorStrip\]\);/u
+    /state\.messages = \(state\.messages \|\| \[\]\)[\s\S]{0,80}\.concat\(processorStrip \? \[processorStrip\] : \[\]\);/u
   );
   // Never prepended: that is the version that hid the "nothing to rework" note behind the step.
   assert.equal(/\[processorStrip\]\.concat/u.test(controller), false);
+});
+
+// --- The findings an approver judges on ---------------------------------------------------------
+
+// CheckFindings only ever held duplicate_check rows, so a VIES name mismatch or a warning-level
+// configured rule was shown to the requester at submit and then dropped: the approver judged a
+// request without the findings it was submitted with.
+test('a submit records its non-blocking validations, superseding the previous set', () => {
+  const service = root('srv', 'change-request-service.js');
+  assert.match(service, /const recordValidationFindings = async \(changeRequest, validations\)/u);
+  // Superseded, not deleted - an earlier verdict stays auditable across a resubmit.
+  assert.match(service, /set\(\{ isStale: true \}\)\s*\.where`request_ID = \$\{changeRequest\} and checkName != 'duplicate_check'`/u);
+  // Both submit paths, and after the blocking gate so nothing blocking can be stored.
+  assert.equal(
+    (service.match(/await recordValidationFindings\(changeRequest, validations\);/gu) || []).length,
+    2,
+    'submitRequest and resubmitRequest both record'
+  );
+});
+
+test('the request carries them back for the approve screen', () => {
+  assert.match(root('srv', 'change-request-service.cds'), /ValidationsJson : LargeString;/u);
+  const service = root('srv', 'change-request-service.js');
+  assert.match(service, /ValidationsJson: JSON\.stringify\(await currentValidationFindings\(changeRequest\)\)/u);
+  // Duplicates keep their own panel; these are statements about the record, so they are strips.
+  assert.match(service, /const currentValidationFindings = async \(changeRequest\)/u);
+});
+
+// Every mode branch ASSIGNS state.messages, so anything set before them is wiped.
+test('the submitted warnings are appended after the branches, not before', () => {
+  const controller = root(
+    'app', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse',
+    'controller', 'BusinessPartnerMaintenance.controller.js'
+  );
+  assert.match(controller, /var submittedWarnings = this\._validationMessages\(/u);
+  assert.match(
+    controller,
+    /state\.messages = \(state\.messages \|\| \[\]\)\s*\.concat\(submittedWarnings\)\s*\.concat\(processorStrip \? \[processorStrip\] : \[\]\);/u
+  );
 });

@@ -2551,6 +2551,17 @@ sap.ui.define([
           // uses. Written at submit and, until 2026-08-24, never read back - so an approver opening
           // the task saw nothing, which is indistinguishable from "no duplicate was found".
           this._setDuplicatePanel(state, this._parseJsonArray(payload && payload.FindingsJson));
+          // The warnings the request was submitted with - a VAT number VIES could not confirm, a
+          // register name that disagrees with the one typed. Stored at submit and, until 2026-08-24,
+          // never read back either: the approver was judging a request without the findings it came
+          // with. Strips rather than the duplicate panel, because they are statements about this
+          // record rather than a list of other partners to compare it against.
+          //
+          // Held in a local until the end: every mode branch below ASSIGNS state.messages, so
+          // setting them here would put them where the next branch wipes them.
+          var submittedWarnings = this._validationMessages(
+            this._parseJsonArray(payload && payload.ValidationsJson)
+          );
           // Staging has no BusinessPartnerFullName column, so a request always arrives without one.
           this._refreshFullName();
           // The approve view is the approver's, the draft and rework views are the requester's own.
@@ -2632,8 +2643,13 @@ sap.ui.define([
           // why a rework link offers nothing, why a request is read-only, what a rejection said - and
           // the panel header shows the leading message, so putting this first would collapse the
           // explanation behind "Current step: ...". It leads on its own when nothing else spoke.
+          // Order: the branch's own message explains the screen and leads, then what the request was
+          // submitted with, then who has it now. The panel header shows the first, so the ordering is
+          // what decides which one is readable while collapsed.
           var processorStrip = processorMessage(state.processors);
-          if (processorStrip) state.messages = (state.messages || []).concat([processorStrip]);
+          state.messages = (state.messages || [])
+            .concat(submittedWarnings)
+            .concat(processorStrip ? [processorStrip] : []);
         } catch (error) {
           MessageBox.error(errorMessage(error, "The change request could not be loaded."));
         } finally {

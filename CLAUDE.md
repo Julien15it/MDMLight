@@ -126,8 +126,9 @@ npm run import:bp -- --url https://<host>:44301/sap/opu/odata/sap   # S4_USER / 
 `--url` is the only route that works from BAS, and there is no `--file` route on
 purpose: a browser download lands on the developer's laptop while `cds import`
 runs in BAS, so it costs a file transfer before it costs anything else. (For a
-document already in the workspace, `cds import <file> --as csn --into srv/external`
-— `--as cds` for the value-help service — is the whole job.)
+document already in the workspace, `npx cds import <file>.edmx --as cds --force
+--no-save` is the whole job. **Not `--into`**: cds-dk 8, the version installed,
+does not know that flag — it lands the result in `srv/external` by itself.)
 
 Both checked-in copies got here by hand, from Julien and Arthur respectively.
 There has never been an automated path, so treat a re-import as a manual step
@@ -306,6 +307,28 @@ piece of code. Two details:
   registry findings, which are a different report, and a resubmit's superseded
   verdicts would otherwise come back alongside the current ones and make one pair
   read as several.
+**And the validations follow it too** (2026-08-24). `CheckFindings` only ever held
+`duplicate_check` rows, so a VIES name mismatch, a VAT number VIES could not
+confirm, a GLEIF statement or a `warning`-level configured rule was reported to the
+requester at submit and then dropped — the approver judged the request without the
+findings it was submitted with. `recordValidationFindings` stores them on both
+submit paths and `getRequestPayload` returns them as `ValidationsJson`.
+
+- **Written after the blocking gate**, so nothing blocking is ever stored: a
+  blocking validation leaves the request a draft and never reaches this point.
+- **Written before the duplicate check**, so an outage in that check cannot cost the
+  warnings the submit already produced.
+- **Superseded, not deleted**, on a resubmit — same as the duplicates, so an earlier
+  verdict stays auditable.
+- **Rendered as strips, not in the duplicate panel**: they are statements about this
+  record, not a list of other partners to compare it against. `_validationMessages`
+  is the shared mapper, so the approver's strips and the requester's Check strips
+  cannot drift.
+- **Appended after the mode branches.** Every branch *assigns* `state.messages`, so
+  setting them earlier puts them where the next branch wipes them. Order is: the
+  branch's own message (it explains the screen, and the collapsed panel header shows
+  the first one), then the submitted warnings, then who has it now.
+
 - The approver's rows carry **no candidate name**: `candidateName` is not a
   staging column, so the title is the partner number (or `pending request <id>`)
   and the stored `message` carries the sentence. Add the column if the name matters
@@ -448,6 +471,119 @@ Configured stages come first in both lists; the reasoning is with the tables.
   check name — `severityOf` exists for exactly this.
 - **Derivation**: fills empty address fields on the *first* address row from VIES
   first, then GLEIF.
+
+#### The CVI configuration check (2026-08-25)
+
+`srv/checks/cvi-checks.js` adds one validation, `cvi_configuration`, on all three
+gates. It answers **will this partner actually synchronise?** — CVI turns a business
+partner into a customer and a supplier, and whether it can is decided by S/4
+customizing nobody filling in the form can see. A role the BP category may not carry
+is accepted by the screen, staged, approved, and only then refused by S/4, after an
+approver has spent their time on it.
+
+It reads `CviConfigService`'s remote sets (see `srv/cvi-config-service.cds`), backed
+by eight CDS views in S/4 package `ZMDM_LIGHT`. Three rules today:
+
+- **A role its BP category may not carry.** `TB003` gives role → role category,
+  `TB003A` gives the category's allowed BP categories (person/organisation/group).
+  Reported against the offending `BusinessPartnerRoles` row, one per role, so a
+  requester sees all of them at once.
+
+  **This rule was wrong twice, and both times for the same reason: the flags are
+  booleans, not `'X'`.** Every CHAR(1) flag in these sets arrives as `Edm.Boolean`
+  — look at any of them in `srv/external/ZSRVB_MDMLIGHT_VH.cds`. A comparison
+  against `'X'` therefore reads *every* row as blank. Version one read blank as
+  "forbidden" and fired on `FLCU01` and `FLVN01` on an organisation, the two most
+  ordinary combinations in the product; the fix for that — "a row with no flags set
+  restricts nothing" — then made the rule permanently *silent*, because with
+  booleans no row ever looks like it has a flag set. `isSet` now accepts both
+  representations (fixed 2026-08-25), and the tests use the boolean form on purpose:
+  the earlier `'X'` fixtures are why a broken rule had a green suite.
+
+  The no-flags-set guard stays, but it is a guard and not a description of any
+  system: **on S4A all 166 `TB003A` rows have at least one flag set**, and `FLCU01`
+  carries all three. The claim that S4A's flags were unmaintained was wrong — the
+  rows were finally read on 2026-08-25.
+- **Postprocessing switched off**, when the request asks for a role at all. PPO off
+  means a synchronisation error is dropped rather than queued, so the partner
+  silently never becomes a customer. Reported **per row of
+  `CviPostprocessingControl`** rather than against a hardcoded sync object name — a
+  constant guessed wrong would match nothing and report nothing, forever.
+
+Three decisions worth not reversing casually:
+
+- **`warning`, not `error` — `ROLE_CATEGORY_SEVERITY` is the knob.** The two failure
+  costs are not symmetric: a warning on a combination that would have worked is
+  noise, while blocking a legitimate partner leaves a requester unable to submit and
+  with no way to argue. Move it to `error` once the rule has been seen to be right on
+  real data at a real customer.
+- **A configuration that cannot be read reports itself and never blocks.** The
+  pipeline turns a *thrown* validation into a blocking error, which would be more
+  severe than anything this stage itself reports — an unreachable S/4 would stop
+  every submit over a warning. So the read is caught and returned as a warning
+  saying it did not run, rather than letting "no findings" read as "checked and fine".
+- **Configuration, not SAP's verdict.** Transaction `CVI_FS_CHECK_CUST` is a module
+  pool with no callable API and its judgements move with support packages. These
+  rules are derived from the customizing itself and stated in terms of the request.
+
+One rule that was considered and is **not** built, deliberately:
+
+- **Contact person synchronisation.** `CviContactMapping` reports the switch, but
+  MDM Light does not stage contact persons at all (there is no such node in
+  `db/staging.cds`), so there is nothing in a request for the rule to fire on.
+
+##### Number assignment (added 2026-08-25)
+
+The third rule, and the one with teeth. **Does the grouping on this request line up
+with the account group CVI will use, so that a number actually gets assigned?** Off by
+one flag, nothing synchronises and nobody is told.
+
+Finding the tables was the work. `CVI_FS_CHECK_CUST_SUBROUTINES` names them itself —
+`select` in `select_data_customer` / `select_data_vendor` and the fills in
+`CVI_FS_CHECK_CUST_STARTSCREEN` — which is how the first five views were found too:
+
+| Table | What it holds |
+|---|---|
+| `TBD001` / `TBC001` | grouping → customer / supplier account group, plus the same-number flag (direction BP → account) |
+| `CVIC_CUST_TO_BP1` / `CVIC_VEND_TO_BP1` | the same for the inbound direction. **Both empty on S4A** |
+| `TB001.NRRNG` | the grouping's BU_PARTNER number range |
+| `T077D.NUMKR` / `T077K.NUMKR` | the account group's DEBITOR / KREDITOR number range |
+| `TBD002` / `TBC002` | which BP role category actually creates a customer / supplier |
+| `MDSC_CTRL_OPT_A` | which directions are switched on |
+
+Three new views (`Z_I_CVI_NUM_ASGN_CUSTOMER`, `Z_I_CVI_NUM_ASGN_VENDOR`,
+`Z_I_CVI_SYNC_DIRECTION`) and four new columns on `Z_I_CVI_ROLE_CATEGORY` carry them.
+The intervals stay where they already were, in `CviNumberRanges`; the new views expose
+the number range *keys* only, which is the link nothing had before. What the rule
+reports, in this order:
+
+1. **The direction is off.** No active `MDSC_CTRL_OPT_A` row means the account is
+   simply never created. SAP's report checks the mirror image — "maintained but
+   inactive" — and never this one, and "on but nothing maintained" is the case that
+   bites.
+2. **Nothing maintained for the grouping.** No `TBD001`/`TBC001` row means CVI has no
+   account group to create with. On S4A **nine of 23 groupings have no customer row
+   and fifteen have no supplier row, `MDM0` among them.**
+3. **Same number set, intervals differ.** Message 023 of `CVI_FS_CHECK_CUST`, with
+   both ranges and both intervals named — "the number ranges do not match" alone
+   sends the reader to two SPRO screens to find out which.
+4. **Same number not set and the account's range is external.** Nobody supplies that
+   number: the requester cannot (no field for it) and CVI will not (not its range to
+   draw from). Messages 022/031 turned around — SAP checks this for the inbound
+   direction only. On S4A this fires on `0002 → KUNA`, and on `0002`, `GPEX` and
+   `Z001` on the supplier side.
+
+Two things worth not undoing:
+
+- **Which target a role reaches for comes from `TBD002`/`TBC002`, not from the role
+  name.** Pattern-matching `FLCU*` would be shorter and would be a guess; a role whose
+  category drives neither a customer nor a supplier (a contact person, say) is
+  measured against no grouping at all, which is most of the noise avoided.
+- **The inbound rows are exposed but never read.** MDM Light only ever creates business
+  partners, so `CUSTOMER_TO_BP` / `VENDOR_TO_BP` describe a journey it does not make.
+  They are in the views because leaving half a table behind is how the next person ends
+  up re-deriving where it lives, and a test pins that a rule cannot mistake one
+  direction for the other.
 
 #### A derivation may create the row it needs (changed 2026-08-20)
 
