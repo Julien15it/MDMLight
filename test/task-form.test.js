@@ -442,9 +442,13 @@ test('check and duplicate check are in the header, and only there', () => {
  * Nothing in the build derives it from `mta.yaml`, so the MTA version is free to move; this is
  * hand-maintained and now deliberately still. Raise it only when the process is going to be
  * re-pointed on purpose, and change this assertion in the same commit so the two cannot drift.
+ *
+ * Raised 1.2.0 -> 1.3.0 on 2026-08-25, which is such an occasion: `prefix` joined
+ * sap.bpa.task.inputs, and the Lobby only re-reads that schema when the task is re-pointed. The
+ * new version URL also guarantees nothing serves the old manifest from a cache.
  */
 test('the task app version is pinned, so the process keeps pointing at it', () => {
-  assert.equal(manifest['sap.app'].applicationVersion.version, '1.2.0');
+  assert.equal(manifest['sap.app'].applicationVersion.version, '1.3.0');
 });
 
 /**
@@ -517,53 +521,103 @@ test('the task handover still loads the request from onInit', () => {
 });
 
 
-/**
- * The OData URIs are ABSOLUTE, on the app path the approuter routes (fixed 2026-08-21).
- *
- * Embedded in My Inbox the app is served out of the HTML5 repository at its VERSION-STAMPED path,
- * `…mdmmdbusinesspartnertask-1.2.0/`. Static content comes back from there fine - that is where the
- * shared view loads from - but `/service/*` is not proxied at that path, so a RELATIVE dataSource
- * uri resolved against it and every OData call answered 500 without ever reaching CAP:
- *
- *   …mdmmdbusinesspartnertask-1.2.0/service/changerequest/$metadata   500
- *   …mdmmdbusinesspartnertask/api/public/workflow/…/context           200
- *
- * Making them absolute on `/{service}.{appid}/` was necessary but NOT sufficient: the request
- * then reached the approuter instead of static hosting, and got 500 from it. Proven by hand:
- *
- *   /mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/businesspartner/$metadata        500
- *   /5db4d34d-….mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/businesspartner/…    200
- *
- * The leading UUID is the CONTENT PROVIDER, and without it the approuter cannot tell which
- * provider's destination namespace `mdm-businesspartner-srv-api` belongs to. `/api/` needs no
- * prefix because it resolves a `service`, not a `destination` - which is why that one route
- * worked all along and sent us looking in the wrong place twice.
- *
- * Derived from the two ids rather than pinned as a literal, exactly as the runtime base URL test
- * above does: renaming either breaks both, and it should break here first.
- */
-test('the OData sources are absolute, on the content-provider app path', () => {
+// The OData path is built at runtime from a prefix the TASK CONTEXT carries (2026-08-25).
+// Why it cannot come from the manifest, the module loader, or the MTA: CLAUDE.md, "The task app".
+test('the OData sources are relative, and no model is instantiated from the manifest', () => {
   const sources = manifest['sap.app'].dataSources;
-  // The provider id is the only literal; everything after it is derived, so renaming either id
-  // fails here rather than in My Inbox.
-  const provider = sources.mainService.uri.split('.')[0].replace('/', '');
-  assert.match(provider, /^[0-9a-f-]{36}$/u, 'the prefix starts with a content-provider id');
-  const prefix = `/${provider}`
-    + `.${manifest['sap.cloud'].service.replaceAll('.', '')}`
-    + `.${manifest['sap.app'].id.replaceAll('.', '')}/`;
+  assert.equal(sources.mainService.uri, 'service/businesspartner/');
+  assert.equal(sources.changeRequestService.uri, 'service/changerequest/');
+  // A dataSource-backed model would be built at init, before any prefix is known, and resolved
+  // against the version-stamped path where /service/* is not proxied.
+  assert.deepEqual(Object.keys(manifest['sap.ui5'].models), ['i18n']);
+});
 
-  assert.equal(sources.mainService.uri, `${prefix}service/businesspartner/`);
-  assert.equal(sources.changeRequestService.uri, `${prefix}service/changerequest/`);
-  // Both sources carry the SAME provider id: two would mean one of them was hand-edited.
+// The shipping requirement: a destination service instance GUID is landscape-specific, so a
+// customer deployment must not need a source edit to find its own services.
+test('no instance GUID is hard-coded anywhere in the task app', () => {
+  const uuid = /[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}/u;
+  assert.equal(uuid.test(JSON.stringify(manifest)), false, 'manifest.json carries no GUID');
+  assert.equal(uuid.test(JSON.stringify(xsApp)), false, 'xs-app.json carries no GUID');
+  assert.equal(uuid.test(component), false, 'Component.js carries no GUID');
+});
+
+// `prefix` has to be a declared input or the Lobby cannot map it - and an unmapped input never
+// becomes task context, which is the whole failure mode this input exists to avoid.
+test('prefix is a declared task input, and optional like tasktype', () => {
+  const inputs = manifest['sap.bpa.task'].inputs;
+  assert.ok(inputs.properties.prefix, 'prefix is declared');
   assert.equal(
-    sources.changeRequestService.uri.split('.')[0],
-    sources.mainService.uri.split('.')[0]
+    inputs.required.includes('prefix'), false,
+    'optional - a task built before this existed must still open far enough to report itself'
   );
+});
 
-  // Not relative: that is the whole bug, and a relative uri looks perfectly correct in review.
-  for (const name of Object.keys(sources)) {
-    assert.match(sources[name].uri, /^\//u, `${name} must not be relative`);
-  }
-  // The same prefix Component.js derives for the workflow runtime, so the two cannot drift.
+test('the app path is composed from the context prefix and the two descriptor ids', () => {
+  // From _serviceUrl, not _appPath: the uri lookup lives in the former and _appPath follows it.
+  const body = component.slice(
+    component.indexOf('_serviceUrl: function'),
+    component.indexOf('_loadPermissions: function')
+  );
+  assert.match(body, /if \(!prefix\) return "";/u, 'no prefix is standalone, where relative is right');
+  assert.match(body, /getManifestEntry\("\/sap\.cloud\/service"\)/u);
+  assert.match(body, /getManifestEntry\("\/sap\.app\/id"\)/u);
+  assert.match(body, /"\/" \+ prefix \+ "\." \+ service \+ "\." \+ app/u);
+  // The service path stays declared in the manifest; only its origin is composed.
+  assert.match(body, /getManifestEntry\("\/sap\.app\/dataSources\/" \+ dataSource \+ "\/uri"\)/u);
+});
+
+// Same settings the manifest used to declare, so the move is not also a retune.
+test('both service models are built in the component, with the settings the manifest had', () => {
+  const body = component.slice(
+    component.indexOf('_initServiceModels: function'),
+    component.indexOf('_loadPermissions: function')
+  );
+  assert.match(body, /_serviceSettings\("mainService", prefix, true\)/u);
+  assert.match(body, /_serviceSettings\("changeRequestService", prefix, false\)/u, 'cr is named');
+  assert.match(body, /operationMode: "Server"/u);
+  assert.match(body, /autoExpandSelect: true/u);
+});
+
+// Ordering is the whole design: models cannot exist before the context, and permissions and the
+// router both read models, so all three move behind it.
+test('nothing binds before the prefix arrives', () => {
+  const init = component.slice(
+    component.indexOf('init: function'),
+    component.indexOf('_begin: function')
+  );
+  assert.equal(
+    /this\._loadPermissions\(\);/u.test(init), false,
+    'permissions no longer run in init - the default model does not exist yet'
+  );
+  assert.equal(
+    /this\.getRouter\(\)\.initialize\(\);/u.test(init), false,
+    'routing no longer runs in init - a route would create a view with no models'
+  );
+  const begin = component.slice(
+    component.indexOf('_begin: function'),
+    component.indexOf('_initServiceModels: function')
+  );
+  const modelsAt = begin.indexOf('_initServiceModels(prefix)');
+  const permsAt = begin.indexOf('_loadPermissions()');
+  const routerAt = begin.indexOf('getRouter().initialize()');
+  assert.ok(modelsAt > -1 && permsAt > -1 && routerAt > -1, 'all three happen in _begin');
+  assert.ok(modelsAt < permsAt && modelsAt < routerAt, 'the models come first, or the rest read none');
+  // Embedded: after the context resolves. Standalone: with no prefix at all.
+  assert.match(component, /this\._begin\(context\.prefix\);/u);
+  assert.match(component, /this\._begin\(""\);/u);
+});
+
+// A missing prefix must not read as a broken service: relative resolves against the launchpad
+// root and 404s every call, which is what sent the last diagnosis to the wrong place.
+test('a task carrying no prefix says so rather than 404ing', () => {
+  assert.match(component, /if \(!context\.prefix\)/u);
+  assert.match(component, /no service prefix/u);
+  assert.match(component, /task input `prefix` declared in sap\.bpa\.task/u);
+});
+
+// Unchanged on purpose: /api/ resolves a SERVICE, not a destination, so it never needed the
+// prefix - which is why that one route worked all along while /service/* did not, and why it is
+// the only call the app can make before it knows anything.
+test('the workflow runtime base url keeps its own derivation', () => {
   assert.match(component, /"\/" \+ service \+ "\." \+ app \+ "\/api\/public\/workflow\/rest\/v1"/u);
 });

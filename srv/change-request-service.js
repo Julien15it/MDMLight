@@ -20,6 +20,7 @@ const { withFullName } = require('./partner-name');
 const { proposeNormalisations } = require('./checks/normalise');
 const { aiAssistanceEnabled } = require('./ai/availability');
 const { PAYLOAD_NODES, ROOT_SECTION } = require('./checks/payload-fields');
+const { uiPathPrefix } = require('./ui-prefix');
 
 const STAGING = 'mdmlight.staging.';
 const FINDINGS = `${STAGING}CheckFindings`;
@@ -438,6 +439,8 @@ class ChangeRequestService extends cds.ApplicationService {
         bpurl: approveUrl(changeRequest),
         // Where the requester goes if rejected. Sent now because SPA owns the rejection branch.
         reworkurl: reworkUrl(changeRequest),
+        // The task UI cannot discover its own OData path; this is the only call it can make unaided.
+        prefix: uiPathPrefix(),
         businesspartnerinput: businessPartnerInput,
         // One entry per matched partner, so the approver sees what was flagged and why. Empty when
         // nothing matched, never absent - SPA can then bind it without a null check.

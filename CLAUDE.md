@@ -1753,26 +1753,35 @@ costs the same step.
   because the bundle at an unchanged version URL is still cached. Cost half an hour
   on 2026-08-21. To test a task-app change, disable the browser cache or move the
   app version; to check what is live, look at the URL the app actually requests.
-- **The OData `dataSources` carry the CONTENT-PROVIDER prefix, and that is what makes
-  the destination resolve** (2026-08-21). Proven by requesting the same resource two
-  ways from a launchpad session:
+- **The OData `dataSources` carry the DESTINATION SERVICE INSTANCE GUID as a prefix,
+  and that is what makes the destination resolve** (2026-08-21, identified 2026-08-25).
+  Proven by requesting the same resource two ways from a launchpad session:
 
   ```
   /mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/businesspartner/$metadata      500
   /5db4d34d-….mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/businesspartner/…   200
   ```
 
-  Without the leading UUID the approuter cannot tell which provider's destination
-  namespace `mdm-businesspartner-srv-api` belongs to. `/api/` never needed it because
-  it resolves a **`service`** (`com.sap.spa.processautomation`) rather than a
-  **`destination`** — which is exactly why that one route worked throughout and sent
-  the diagnosis down two wrong paths (a stale app version, then browser cache).
+  Without the leading UUID the approuter cannot tell WHICH DESTINATION SERVICE INSTANCE
+  to resolve `mdm-businesspartner-srv-api` from. `/api/` never needed it because it
+  resolves a **`service`** (`com.sap.spa.processautomation`) rather than a
+  **`destination`**, so no destination lookup happens at all — which is exactly why that
+  one route worked throughout and sent the diagnosis down two wrong paths (a stale app
+  version, then browser cache).
 
-  **The UUID is landscape-specific.** It is the content provider of this subaccount,
-  it appears in the partner app's own URLs, and it is hard-coded in exactly one place
-  per data source with a test pinning that both agree. Deploying this MTA to another
-  subaccount needs it changed; parameterising it through `mta.yaml` is the obvious
-  follow-up and was not done because the id is not something the MTA knows.
+  **It is the instance GUID of `mdm-businesspartner-destination-service`** — confirmed
+  2026-08-25 with `cf service mdm-businesspartner-destination-service --guid`. It is NOT
+  a Work Zone content provider id, which is what this file called it for four days and
+  what sent the next search to Channel Manager: a content provider ID is "up to 20
+  alphanumeric characters, dots, or underscores" (SAP Help, *Multi-Tenancy
+  Consumption*), so a 36-character hyphenated UUID can never be one. Nor is it the
+  app-host GUID, the other plausible candidate.
+
+  **It is landscape-specific and created by this MTA**, so it does not exist until the
+  first deploy of a given subaccount finishes. That is what makes build-time
+  substitution awkward: `mbt build` fixes `manifest.json` inside the app zip before any
+  resource exists. Shipping this to a customer needs one of the routes under "Deriving
+  it" below, not a literal.
 - **The OData `dataSources` are ABSOLUTE, on that same derived app path** (fixed
   2026-08-21) — `/mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/…/`, not
   `service/…/`. Embedded in My Inbox the app is served out of the HTML5 repository
@@ -1792,6 +1801,49 @@ costs the same step.
   which is why the task context loaded while the data did not. **`app/businesspartner`
   keeps its relative uris** — it is served at the approuter app path with a
   cachebuster, where relative resolves correctly. Do not "make them consistent".
+- **The prefix is carried in the TASK CONTEXT, because nothing else can carry it** (2026-08-25).
+  `workflowContext()` sends `prefix` (the destination service instance GUID, read out of
+  `VCAP_SERVICES` by `srv/ui-prefix.js`); `_initTaskForm` reads it off the loaded task context and
+  `_appPath()` composes `/{prefix}.{sap.cloud.service}.{sap.app.id}/` in front of the still-relative
+  `dataSources` uri. **`manifest.json` declares no OData model**, because a `dataSource`-backed one
+  is built at init, long before any context exists.
+
+  **Only the GUID crosses the wire, not the whole path.** The app already derives
+  `{service}.{appid}` for its `/api/` URL, so CAP never has to know which of the three UI apps a
+  task belongs to, and renaming the task app costs no CAP change.
+
+  **The ordering is the design.** `_loadPermissions` and `getRouter().initialize()` moved out of
+  `init()` into `_begin()`, which runs only once the prefix is known: both read models, and the
+  models cannot exist earlier. Standalone calls `_begin("")` — no prefix, relative uri, which is
+  what `ui5.yaml`'s `fiori-tools-proxy` serves.
+
+  **A task with no `prefix` is reported, never guessed.** Falling back to relative would resolve
+  against the launchpad root and 404 every call, which reads as a broken service rather than an
+  unmapped task input — the exact misreading that cost 2026-08-25.
+
+  Three routes were considered; the other two are recorded so nobody re-runs them:
+
+  1. **Derive it from the URL the component loaded from — TRIED AND REVERTED.** `_appPath()` built
+     from `sap.ui.require.toUrl(getComponentName())` with the version stamp stripped. Deployed,
+     every call 404'd: the resource root is `/mdmmdbusinesspartner.mdmmdbusinesspartnertask-1.2.0/`
+     — versioned and **unprefixed**. The app is served from a path that does not name the
+     destination service instance, while `/service/*` is only routed on one that does.
+
+     **What made it look derivable was an ellipsis.** The 2026-08-21 evidence is written
+     `…mdmmdbusinesspartnertask-1.2.0/reuse/view/…view.xml`, and the `…` sits exactly where a GUID
+     would be. It was read as proof the prefix was present. When an abbreviated URL is the evidence
+     for a claim about a URL, get the full one.
+  2. **Route `/service/*` as a business service so no GUID is needed — RULED OUT.** A route may
+     reference a `sap.cloud.service`, but only for a *Business Service*: one whose VCAP_SERVICES
+     credentials publish `sap.cloud.service` and `endpoints`, "provided via the `onBind` hook in the
+     service-broker implementation" (SAP Help, *Integration with Business Services*). SBPA qualifies
+     as a subscribed SaaS that registers itself; this CAP app is a plain CF app behind a destination,
+     so it would need a service broker and a SaaS-registry registration.
+  3. **Build-time substitution — not possible in one pass.** The destination service instance is a
+     resource of this same MTA, so its GUID does not exist until the first deploy of a subaccount
+     finishes, and `mbt build` has already sealed `manifest.json` inside the app zip by then.
+
+  `UI_PATH_PREFIX` overrides the lookup if a landscape ever needs it named by hand.
 - My Inbox renders the buttons. `Component.js` registers them with
   `inboxAPI.addAction`, ids matching `sap.bpa.task.outcomes`, and the app's own
   footer Approve/Reject hide on `env>/embedded` so there is one place to press.
@@ -1835,7 +1887,13 @@ host, so the variable was renamed rather than reused - unset now yields `''`, an
 diagnosable where a 404 is not. The intent must match the `BusinessPartner-manage` inbound.
 - Workflow context sent at submit:
   `{ changerequestid, requesttype, businesspartner, emailadressinitiator, bpurl, reworkurl,
-  businesspartnerinput, bpduplicates, approvers }`
+  prefix, businesspartnerinput, bpduplicates, approvers }`
+- **`prefix` must be mapped onto the approval AND rework task inputs** (added 2026-08-25, agreed
+  with Maarten). It is the destination service instance GUID, and it is the only way the task UI
+  can learn its own OData path — see "The task app". Declared in `app/bptask`'s `sap.bpa.task.inputs`
+  as an optional string, so a task built before it existed still opens; the app then reports the
+  missing input rather than 404ing every call. **An undeclared key never becomes task context**, so
+  sending it is not enough on its own — the process definition has to declare and map it.
 - `approvers` is an **array of strings** from the `WorkflowRules` table — e-mail
   addresses and role names mixed, `kind` derivable from the `@`. It is **not** an
   array of objects: see "What actually goes over the wire" under "Workflow rules".

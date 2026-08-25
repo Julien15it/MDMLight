@@ -5,13 +5,13 @@
     "type": "application",
     "i18n": "i18n/i18n.properties",
     "applicationVersion": {
-      "version": "1.2.0"
+      "version": "1.3.0"
     },
     "title": "{{appTitle}}",
     "description": "{{appDescription}}",
     "dataSources": {
       "mainService": {
-        "uri": "/5db4d34d-4f01-4e6c-9b54-2f2350a5d153.mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/businesspartner/",
+        "uri": "service/businesspartner/",
         "type": "OData",
         "settings": {
           "annotations": [],
@@ -19,7 +19,7 @@
         }
       },
       "changeRequestService": {
-        "uri": "/5db4d34d-4f01-4e6c-9b54-2f2350a5d153.mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/changerequest/",
+        "uri": "service/changerequest/",
         "type": "OData",
         "settings": {
           "annotations": [],
@@ -59,26 +59,6 @@
         "type": "sap.ui.model.resource.ResourceModel",
         "settings": {
           "bundleName": "mdm.md.businesspartner.task.i18n.i18n"
-        }
-      },
-      "": {
-        "dataSource": "mainService",
-        "preload": true,
-        "settings": {
-          "synchronizationMode": "None",
-          "operationMode": "Server",
-          "autoExpandSelect": true,
-          "earlyRequests": true
-        }
-      },
-      "cr": {
-        "dataSource": "changeRequestService",
-        "preload": true,
-        "settings": {
-          "synchronizationMode": "None",
-          "operationMode": "Server",
-          "autoExpandSelect": true,
-          "earlyRequests": false
         }
       }
     },
@@ -164,6 +144,10 @@
         "tasktype": {
           "type": "string",
           "title": "Task Type"
+        },
+        "prefix": {
+          "type": "string",
+          "title": "Service Prefix"
         }
       }
     },

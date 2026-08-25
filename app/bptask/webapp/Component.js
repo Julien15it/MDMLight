@@ -2,9 +2,10 @@ sap.ui.define(
     [
         "sap/ui/core/UIComponent",
         "sap/ui/model/json/JSONModel",
+        "sap/ui/model/odata/v4/ODataModel",
         "sap/m/MessageBox"
     ],
-    function (UIComponent, JSONModel, MessageBox) {
+    function (UIComponent, JSONModel, ODataModel, MessageBox) {
         "use strict";
 
         /**
@@ -42,14 +43,57 @@ sap.ui.define(
                     new JSONModel({ isDataSteward: false, aiAssistanceEnabled: false }),
                     "perm"
                 );
-                this._loadPermissions();
-                this.getRouter().initialize();
+                // _loadPermissions and the router both wait for _begin: neither can run before the
+                // OData models exist, and those cannot be built until the prefix arrives.
                 // Never allowed to reject: init() is synchronous to its caller, and an unhandled
                 // rejection here can abort the shell's app creation and be retried, which surfaces
                 // as "adding element with duplicate id ...-content" rather than as the real fault.
                 this._initTaskForm().catch(function (error) {
                     console.error("[taskform] Task form initialisation failed:", error);
                 });
+            },
+
+            /** Models, permissions and routing in one place, because all three need the prefix. */
+            _begin: function (prefix) {
+                this._initServiceModels(prefix);
+                this._loadPermissions();
+                this.getRouter().initialize();
+            },
+
+            /** Built here, not declared in manifest.json: only the task context knows the path. */
+            _initServiceModels: function (prefix) {
+                this.setModel(new ODataModel(this._serviceSettings("mainService", prefix, true)));
+                this.setModel(
+                    new ODataModel(this._serviceSettings("changeRequestService", prefix, false)),
+                    "cr"
+                );
+            },
+
+            _serviceSettings: function (dataSource, prefix, earlyRequests) {
+                return {
+                    serviceUrl: this._serviceUrl(dataSource, prefix),
+                    synchronizationMode: "None",
+                    operationMode: "Server",
+                    autoExpandSelect: true,
+                    earlyRequests: earlyRequests
+                };
+            },
+
+            _serviceUrl: function (dataSource, prefix) {
+                var uri = String(this.getManifestEntry("/sap.app/dataSources/" + dataSource + "/uri") || "");
+                return this._appPath(prefix) + "/" + uri.replace(/^\//, "");
+            },
+
+            /**
+             * `{destination service instance guid}.{sap.cloud.service}.{sap.app.id}`, dots stripped -
+             * the approuter needs the guid to know which instance resolves the destination.
+             */
+            _appPath: function (prefix) {
+                // No prefix is standalone, where the document root is already the right base.
+                if (!prefix) return "";
+                var service = String(this.getManifestEntry("/sap.cloud/service") || "").replaceAll(".", "");
+                var app = String(this.getManifestEntry("/sap.app/id") || "").replaceAll(".", "");
+                return "/" + prefix + "." + service + "." + app;
             },
 
             /**
@@ -91,7 +135,11 @@ sap.ui.define(
              */
             _initTaskForm: async function () {
                 var startup = this._startupParameters();
-                if (!startup.inboxAPI || !startup.taskModel) return;
+                if (!startup.inboxAPI || !startup.taskModel) {
+                    // Standalone: served from the document root, where a relative uri resolves.
+                    this._begin("");
+                    return;
+                }
 
                 this.getModel("env").setProperty("/embedded", true);
                 this.setModel(startup.taskModel, "task");
@@ -108,6 +156,18 @@ sap.ui.define(
                 }
 
                 var context = contextModel.getData() || {};
+                if (!context.prefix) {
+                    // Relative would resolve against the launchpad root and 404 every call, which
+                    // reads as a broken service rather than as an unmapped task input.
+                    MessageBox.error(
+                        "This task carries no service prefix, so its data cannot be loaded. "
+                        + "In the approval and rework steps of the process, map the process context "
+                        + "onto the task input `prefix` declared in sap.bpa.task."
+                    );
+                    return;
+                }
+                // Nothing may bind before this: the OData path is only knowable from the context.
+                this._begin(context.prefix);
                 // `tasktype` is the only thing telling a rework task apart from the approver's
                 // decision task. Absent - every task built before rework existed - still means
                 // approve, so no workflow that already works needs its input mapping touched.
