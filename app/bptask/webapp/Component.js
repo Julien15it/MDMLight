@@ -2,10 +2,9 @@ sap.ui.define(
     [
         "sap/ui/core/UIComponent",
         "sap/ui/model/json/JSONModel",
-        "sap/ui/model/odata/v4/ODataModel",
         "sap/m/MessageBox"
     ],
-    function (UIComponent, JSONModel, ODataModel, MessageBox) {
+    function (UIComponent, JSONModel, MessageBox) {
         "use strict";
 
         /**
@@ -29,7 +28,6 @@ sap.ui.define(
 
             init: function () {
                 UIComponent.prototype.init.apply(this, arguments);
-                this._initServiceModels();
                 // The shared screen binds all three. `env>/embedded` decides whether it draws its
                 // own decision buttons; `perm` gates the steward-only and AI-only controls. Both
                 // start closed, so a control is never briefly offered to someone who may not use it.
@@ -52,24 +50,6 @@ sap.ui.define(
                 this._initTaskForm().catch(function (error) {
                     console.error("[taskform] Task form initialisation failed:", error);
                 });
-            },
-
-            /** Built here, not declared in manifest.json: only the runtime knows the app path. */
-            _initServiceModels: function () {
-                this.setModel(new ODataModel({
-                    serviceUrl: this._serviceUrl("mainService"),
-                    synchronizationMode: "None",
-                    operationMode: "Server",
-                    autoExpandSelect: true,
-                    earlyRequests: true
-                }));
-                this.setModel(new ODataModel({
-                    serviceUrl: this._serviceUrl("changeRequestService"),
-                    synchronizationMode: "None",
-                    operationMode: "Server",
-                    autoExpandSelect: true,
-                    earlyRequests: false
-                }), "cr");
             },
 
             /**
@@ -282,22 +262,6 @@ sap.ui.define(
                 var service = String(this.getManifestEntry("/sap.cloud/service") || "").replaceAll(".", "");
                 var app = String(this.getManifestEntry("/sap.app/id") || "").replaceAll(".", "");
                 return "/" + service + "." + app + "/api/public/workflow/rest/v1";
-            },
-
-            /** The app path the approuter routes /service/* on, taken from where this component actually loaded. */
-            _appPath: function () {
-                var root = sap.ui.require.toUrl(this.getMetadata().getComponentName().replace(/\./g, "/"));
-                var path = new URL(root, window.location.href).pathname.replace(/\/+$/, "");
-                var version = this.getManifestEntry("/sap.app/applicationVersion/version");
-                // Statics come from the version-stamped path; xs-app.json applies on the unversioned one.
-                if (version) path = path.replace(new RegExp("-" + String(version).replace(/\./g, "\\.") + "$"), "");
-                // No content-provider prefix means standalone, where the document root is already right.
-                return /\/[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}\./.test(path) ? path : "";
-            },
-
-            _serviceUrl: function (dataSource) {
-                var uri = String(this.getManifestEntry("/sap.app/dataSources/" + dataSource + "/uri") || "");
-                return this._appPath() + "/" + uri.replace(/^\//, "");
             },
 
             _taskInstanceId: function () {

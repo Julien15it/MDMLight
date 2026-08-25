@@ -516,65 +516,53 @@ test('the task handover still loads the request from onInit', () => {
 });
 
 
-// The OData sources are RELATIVE here and prefixed at runtime by Component.js (2026-08-25).
-// Why neither the manifest nor a literal can carry the app path: CLAUDE.md, "The task app".
-test('the OData sources are relative, and no model is instantiated from the manifest', () => {
+/**
+ * The OData URIs are ABSOLUTE, on the app path the approuter routes (fixed 2026-08-21).
+ *
+ * Embedded in My Inbox the app is served out of the HTML5 repository at its VERSION-STAMPED path,
+ * `…mdmmdbusinesspartnertask-1.2.0/`. Static content comes back from there fine - that is where the
+ * shared view loads from - but `/service/*` is not proxied at that path, so a RELATIVE dataSource
+ * uri resolved against it and every OData call answered 500 without ever reaching CAP:
+ *
+ *   …mdmmdbusinesspartnertask-1.2.0/service/changerequest/$metadata   500
+ *   …mdmmdbusinesspartnertask/api/public/workflow/…/context           200
+ *
+ * Making them absolute on `/{service}.{appid}/` was necessary but NOT sufficient: the request
+ * then reached the approuter instead of static hosting, and got 500 from it. Proven by hand:
+ *
+ *   /mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/businesspartner/$metadata        500
+ *   /5db4d34d-….mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/businesspartner/…    200
+ *
+ * The leading UUID is the CONTENT PROVIDER, and without it the approuter cannot tell which
+ * provider's destination namespace `mdm-businesspartner-srv-api` belongs to. `/api/` needs no
+ * prefix because it resolves a `service`, not a `destination` - which is why that one route
+ * worked all along and sent us looking in the wrong place twice.
+ *
+ * Derived from the two ids rather than pinned as a literal, exactly as the runtime base URL test
+ * above does: renaming either breaks both, and it should break here first.
+ */
+test('the OData sources are absolute, on the content-provider app path', () => {
   const sources = manifest['sap.app'].dataSources;
-  assert.equal(sources.mainService.uri, 'service/businesspartner/');
-  assert.equal(sources.changeRequestService.uri, 'service/changerequest/');
-  // A dataSource-backed model would be resolved against the VERSION-STAMPED path, where
-  // /service/* is not proxied - the 500-without-reaching-CAP this whole thing exists to avoid.
-  assert.deepEqual(Object.keys(manifest['sap.ui5'].models), ['i18n']);
-});
+  // The provider id is the only literal; everything after it is derived, so renaming either id
+  // fails here rather than in My Inbox.
+  const provider = sources.mainService.uri.split('.')[0].replace('/', '');
+  assert.match(provider, /^[0-9a-f-]{36}$/u, 'the prefix starts with a content-provider id');
+  const prefix = `/${provider}`
+    + `.${manifest['sap.cloud'].service.replaceAll('.', '')}`
+    + `.${manifest['sap.app'].id.replaceAll('.', '')}/`;
 
-// The shipping requirement: a content-provider id is landscape-specific, so a customer
-// deployment must not need a source edit to find its own services.
-test('no content-provider id is hard-coded anywhere in the task app', () => {
-  const uuid = /[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}/u;
-  assert.equal(uuid.test(JSON.stringify(manifest)), false, 'manifest.json carries no provider id');
-  assert.equal(uuid.test(JSON.stringify(xsApp)), false, 'xs-app.json carries no provider id');
-  // Safe against Component.js's own `[0-9a-f]{8}(-…` regex source: `-` is not in the class,
-  // so the character-class TEXT never matches the character-class PATTERN.
-  assert.equal(uuid.test(component), false, 'Component.js carries no provider id');
-});
-
-test('the app path is derived from where the component actually loaded', () => {
-  const body = component.slice(
-    component.indexOf('_appPath: function'),
-    component.indexOf('_taskInstanceId: function')
+  assert.equal(sources.mainService.uri, `${prefix}service/businesspartner/`);
+  assert.equal(sources.changeRequestService.uri, `${prefix}service/changerequest/`);
+  // Both sources carry the SAME provider id: two would mean one of them was hand-edited.
+  assert.equal(
+    sources.changeRequestService.uri.split('.')[0],
+    sources.mainService.uri.split('.')[0]
   );
-  // Module resolution knows the real base - that is how the shared reuse view loads at all.
-  assert.match(body, /sap\.ui\.require\.toUrl\(this\.getMetadata\(\)\.getComponentName\(\)/u);
-  // Statics come from the version-stamped path; xs-app.json applies on the unversioned one.
-  assert.match(body, /getManifestEntry\("\/sap\.app\/applicationVersion\/version"\)/u);
-  // Standalone (local dev) has no provider prefix, and there the document root is already right.
-  assert.match(body, /\? path : ""/u);
-  // The service path stays declared in the manifest; only its origin is derived.
-  assert.match(body, /getManifestEntry\("\/sap\.app\/dataSources\/" \+ dataSource \+ "\/uri"\)/u);
-  assert.match(body, /this\._appPath\(\) \+ "\/" \+ uri\.replace/u);
-});
 
-// Same settings the manifest used to declare, so the change is a move and not a retune.
-test('both service models are built in the component, with the settings the manifest had', () => {
-  const body = component.slice(
-    component.indexOf('_initServiceModels: function'),
-    component.indexOf('_loadPermissions: function')
-  );
-  assert.match(body, /serviceUrl: this\._serviceUrl\("mainService"\)/u);
-  assert.match(body, /serviceUrl: this\._serviceUrl\("changeRequestService"\)/u);
-  assert.match(body, /earlyRequests: true/u);
-  assert.match(body, /earlyRequests: false/u);
-  assert.equal((body.match(/operationMode: "Server"/gu) || []).length, 2);
-  assert.equal((body.match(/autoExpandSelect: true/gu) || []).length, 2);
-  // The default model is unnamed and `cr` is named: the shared screen binds both by those names.
-  assert.match(body, /\}\)\);/u);
-  assert.match(body, /\}\), "cr"\);/u);
-  // Before _loadPermissions, which reads the default model on the very next line of init().
-  assert.match(component, /this\._initServiceModels\(\);/u);
-});
-
-// Unchanged on purpose: /api/ resolves a SERVICE, not a destination, so it never needed the
-// provider prefix - which is why that one route worked all along while /service/* did not.
-test('the workflow runtime base url keeps its own derivation', () => {
+  // Not relative: that is the whole bug, and a relative uri looks perfectly correct in review.
+  for (const name of Object.keys(sources)) {
+    assert.match(sources[name].uri, /^\//u, `${name} must not be relative`);
+  }
+  // The same prefix Component.js derives for the workflow runtime, so the two cannot drift.
   assert.match(component, /"\/" \+ service \+ "\." \+ app \+ "\/api\/public\/workflow\/rest\/v1"/u);
 });

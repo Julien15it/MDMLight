@@ -1667,64 +1667,45 @@ costs the same step.
   because the bundle at an unchanged version URL is still cached. Cost half an hour
   on 2026-08-21. To test a task-app change, disable the browser cache or move the
   app version; to check what is live, look at the URL the app actually requests.
-- **The OData service URLs are built in `Component.js` at runtime, not declared in
-  `manifest.json`** (2026-08-25). `_appPath()` reads the component's own resource root
-  with `sap.ui.require.toUrl`, strips the version stamp, and `_serviceUrl()` prefixes
-  the still-relative `dataSources` uri with it. `manifest.json` declares **no OData
-  model at all** — a `dataSource`-backed model would be resolved by UI5 against the
-  manifest's own location, which is the broken path below.
+- **The OData `dataSources` carry the CONTENT-PROVIDER prefix, and that is what makes
+  the destination resolve** (2026-08-21). Proven by requesting the same resource two
+  ways from a launchpad session:
 
-  This replaces a hard-coded absolute uri carrying the content-provider UUID
-  (`/5db4d34d-….mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/…/`), which
-  worked but **shipped a landscape-specific id in a product**: every customer
-  subaccount has a different provider, so every deployment needed a source edit.
-  `test/task-form.test.js` now fails if any UUID reappears in the app.
+  ```
+  /mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/businesspartner/$metadata      500
+  /5db4d34d-….mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/businesspartner/…   200
+  ```
 
-  Three facts make the derivation correct, and all three were paid for on 2026-08-21:
+  Without the leading UUID the approuter cannot tell which provider's destination
+  namespace `mdm-businesspartner-srv-api` belongs to. `/api/` never needed it because
+  it resolves a **`service`** (`com.sap.spa.processautomation`) rather than a
+  **`destination`** — which is exactly why that one route worked throughout and sent
+  the diagnosis down two wrong paths (a stale app version, then browser cache).
 
-  1. **Embedded in My Inbox the app is served at its version-stamped HTML5-repository
-     path, and `/service/*` is not proxied there.** A relative uri resolved against it
-     and every OData call answered **500 without ever reaching CAP** — nothing in
-     `cf logs`, which is what made it look like a server fault for an afternoon:
+  **The UUID is landscape-specific.** It is the content provider of this subaccount,
+  it appears in the partner app's own URLs, and it is hard-coded in exactly one place
+  per data source with a test pinning that both agree. Deploying this MTA to another
+  subaccount needs it changed; parameterising it through `mta.yaml` is the obvious
+  follow-up and was not done because the id is not something the MTA knows.
+- **The OData `dataSources` are ABSOLUTE, on that same derived app path** (fixed
+  2026-08-21) — `/mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/…/`, not
+  `service/…/`. Embedded in My Inbox the app is served out of the HTML5 repository
+  at its **version-stamped** path, and `/service/*` is not proxied there, so a
+  relative uri resolved against it and every OData call answered **500 without ever
+  reaching CAP** — nothing in `cf logs`, which is what made it look like a server
+  fault for an afternoon. The evidence, from one page load:
 
-     ```
-     …mdmmdbusinesspartnertask-1.2.0/service/changerequest/$metadata   500
-     …mdmmdbusinesspartnertask-1.2.0/reuse/view/…view.xml              200
-     …mdmmdbusinesspartnertask/api/public/workflow/…/context           200
-     ```
+  ```
+  …mdmmdbusinesspartnertask-1.2.0/service/changerequest/$metadata   500
+  …mdmmdbusinesspartnertask-1.2.0/reuse/view/…view.xml              200
+  …mdmmdbusinesspartnertask/api/public/workflow/…/context           200
+  ```
 
-     Statics come from the versioned path; the approuter applies `xs-app.json` on the
-     **unversioned** one — hence the `-{version}` strip.
-  2. **The content-provider prefix is what makes the destination resolve.** Proven by
-     requesting the same resource two ways from a launchpad session:
-
-     ```
-     /mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/businesspartner/$metadata      500
-     /5db4d34d-….mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/businesspartner/…   200
-     ```
-
-     Without the leading UUID the approuter cannot tell which provider's destination
-     namespace `mdm-businesspartner-srv-api` belongs to. So the prefix is still
-     required — it is now **read** rather than **written**.
-  3. **That prefix is already in the URL the component loaded from.** The reuse view
-     loading at `…task-1.2.0/reuse/view/…` is the proof: UI5's module resolution knows
-     the real base, UUID included, so nothing has to be told what it is.
-
-  `/api/` keeps its own derivation in `_workflowRuntimeBaseUrl` and needs **no** prefix,
-  because it resolves a **`service`** (`com.sap.spa.processautomation`) rather than a
-  **`destination`** — which is exactly why that one route worked throughout and sent the
-  diagnosis down two wrong paths (a stale app version, then browser cache). Do not
-  "make them consistent": one is a working route, the other was the bug.
-
-  **Standalone yields no prefix and that is correct.** Run locally the derived path has
-  no provider id, `_appPath()` returns `''`, and the uri stays relative to the document
-  root — which is where `ui5.yaml`'s `fiori-tools-proxy` picks `/service` up. The regex
-  test on the derived path is what tells the two apart.
-
-  **`app/businesspartner` is untouched and keeps its relative uris** — it is served at
-  the approuter app path with a cachebuster, where relative resolves correctly. It has
-  never needed this, and giving it the same helper would be a change with no defect
-  behind it.
+  Statics come from the versioned path; the approuter applies `xs-app.json` on the
+  **unversioned** one. `Component.js` was already building its `/api/` URL that way,
+  which is why the task context loaded while the data did not. **`app/businesspartner`
+  keeps its relative uris** — it is served at the approuter app path with a
+  cachebuster, where relative resolves correctly. Do not "make them consistent".
 - My Inbox renders the buttons. `Component.js` registers them with
   `inboxAPI.addAction`, ids matching `sap.bpa.task.outcomes`, and the app's own
   footer Approve/Reject hide on `env>/embedded` so there is one place to press.
