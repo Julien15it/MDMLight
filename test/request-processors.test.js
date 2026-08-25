@@ -135,9 +135,10 @@ test('the strip goes last, so a message explaining the screen still leads', () =
     'controller', 'BusinessPartnerMaintenance.controller.js'
   );
   assert.match(controller, /var processorStrip = processorMessage\(state\.processors\);/u);
+  // The branch's own message, then what the request was submitted with, then who has it now.
   assert.match(
     controller,
-    /if \(processorStrip\) state\.messages = \(state\.messages \|\| \[\]\)\.concat\(\[processorStrip\]\);/u
+    /state\.messages = \(state\.messages \|\| \[\]\)\s*\.concat\(submittedWarnings\)\s*\.concat\(processorStrip \? \[processorStrip\] : \[\]\);/u
   );
   // Never prepended: that is the version that hid the "nothing to rework" note behind the step.
   assert.equal(/\[processorStrip\]\.concat/u.test(controller), false);
