@@ -1,4 +1,4 @@
-/* checksum : e2995af9d8bd10a97ddf8159225dfef7 */
+/* checksum : 2963dfeb13ad0d27f3d4c67d910ce87d */
 @cds.external : true
 @m.IsDefaultEntityContainer : 'true'
 @sap.message.scope.supported : 'true'
@@ -1019,6 +1019,64 @@ entity ZSRVB_MDMLIGHT_VH.CviNumberRanges {
 @sap.updatable : 'false'
 @sap.deletable : 'false'
 @sap.content.version : '1'
+@sap.label : 'CVI Check: BP/Customer Number Assignment'
+entity ZSRVB_MDMLIGHT_VH.CviCustomerNumberAssignments {
+  key SyncDirection : String(14) not null;
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Grouping'
+  @sap.quickinfo : 'Business Partner Grouping'
+  key BPGrouping : String(4) not null;
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Account group'
+  @sap.quickinfo : 'Customer Account Group'
+  key CustomerAccountGroup : String(4) not null;
+  @sap.label : 'Same Numbers'
+  @sap.quickinfo : 'Same Number When Creating Customer/Vendor from a BP'
+  HasSameNumber : Boolean;
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Number range'
+  @sap.quickinfo : 'BP Number Range'
+  BPNumberRange : String(2);
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Number Range'
+  CustomerNumberRange : String(2);
+};
+
+@cds.external : true
+@cds.persistence.skip : true
+@sap.creatable : 'false'
+@sap.updatable : 'false'
+@sap.deletable : 'false'
+@sap.content.version : '1'
+@sap.label : 'CVI Check: BP/Supplier Number Assignment'
+entity ZSRVB_MDMLIGHT_VH.CviSupplierNumberAssignments {
+  key SyncDirection : String(12) not null;
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Grouping'
+  @sap.quickinfo : 'Business Partner Grouping'
+  key BPGrouping : String(4) not null;
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Account group'
+  @sap.quickinfo : 'Vendor account group'
+  key SupplierAccountGroup : String(4) not null;
+  @sap.label : 'Same Numbers'
+  @sap.quickinfo : 'Create Vendor with Same Number'
+  HasSameNumber : Boolean;
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Number range'
+  @sap.quickinfo : 'BP Number Range'
+  BPNumberRange : String(2);
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Number Range'
+  SupplierNumberRange : String(2);
+};
+
+@cds.external : true
+@cds.persistence.skip : true
+@sap.creatable : 'false'
+@sap.updatable : 'false'
+@sap.deletable : 'false'
+@sap.content.version : '1'
 @sap.label : 'CVI Check: Postprocessing Office Control'
 entity ZSRVB_MDMLIGHT_VH.CviPostprocessingControl {
   @sap.display.format : 'UpperCase'
@@ -1057,78 +1115,18 @@ entity ZSRVB_MDMLIGHT_VH.CviRoleCategories {
   @sap.label : 'Business Object'
   @sap.quickinfo : 'ESF: Business Object'
   BusinessObjectName : String(30);
-  @sap.label : 'Customer'
-  @sap.quickinfo : 'Role Category Always Creates a Customer'
+  @sap.label : 'Mandatory'
+  @sap.quickinfo : 'BP Role Category is Mandatory for Customer'
   CreatesCustomerMandatory : Boolean;
-  @sap.label : 'Customer Optional'
-  @sap.quickinfo : 'Role Category May Create a Customer'
+  @sap.label : 'Optional'
+  @sap.quickinfo : 'BP Role Category is Optional for Customer'
   CreatesCustomerOptional : Boolean;
-  @sap.label : 'Supplier'
-  @sap.quickinfo : 'Role Category Always Creates a Supplier'
+  @sap.label : 'Mandatory'
+  @sap.quickinfo : 'BP Role Category is Mandatory for Vendor'
   CreatesSupplierMandatory : Boolean;
-  @sap.label : 'Supplier Optional'
-  @sap.quickinfo : 'Role Category May Create a Supplier'
+  @sap.label : 'Optional'
+  @sap.quickinfo : 'BP Role Category is Optional for Vendor'
   CreatesSupplierOptional : Boolean;
-};
-
-@cds.external : true
-@cds.persistence.skip : true
-@sap.creatable : 'false'
-@sap.updatable : 'false'
-@sap.deletable : 'false'
-@sap.content.version : '1'
-@sap.label : 'CVI Check: BP/Customer Number Assignment'
-entity ZSRVB_MDMLIGHT_VH.CviCustomerNumberAssignments {
-  @sap.display.format : 'UpperCase'
-  @sap.label : 'Direction'
-  @sap.quickinfo : 'Synchronisation Direction'
-  key SyncDirection : String(14) not null;
-  @sap.display.format : 'UpperCase'
-  @sap.label : 'Grouping'
-  key BPGrouping : String(4) not null;
-  @sap.display.format : 'UpperCase'
-  @sap.label : 'Account group'
-  key CustomerAccountGroup : String(4) not null;
-  @sap.label : 'Same Numbers'
-  HasSameNumber : Boolean;
-  @sap.display.format : 'UpperCase'
-  @sap.label : 'Number range'
-  @sap.quickinfo : 'Number Range of the BP Grouping'
-  BPNumberRange : String(2);
-  @sap.display.format : 'UpperCase'
-  @sap.label : 'Number Range'
-  @sap.quickinfo : 'Number Range of the Customer Account Group'
-  CustomerNumberRange : String(2);
-};
-
-@cds.external : true
-@cds.persistence.skip : true
-@sap.creatable : 'false'
-@sap.updatable : 'false'
-@sap.deletable : 'false'
-@sap.content.version : '1'
-@sap.label : 'CVI Check: BP/Supplier Number Assignment'
-entity ZSRVB_MDMLIGHT_VH.CviSupplierNumberAssignments {
-  @sap.display.format : 'UpperCase'
-  @sap.label : 'Direction'
-  @sap.quickinfo : 'Synchronisation Direction'
-  key SyncDirection : String(12) not null;
-  @sap.display.format : 'UpperCase'
-  @sap.label : 'Grouping'
-  key BPGrouping : String(4) not null;
-  @sap.display.format : 'UpperCase'
-  @sap.label : 'Account group'
-  key SupplierAccountGroup : String(4) not null;
-  @sap.label : 'Same Numbers'
-  HasSameNumber : Boolean;
-  @sap.display.format : 'UpperCase'
-  @sap.label : 'Number range'
-  @sap.quickinfo : 'Number Range of the BP Grouping'
-  BPNumberRange : String(2);
-  @sap.display.format : 'UpperCase'
-  @sap.label : 'Number Range'
-  @sap.quickinfo : 'Number Range of the Supplier Account Group'
-  SupplierNumberRange : String(2);
 };
 
 @cds.external : true
@@ -1141,10 +1139,14 @@ entity ZSRVB_MDMLIGHT_VH.CviSupplierNumberAssignments {
 entity ZSRVB_MDMLIGHT_VH.CviSyncDirections {
   @sap.display.format : 'UpperCase'
   @sap.label : 'Source Object'
+  @sap.quickinfo : 'Source Synchronization Object'
   key SourceObject : String(10) not null;
   @sap.display.format : 'UpperCase'
   @sap.label : 'Target Object'
+  @sap.quickinfo : 'Target Synchronization Object'
   key TargetObject : String(10) not null;
-  @sap.label : 'ActiveIndicator'
+  @sap.label : 'Active Indicator'
+  @sap.quickinfo : 'Active Indicator for Synchronization Options'
   IsActive : Boolean;
 };
+
