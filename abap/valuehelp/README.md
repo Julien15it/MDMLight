@@ -77,8 +77,10 @@ gateway error never lands there.
 route: the document lands on your laptop and `cds import` runs in BAS, so that
 path costs a file transfer before it costs anything else. `--url` fetches straight
 into the workspace and skips the problem. (If a `$metadata` document *is* already
-in the workspace, `cds import <file> --as cds --into srv/external` — `--as csn`
-for `API_BUSINESS_PARTNER` — is the whole job and this script adds nothing.)
+in the workspace, `npx cds import <file>.edmx --as cds --force --no-save` —
+`--as csn` for `API_BUSINESS_PARTNER` — is the whole job and this script adds
+nothing. **Not `--into`**: cds-dk 8 does not know that flag and lands the result
+in `srv/external` by itself.)
 
 Both checked-in copies got here by hand: `API_BUSINESS_PARTNER.edmx` from Julien
 (`e34b94e`, 2026-07-30) and this service's from Arthur (`169418c`, 2026-08-06).
@@ -108,6 +110,54 @@ Consequences worth knowing before changing anything here:
   **`test/value-help-wiring.test.js` fails if they disagree** — it also checks
   every projected entity still exists in the imported model, so a stale copy
   fails the suite rather than the app.
+
+## The CVI views — `cvi/`
+
+Eight Z view entities on the Customer/Vendor Integration customizing, in package
+`ZMDM_LIGHT`, exposed through this same service definition. Unlike everything else
+in this folder these **are** Z copies, and deliberately: `TB003A`, `TBD001`,
+`CVIC_CUST_TO_BP1` and the rest have no released CDS view over them at all, so
+there is nothing to expose instead. At a customer with strict ATC or clean-core
+policy these direct table accesses will be flagged and become an explicit
+exception.
+
+| View | Entity set | Source tables |
+|---|---|---|
+| `Z_I_CVI_ROLE_CATEGORY` | `CviRoleCategories` | `TB003A` + `TBD002` + `TBC002` |
+| `Z_I_CVI_BP_ROLE` | `CviBusinessPartnerRoles` | `TB003` + `TB003T` |
+| `Z_I_CVI_CONTACT_MAPPING` | `CviContactMapping` | `CVIC_MAP_CONTACT` |
+| `Z_I_CVI_PPO_CONTROL` | `CviPostprocessingControl` | `MDSC_CTRL_OBJPPO` |
+| `Z_I_CVI_NUMBER_RANGE` | `CviNumberRanges` | `NRIV`, filtered |
+| `Z_I_CVI_NUM_ASGN_CUSTOMER` | `CviCustomerNumberAssignments` | `TBD001` + `CVIC_CUST_TO_BP1` + `TB001` + `T077D` |
+| `Z_I_CVI_NUM_ASGN_VENDOR` | `CviSupplierNumberAssignments` | `TBC001` + `CVIC_VEND_TO_BP1` + `TB001` + `T077K` |
+| `Z_I_CVI_SYNC_DIRECTION` | `CviSyncDirections` | `MDSC_CTRL_OPT_A` |
+
+Read by `srv/checks/cvi-checks.js` through `srv/cvi-config-service.cds`; the
+reasoning behind each rule is in `CLAUDE.md`. **These files are the source as it is
+activated on S4A**, fetched back out of the system on 2026-08-25 rather than typed
+from memory — the only difference is that the three newest `expose` lines in the
+`.asrvdsrv` are re-aligned to the column the other forty use.
+
+Four things that cost an activation attempt each, so do not tidy them away:
+
+- **A union needs `@Metadata.ignorePropagatedAnnotations: true`.** Without it the
+  view does not activate. It applies to the two `NUM_ASGN` views.
+- **The two direction literals in a union must be the same length** —
+  `BP_TO_CUSTOMER`/`CUSTOMER_TO_BP` are both 14, `BP_TO_VENDOR`/`VENDOR_TO_BP`
+  both 12 — otherwise they cannot share a column without a cast.
+- **Casts on the flags are not needed.** `BD_SAMENUMBER` and `CVI_SAME_NUMBER` are
+  both `CHAR(1)` and the union takes them as they are; casting only earns a
+  "CAST CHAR to identical type" warning.
+- **`POSITION` is a reserved word**, which is why `Z_I_CVI_BP_ROLE` aliases
+  `posnr` as `RolePosition`.
+
+`@EndUserText.label` over 40 characters is a **warning**, not an error:
+`Z_I_CVI_NUMBER_RANGE` carries a 41-character label and activated fine. It was
+worth shortening `Z_I_CVI_SYNC_DIRECTION`'s anyway rather than leaving a warning
+behind.
+
+Every flag in these sets arrives over OData as `Edm.Boolean`, never `'X'`. That is
+not a detail — it made the role category rule wrong twice. See `CLAUDE.md`.
 
 ## Known drift, 2026-08-13
 
