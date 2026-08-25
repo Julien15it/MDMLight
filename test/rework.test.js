@@ -59,6 +59,78 @@ test('the rejection comment is kept apart from the requester reason', () => {
   assert.match(serviceJs, /RejectionComment: header\.rejectionComment/u);
 });
 
+/**
+ * A rework loop can run several rounds, and `rejectionComment`/`reason` only ever held the latest
+ * side's word - which reads as amnesia the second time a request comes back. ChangeRequestComments
+ * is the running thread underneath both: every decideRequest and resubmitRequest appends to it, and
+ * neither legacy field's own behaviour changes (pinned above).
+ */
+test('every decision and resubmit appends to the running thread, not just the latest fields', () => {
+  assert.match(staging, /entity ChangeRequestComments\s*:\s*cuid,\s*managed\s*\{/u);
+  assert.match(staging, /role\s*:\s*String\(20\) enum \{ Requester; Approver \} not null/u);
+  assert.match(staging, /comments\s*:\s*Composition of many ChangeRequestComments/u);
+  assert.match(
+    serviceCds, /@readonly entity ChangeRequestComments as projection on staging\.ChangeRequestComments/u
+  );
+  assert.match(serviceCds, /CommentsJson\s*:\s*LargeString/u);
+
+  assert.match(serviceJs, /async function appendComment\(db, changeRequest, role, author, text\)/u);
+  // Blank is not a message anyone sent.
+  const appendFn = serviceJs.slice(
+    serviceJs.indexOf('async function appendComment'), serviceJs.indexOf('async function appendComment') + 300
+  );
+  assert.match(appendFn, /if \(!trimmed\) return;/u);
+
+  const decide = serviceJs.slice(
+    serviceJs.indexOf("this.on('decideRequest'"), serviceJs.indexOf("this.on('completeRequest'")
+  );
+  const reject = decide.slice(decide.indexOf("if (decision === 'reject')"), decide.indexOf('// Approved'));
+  assert.match(
+    reject, /appendComment\(db, changeRequest, 'Approver', requestingUserEmail\(req\), req\.data\.Comment\)/u
+  );
+  const approve = decide.slice(decide.indexOf('// Approved'));
+  assert.match(
+    approve, /appendComment\(db, changeRequest, 'Approver', requestingUserEmail\(req\), req\.data\.Comment\)/u
+  );
+
+  const resubmit = serviceJs.slice(
+    serviceJs.indexOf("this.on('resubmitRequest'"), serviceJs.indexOf("this.on('withdrawRequest'")
+  );
+  assert.match(
+    resubmit, /appendComment\(db, changeRequest, 'Requester', requestingUserEmail\(req\), req\.data\.Reason\)/u
+  );
+
+  assert.match(serviceJs, /CommentsJson: JSON\.stringify\(comments\.map/u);
+});
+
+test('the conversation panel is collapsible and shows who said what', () => {
+  assert.match(view, /id="commentsPanel"[\s\S]{0,120}expandable="true"/u);
+  assert.match(view, /visible="\{= \$\{maintenance>\/comments\}\.length > 0 \}"/u);
+  assert.match(
+    view,
+    /title="\{maintenance>title\}"[\s\S]{0,80}description="\{maintenance>text\}"[\s\S]{0,40}info="\{maintenance>date\}"/u
+  );
+  assert.match(controller, /_setCommentsPanel: function \(state, comments\)/u);
+  assert.match(
+    controller, /title: \(comment\.role \|\| ""\) \+ \(comment\.author \? " — " \+ comment\.author : ""\)/u
+  );
+});
+
+// Unlike the approver's box, this is NOT embedded-only: rework is reached standalone too, by the
+// reworkurl deep link SPA sends on a rejection, and context>/comment does not exist there.
+test('rework offers its own comment box, not the embedded-only approver one', () => {
+  const box = view.slice(view.indexOf('id="reworkCommentBox"'), view.indexOf('id="reworkCommentBox"') + 400);
+  assert.match(box, /visible="\{= \$\{maintenance>\/mode\} === 'rework' \}"/u);
+  assert.match(box, /value="\{maintenance>\/reworkComment\}"/u);
+  assert.equal(/env>\/embedded/u.test(box), false, 'not gated on embedded, unlike approverCommentBox');
+});
+
+test('resubmit sends the rework note as Reason, and only resubmit does', () => {
+  assert.match(
+    controller, /Reason: action === "resubmitRequest" \? \(state\.reworkComment \|\| null\) : null/u
+  );
+});
+
 // String(12) could not hold 'reworkRequired'. Widening a string is one of the few non-lossy changes
 // cds-deploy performs; renaming or dropping the old value would have failed the deploy.
 test('the status column was widened rather than renamed', () => {

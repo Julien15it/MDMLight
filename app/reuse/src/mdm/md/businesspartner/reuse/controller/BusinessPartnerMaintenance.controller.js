@@ -337,6 +337,14 @@ sap.ui.define([
     return message && message.type !== "Information" && message.type !== "None";
   }
 
+  // Sliced, not parsed into a Date - the same reasoning as dateOnly/dateTimeOnly elsewhere in this
+  // file: a timestamp round-tripped through a Date object risks a timezone shift nobody asked for.
+  function formatCommentDate(value) {
+    if (!value) return "";
+    var text = String(value);
+    return text.length >= 16 ? text.slice(0, 10) + " " + text.slice(11, 16) : text;
+  }
+
   function previewName(root) {
     if (root.BusinessPartnerCategory === "1") {
       return [root.FirstName, root.MiddleName, root.LastName].filter(Boolean).join(" ");
@@ -465,6 +473,13 @@ sap.ui.define([
           showReworkButtons: false,
           /** Why the approver sent it back. Empty except in rework mode. */
           rejectionComment: "",
+          /** The full requester/approver thread, oldest first, from getRequestPayload's
+           *  CommentsJson. rejectionComment above is only ever the latest one. */
+          comments: [],
+          commentsHeader: "",
+          /** What the requester is typing as their note for this resubmit round. Rework mode only -
+           *  sent as resubmitRequest's Reason, cleared once it lands in the thread. */
+          reworkComment: "",
           /** `{ step, processors, note }` from getRequestPayload. Null outside a change request. */
           processors: null,
           showCancelButton: true,
@@ -1785,7 +1800,9 @@ sap.ui.define([
             ChangeRequest: state.changeRequest || null,
             RequestType: state.requestType || "create",
             BusinessPartner: state.businessPartner || null,
-            Reason: null,
+            // The requester's note for this round, appended to the thread server-side. Only rework
+            // has anywhere on screen to type one; every other action still sends none.
+            Reason: action === "resubmitRequest" ? (state.reworkComment || null) : null,
             DataJson: this._requestDataJson(state)
           };
           // Tied to the exact payload warned about, not a flag: edit after a warning and the check has to
@@ -1873,6 +1890,19 @@ sap.ui.define([
           // Deliberately no navigation: the request header and its messages stay on screen, the
           // way Save already behaves and the way MDG reports a submit.
           if (action === "resubmitRequest") {
+            // Echoed locally rather than re-fetched: the thread already has it server-side (this
+            // action appended it), but the request is submitted and read-only from here, so there is
+            // no later reload that would otherwise show it.
+            if (state.reworkComment) {
+              state.comments = state.comments.concat([{
+                title: "Requester — You",
+                text: state.reworkComment,
+                date: formatCommentDate(new Date().toISOString())
+              }]);
+              state.commentsHeader = "Conversation (" + state.comments.length + ")";
+            }
+            state.reworkComment = "";
+
             var freshContext = null;
             try {
               freshContext = JSON.parse((result && result.ContextJson) || "null");
@@ -2145,6 +2175,25 @@ sap.ui.define([
         });
         state.duplicatesHeader = found.length
           ? found.length + (found.length === 1 ? " possible duplicate" : " possible duplicates")
+          : "";
+      },
+
+      /**
+       * Turns getRequestPayload's raw CommentsJson rows into what the panel binds to. Oldest first,
+       * exactly as the server returns them - the conversation reads top to bottom the way it
+       * happened, same as any other thread.
+       */
+      _setCommentsPanel: function (state, comments) {
+        var list = comments || [];
+        state.comments = list.map(function (comment) {
+          return {
+            title: (comment.role || "") + (comment.author ? " — " + comment.author : ""),
+            text: comment.text || "",
+            date: formatCommentDate(comment.createdAt)
+          };
+        });
+        state.commentsHeader = list.length
+          ? "Conversation (" + list.length + ")"
           : "";
       },
 
@@ -2521,6 +2570,11 @@ sap.ui.define([
           await this._loadFieldProperties(state.requestType, mode === "approve" ? "Approver" : "Requester");
           state.businessPartner = (payload && payload.BusinessPartner) || "";
           state.rejectionComment = (payload && payload.RejectionComment) || "";
+          // The running thread, oldest first - rejectionComment above is only ever the latest one.
+          this._setCommentsPanel(state, this._parseJsonArray(payload && payload.CommentsJson));
+          // A fresh load starts a fresh round: whatever was typed for a request now gone is nobody's
+          // note any more.
+          state.reworkComment = "";
           state.title = (viewing
             ? "Change request "
             : (reworking ? "Rework request " : (editing ? "Change request " : "Approve request ")))

@@ -160,7 +160,8 @@ test('a resubmit carries its own fresh businesspartnerinput back to the task, no
   const send = reuseController.slice(
     reuseController.indexOf('_sendChangeRequest: async function')
   );
-  const body = send.slice(0, send.indexOf('if (action === "resubmitRequest") {') + 500);
+  const resubmitAt = send.indexOf('if (action === "resubmitRequest") {');
+  const body = send.slice(resubmitAt, send.indexOf('} catch (error) {', resubmitAt));
   assert.match(body, /JSON\.parse\(\(result && result\.ContextJson\) \|\| "null"\)/u);
 
   const merge = component.slice(component.indexOf('_patchTaskInstance: async function'));

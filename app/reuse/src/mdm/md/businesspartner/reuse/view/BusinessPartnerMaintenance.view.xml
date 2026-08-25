@@ -34,6 +34,26 @@
             class="sapUiTinyMarginBottom" />
         </VBox>
       </Panel>
+      <!-- The requester/approver conversation, oldest first. Collapsible like the duplicate findings
+           below - a rework loop can run several rounds, and a closed panel still says how many
+           messages it holds. rejectionComment/reason only ever held the latest side's word; this is
+           the full thread behind it, from getRequestPayload's CommentsJson via _setCommentsPanel. -->
+      <Panel
+        id="commentsPanel"
+        class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
+        expandable="true"
+        expanded="true"
+        visible="{= ${maintenance>/comments}.length > 0 }"
+        headerText="{maintenance>/commentsHeader}">
+        <List items="{ path: 'maintenance>/comments', templateShareable: false }">
+          <StandardListItem
+            title="{maintenance>title}"
+            description="{maintenance>text}"
+            info="{maintenance>date}"
+            infoState="None"
+            wrapping="true" />
+        </List>
+      </Panel>
       <!-- The approver's note to the requester, sent back only if rejected - see
            _decideOnServer in app/bptask's Component.js, which already reads context>/comment
            for decideRequest's Comment. `context` is a model only app/bptask's Component sets,
@@ -49,6 +69,18 @@
         visible="{= ${env>/embedded} &amp;&amp; ${maintenance>/mode} === 'approve' }">
         <Label text="Comment for the requester (sent back if rejected)" labelFor="approverCommentInput" />
         <TextArea id="approverCommentInput" width="100%" rows="2" value="{context>/comment}" />
+      </VBox>
+      <!-- The requester's note for this round, appended to the same thread on Resubmit - see
+           _sendChangeRequest, which sends it as resubmitRequest's Reason. Unlike the approver's box
+           above this is NOT embedded-only: rework is reached standalone too, by the reworkurl deep
+           link SPA sends on a rejection (see CLAUDE.md, "Rework"), and context>/comment does not
+           exist there. Rework mode only - nothing to say yet on a draft or a fresh create. -->
+      <VBox
+        id="reworkCommentBox"
+        class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
+        visible="{= ${maintenance>/mode} === 'rework' }">
+        <Label text="Note for the approver (optional)" labelFor="reworkCommentInput" />
+        <TextArea id="reworkCommentInput" width="100%" rows="2" value="{maintenance>/reworkComment}" />
       </VBox>
       <!-- One section that failed to load, or had nothing to resolve its Customer/Supplier
            relation to, must never be silent - a blank section otherwise looks identical to

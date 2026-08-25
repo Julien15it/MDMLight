@@ -24,6 +24,7 @@ const { uiPathPrefix } = require('./ui-prefix');
 
 const STAGING = 'mdmlight.staging.';
 const FINDINGS = `${STAGING}CheckFindings`;
+const COMMENTS = `${STAGING}ChangeRequestComments`;
 
 // Section id -> staging entity, using the generated metadata ids so nothing is translated. Derived
 // from PAYLOAD_NODES so a rule cannot name a section nothing stages; General is the root, not a node.
@@ -258,6 +259,23 @@ const requesterContext = (req) => ({ requestType: req.data.RequestType, role: 'R
 
 function requestingUserEmail(req) {
   return req.user?.attr?.email || req.user?.id || 'unknown';
+}
+
+/**
+ * Appends one row to the running thread rather than overwriting anything - `reason` and
+ * `rejectionComment` on the header only ever held the latest side's word, which is right for them
+ * (they still work exactly as before) but wrong for a rework loop that can run several rounds.
+ * Silently a no-op on an empty/whitespace-only text: a blank comment is not a message anyone sent.
+ */
+async function appendComment(db, changeRequest, role, author, text) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return;
+  await db.run(cds.ql.INSERT.into(COMMENTS).entries({
+    request_ID: changeRequest,
+    role,
+    author,
+    text: trimmed
+  }));
 }
 
 /** Deep link to the approve view, sent to BPA as `bpurl` to route the approver there. */
@@ -893,6 +911,7 @@ class ChangeRequestService extends cds.ApplicationService {
         submittedAt: new Date().toISOString(),
         submittedBy: requestingUserEmail(req)
       }).where({ ID: changeRequest }));
+      await appendComment(db, changeRequest, 'Requester', requestingUserEmail(req), req.data.Reason);
 
       return {
         ChangeRequest: changeRequest,
@@ -1016,6 +1035,10 @@ class ChangeRequestService extends cds.ApplicationService {
 
       const { ID, request_ID, ...root } = general || {};
 
+      const comments = await db.run(
+        cds.ql.SELECT.from(COMMENTS).where({ request_ID: changeRequest }).orderBy('createdAt')
+      );
+
       return {
         ChangeRequest: header.ID,
         RequestType: header.requestType,
@@ -1028,6 +1051,12 @@ class ChangeRequestService extends cds.ApplicationService {
         ProcessorsJson: JSON.stringify(await processorsFor(header, { root, sections })),
         FindingsJson: JSON.stringify(await currentDuplicateFindings(changeRequest)),
         ValidationsJson: JSON.stringify(await currentValidationFindings(changeRequest)),
+        CommentsJson: JSON.stringify(comments.map((comment) => ({
+          role: comment.role,
+          author: comment.author,
+          text: comment.text,
+          createdAt: comment.createdAt
+        }))),
         DataJson: JSON.stringify({ root, sections, deleted })
       };
     });
@@ -1160,6 +1189,7 @@ class ChangeRequestService extends cds.ApplicationService {
           status: 'reworkRequired',
           rejectionComment: req.data.Comment || null
         }).where({ ID: changeRequest }));
+        await appendComment(db, changeRequest, 'Approver', requestingUserEmail(req), req.data.Comment);
         await notifyWorkflow('rejected');
         return { ChangeRequest: changeRequest, Status: 'reworkRequired', BusinessPartner: null };
       }
@@ -1170,6 +1200,7 @@ class ChangeRequestService extends cds.ApplicationService {
         status: 'approved',
         reason: req.data.Comment || header.reason
       }).where({ ID: changeRequest }));
+      await appendComment(db, changeRequest, 'Approver', requestingUserEmail(req), req.data.Comment);
       return { ChangeRequest: changeRequest, Status: 'approved', BusinessPartner: header.businessPartner };
     });
 

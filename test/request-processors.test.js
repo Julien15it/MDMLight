@@ -135,10 +135,11 @@ test('the strip goes last, so a message explaining the screen still leads', () =
     'controller', 'BusinessPartnerMaintenance.controller.js'
   );
   assert.match(controller, /var processorStrip = processorMessage\(state\.processors\);/u);
-  // The branch's own message, then what the request was submitted with, then who has it now.
+  // Widened 2026-08-24 to fold in the submitted-validations findings too, but the processor strip
+  // is still the LAST thing concatenated - the property this test exists to pin.
   assert.match(
     controller,
-    /state\.messages = \(state\.messages \|\| \[\]\)\s*\.concat\(submittedWarnings\)\s*\.concat\(processorStrip \? \[processorStrip\] : \[\]\);/u
+    /state\.messages = \(state\.messages \|\| \[\]\)[\s\S]{0,80}\.concat\(processorStrip \? \[processorStrip\] : \[\]\);/u
   );
   // Never prepended: that is the version that hid the "nothing to rework" note behind the step.
   assert.equal(/\[processorStrip\]\.concat/u.test(controller), false);
