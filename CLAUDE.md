@@ -126,8 +126,9 @@ npm run import:bp -- --url https://<host>:44301/sap/opu/odata/sap   # S4_USER / 
 `--url` is the only route that works from BAS, and there is no `--file` route on
 purpose: a browser download lands on the developer's laptop while `cds import`
 runs in BAS, so it costs a file transfer before it costs anything else. (For a
-document already in the workspace, `cds import <file> --as csn --into srv/external`
-— `--as cds` for the value-help service — is the whole job.)
+document already in the workspace, `npx cds import <file>.edmx --as cds --force
+--no-save` is the whole job. **Not `--into`**: cds-dk 8, the version installed,
+does not know that flag — it lands the result in `srv/external` by itself.)
 
 Both checked-in copies got here by hand, from Julien and Arthur respectively.
 There has never been an automated path, so treat a re-import as a manual step
@@ -481,25 +482,28 @@ is accepted by the screen, staged, approved, and only then refused by S/4, after
 approver has spent their time on it.
 
 It reads `CviConfigService`'s remote sets (see `srv/cvi-config-service.cds`), backed
-by five CDS views in S/4 package `ZMDM_LIGHT`. Two rules today:
+by eight CDS views in S/4 package `ZMDM_LIGHT`. Three rules today:
 
 - **A role its BP category may not carry.** `TB003` gives role → role category,
   `TB003A` gives the category's allowed BP categories (person/organisation/group).
   Reported against the offending `BusinessPartnerRoles` row, one per role, so a
   requester sees all of them at once.
 
-  **A category with none of the three flags set restricts nothing, and getting this
-  wrong is what shipped first** (fixed 2026-08-25). Read literally, such a row
-  forbids every BP category at once, which is not a configuration anybody creates —
-  it means the flags were never maintained. The first version treated blank as
-  "forbidden" and so fired on `FLCU01` and `FLVN01` on an organisation, the two most
-  ordinary combinations in the product. Blank is "nothing to say".
+  **This rule was wrong twice, and both times for the same reason: the flags are
+  booleans, not `'X'`.** Every CHAR(1) flag in these sets arrives as `Edm.Boolean`
+  — look at any of them in `srv/external/ZSRVB_MDMLIGHT_VH.cds`. A comparison
+  against `'X'` therefore reads *every* row as blank. Version one read blank as
+  "forbidden" and fired on `FLCU01` and `FLVN01` on an organisation, the two most
+  ordinary combinations in the product; the fix for that — "a row with no flags set
+  restricts nothing" — then made the rule permanently *silent*, because with
+  booleans no row ever looks like it has a flag set. `isSet` now accepts both
+  representations (fixed 2026-08-25), and the tests use the boolean form on purpose:
+  the earlier `'X'` fixtures are why a broken rule had a green suite.
 
-  **Consequence: on S4A this rule is currently inert.** Those flags are not
-  maintained there, so it will report nothing however wrong the roles are — do not
-  read a clean Check as a CVI all-clear. Whether the restriction lives somewhere
-  other than `TB003A` in this release is unverified; the column list was read when
-  the view was written, the rows were not.
+  The no-flags-set guard stays, but it is a guard and not a description of any
+  system: **on S4A all 166 `TB003A` rows have at least one flag set**, and `FLCU01`
+  carries all three. The claim that S4A's flags were unmaintained was wrong — the
+  rows were finally read on 2026-08-25.
 - **Postprocessing switched off**, when the request asks for a role at all. PPO off
   means a synchronisation error is dropped rather than queued, so the partner
   silently never becomes a customer. Reported **per row of
@@ -522,17 +526,64 @@ Three decisions worth not reversing casually:
   pool with no callable API and its judgements move with support packages. These
   rules are derived from the customizing itself and stated in terms of the request.
 
-Two rules that were considered and are **not** built, deliberately:
+One rule that was considered and is **not** built, deliberately:
 
-- **Number range alignment** (BP internally numbered against a customer account group
-  that is externally numbered, the classic CVI failure). `CviNumberRanges` has the
-  intervals, but the grouping → number range and account group → number range
-  assignments are not exposed — `Z_I_BUPA_GROUPING` carries only the grouping and its
-  name. Building this needs those columns added to that view first; a rule guessed
-  without them would be noise.
 - **Contact person synchronisation.** `CviContactMapping` reports the switch, but
   MDM Light does not stage contact persons at all (there is no such node in
   `db/staging.cds`), so there is nothing in a request for the rule to fire on.
+
+##### Number assignment (added 2026-08-25)
+
+The third rule, and the one with teeth. **Does the grouping on this request line up
+with the account group CVI will use, so that a number actually gets assigned?** Off by
+one flag, nothing synchronises and nobody is told.
+
+Finding the tables was the work. `CVI_FS_CHECK_CUST_SUBROUTINES` names them itself —
+`select` in `select_data_customer` / `select_data_vendor` and the fills in
+`CVI_FS_CHECK_CUST_STARTSCREEN` — which is how the first five views were found too:
+
+| Table | What it holds |
+|---|---|
+| `TBD001` / `TBC001` | grouping → customer / supplier account group, plus the same-number flag (direction BP → account) |
+| `CVIC_CUST_TO_BP1` / `CVIC_VEND_TO_BP1` | the same for the inbound direction. **Both empty on S4A** |
+| `TB001.NRRNG` | the grouping's BU_PARTNER number range |
+| `T077D.NUMKR` / `T077K.NUMKR` | the account group's DEBITOR / KREDITOR number range |
+| `TBD002` / `TBC002` | which BP role category actually creates a customer / supplier |
+| `MDSC_CTRL_OPT_A` | which directions are switched on |
+
+Three new views (`Z_I_CVI_NUM_ASGN_CUSTOMER`, `Z_I_CVI_NUM_ASGN_VENDOR`,
+`Z_I_CVI_SYNC_DIRECTION`) and four new columns on `Z_I_CVI_ROLE_CATEGORY` carry them.
+The intervals stay where they already were, in `CviNumberRanges`; the new views expose
+the number range *keys* only, which is the link nothing had before. What the rule
+reports, in this order:
+
+1. **The direction is off.** No active `MDSC_CTRL_OPT_A` row means the account is
+   simply never created. SAP's report checks the mirror image — "maintained but
+   inactive" — and never this one, and "on but nothing maintained" is the case that
+   bites.
+2. **Nothing maintained for the grouping.** No `TBD001`/`TBC001` row means CVI has no
+   account group to create with. On S4A **nine of 23 groupings have no customer row
+   and fifteen have no supplier row, `MDM0` among them.**
+3. **Same number set, intervals differ.** Message 023 of `CVI_FS_CHECK_CUST`, with
+   both ranges and both intervals named — "the number ranges do not match" alone
+   sends the reader to two SPRO screens to find out which.
+4. **Same number not set and the account's range is external.** Nobody supplies that
+   number: the requester cannot (no field for it) and CVI will not (not its range to
+   draw from). Messages 022/031 turned around — SAP checks this for the inbound
+   direction only. On S4A this fires on `0002 → KUNA`, and on `0002`, `GPEX` and
+   `Z001` on the supplier side.
+
+Two things worth not undoing:
+
+- **Which target a role reaches for comes from `TBD002`/`TBC002`, not from the role
+  name.** Pattern-matching `FLCU*` would be shorter and would be a guess; a role whose
+  category drives neither a customer nor a supplier (a contact person, say) is
+  measured against no grouping at all, which is most of the noise avoided.
+- **The inbound rows are exposed but never read.** MDM Light only ever creates business
+  partners, so `CUSTOMER_TO_BP` / `VENDOR_TO_BP` describe a journey it does not make.
+  They are in the views because leaving half a table behind is how the next person ends
+  up re-deriving where it lives, and a test pins that a rule cannot mistake one
+  direction for the other.
 
 #### A derivation may create the row it needs (changed 2026-08-20)
 

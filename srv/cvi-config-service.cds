@@ -3,7 +3,7 @@ using { ZSRVB_MDMLIGHT_VH as VH } from './external/ZSRVB_MDMLIGHT_VH';
 /**
  * The CVI customizing of the connected S/4 system, read live.
  *
- * Same remote service as the value helps in BusinessPartnerService, different purpose: these five
+ * Same remote service as the value helps in BusinessPartnerService, different purpose: these eight
  * sets describe how Customer/Vendor Integration is *configured*, and are read by setup and
  * diagnosis screens rather than by a form's F4 help. They are kept out of VALUE_HELP_ENTITIES for
  * that reason — nothing here backs a @Common.ValueList.
@@ -30,4 +30,15 @@ service CviConfigService @(path: '/service/cviconfig') {
 
   /** Number range intervals for BU_PARTNER, DEBITOR and KREDITOR. */
   @readonly entity NumberRanges          as projection on VH.CviNumberRanges;
+
+  /** Grouping → customer account group, with both sides' number range keys. The link the
+   *  intervals above were useless without: TBD001/CVIC_CUST_TO_BP1 joined to TB001 and T077D. */
+  @readonly entity CustomerNumberAssignments as projection on VH.CviCustomerNumberAssignments;
+
+  /** The same for the supplier side: TBC001/CVIC_VEND_TO_BP1 joined to TB001 and T077K. */
+  @readonly entity SupplierNumberAssignments as projection on VH.CviSupplierNumberAssignments;
+
+  /** Which synchronisation directions are switched on. A direction that is off means the target
+   *  object is never created — no error, no queue entry, nothing. */
+  @readonly entity SyncDirections            as projection on VH.CviSyncDirections;
 }

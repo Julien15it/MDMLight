@@ -8,7 +8,10 @@ const CVI_CONFIG_ENTITIES = Object.freeze([
   'BusinessPartnerRoles',
   'ContactMapping',
   'PostprocessingControl',
-  'NumberRanges'
+  'NumberRanges',
+  'CustomerNumberAssignments',
+  'SupplierNumberAssignments',
+  'SyncDirections'
 ]);
 
 // The remote sets behind them, for the metadata drift check — the projections are renamed, and the
@@ -18,7 +21,10 @@ const CVI_REMOTE_SETS = Object.freeze([
   'CviBusinessPartnerRoles',
   'CviContactMapping',
   'CviPostprocessingControl',
-  'CviNumberRanges'
+  'CviNumberRanges',
+  'CviCustomerNumberAssignments',
+  'CviSupplierNumberAssignments',
+  'CviSyncDirections'
 ]);
 
 /**
