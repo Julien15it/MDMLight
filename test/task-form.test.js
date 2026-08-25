@@ -441,9 +441,13 @@ test('check and duplicate check are in the header, and only there', () => {
  * Nothing in the build derives it from `mta.yaml`, so the MTA version is free to move; this is
  * hand-maintained and now deliberately still. Raise it only when the process is going to be
  * re-pointed on purpose, and change this assertion in the same commit so the two cannot drift.
+ *
+ * Raised 1.2.0 -> 1.3.0 on 2026-08-25, which is such an occasion: `prefix` joined
+ * sap.bpa.task.inputs, and the Lobby only re-reads that schema when the task is re-pointed. The
+ * new version URL also guarantees nothing serves the old manifest from a cache.
  */
 test('the task app version is pinned, so the process keeps pointing at it', () => {
-  assert.equal(manifest['sap.app'].applicationVersion.version, '1.2.0');
+  assert.equal(manifest['sap.app'].applicationVersion.version, '1.3.0');
 });
 
 /**
