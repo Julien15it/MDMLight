@@ -679,7 +679,13 @@ class ChangeRequestService extends cds.ApplicationService {
           validations: [...properties.validations, ...configured.validations,
             ...createCviStages().validations, ...registry.validations,
             ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations],
-          derivations: [...configured.derivations, ...registry.derivations],
+          // The CVI derivation last: an explicit rule and a registry lookup should both win over
+          // it, and the pipeline never overwrites what an earlier derivation already wrote.
+          // A second createCviStages() call is not a second read: the 60s cache lives in the
+          // module, not in the object, so this derivation and the validation above judge the same
+          // configuration.
+          derivations: [...configured.derivations, ...registry.derivations,
+            ...createCviStages().derivations],
           // Check is where a human is looking, which is the only place a proposal to rewrite
           // what someone typed makes sense. The register never proposes: it validates and derives.
           propose: propose

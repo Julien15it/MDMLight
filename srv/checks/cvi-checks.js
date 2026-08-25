@@ -68,7 +68,11 @@ const SYNC_TARGETS = Object.freeze([
     accountGroupField: 'CustomerAccountGroup',
     accountRangeField: 'CustomerNumberRange',
     numberRangeObject: 'DEBITOR',
-    createsFlags: Object.freeze(['CreatesCustomerMandatory', 'CreatesCustomerOptional'])
+    createsFlags: Object.freeze(['CreatesCustomerMandatory', 'CreatesCustomerOptional']),
+    // Where the derived account group lands. Both are single nodes (`many: false` in
+    // PAYLOAD_NODES) but the UI still sends them as one-element arrays, so index 0 is the row.
+    section: 'Customers',
+    payloadField: 'CustomerAccountGroup'
   }),
   Object.freeze({
     key: 'supplier',
@@ -79,7 +83,9 @@ const SYNC_TARGETS = Object.freeze([
     accountGroupField: 'SupplierAccountGroup',
     accountRangeField: 'SupplierNumberRange',
     numberRangeObject: 'KREDITOR',
-    createsFlags: Object.freeze(['CreatesSupplierMandatory', 'CreatesSupplierOptional'])
+    createsFlags: Object.freeze(['CreatesSupplierMandatory', 'CreatesSupplierOptional']),
+    section: 'Suppliers',
+    payloadField: 'SupplierAccountGroup'
   })
 ]);
 
@@ -274,6 +280,33 @@ function requestedSyncTargets(payload, { roles, categories }) {
   return [...asked.values()];
 }
 
+/**
+ * MDSC_CTRL_OPT_A holds only what has been switched on, so a direction with no row at all is a
+ * direction that is off. Shared by the rule and the derivation on purpose: a derivation that
+ * filled in an account group for a direction the warning had just called dead would be worse than
+ * either on its own.
+ */
+function directionIsActive(directions, target) {
+  return directions.some((row) => text(row?.SourceObject) === BP_SYNC_OBJECT
+    && text(row?.TargetObject) === target.syncObject
+    && isSet(row?.IsActive));
+}
+
+/** The outbound rows for one grouping. TBD001/TBC001 are keyed by grouping, so this is 0 or 1. */
+function assignmentsFor(assignments, target, grouping) {
+  return (assignments[target.set] || []).filter(
+    (row) => text(row?.SyncDirection) === target.direction && text(row?.BPGrouping) === grouping
+  );
+}
+
+/** The one assignment row a decision may be based on, or null when there is nothing to be sure of. */
+function soleAssignment(config, target, grouping) {
+  const rows = assignmentsFor(config.assignments, target, grouping);
+  // More than one row for a grouping should not exist, and if S/4 ever produces it the honest
+  // answer is to derive nothing rather than pick a winner.
+  return rows.length === 1 ? rows[0] : null;
+}
+
 function intervalOf(numberRanges, object, number) {
   if (!number) return null;
   return numberRanges.find(
@@ -322,19 +355,12 @@ function numberAssignmentFindings(payload, config) {
   for (const { target, roles } of requested) {
     const asking = `${roles.length > 1 ? 'Roles' : 'Role'} ${roles.join(', ')}`;
 
-    // A direction with no row at all is a direction that is off: MDSC_CTRL_OPT_A holds only what
-    // has been switched on.
-    const active = directions.some((row) => text(row?.SourceObject) === BP_SYNC_OBJECT
-      && text(row?.TargetObject) === target.syncObject
-      && isSet(row?.IsActive));
-    if (!active) {
+    if (!directionIsActive(directions, target)) {
       say(`${asking} would create a ${target.label}, but synchronisation from business partner to ${target.label} is not active in S/4. No ${target.label} will be created for this partner.`);
       continue;
     }
 
-    const rows = (assignments[target.set] || []).filter(
-      (row) => text(row?.SyncDirection) === target.direction && text(row?.BPGrouping) === grouping
-    );
+    const rows = assignmentsFor(assignments, target, grouping);
     if (!rows.length) {
       say(`${asking} would create a ${target.label}, but grouping ${grouping} has no ${target.label} account group assigned in S/4. CVI has no account group to create the ${target.label} with.`);
       continue;
@@ -383,17 +409,112 @@ function numberAssignmentFindings(payload, config) {
 }
 
 /**
- * One stage, not three: the pipeline blocks on the first error a validation stage reports, and a
- * requester should see everything wrong with their roles at once rather than one per press.
+ * The account group a requester should not have to look up. For direction BP -> Customer, S/4
+ * takes the customer account group from TBD001 by grouping -- it is not a free choice, it is a
+ * lookup, and until now the only place it existed was a SPRO screen the requester cannot see.
+ *
+ * Fills `Customers.CustomerAccountGroup` and `Suppliers.SupplierAccountGroup`. The pipeline
+ * enforces the two rules that matter: it never overwrites a value somebody typed, and `createsRow`
+ * only invents a row when the section is completely empty -- so a request that already carries
+ * supplier data gets the field filled, and one that carries none gets the row it needs.
+ *
+ * Deliberately silent where it cannot be sure: no grouping, no role that creates the account, an
+ * inactive direction, no assignment row, or more than one. The last case should not exist -- TBD001
+ * is keyed by grouping -- and if S/4 ever produces it, deriving nothing beats picking a winner.
+ * `numberAssignmentFindings` already says out loud why nothing was filled in.
+ */
+function accountGroupEntries(payload, config) {
+  const grouping = text(payload?.root?.BusinessPartnerGrouping);
+  if (!grouping) return [];
+
+  const entries = [];
+  for (const { target, roles } of requestedSyncTargets(payload, config)) {
+    if (!directionIsActive(config.directions, target)) continue;
+
+    const assignment = soleAssignment(config, target, grouping);
+    if (!assignment) continue;
+
+    const accountGroup = text(assignment[target.accountGroupField]);
+    if (!accountGroup) continue;
+
+    entries.push({
+      target: target.section,
+      index: 0,
+      field: target.payloadField,
+      value: accountGroup,
+      createsRow: true,
+      message: `${target.label.replace(/^./, (first) => first.toUpperCase())} account group ${accountGroup} comes from grouping ${grouping} in the S/4 CVI customizing, which ${roles.join(', ')} needs. It is not a free choice: this is the account group CVI will use.`
+    });
+  }
+
+  return entries;
+}
+
+/**
+ * The other half of the derivation. Because a derivation never overwrites a typed value, a
+ * requester who picks a different account group by hand silently gets their own -- and then S/4
+ * uses TBD001's anyway. Saying so is the whole point of this module: accepted by the screen,
+ * refused or quietly overridden by S/4, discovered by an approver.
+ */
+function accountGroupConflictFindings(payload, config) {
+  const grouping = text(payload?.root?.BusinessPartnerGrouping);
+  if (!grouping) return [];
+
+  const findings = [];
+  for (const { target } of requestedSyncTargets(payload, config)) {
+    if (!directionIsActive(config.directions, target)) continue;
+
+    const assignment = soleAssignment(config, target, grouping);
+    if (!assignment) continue;
+
+    const expected = text(assignment[target.accountGroupField]);
+    const typed = text(liveRows(payload, target.section)[0]?.[target.payloadField]);
+    if (!expected || !typed || typed === expected) continue;
+
+    findings.push({
+      severity: NUMBER_ASSIGNMENT_SEVERITY,
+      target: target.section,
+      index: 0,
+      field: target.payloadField,
+      message: `${target.label.replace(/^./, (first) => first.toUpperCase())} account group ${typed} was entered, but grouping ${grouping} is assigned to ${expected} in the S/4 CVI customizing. CVI takes the account group from the grouping, so ${expected} is what this partner will get.`
+    });
+  }
+
+  return findings;
+}
+
+/**
+ * One validation stage, not four: the pipeline blocks on the first error a validation stage
+ * reports, and a requester should see everything wrong with their roles at once rather than one
+ * per press. One derivation beside it, which the pipeline runs *after* the validations -- so the
+ * conflict finding above is judged on what the requester typed, not on what was just filled in.
  */
 function createCviStages({ read = readConfiguration } = {}) {
+  const load = async () => configuration(read);
+
   return {
+    derivations: [{
+      name: 'cvi_account_group',
+      async run(payload) {
+        let config;
+        try {
+          config = await load();
+        } catch (error) {
+          // An improvement, not a gate. The pipeline turns a thrown derivation into an info line
+          // and carries on, but saying which lookup failed beats a bare stack message.
+          return [{
+            message: `The CVI configuration could not be read (${error.message}), so the account group was not derived.`
+          }];
+        }
+        return accountGroupEntries(payload, config);
+      }
+    }],
     validations: [{
       name: 'cvi_configuration',
       async run(payload) {
         let config;
         try {
-          config = await configuration(read);
+          config = await load();
         } catch (error) {
           // Reported, never blocking. The pipeline turns a thrown validation into a blocking
           // error, which would be more severe than anything this stage itself reports -- an
@@ -407,7 +528,8 @@ function createCviStages({ read = readConfiguration } = {}) {
         return [
           ...roleCategoryFindings(payload, config),
           ...postprocessingFindings(payload, config),
-          ...numberAssignmentFindings(payload, config)
+          ...numberAssignmentFindings(payload, config),
+          ...accountGroupConflictFindings(payload, config)
         ];
       }
     }]
@@ -424,6 +546,8 @@ module.exports = {
     roleCategoryFindings,
     postprocessingFindings,
     numberAssignmentFindings,
+    accountGroupEntries,
+    accountGroupConflictFindings,
     requestedSyncTargets,
     liveRows,
     isSet

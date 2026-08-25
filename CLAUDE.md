@@ -482,7 +482,7 @@ is accepted by the screen, staged, approved, and only then refused by S/4, after
 approver has spent their time on it.
 
 It reads `CviConfigService`'s remote sets (see `srv/cvi-config-service.cds`), backed
-by eight CDS views in S/4 package `ZMDM_LIGHT`. Three rules today:
+by eight CDS views in S/4 package `ZMDM_LIGHT`. Four rules and one derivation today:
 
 - **A role its BP category may not carry.** `TB003` gives role → role category,
   `TB003A` gives the category's allowed BP categories (person/organisation/group).
@@ -572,6 +572,34 @@ reports, in this order:
    draw from). Messages 022/031 turned around — SAP checks this for the inbound
    direction only. On S4A this fires on `0002 → KUNA`, and on `0002`, `GPEX` and
    `Z001` on the supplier side.
+
+##### The account group derivation (added 2026-08-25)
+
+The rule's counterpart, and the reason it was worth exposing `TBD001` rather than only
+judging it. **For direction BP → Customer, S/4 takes the customer account group from
+`TBD001` by grouping — it is not a free choice, it is a lookup**, and the only place
+it existed was a SPRO screen the requester cannot see. `cvi_account_group` fills
+`Customers.CustomerAccountGroup` and `Suppliers.SupplierAccountGroup` from it.
+
+It runs on Check and Duplicate Check only, through `runRequestChecks` — submit and
+resubmit still validate without deriving, unchanged since 2026-08-13. Two pipeline
+guarantees carry it: a derivation **never overwrites a typed value**, and `createsRow`
+invents a row **only when the section is completely empty**. So a request that already
+carries supplier data gets the field filled and one that carries none gets the row it
+needs, and neither case touches a second row somebody added deliberately.
+
+Silent wherever it cannot be sure — no grouping, no role that creates the account, an
+inactive direction, no assignment row, or more than one. That last case should not
+exist (`TBD001` is keyed by grouping) and if S/4 ever produces it, deriving nothing
+beats picking a winner. `numberAssignmentFindings` already says why nothing was filled.
+
+**Because a derivation never overwrites, it needed a validation beside it.** A
+requester who picks a different account group by hand keeps theirs, and S/4 then uses
+`TBD001`'s anyway — accepted by the screen, quietly overridden afterwards, which is the
+exact failure this module exists for. `accountGroupConflictFindings` reports the
+contradiction against the offending row, naming both account groups. Validations run
+*before* derivations, so it judges what the requester typed and never what was just
+filled in.
 
 Two things worth not undoing:
 

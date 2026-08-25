@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 
 const { createCviStages, invalidate, _internals } = require('../srv/checks/cvi-checks');
+const { runDerivations } = require('../srv/checks/pipeline');
 
 /**
  * The flags are booleans, not 'X'. That is what the remote service actually delivers -- every
@@ -416,6 +417,113 @@ test('a role that creates neither a customer nor a supplier is not measured agai
     await stage(withConfig()).run(payload('2', [{ BusinessPartnerRole: 'BUP001' }], 'MDM0')),
     []
   );
+});
+
+// --- Account group derivation ------------------------------------------------------------------
+
+const derivation = (read) => createCviStages({ read }).derivations[0];
+
+test('the account group is derived from the grouping S/4 assigns it to', async () => {
+  const entries = await derivation(withConfig()).run(
+    payload('2', [{ BusinessPartnerRole: 'FLCU01' }], '0001')
+  );
+  assert.strictEqual(entries.length, 1);
+  assert.strictEqual(entries[0].target, 'Customers');
+  assert.strictEqual(entries[0].field, 'CustomerAccountGroup');
+  assert.strictEqual(entries[0].value, 'DEBI');
+  assert.strictEqual(entries[0].createsRow, true);
+  assert.match(entries[0].message, /not a free choice/u);
+});
+
+test('the derivation creates the row it needs when the section is empty', async () => {
+  const request = payload('2', [{ BusinessPartnerRole: 'FLVN01' }], '0002');
+  const { derived, applied } = await runDerivations(request, [derivation(withConfig())]);
+
+  assert.deepStrictEqual(derived.sections.Suppliers, [{ SupplierAccountGroup: 'LIEF' }]);
+  assert.strictEqual(applied.length, 1);
+  assert.strictEqual(applied[0].check, 'cvi_account_group');
+  assert.strictEqual(applied[0].severity, 'info');
+});
+
+test('the derivation fills an empty field on a row the requester already added', async () => {
+  const request = payload('2', [{ BusinessPartnerRole: 'FLVN01' }], '0002');
+  request.sections.Suppliers = [{ SupplierName: 'Something', SupplierAccountGroup: '' }];
+  const { derived } = await runDerivations(request, [derivation(withConfig())]);
+
+  assert.strictEqual(derived.sections.Suppliers[0].SupplierAccountGroup, 'LIEF');
+  assert.strictEqual(derived.sections.Suppliers[0].SupplierName, 'Something');
+});
+
+test('the derivation never overwrites an account group somebody typed', async () => {
+  const request = payload('2', [{ BusinessPartnerRole: 'FLVN01' }], '0002');
+  request.sections.Suppliers = [{ SupplierAccountGroup: 'KRED' }];
+  const { derived, applied } = await runDerivations(request, [derivation(withConfig())]);
+
+  assert.strictEqual(derived.sections.Suppliers[0].SupplierAccountGroup, 'KRED');
+  assert.deepStrictEqual(applied, []);
+});
+
+test('both account groups are derived when the request asks for both', async () => {
+  const request = payload(
+    '2',
+    [{ BusinessPartnerRole: 'FLCU01' }, { BusinessPartnerRole: 'FLVN01' }],
+    '0002'
+  );
+  const { derived } = await runDerivations(request, [derivation(withConfig())]);
+  assert.strictEqual(derived.sections.Customers[0].CustomerAccountGroup, 'KUNA');
+  assert.strictEqual(derived.sections.Suppliers[0].SupplierAccountGroup, 'LIEF');
+});
+
+test('nothing is derived where nothing is certain', async () => {
+  const cases = [
+    ['no grouping', payload('2', [{ BusinessPartnerRole: 'FLCU01' }])],
+    ['no assignment for the grouping', payload('2', [{ BusinessPartnerRole: 'FLCU01' }], 'MDM0')],
+    ['a role that creates nothing', payload('2', [{ BusinessPartnerRole: 'BUP001' }], '0001')],
+    // ZZZZ exists only as an inbound CUSTOMER_TO_BP row.
+    ['an inbound-only row', payload('2', [{ BusinessPartnerRole: 'FLCU01' }], 'ZZZZ')]
+  ];
+  for (const [name, request] of cases) {
+    assert.deepStrictEqual(await derivation(withConfig()).run(request), [], name);
+    invalidate();
+  }
+});
+
+test('nothing is derived for a direction that is switched off', async () => {
+  const read = withConfig({
+    directions: [{ SourceObject: 'BP', TargetObject: 'CUSTOMER', IsActive: false }]
+  });
+  assert.deepStrictEqual(
+    await derivation(read).run(payload('2', [{ BusinessPartnerRole: 'FLCU01' }], '0001')),
+    []
+  );
+});
+
+test('a configuration that cannot be read leaves the derivation silent, not broken', async () => {
+  const read = async () => { throw new Error('S/4 is unreachable'); };
+  const entries = await derivation(read).run(payload('2', [{ BusinessPartnerRole: 'FLCU01' }], '0001'));
+  assert.strictEqual(entries.length, 1);
+  assert.strictEqual(entries[0].field, undefined);
+  assert.match(entries[0].message, /was not derived/u);
+});
+
+test('an account group that contradicts the grouping is reported against its own row', async () => {
+  const request = payload('2', [{ BusinessPartnerRole: 'FLCU01' }], '0001');
+  request.sections.Customers = [{ CustomerAccountGroup: 'KUNA' }];
+  const found = await stage(withConfig()).run(request);
+
+  assert.strictEqual(found.length, 1);
+  assert.strictEqual(found[0].severity, 'warning');
+  assert.strictEqual(found[0].target, 'Customers');
+  assert.strictEqual(found[0].index, 0);
+  assert.strictEqual(found[0].field, 'CustomerAccountGroup');
+  assert.match(found[0].message, /KUNA was entered/u);
+  assert.match(found[0].message, /assigned to DEBI/u);
+});
+
+test('the account group S/4 would assign is not reported as a contradiction', async () => {
+  const request = payload('2', [{ BusinessPartnerRole: 'FLCU01' }], '0001');
+  request.sections.Customers = [{ CustomerAccountGroup: 'DEBI' }];
+  assert.deepStrictEqual(await stage(withConfig()).run(request), []);
 });
 
 test('a configuration that cannot be read reports itself and never blocks', async () => {
