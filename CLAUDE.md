@@ -487,6 +487,19 @@ by five CDS views in S/4 package `ZMDM_LIGHT`. Two rules today:
   `TB003A` gives the category's allowed BP categories (person/organisation/group).
   Reported against the offending `BusinessPartnerRoles` row, one per role, so a
   requester sees all of them at once.
+
+  **A category with none of the three flags set restricts nothing, and getting this
+  wrong is what shipped first** (fixed 2026-08-25). Read literally, such a row
+  forbids every BP category at once, which is not a configuration anybody creates —
+  it means the flags were never maintained. The first version treated blank as
+  "forbidden" and so fired on `FLCU01` and `FLVN01` on an organisation, the two most
+  ordinary combinations in the product. Blank is "nothing to say".
+
+  **Consequence: on S4A this rule is currently inert.** Those flags are not
+  maintained there, so it will report nothing however wrong the roles are — do not
+  read a clean Check as a CVI all-clear. Whether the restriction lives somewhere
+  other than `TB003A` in this release is unverified; the column list was read when
+  the view was written, the rows were not.
 - **Postprocessing switched off**, when the request asks for a role at all. PPO off
   means a synchronisation error is dropped rather than queued, so the partner
   silently never becomes a customer. Reported **per row of

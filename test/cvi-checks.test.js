@@ -64,6 +64,30 @@ test('every offending role is reported, not just the first', async () => {
   assert.strictEqual(found[0].index, 0);
 });
 
+/**
+ * The regression that shipped: TB003A's person/organisation/group flags are not maintained on S4A,
+ * and reading blank as "forbidden" made the rule fire on FLCU01 and FLVN01 on an organisation --
+ * the two most ordinary combinations in the product. A row with no flag set says nothing.
+ */
+test('a role category with none of the three flags maintained restricts nothing', async () => {
+  const read = withConfig({
+    categories: [{
+      BPRoleCategory: 'FLCU01',
+      IsAllowedForPerson: '',
+      IsAllowedForOrganization: '',
+      IsAllowedForGroup: ''
+    }]
+  });
+  for (const category of ['1', '2', '3']) {
+    assert.deepStrictEqual(
+      await stage(read).run(payload(category, [{ BusinessPartnerRole: 'FLCU01' }])),
+      [],
+      `category ${category}`
+    );
+    invalidate();
+  }
+});
+
 test('a role S/4 does not know is reported as info, never as a mismatch', async () => {
   const found = await stage(withConfig()).run(payload('1', [{ BusinessPartnerRole: 'ZZZZZZ' }]));
   assert.strictEqual(found.length, 1);

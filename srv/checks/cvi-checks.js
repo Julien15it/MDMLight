@@ -40,6 +40,10 @@ const CATEGORY_FLAG = Object.freeze({
   3: { field: 'IsAllowedForGroup', label: 'group' }
 });
 
+const RESTRICTION_FLAGS = Object.freeze(
+  Object.values(CATEGORY_FLAG).map((entry) => entry.field)
+);
+
 const isSet = (value) => String(value || '').trim().toUpperCase() === 'X';
 
 let cache = null;
@@ -117,6 +121,13 @@ function roleCategoryFindings(payload, { roles, categories }) {
       });
       continue;
     }
+
+    // A category with NONE of the three flags set expresses no restriction, and this is the bug
+    // that shipped first: read literally, such a row forbids every BP category at once, which is
+    // not a configuration anybody creates. Most systems simply never maintain these flags -- on
+    // S4A this rule fired on FLCU01 and FLVN01 on an organisation, the two most ordinary
+    // combinations in the product. Blank is "nothing to say", never "forbidden".
+    if (!RESTRICTION_FLAGS.some((field) => isSet(rules[field]))) continue;
 
     if (isSet(rules[flag.field])) continue;
 
