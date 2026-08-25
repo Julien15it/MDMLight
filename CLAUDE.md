@@ -1706,6 +1706,35 @@ costs the same step.
   which is why the task context loaded while the data did not. **`app/businesspartner`
   keeps its relative uris** — it is served at the approuter app path with a
   cachebuster, where relative resolves correctly. Do not "make them consistent".
+- **The UUID cannot be derived at runtime, and this was tried and reverted (2026-08-25).**
+  The provider prefix is a real shipping defect — it is landscape-specific, so every
+  customer subaccount would need a source edit — and the obvious fix is to read it back
+  off the URL the component itself loaded from. **It is not there.** `_appPath()` built
+  from `sap.ui.require.toUrl(getComponentName())`, stripped the version stamp and
+  prefixed the still-relative `dataSources` uri; the models moved out of `manifest.json`
+  into `Component.js`. Deployed, every OData call 404'd against the launchpad host root,
+  because the derived path had no provider id to find and the standalone fallback took
+  over. The resource root is:
+
+  ```
+  /mdmmdbusinesspartner.mdmmdbusinesspartnertask-1.2.0/i18n/i18n.properties
+  ```
+
+  Versioned, and **unprefixed**. So the app is served from a path that does not name its
+  content provider, while `/service/*` is only routed on one that does — the two paths
+  are not the same string with a version on the end, which is what the attempt assumed.
+
+  **What made it look derivable was an ellipsis.** The evidence above is written
+  `…mdmmdbusinesspartnertask-1.2.0/reuse/view/…view.xml`, and the `…` sits exactly where
+  a provider id would be. It was read as proof the prefix was present. It is not proof of
+  anything; the unelided URL has no UUID in it. When an abbreviated URL is the evidence
+  for a claim about a URL, get the full one.
+
+  So the runtime knows the version and the app id and never the provider. Parameterising
+  it at **build time** — a token in `manifest.json` that `tools/package-html5.js`
+  substitutes from an env var supplied by `mta.yaml` — is the remaining route, and it
+  needs one thing settled first: where the id comes from at deploy time, given the MTA
+  does not know it today. Not built.
 - My Inbox renders the buttons. `Component.js` registers them with
   `inboxAPI.addAction`, ids matching `sap.bpa.task.outcomes`, and the app's own
   footer Approve/Reject hide on `env>/embedded` so there is one place to press.
