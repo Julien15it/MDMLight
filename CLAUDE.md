@@ -1749,18 +1749,25 @@ costs the same step.
      destination service instance. `/api/` avoids it entirely by resolving a `service`,
      and the CAP backend already has a `sap.cloud.service` of its own. If the task app's
      `xs-app.json` can reach CAP the way it reaches SBPA, the whole problem disappears
-     rather than being parameterised. **Read the approuter business-service routing docs
-     before assuming either way** — this has not been tested, and it is the only option
-     that leaves nothing landscape-specific behind.
+     rather than being parameterised. **Researched 2026-08-25 and RULED OUT.** A route may
+     reference a `sap.cloud.service`, but only for a *Business Service*: one whose
+     VCAP_SERVICES credentials publish `sap.cloud.service` and `endpoints`, "provided via
+     the `onBind` hook in the service-broker implementation" (SAP Help, *Integration with
+     Business Services*). SBPA qualifies as a subscribed SaaS that registers itself; our
+     CAP app is a plain CF app behind a destination, so this needs a service broker and a
+     SaaS-registry registration. Disproportionate for one GUID.
   2. **Carry the prefix in the task context.** The task app already loads
      `/api/public/workflow/rest/v1/task-instances/{id}/context` **before it needs any
      OData**, and that route needs no prefix. CAP can read its own destination service
      instance GUID out of `VCAP_SERVICES` and put it in `workflowContext()`, so the app
-     is told its path by the only backend call it can make unaided. Costs a reordering:
-     the OData models would have to be built after the context resolves, which
-     `_loadPermissions` currently runs before. Embedded-only, which is the only case that
-     needs it — standalone stays relative. **Unverified: that `VCAP_SERVICES` exposes
-     `instance_guid` for the destination binding.** Check before building.
+     is told its path by the only backend call it can make unaided. `VCAP_SERVICES` does
+     expose it — `cf env mdm-businesspartner-srv | grep instance_guid` lists the GUID
+     (confirmed 2026-08-25). Costs a reordering: the OData models would have to be built
+     after the context resolves, which `_loadPermissions` currently runs before.
+     Embedded-only, which is the only case that needs it — standalone stays relative.
+     **This is a SPA CONTRACT CHANGE, not a local one.** Undeclared keys never become
+     context (see "SBPA process inputs"), so Arthur has to declare the extra input and
+     release the process before the app can read it. Agree it first.
   3. **Two-pass install.** Deploy, read the GUID, set it as an MTA parameter, redeploy.
      No source literal, but it makes every customer installation a two-step with a
      manual copy in the middle. The fallback if 1 and 2 both fail, not a goal.
