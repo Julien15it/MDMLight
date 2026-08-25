@@ -471,6 +471,56 @@ Configured stages come first in both lists; the reasoning is with the tables.
 - **Derivation**: fills empty address fields on the *first* address row from VIES
   first, then GLEIF.
 
+#### The CVI configuration check (2026-08-25)
+
+`srv/checks/cvi-checks.js` adds one validation, `cvi_configuration`, on all three
+gates. It answers **will this partner actually synchronise?** — CVI turns a business
+partner into a customer and a supplier, and whether it can is decided by S/4
+customizing nobody filling in the form can see. A role the BP category may not carry
+is accepted by the screen, staged, approved, and only then refused by S/4, after an
+approver has spent their time on it.
+
+It reads `CviConfigService`'s remote sets (see `srv/cvi-config-service.cds`), backed
+by five CDS views in S/4 package `ZMDM_LIGHT`. Two rules today:
+
+- **A role its BP category may not carry.** `TB003` gives role → role category,
+  `TB003A` gives the category's allowed BP categories (person/organisation/group).
+  Reported against the offending `BusinessPartnerRoles` row, one per role, so a
+  requester sees all of them at once.
+- **Postprocessing switched off**, when the request asks for a role at all. PPO off
+  means a synchronisation error is dropped rather than queued, so the partner
+  silently never becomes a customer. Reported **per row of
+  `CviPostprocessingControl`** rather than against a hardcoded sync object name — a
+  constant guessed wrong would match nothing and report nothing, forever.
+
+Three decisions worth not reversing casually:
+
+- **`warning`, not `error` — `ROLE_CATEGORY_SEVERITY` is the knob.** The two failure
+  costs are not symmetric: a warning on a combination that would have worked is
+  noise, while blocking a legitimate partner leaves a requester unable to submit and
+  with no way to argue. Move it to `error` once the rule has been seen to be right on
+  real data at a real customer.
+- **A configuration that cannot be read reports itself and never blocks.** The
+  pipeline turns a *thrown* validation into a blocking error, which would be more
+  severe than anything this stage itself reports — an unreachable S/4 would stop
+  every submit over a warning. So the read is caught and returned as a warning
+  saying it did not run, rather than letting "no findings" read as "checked and fine".
+- **Configuration, not SAP's verdict.** Transaction `CVI_FS_CHECK_CUST` is a module
+  pool with no callable API and its judgements move with support packages. These
+  rules are derived from the customizing itself and stated in terms of the request.
+
+Two rules that were considered and are **not** built, deliberately:
+
+- **Number range alignment** (BP internally numbered against a customer account group
+  that is externally numbered, the classic CVI failure). `CviNumberRanges` has the
+  intervals, but the grouping → number range and account group → number range
+  assignments are not exposed — `Z_I_BUPA_GROUPING` carries only the grouping and its
+  name. Building this needs those columns added to that view first; a rule guessed
+  without them would be noise.
+- **Contact person synchronisation.** `CviContactMapping` reports the switch, but
+  MDM Light does not stage contact persons at all (there is no such node in
+  `db/staging.cds`), so there is nothing in a request for the rule to fire on.
+
 #### A derivation may create the row it needs (changed 2026-08-20)
 
 A derivation used to refuse to invent a row: with no address on the screen, a VIES

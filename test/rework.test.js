@@ -99,7 +99,7 @@ test('resubmit runs the same gates as a first submit', () => {
     serviceJs.indexOf("this.on('withdrawRequest'")
   );
   assert.match(resubmit, /runValidations\(/u);
-  assert.match(resubmit, /configured\.validations, \.\.\.registry\.validations/u);
+  assert.match(resubmit, /configured\.validations,\s*\.\.\.createCviStages\(\)\.validations, \.\.\.registry\.validations/u);
   assert.match(resubmit, /recordDuplicateFindings\(/u);
   assert.match(resubmit, /!req\.data\.Confirm/u);
   // Derivations still do not run on a submit path - a derivation changes the data.

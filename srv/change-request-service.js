@@ -10,6 +10,7 @@ const {
 const { candidateFromStagedRequest, duplicateSummary } = require('./ai/duplicate-check');
 const { runChecks, runValidations, BLOCKING } = require('./checks/pipeline');
 const { createRegistryStages } = require('./checks/registry-checks');
+const { createCviStages } = require('./checks/cvi-checks');
 const { createRelationStages } = require('./checks/relation-checks');
 const { configuredStages } = require('./checks/rule-store');
 const { fieldPropertyStages, resolvedProperties } = require('./checks/field-property-store');
@@ -651,7 +652,11 @@ class ChangeRequestService extends cds.ApplicationService {
       return runChecks(
         { root: data.root || {}, sections: data.sections || {} },
         {
-          validations: [...properties.validations, ...configured.validations, ...registry.validations,
+          // CVI before the registry: its configuration is cached for 60s, so it is effectively
+          // offline after the first read, and a role this partner's category cannot carry is worth
+          // saying before spending a VIES call on an address that will never synchronise anyway.
+          validations: [...properties.validations, ...configured.validations,
+            ...createCviStages().validations, ...registry.validations,
             ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations],
           derivations: [...configured.derivations, ...registry.derivations],
           // Check is where a human is looking, which is the only place a proposal to rewrite
@@ -731,7 +736,8 @@ class ChangeRequestService extends cds.ApplicationService {
       const properties = await fieldPropertyStages(requesterContext(req));
       const validations = await runValidations(
         { root: data.root || {}, sections: data.sections || {} },
-        [...properties.validations, ...configured.validations, ...registry.validations,
+        [...properties.validations, ...configured.validations,
+        ...createCviStages().validations, ...registry.validations,
         ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations]
       );
       if (validations.some((message) => message.severity === BLOCKING)) {
@@ -826,7 +832,8 @@ class ChangeRequestService extends cds.ApplicationService {
       const properties = await fieldPropertyStages(requesterContext(req));
       const validations = await runValidations(
         { root: data.root || {}, sections: data.sections || {} },
-        [...properties.validations, ...configured.validations, ...registry.validations,
+        [...properties.validations, ...configured.validations,
+        ...createCviStages().validations, ...registry.validations,
         ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations]
       );
       if (validations.some((message) => message.severity === BLOCKING)) {
