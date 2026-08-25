@@ -16,3 +16,11 @@ credentials.json
 
 # added by cds
 .cdsrc-private.json
+
+# build leftovers - mbt writes a timestamped Makefile per run, cds writes .gen
+Makefile_*.mta
+.gen/
+# editor-local, and it arrived here by accident
+.vscode/
+# .env was already ignored; .env1 was not, and a password in it would have shipped
+env/.env*
