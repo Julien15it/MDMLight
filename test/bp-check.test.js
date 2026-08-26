@@ -38,7 +38,7 @@ function sender(result, calls = []) {
   };
 }
 
-test('the payload sent to S/4 leaves roles out, so no vendor number is drawn', async () => {
+test('the payload sent to S/4 carries the roles, so the relation checks run', async () => {
   const calls = [];
   const stage = createBpCheckStage({ requestId: 'cr-1', send: sender(answer(), calls) });
 
@@ -48,10 +48,11 @@ test('the payload sent to S/4 leaves roles out, so no vendor number is drawn', a
   assert.equal(calls[0].method, 'POST');
   assert.match(calls[0].path, /BPChecks\/.*\.check$/);
 
-  // The measured finding this whole design turns on: the vendor number draw comes from the role,
-  // so the Check button must not send one.
-  assert.equal(calls[0].data.IncludeRoles, false);
-  assert.equal(INCLUDE_ROLES, false);
+  // The role is what makes CVI run the vendor/customer checks, and inseparably what draws a vendor
+  // number. Enabled 2026-08-26 with the number-range gaps accepted as product behaviour -- MDG does
+  // the same. Pinned so the tier can only change deliberately.
+  assert.equal(calls[0].data.IncludeRoles, true);
+  assert.equal(INCLUDE_ROLES, true);
 
   // every action parameter is Nullable="false" in $metadata, so all five must be on the wire
   for (const key of ['RequestId', 'PayloadJson', 'IncludeRoles', 'IncludeRelations', 'RunTestRun']) {
