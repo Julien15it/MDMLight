@@ -54,7 +54,10 @@ test('the action declares Propose and Scope, and the runner threads both', () =>
   assert.match(checkAction, /Scope\s+:\s+String\(40\)/u);
 
   const js = fs.readFileSync(path.join(__dirname, '..', 'srv', 'change-request-service.js'), 'utf8');
-  assert.match(js, /runRequestChecks = async \(req, \{ propose, duplicates, scope = null \}\)/u);
+  // Open at the end on purpose: the three parameters this test is about must be threaded, but the
+  // runner has since gained others (`standard`, for the SAP standard checks) and pinning the
+  // closing brace made an additive change read as a broken contract.
+  assert.match(js, /runRequestChecks = async \(req, \{ propose, duplicates, scope = null[^}]*\}\)/u);
   // Matched loosely on purpose: what matters is that the payload and the scope reach
   // proposeNormalisations, not how the call is wrapped - it also carries the AI switch now.
   const proposeCall = js.slice(js.indexOf('proposeNormalisations({'));
@@ -64,6 +67,11 @@ test('the action declares Propose and Scope, and the runner threads both', () =>
   assert.match(js, /propose: req\.data\.Propose !== false/u);
   // The duplicate check never proposes, trigger or not.
   assert.match(js, /runRequestChecks\(req, \{ propose: false, duplicates: true \}\)/u);
+
+  // The SAP standard checks are the Check button's, and only for the whole record: a field trigger
+  // passes a scope and must not pay for a remote round trip on every commit.
+  assert.match(js, /standard: true/u);
+  assert.match(js, /checkStandard: standard && !scope/u);
 });
 
 const CONTROLLER = fs.readFileSync(
