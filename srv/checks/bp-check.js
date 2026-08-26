@@ -60,8 +60,18 @@ const ACTION = 'BPChecks/com.sap.gateway.srvd_a2x.zmdml_bpcheck.v0001.check';
  */
 const INCLUDE_ROLES = false;
 
-// Relations are irrelevant to the draw -- that comes from the role -- so this only matters for a
-// genuinely BP-only request. Off with roles off, since a relation node without its role is noise.
+/**
+ * Off, and measured rather than assumed. Sending the customer/supplier node WITHOUT its role was
+ * the one combination that might have bought the relation-level checks for free: it draws no
+ * number, but CVI gates on the role before it looks at the data and answers
+ * `CVI_EI/039 Partner does not have a vendor role, you cannot create a vendor` -- so the account
+ * group, company code and withholding tax data are never examined. The only thing gained is a
+ * spurious complaint about a role the requester did in fact ask for.
+ *
+ * So the trade is binary: send the role and get the relation checks plus one vendor number, or
+ * send neither. There is no middle setting, and this constant should move only together with
+ * `INCLUDE_ROLES`.
+ */
 const INCLUDE_RELATIONS = false;
 
 /**
@@ -100,9 +110,13 @@ function parse(json, label) {
 }
 
 /**
- * `R11/336` came back twice for every payload carrying a role and once without one, so the
- * duplicate is the BP path and the CVI path each firing the same validation. That is real
- * information, so the count is kept rather than collapsed silently.
+ * S/4 reports the same message more than once, and the count is kept rather than collapsed.
+ *
+ * Measured with `R11/336`: twice whenever the payload carries a role OR a customer/supplier node,
+ * once when it carries neither. So the second occurrence is CVI running its own pass over the BP
+ * central data -- which it does if there is anything relation-shaped to consider at all, not only
+ * when a role is present. (An earlier version of this comment claimed the role was the trigger;
+ * case 5 disproved it.)
  */
 function dedupe(messages) {
   const byKey = new Map();
