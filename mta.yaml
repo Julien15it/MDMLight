@@ -35,6 +35,7 @@ modules:
       - name: mdmlight-bpa-key
       - name: mdmlight-bpa-uaa
       - name: mdm-businesspartner-db
+      - name: mdm-businesspartner-authmgmt
     properties:
       # Non-reasoning primary: no hidden-reasoning budget, so no silent empty answer.
       AICORE_MODEL: anthropic--claude-4.5-haiku
@@ -203,6 +204,17 @@ resources:
     parameters:
       service: aicore
       service-plan: extended
+  # A SECOND, separate XSUAA instance - not mdm-businesspartner-auth, which authenticates users into
+  # this app and has no access to the Authorization Management REST API. `apiaccess` is the plan that
+  # exposes it: role collections and users, for the Workflow Agent Determination approver picker (see
+  # CLAUDE.md and srv/wf/btp-agents.js). Its service-key credentials carry a broad, subaccount-wide
+  # read scope - every role collection's name/description and every user's e-mail - so treat it like
+  # any other platform credential: never logged, never forwarded past btp-agents.js.
+  - name: mdm-businesspartner-authmgmt
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: xsuaa
+      service-plan: apiaccess
 # --- SAP Build Process Automation API key (user-provided service) ------------
   - name: mdmlight-bpa-key
     type: org.cloudfoundry.existing-service

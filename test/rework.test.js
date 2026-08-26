@@ -543,8 +543,9 @@ test('a stale rework link offers nothing and says why', () => {
   assert.match(load, /state\.showReworkButtons = awaitingRework/u);
   assert.match(load, /state\.editing = awaitingRework/u);
   assert.match(load, /nothing to rework/u);
-  // And why it came back is the first thing on screen when there is something to do.
-  assert.match(load, /Sent back by the approver/u);
+  // Points at the conversation panel rather than repeating the comment - that panel is the one
+  // place a comment's actual text is shown (2026-08-25), so a strip cannot go stale next to it.
+  assert.match(load, /The approver sent this request back\. See the conversation below/u);
 });
 
 /**

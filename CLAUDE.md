@@ -1348,10 +1348,9 @@ people***. The columns are CR type, step, two condition pairs, and the approvers
   below. `kind` stays derivable on either side from the `@`. The two halves are **entered** differently on purpose
   (2026-08-21): an address is free text nobody could offer a list for, while a role
   has to be spelled exactly as SBPA knows it, so the cell takes typing *and* offers
-  a multi-select value help over the roles. The list is `ROLES` from
-  `srv/checks/field-properties.js` — the same set the field property profiles
-  condition on, so the two cannot drift — **minus `*`**, which is a wildcard for
-  matching and not somebody who can approve a request. The condition cells
+  a value help over the roles and the subaccount's users — see "The approver picker
+  is sourced from the subaccount" below for where that list comes from since
+  2026-08-26. The condition cells
   deliberately do not get it: a country is not a role. **There is no order column** — rows are additive, so
   every matching row contributes its approvers and nothing needs ranking. Asked for
   and removed on 2026-08-21, before anything was deployed: it was copied in from the
@@ -1392,6 +1391,62 @@ element.
   de-duplicates on step + value, so two rows naming the same person produce one approver.
 - **The read path still tolerates a delimited list**, for rows written while multiple values were
   live.
+
+#### The approver picker is sourced from the subaccount, not from this app (2026-08-26)
+
+Until now the value help on the approver cell offered this app's own three-entry
+`ROLES` list (`Requester`/`Approver`/`DataSteward`, from `srv/checks/field-properties.js`)
+— a concept that has nothing to do with who can actually be assigned an approval:
+those three names are what the Field Property Profiles page conditions on, and
+`Requester`/`Approver` are not spellings SBPA would recognise as a role collection or
+a person. `srv/wf/btp-agents.js` replaces it with the subaccount's own **role
+collections** and **users**, read live from the BTP Authorization Management API.
+
+- **Role collections, not this app's own role concept — and only the ones meant for
+  this picker.** A subaccount has a role collection for every application in it, so
+  the list is filtered to those whose **Description** starts with `MDMLIGHT`
+  (`ROLE_COLLECTION_PREFIX`) — Description, never Name: the prefix is a convention
+  applied to the text an admin writes, not to the collection's own (often short,
+  unrelated) name. `ROLES`/`ROLE_TEXT` in `field-properties.js` are **untouched** and
+  still serve the Field Property Profiles page — a different picker, a different
+  question ("which role is this profile for", not "who approves this").
+- **Users too**, named by e-mail — the same address this app's own notifications and
+  SBPA already use — falling back to the username for one with none.
+- **A second, separate XSUAA instance.** The app's own `mdm-businesspartner-auth`
+  (plan `application`) authenticates users into this app and has no access to the
+  Authorization Management REST API; a dedicated `apiaccess`-plan instance
+  (`mdm-businesspartner-authmgmt`, added to `mta.yaml`) is what SAP's own docs call
+  for. Its service key carries `clientid`/`clientsecret`/`url` (for a
+  `client_credentials` token, same shape as `mdmlight-bpa-uaa`) plus `apiurl` — the
+  Authorization Management API host, a fixed region-wide address and not this
+  tenant's own login URL. `btp-agents.js` refuses to guess one when `apiurl` is
+  missing, the same discipline `ui-prefix.js` applies to a missing destination guid.
+  It is a **managed** service, so its credentials land under VCAP's `xsuaa` group
+  (told apart by name) rather than under `user-provided` like the BPA credentials.
+- **A broad, subaccount-wide read credential**, deliberately scoped to nowhere else:
+  it can list every role collection's name and description and every user's e-mail
+  in the subaccount. `btp-agents.js` is the only module that ever sees it.
+- **Best-effort, like every other BTP-platform read in this codebase**
+  (`workflow-rule-store.js`, `processAutomation.js`): an unreachable subaccount API,
+  or the service simply not bound yet, leaves the picker offering nothing rather than
+  failing the page — the cell still takes a typed e-mail address or role name either
+  way. The two lookups fail independently, so role collections still populate the
+  picker even if the `/Users` call is the one that is down.
+- **Cached 5 minutes** (`TTL_MS`), longer than the 60s the rule/profile tables use:
+  role collections and subaccount users do not change on a per-minute cadence, and
+  there is no reason to call BTP's management API on every dialog open.
+- **The F4 dialog is a real two-column table, not `sap.m.SelectDialog`.**
+  `RoleValueHelp.fragment.xml` was a `SelectDialog` (title/description/info on a
+  `StandardListItem`) — that control wraps a plain `sap.m.List` with no column
+  headers, and *Type* vs. *Name / E-mail* is exactly the distinction a combined
+  role-and-user picker has to make visible, so it is now a plain `sap.m.Dialog` +
+  `sap.m.Table` with two named columns, the same shape `FieldPropertyDialog.fragment.xml`
+  already uses elsewhere on this tile. Selecting a row (`onRolesChosen`) reads the
+  entry off its binding context — `{ type, value }` — before anything touches the
+  list, the same ordering the field value help follows and for the same reason: a
+  reset re-templates the rows and re-binds whatever now sits at the old position.
+- **`Agent { type, value }`** is the new CDS type on `WorkflowRuleOptions.agents`,
+  replacing the old `roles : array of Option`. Nothing else read that field.
 
 ##### What actually goes over the wire (fixed 2026-08-21)
 
@@ -1659,7 +1714,14 @@ Decisions behind it, each of which has a cheaper wrong version:
   reopens this record and would find their own justification replaced by the
   verdict on it — and then resubmit the approver's words as their reason. The
   comment leads the screen as a Warning strip, because "rejected" with no why is
-  not something anyone can act on.
+  not something anyone can act on. **The strip stopped repeating the comment's
+  own text on 2026-08-25** — it points at the conversation panel below instead
+  ("See the conversation below for the reason"), now that the panel is the one
+  place a comment's actual words are shown; showing it twice risked the two
+  going out of sync if a later change touched one wording and not the other.
+  `state.rejectionComment` still exists and is still read — only truthiness,
+  never the text itself, so the strip still tells "a reason was given" apart
+  from "none was recorded" (`claimRework`'s stopgap case, below).
 - **Where that comment comes from (2026-08-21): a `TextArea` at the bottom of
   the approve screen's content**, bound to `context>/comment` — the same
   property `_decideOnServer` in `app/bptask`'s Component.js already reads for
