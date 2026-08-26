@@ -166,6 +166,29 @@ function toFindings(messages) {
     .filter((finding) => finding.severity !== 'info');
 }
 
+/**
+ * What the remote actually said, for the log only.
+ *
+ * The shape varies with how far down the call failed -- the Cloud SDK, axios and CAP each wrap it
+ * differently -- so every plausible place is tried rather than assuming one. The status and the
+ * body are what matter: a gateway explains a 403 in the body ("CSRF token validation failed",
+ * "no authorization"), and that sentence is the difference between a role change and a code change.
+ *
+ * Headers are deliberately NOT logged: they carry the bearer token and the CSRF token.
+ */
+function logRemoteFailure(error) {
+  const response = error?.response || error?.cause?.response || error?.rootCause?.response;
+  const status = response?.status ?? error?.status ?? error?.statusCode;
+  const body = response?.data ?? error?.cause?.message;
+
+  const detail = typeof body === 'string' ? body.slice(0, 2000)
+    : body ? JSON.stringify(body).slice(0, 2000)
+      : '(no response body)';
+
+  console.warn(`[bp-check] ${SERVICE} refused the call`,
+    status ? `with status ${status}:` : ':', detail);
+}
+
 async function callCheck({ payload, requestId, send }) {
   const service = send ? { send } : await cds.connect.to(SERVICE);
   return service.send({
@@ -198,6 +221,12 @@ function createBpCheckStage({ requestId = null, send = null } = {}) {
     try {
       answer = await callCheck({ payload, requestId, send });
     } catch (error) {
+      // `Request failed with status code 403` on its own sends you to SU53, which is empty when the
+      // gateway rejected the call before any authorization check ran. The gateway says why in the
+      // response body, so log it: the alternative is turning DEBUG=remote on in production to read
+      // one sentence. Server-side only -- the requester gets the plain message below.
+      logRemoteFailure(error);
+
       // The ONE message that survives the no-info-strips rule, and it is a warning rather than an
       // info for exactly that reason. A check that did not run must never read as a check that
       // passed -- that is the wrong answer this whole pipeline refuses to give. It does not block.
