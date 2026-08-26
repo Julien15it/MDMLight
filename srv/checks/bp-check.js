@@ -26,6 +26,22 @@
 
 const cds = require('@sap/cds');
 
+/**
+ * Declared in package.json against **`VF_S4HANA_V4_DEST`**, not `VF_S4HANA_DEST`, and that is not
+ * tidiness -- it is required.
+ *
+ * `VF_S4HANA_DEST` ends in `/sap/opu/odata/sap`, the OData **V2** namespace. `/sap/opu/odata4` is a
+ * SIBLING of it, not a child, so a V4 service cannot be reached through it: CAP appends the path
+ * and the result is `/sap/opu/odata/sap/sap/opu/odata4/...`, which the gateway answers 403 to with
+ * `x-csrf-token: Required` -- a misleading symptom that cost an afternoon on 2026-08-26 and sent
+ * the diagnosis to SU53 and to CSRF, neither of which was the problem.
+ *
+ * A `..` traversal in the path is NOT the fix: axios concatenates baseURL and path rather than
+ * resolving them, so the literal `..` reaches the ICM.
+ *
+ * The new destination is rooted at `/sap/opu/odata4/sap`, mirroring how `VF_S4HANA_DEST` is rooted
+ * at the V2 namespace -- so a second V4 service later costs a path, not another destination.
+ */
 const SERVICE = 'ZMDML_BPCHECK';
 
 // Read from the live $metadata on 2026-08-26, not guessed. `srvd_a2x` (not `srvd`) is the Web API
@@ -60,8 +76,18 @@ const ACTION = 'BPChecks/com.sap.gateway.srvd_a2x.zmdml_bpcheck.v0001.check';
  */
 const INCLUDE_ROLES = false;
 
-// Relations are irrelevant to the draw -- that comes from the role -- so this only matters for a
-// genuinely BP-only request. Off with roles off, since a relation node without its role is noise.
+/**
+ * Off, and measured rather than assumed. Sending the customer/supplier node WITHOUT its role was
+ * the one combination that might have bought the relation-level checks for free: it draws no
+ * number, but CVI gates on the role before it looks at the data and answers
+ * `CVI_EI/039 Partner does not have a vendor role, you cannot create a vendor` -- so the account
+ * group, company code and withholding tax data are never examined. The only thing gained is a
+ * spurious complaint about a role the requester did in fact ask for.
+ *
+ * So the trade is binary: send the role and get the relation checks plus one vendor number, or
+ * send neither. There is no middle setting, and this constant should move only together with
+ * `INCLUDE_ROLES`.
+ */
 const INCLUDE_RELATIONS = false;
 
 /**
@@ -100,9 +126,13 @@ function parse(json, label) {
 }
 
 /**
- * `R11/336` came back twice for every payload carrying a role and once without one, so the
- * duplicate is the BP path and the CVI path each firing the same validation. That is real
- * information, so the count is kept rather than collapsed silently.
+ * S/4 reports the same message more than once, and the count is kept rather than collapsed.
+ *
+ * Measured with `R11/336`: twice whenever the payload carries a role OR a customer/supplier node,
+ * once when it carries neither. So the second occurrence is CVI running its own pass over the BP
+ * central data -- which it does if there is anything relation-shaped to consider at all, not only
+ * when a role is present. (An earlier version of this comment claimed the role was the trigger;
+ * case 5 disproved it.)
  */
 function dedupe(messages) {
   const byKey = new Map();
@@ -152,6 +182,29 @@ function toFindings(messages) {
     .filter((finding) => finding.severity !== 'info');
 }
 
+/**
+ * What the remote actually said, for the log only.
+ *
+ * The shape varies with how far down the call failed -- the Cloud SDK, axios and CAP each wrap it
+ * differently -- so every plausible place is tried rather than assuming one. The status and the
+ * body are what matter: a gateway explains a 403 in the body ("CSRF token validation failed",
+ * "no authorization"), and that sentence is the difference between a role change and a code change.
+ *
+ * Headers are deliberately NOT logged: they carry the bearer token and the CSRF token.
+ */
+function logRemoteFailure(error) {
+  const response = error?.response || error?.cause?.response || error?.rootCause?.response;
+  const status = response?.status ?? error?.status ?? error?.statusCode;
+  const body = response?.data ?? error?.cause?.message;
+
+  const detail = typeof body === 'string' ? body.slice(0, 2000)
+    : body ? JSON.stringify(body).slice(0, 2000)
+      : '(no response body)';
+
+  console.warn(`[bp-check] ${SERVICE} refused the call`,
+    status ? `with status ${status}:` : ':', detail);
+}
+
 async function callCheck({ payload, requestId, send }) {
   const service = send ? { send } : await cds.connect.to(SERVICE);
   return service.send({
@@ -184,6 +237,12 @@ function createBpCheckStage({ requestId = null, send = null } = {}) {
     try {
       answer = await callCheck({ payload, requestId, send });
     } catch (error) {
+      // `Request failed with status code 403` on its own sends you to SU53, which is empty when the
+      // gateway rejected the call before any authorization check ran. The gateway says why in the
+      // response body, so log it: the alternative is turning DEBUG=remote on in production to read
+      // one sentence. Server-side only -- the requester gets the plain message below.
+      logRemoteFailure(error);
+
       // The ONE message that survives the no-info-strips rule, and it is a warning rather than an
       // info for exactly that reason. A check that did not run must never read as a check that
       // passed -- that is the wrong answer this whole pipeline refuses to give. It does not block.

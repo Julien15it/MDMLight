@@ -76,8 +76,8 @@
         "kind": "odata-v4",
         "csrf": true,
         "credentials": {
-          "destination": "VF_S4HANA_DEST",
-          "path": "/sap/opu/odata4/sap/zsrvb_mdml_bpcheck/srvd_a2x/sap/zmdml_bpcheck/0001"
+          "destination": "VF_S4HANA_V4_DEST",
+          "path": "/zsrvb_mdml_bpcheck/srvd_a2x/sap/zmdml_bpcheck/0001"
         }
       }
     }
