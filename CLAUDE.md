@@ -1652,7 +1652,14 @@ Decisions behind it, each of which has a cheaper wrong version:
   reopens this record and would find their own justification replaced by the
   verdict on it — and then resubmit the approver's words as their reason. The
   comment leads the screen as a Warning strip, because "rejected" with no why is
-  not something anyone can act on.
+  not something anyone can act on. **The strip stopped repeating the comment's
+  own text on 2026-08-25** — it points at the conversation panel below instead
+  ("See the conversation below for the reason"), now that the panel is the one
+  place a comment's actual words are shown; showing it twice risked the two
+  going out of sync if a later change touched one wording and not the other.
+  `state.rejectionComment` still exists and is still read — only truthiness,
+  never the text itself, so the strip still tells "a reason was given" apart
+  from "none was recorded" (`claimRework`'s stopgap case, below).
 - **Where that comment comes from (2026-08-21): a `TextArea` at the bottom of
   the approve screen's content**, bound to `context>/comment` — the same
   property `_decideOnServer` in `app/bptask`'s Component.js already reads for

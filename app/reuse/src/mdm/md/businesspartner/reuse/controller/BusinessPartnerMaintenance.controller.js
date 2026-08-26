@@ -2608,11 +2608,13 @@ sap.ui.define([
                   + " It has either been resubmitted already or withdrawn."
               }];
             } else if (state.rejectionComment) {
-              // Why it came back, at the top of the screen. "Rejected" with no reason is not
-              // something a requester can act on, and it is the first thing they will look for.
+              // Points at the conversation panel rather than repeating the comment here - it is now
+              // the one place a comment's actual text is shown (2026-08-25), so this strip and that
+              // panel cannot show two different words for the same message if a later round edits
+              // the wording of one and not the other.
               state.messages = [{
                 type: "Warning",
-                text: "Sent back by the approver: " + state.rejectionComment
+                text: "The approver sent this request back. See the conversation below for the reason."
               }];
             } else {
               // No comment because the rejection never came through decideRequest. Say that, rather
