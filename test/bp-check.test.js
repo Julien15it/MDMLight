@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const bpCheck = require('../srv/checks/bp-check');
-const { createBpCheckStage, dedupe, toFindings, coverageNotes, cap, INCLUDE_ROLES } = bpCheck;
+const { createBpCheckStage, dedupe, toFindings, cap, INCLUDE_ROLES } = bpCheck;
 const { runChecks } = require('../srv/checks/pipeline');
 
 // The four strings the action returns, shaped as ZMDML_A_BPCHECK_OUT. Taken from the real probe
@@ -105,15 +105,20 @@ test('the two stages are distinguishable in the text', () => {
   assert.match(activation.message, /^S\/4 activation \[R11\/336\]/);
 });
 
-test('coverage says what was not checked, so silence does not read as approval', () => {
-  const notes = coverageNotes({ rolesIncluded: false, fieldPropertiesExcluded: true });
-  assert.equal(notes.length, 2);
-  assert.ok(notes.every((note) => note.severity === 'info'));
-  assert.ok(notes.some((note) => /Role validity was not checked/.test(note.message)));
-  assert.ok(notes.some((note) => /own configuration/.test(note.message)));
+test('a clean result produces no strips at all', async () => {
+  // A requester gets either nothing to fix or something actionable. No narration about what was
+  // and was not checked, and no info strips -- asked for 2026-08-26.
+  const stage = createBpCheckStage({
+    send: sender(answer({ coverage: { rolesIncluded: false, fieldPropertiesExcluded: true } }))
+  });
 
-  // nothing to disclose when everything was included
-  assert.equal(coverageNotes({ rolesIncluded: true, fieldPropertiesExcluded: false }).length, 0);
+  assert.deepEqual(await stage({ root: {}, sections: {} }), []);
+});
+
+test('S/4 info messages are dropped, warnings and errors are not', () => {
+  const info = { stage: 'TESTRUN', severity: 'I', id: 'R11', number: '001', text: 'noted' };
+  assert.deepEqual(toFindings([info]), []);
+  assert.equal(toFindings([info, LANGUAGE_WARNING]).length, 1);
 });
 
 test('field-property verdicts from S/4 are never surfaced', async () => {
@@ -134,7 +139,9 @@ test('an unreachable S/4 reports itself and never blocks', async () => {
 
   const found = await stage({ root: {}, sections: {} });
   assert.equal(found.length, 1);
-  assert.equal(found[0].severity, 'info');
+  // a warning, not an info: the only message that survives the no-info-strips rule, because a
+  // check that did not run must never read as one that passed
+  assert.equal(found[0].severity, 'warning');
   assert.match(found[0].message, /could not run \(destination not found\)/);
   assert.match(found[0].message, /has not been checked/);
 });

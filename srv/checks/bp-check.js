@@ -46,8 +46,14 @@ const ACTION = 'BPChecks/com.sap.gateway.srvd_a2x.zmdml_bpcheck.v0001.check';
  * central-data checks still come through.
  *
  * `false` here because the Check button is pressed repeatedly while a form is being filled in, and
- * spending a vendor number per press is not defensible. The consequence is stated in `coverage`
- * rather than hidden: role validity is NOT checked, because the roles are not sent.
+ * spending a vendor number per press is not defensible.
+ *
+ * **The consequence, and it is not shown to the requester:** role validity and everything specific
+ * to the customer or supplier side is NOT checked, because the roles are not sent. The service
+ * still says so in `CoverageJson` for whoever is debugging, but the screen deliberately does not --
+ * a requester gets either nothing to fix or something actionable, not a report on what was looked
+ * at. So this constant is the only place that consequence is recorded. Do not flip it without
+ * deciding what a vendor number per button press costs.
  *
  * Pending a product decision on number-range gaps. The full tier belongs at submit, or better at
  * the enricher step, where it runs once per request.
@@ -131,36 +137,19 @@ function describe(message) {
   return `S/4 ${where}${code}: ${message.text}${repeat}`;
 }
 
-// `{ check, severity, message }` and nothing else -- the shape every other stage returns. The
-// class, number, stage and repeat count all live in the text rather than as extra keys.
-function toFindings(messages) {
-  return dedupe(messages).map((message) => ({
-    severity: cap(message.severity),
-    message: describe(message)
-  }));
-}
-
 /**
- * What was not looked at, said out loud. A clean message list means "nothing SAP checked
- * objected", not "the request is good": field properties are excluded by design, roles are not
- * sent under the cheap tier, and six staged nodes have no CVI counterpart at all
- * (`CustomerTaxGrouping`, the address-info nodes, `SupplierDunning`). Silence must not read as
- * approval.
+ * `{ check, severity, message }` and nothing else -- the shape every other stage returns. The
+ * class, number, stage and repeat count all live in the text rather than as extra keys.
+ *
+ * **Info-level messages are dropped.** A requester needs either "nothing to fix" or something they
+ * can act on; S/4's own `I`/`S` messages are neither, and a strip nobody can do anything about
+ * teaches people to stop reading strips. Asked for 2026-08-26, and it is why the coverage
+ * narration that used to live here is gone rather than downgraded.
  */
-function coverageNotes(coverage) {
-  if (!coverage) return [];
-  const notes = [];
-  if (coverage.rolesIncluded === false) {
-    // Deliberately does not promise that submit checks them -- submit does not run this yet, and
-    // saying so would be an overclaim a requester would rely on.
-    notes.push('Business partner roles were left out of this check, so anything specific to the '
-      + 'customer or supplier side has not been checked against S/4.');
-  }
-  if (coverage.fieldPropertiesExcluded) {
-    notes.push('Field requirements come from this app\'s own configuration, not from S/4, so S/4 '
-      + 'was not asked about them.');
-  }
-  return notes.map((message) => ({ severity: 'info', message }));
+function toFindings(messages) {
+  return dedupe(messages)
+    .map((message) => ({ severity: cap(message.severity), message: describe(message) }))
+    .filter((finding) => finding.severity !== 'info');
 }
 
 async function callCheck({ payload, requestId, send }) {
@@ -195,9 +184,12 @@ function createBpCheckStage({ requestId = null, send = null } = {}) {
     try {
       answer = await callCheck({ payload, requestId, send });
     } catch (error) {
+      // The ONE message that survives the no-info-strips rule, and it is a warning rather than an
+      // info for exactly that reason. A check that did not run must never read as a check that
+      // passed -- that is the wrong answer this whole pipeline refuses to give. It does not block.
       return [{
         check: CHECK_NAME,
-        severity: 'info',
+        severity: 'warning',
         message: `The SAP standard checks could not run (${error.message}), so this request has `
           + 'not been checked against S/4 customizing.'
       }];
@@ -211,20 +203,20 @@ function createBpCheckStage({ requestId = null, send = null } = {}) {
     if (!result) {
       return [{
         check: CHECK_NAME,
-        severity: 'info',
+        severity: 'warning',
         message: 'The SAP standard checks returned no result, so this request has not been '
           + 'checked against S/4 customizing.'
       }];
     }
 
     const messages = parse(result.MessagesJson, 'MessagesJson') || [];
-    const coverage = parse(result.CoverageJson, 'CoverageJson');
 
-    // SuppressedJson is deliberately not read here. It exists so a failed post is diagnosable,
-    // not so a requester can be shown SAP's opinion on fields this app governs.
+    // CoverageJson and SuppressedJson are deliberately not read. Coverage is a statement about
+    // what the check looked at, which is a design note rather than something a requester can act
+    // on; suppressed holds SAP's opinion on fields this app governs, and exists so a failed post
+    // is diagnosable. Both are in the response either way, for whoever is debugging one.
 
-    return [...toFindings(messages), ...coverageNotes(coverage)]
-      .map((finding) => ({ check: CHECK_NAME, ...finding }));
+    return toFindings(messages).map((finding) => ({ check: CHECK_NAME, ...finding }));
   };
 }
 
@@ -236,6 +228,5 @@ module.exports = {
   // exported for the tests, which pin the shaping rather than the transport
   dedupe,
   toFindings,
-  coverageNotes,
   cap
 };
