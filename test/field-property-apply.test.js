@@ -133,6 +133,55 @@ test('entity settings and field settings are kept apart', () => {
   assert.equal(entityProperty(resolved, 'Addresses'), null);
 });
 
+// --- Critical fields ---------------------------------------------------------------------
+
+/**
+ * `critical` (2026-08-26) is a boolean on `FieldPropertySettings`, independent of `property` -
+ * gathered in the same pass as the property merge, off the same matching profiles, but with nothing
+ * to merge across profiles: any matching row saying critical is enough, deduped into a plain list.
+ */
+test('every matching profile\'s critical rows contribute, deduped, field and entity kept apart', () => {
+  const profiles = [profile('global', '*', '*'), profile('creates', 'create', '*')];
+  const settings = [
+    { ...setting('global', 'Addresses', 'Country', null), critical: true },
+    { ...setting('creates', 'Addresses', 'Country', 'mandatory'), critical: true },
+    { ...setting('global', 'TaxNumbers', null, null), critical: true }
+  ];
+  const resolved = resolveProfiles(profiles, settings, { requestType: 'create', role: 'Requester' });
+  assert.deepEqual(resolved.criticalFields, ['Addresses.Country']);
+  assert.deepEqual(resolved.criticalEntities, ['TaxNumbers']);
+  // Still mandatory - critical never feeds the property merge.
+  assert.equal(resolved.fields['Addresses.Country'], 'mandatory');
+});
+
+test('a row can be critical with no property, or have a property and not be critical', () => {
+  const resolved = resolveProfiles(
+    [profile('p', '*', '*')],
+    [
+      { ...setting('p', 'Addresses', 'Country', null), critical: true },
+      { ...setting('p', 'Addresses', 'POBox', 'hidden'), critical: false }
+    ],
+    { requestType: 'create', role: 'Requester' }
+  );
+  assert.deepEqual(resolved.criticalFields, ['Addresses.Country']);
+  assert.equal(resolved.fields['Addresses.Country'], undefined, 'no property, so no state to merge');
+  assert.equal(resolved.fields['Addresses.POBox'], 'hidden');
+});
+
+test('an inactive profile, or one that does not match, contributes no critical rows either', () => {
+  const profiles = [
+    { ...profile('off', '*', '*'), isActive: false },
+    profile('other-type', 'change', '*')
+  ];
+  const settings = [
+    { ...setting('off', 'Addresses', 'Country', null), critical: true },
+    { ...setting('other-type', 'Addresses', 'POBox', null), critical: true }
+  ];
+  const resolved = resolveProfiles(profiles, settings, { requestType: 'create', role: 'Requester' });
+  assert.deepEqual(resolved.criticalFields, []);
+  assert.deepEqual(resolved.criticalEntities, []);
+});
+
 // --- The cascade -----------------------------------------------------------------------
 
 /**

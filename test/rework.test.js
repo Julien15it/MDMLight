@@ -67,7 +67,7 @@ test('the rejection comment is kept apart from the requester reason', () => {
  */
 test('every decision and resubmit appends to the running thread, not just the latest fields', () => {
   assert.match(staging, /entity ChangeRequestComments\s*:\s*cuid,\s*managed\s*\{/u);
-  assert.match(staging, /role\s*:\s*String\(20\) enum \{ Requester; Approver \} not null/u);
+  assert.match(staging, /role\s*:\s*String\(20\) enum \{ Requester; Approver; System \} not null/u);
   assert.match(staging, /comments\s*:\s*Composition of many ChangeRequestComments/u);
   assert.match(
     serviceCds, /@readonly entity ChangeRequestComments as projection on staging\.ChangeRequestComments/u
@@ -219,6 +219,24 @@ test('submit and resubmit send the same BP context, built once', () => {
   for (const key of ['businesspartnerinput', 'bpduplicates', 'bpurl', 'reworkurl', 'requesttype', 'prefix']) {
     assert.match(builder, new RegExp(`${key}:`, 'u'), `${key} is in the context`);
   }
+  // Shorthand, not `key: value` like the others - checked in its own test below, which also pins
+  // where the value comes from.
+  assert.match(builder, /\n\s*criticalFields\n\s*\};/u, 'criticalFields is in the context');
+});
+
+/**
+ * A hint for the process, not a gate - CAP itself blocks or warns on nothing here. Best-effort like
+ * `approvers`: an unreadable profile table sends an empty list rather than losing the submit.
+ */
+test('the critical fields come from the field property profiles, best-effort like approvers', () => {
+  const builder = serviceJs.slice(
+    serviceJs.indexOf('const workflowContext ='), serviceJs.indexOf('const persist =')
+  );
+  assert.match(builder, /let criticalFields = \[\];/u);
+  assert.match(builder, /criticalFields = await criticalFieldsFor\(requesterContext\(req\)\)/u);
+  assert.match(builder, /catch \(error\) \{\s*console\.error\(`Could not resolve the critical fields/u);
+  // Returned as a shorthand property, already the flat array resolveCriticalFields produces.
+  assert.match(builder, /\n\s*criticalFields\n\s*\};/u);
 });
 
 /**
@@ -527,6 +545,25 @@ test('a stale rework link offers nothing and says why', () => {
   assert.match(load, /nothing to rework/u);
   // And why it came back is the first thing on screen when there is something to do.
   assert.match(load, /Sent back by the approver/u);
+});
+
+/**
+ * A failed S/4 post also sends the request to `reworkRequired`, but nobody rejected anything - the
+ * generic "sent back by the approver" wording would put words in the approver's mouth. `postError` is
+ * checked first because, unlike `rejectionComment`, it is always cleared on the next successful post
+ * and rewritten on the next failed one - it cannot go stale across rounds the way a comment can.
+ */
+test('a failed post is told apart from a rejection on the rework screen', () => {
+  const load = controller.slice(controller.indexOf('_loadStagedRequest: async function'));
+  assert.match(load, /state\.postError = \(payload && payload\.PostError\) \|\| ""/u);
+  assert.match(
+    load,
+    /Approved, but the Business Partner could not be created in S\/4HANA: "\s*\n\s*\+ state\.postError/u
+  );
+  const postErrorAt = load.indexOf('} else if (state.postError) {');
+  const rejectionAt = load.indexOf('} else if (state.rejectionComment) {');
+  assert.ok(postErrorAt > -1 && rejectionAt > -1);
+  assert.ok(postErrorAt < rejectionAt, 'postError is checked before the rejection wording');
 });
 
 // Once it is back with the approver it is not the requester's to withdraw.

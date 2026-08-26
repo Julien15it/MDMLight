@@ -68,21 +68,25 @@ function fieldPropertyTree(model) {
 /**
  * A settings row as it may be stored, or a reason it may not. Entity-level rows carry no element,
  * which is the one case `resolvePayloadField` cannot check - it only resolves qualified names.
+ *
+ * `property` is optional (2026-08-26) - a row may exist only to carry `critical`, independent of
+ * mandatory/readOnly/hidden/optional, so an empty property is no longer itself an error.
  */
 function validateSetting(setting, model) {
   const section = String(setting?.section || '').trim();
   const element = setting?.element ? String(setting.element).trim() : null;
   const property = String(setting?.property || '').trim();
+  const critical = Boolean(setting?.critical);
 
   if (!section) return { error: 'A field property needs the entity it applies to.' };
   if (!PAYLOAD_NODES[section]) return { error: `“${section}” is not an entity of the request payload.` };
-  if (!PROPERTIES.includes(property)) {
+  if (property && !PROPERTIES.includes(property)) {
     return { error: `“${property}” is not a field property. Use one of: ${PROPERTIES.join(', ')}.` };
   }
   if (element && !resolvePayloadField(`${section}.${element}`, model)) {
     return { error: `“${element}” is not a field of ${SECTION_TEXT[section] || section}.` };
   }
-  return { setting: { section, element, property } };
+  return { setting: { section, element, property: property || null, critical } };
 }
 
 /** Last row wins per target, so a dialog that sent the same field twice cannot store both. */
@@ -145,6 +149,13 @@ const settingKey = (section, element) => (element ? `${section}.${element}` : se
  * Every profile matching this request, merged into one answer per target:
  * `{ entities: { Addresses: 'readOnly' }, fields: { 'Addresses.Country': 'mandatory' } }`.
  * A target nothing says anything about is absent, which is deliberately not the same as `optional`.
+ *
+ * `criticalEntities`/`criticalFields` are gathered the same pass, independently of `property`: a row
+ * can carry `critical` with no property at all, and a critical row contributes even when its
+ * property is not one of the four states (or is absent) - the two are unrelated axes, not merged or
+ * cascaded the way `broadestProperty` merges visible/editable/required. Any matching profile's row
+ * saying critical is enough; there is nothing to reconcile between profiles that disagree, because
+ * "critical" has no broader/narrower answer the way a property does.
  */
 function resolveProfiles(profiles, settings, context) {
   const matching = (profiles || [])
@@ -158,10 +169,16 @@ function resolveProfiles(profiles, settings, context) {
     bucket[key] = bucket[key] || [];
     bucket[key].push(property);
   };
+  const criticalEntities = new Set();
+  const criticalFields = new Set();
 
   for (const setting of settings || []) {
     const owner = setting.profile_ID || (setting.profile && setting.profile.ID);
     if (!ids.has(owner)) continue;
+    if (setting.critical) {
+      if (setting.element) criticalFields.add(settingKey(setting.section, setting.element));
+      else criticalEntities.add(setting.section);
+    }
     if (!PROPERTY_STATE[setting.property]) continue;
     if (setting.element) collect(fields, settingKey(setting.section, setting.element), setting.property);
     else collect(entities, setting.section, setting.property);
@@ -172,7 +189,13 @@ function resolveProfiles(profiles, settings, context) {
       .map(([key, properties]) => [key, broadestProperty(properties)])
       .filter(([, property]) => property)
   );
-  return { entities: merge(entities), fields: merge(fields), profiles: matching.length };
+  return {
+    entities: merge(entities),
+    fields: merge(fields),
+    profiles: matching.length,
+    criticalEntities: [...criticalEntities],
+    criticalFields: [...criticalFields]
+  };
 }
 
 /** What a profile says about a whole entity: its rows, not its fields. */

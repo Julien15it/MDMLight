@@ -473,6 +473,9 @@ sap.ui.define([
           showReworkButtons: false,
           /** Why the approver sent it back. Empty except in rework mode. */
           rejectionComment: "",
+          /** Why the S/4 post failed, when that - not a rejection - is why the request is back
+           *  here. Empty except in rework mode. */
+          postError: "",
           /** The full requester/approver thread, oldest first, from getRequestPayload's
            *  CommentsJson. rejectionComment above is only ever the latest one. */
           comments: [],
@@ -2570,6 +2573,10 @@ sap.ui.define([
           await this._loadFieldProperties(state.requestType, mode === "approve" ? "Approver" : "Requester");
           state.businessPartner = (payload && payload.BusinessPartner) || "";
           state.rejectionComment = (payload && payload.RejectionComment) || "";
+          // Cleared to null on every successful post and rewritten on every failed one (never left
+          // stale across rounds the way rejectionComment can be), so it is the more trustworthy of
+          // the two when both happen to be set from different rounds - checked first below.
+          state.postError = (payload && payload.PostError) || "";
           // The running thread, oldest first - rejectionComment above is only ever the latest one.
           this._setCommentsPanel(state, this._parseJsonArray(payload && payload.CommentsJson));
           // A fresh load starts a fresh round: whatever was typed for a request now gone is nobody's
@@ -2606,6 +2613,15 @@ sap.ui.define([
                 type: "Information",
                 text: "This request is " + state.requestStatus + ", so there is nothing to rework."
                   + " It has either been resubmitted already or withdrawn."
+              }];
+            } else if (state.postError) {
+              // Approved, and S/4 refused the post - not a human rejection, so this must not read as
+              // one. Same wording the approver already saw in the decision MessageBox, so the two
+              // screens cannot disagree about why the request is back here.
+              state.messages = [{
+                type: "Warning",
+                text: "Approved, but the Business Partner could not be created in S/4HANA: "
+                  + state.postError
               }];
             } else if (state.rejectionComment) {
               // Why it came back, at the top of the screen. "Rejected" with no reason is not

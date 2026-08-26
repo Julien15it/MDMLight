@@ -361,8 +361,9 @@ entity CheckFindings : cuid, managed {
 entity ChangeRequestComments : cuid, managed {
   request : Association to ChangeRequests;
   /** Who is speaking, not who is logged in - a steward reworking someone else's draft is still
-   *  the requester's side of the conversation. */
-  role    : String(20) enum { Requester; Approver } not null;
+   *  the requester's side of the conversation. `System` is neither: a failed S/4 post is reported
+   *  by `postAndRecord`, not by the approver who pressed Approve, and must not read as a rejection. */
+  role    : String(20) enum { Requester; Approver; System } not null;
   /** The actual identity, for display next to `role` - two rejections from two different
    *  approvers should not read as the same person twice. */
   author  : String(120);

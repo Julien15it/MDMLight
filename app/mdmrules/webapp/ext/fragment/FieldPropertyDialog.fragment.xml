@@ -37,11 +37,12 @@
           </OverflowToolbar>
         </headerToolbar>
         <columns>
-          <Column width="44%"><Text text="Entity / Field" /></Column>
-          <Column width="14%" hAlign="Center"><Text text="Mandatory" /></Column>
-          <Column width="14%" hAlign="Center"><Text text="Read-only" /></Column>
-          <Column width="14%" hAlign="Center"><Text text="Hidden" /></Column>
-          <Column width="14%" hAlign="Center"><Text text="Optional" /></Column>
+          <Column width="36%"><Text text="Entity / Field" /></Column>
+          <Column width="12%" hAlign="Center"><Text text="Mandatory" /></Column>
+          <Column width="12%" hAlign="Center"><Text text="Read-only" /></Column>
+          <Column width="12%" hAlign="Center"><Text text="Hidden" /></Column>
+          <Column width="12%" hAlign="Center"><Text text="Optional" /></Column>
+          <Column width="16%" hAlign="Center"><Text text="Critical" /></Column>
         </columns>
         <items>
           <ColumnListItem>
@@ -78,6 +79,9 @@
               <CheckBox selected="{= ${fp>property} === 'optional' }" select=".onPropertySelect">
                 <customData><core:CustomData key="property" value="optional" /></customData>
               </CheckBox>
+              <!-- Independent of the four above: a field can be mandatory AND critical, so this box
+                   neither clears nor is cleared by onPropertySelect. -->
+              <CheckBox selected="{fp>critical}" select=".onCriticalSelect" />
             </cells>
           </ColumnListItem>
         </items>

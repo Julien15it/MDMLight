@@ -75,7 +75,7 @@ test('the entity tree is the payload model, keys and associations left out', () 
 test('an entity-level setting carries no element, and that is what makes it entity-level', () => {
   const { setting, error } = validateSetting({ section: 'TaxNumbers', property: 'mandatory' }, csn);
   assert.equal(error, undefined);
-  assert.deepEqual(setting, { section: 'TaxNumbers', element: null, property: 'mandatory' });
+  assert.deepEqual(setting, { section: 'TaxNumbers', element: null, property: 'mandatory', critical: false });
 });
 
 test('an unknown entity, field or property is refused rather than stored', () => {
@@ -88,6 +88,17 @@ test('an unknown entity, field or property is refused rather than stored', () =>
     validateSetting({ section: 'Addresses', element: 'Nonsense', property: 'hidden' }, csn).error,
     /not a field of/u
   );
+});
+
+/**
+ * `critical` (2026-08-26) is independent of the four states: a field can be mandatory AND critical,
+ * or carry no property at all and only be critical - so an empty property is no longer, on its own,
+ * a reason to refuse the row.
+ */
+test('a row may carry critical with no property at all', () => {
+  const { setting, error } = validateSetting({ section: 'Addresses', element: 'Country', critical: true }, csn);
+  assert.equal(error, undefined);
+  assert.deepEqual(setting, { section: 'Addresses', element: 'Country', property: null, critical: true });
 });
 
 /** One state per target: the dialog is a radio group drawn as checkboxes, and the store agrees. */
@@ -123,11 +134,27 @@ test('a wildcard condition matches everything, a filled one matches only itself'
 test('the profile and its settings are exposed, and the settings are written by the action', () => {
   assert.match(model, /entity FieldPropertyProfiles : managed/u);
   assert.match(model, /settings\s+: Composition of many FieldPropertySettings/u);
-  assert.match(model, /property : String\(12\) not null/u);
+  assert.match(model, /property : String\(12\);/u);
   assert.match(serviceCds, /entity FieldPropertyProfiles as projection on/u);
   assert.match(serviceCds, /action saveFieldProperties\(/u);
   assert.match(serviceCds, /function fieldPropertyOptions\(\)/u);
   assert.match(serviceCds, /function fieldPropertiesOf\(/u);
+});
+
+/**
+ * Tried and abandoned the same day (2026-08-26): one qualified field per profile row, matched like a
+ * condition. Deployed before the reversal, so `cds-deploy`'s no-drop rule applies - the same trap
+ * `sequence` above sits in. `critical` on `FieldPropertySettings` is the version that shipped instead.
+ */
+test('the abandoned per-profile critical field is dead weight, not read or written', () => {
+  assert.match(model, /criticalField : String\(60\);/u);
+  assert.equal(/criticalField/u.test(serviceJs), false, 'nothing in the service reads or writes it');
+  assert.equal(/criticalField/u.test(controller), false, 'nothing in the page reads or writes it');
+});
+
+/** Independent of the four states, so it is its own column rather than a fifth value in that set. */
+test('critical is a boolean on the settings row, alongside property rather than inside it', () => {
+  assert.match(model, /critical : Boolean default false;/u);
 });
 
 /**
@@ -182,8 +209,27 @@ test('the dialog lists entities that open up to their fields, with the four boxe
     assert.match(dialog, new RegExp(`selected="\\{= \\$\\{fp>property\\} === '${property}' \\}"`, 'u'));
     assert.match(dialog, new RegExp(`<core:CustomData key="property" value="${property}" />`, 'u'));
   }
-  assert.equal((dialog.match(/<CheckBox/gu) || []).length, 4, 'four boxes, one row template');
   assert.match(dialog, /press="\.onApplyProperties"/u);
+});
+
+/**
+ * Critical (2026-08-26, asked for after the per-profile column that shipped first): drawn as a fifth
+ * checkbox next to Mandatory/Read-only/Hidden/Optional, but independent of them - it neither clears
+ * nor is cleared by `onPropertySelect`, because a field can be mandatory AND critical.
+ */
+test('critical is a fifth, independent checkbox on both levels', () => {
+  assert.equal((dialog.match(/<CheckBox/gu) || []).length, 5, 'four states plus critical, one row template');
+  assert.match(dialog, /selected="\{fp>critical\}"/u);
+  assert.match(dialog, /select="\.onCriticalSelect"/u);
+  // No customData/property matching for this one - it is a plain boolean, not a member of the set.
+  const criticalBox = dialog.slice(dialog.indexOf('select=".onCriticalSelect"') - 40);
+  assert.equal(/CustomData/u.test(criticalBox.slice(0, 120)), false);
+  assert.match(controller, /onCriticalSelect: function \(event\) \{/u);
+  const handler = controller.slice(controller.indexOf('onCriticalSelect: function'));
+  const body = handler.slice(0, handler.indexOf('\n    },'));
+  assert.match(body, /row\.critical = event\.getParameter\("selected"\)/u);
+  // Independent: it never touches `property`, and onPropertySelect never touches `critical`.
+  assert.equal(/\.property/u.test(body), false);
 });
 
 /**
@@ -196,6 +242,26 @@ test('ticking a box writes to the tree, and clears the other three', () => {
   assert.match(rebuild.slice(0, rebuild.indexOf('onToggleEntity')), /rows\.push\(entity\)/u);
   // The expression bindings all read the same row, so the list is refreshed rather than one path.
   assert.match(controller, /getModel\("fp"\)\.refresh\(true\)/u);
+});
+
+/** A row exists to carry either state, so it must be sent when it carries only one of them. */
+test('a row is sent when only critical is set, and when only a property is set', () => {
+  const fn = controller.slice(
+    controller.indexOf('_settingsFromTree: function'), controller.indexOf('onApplyProperties:')
+  );
+  assert.match(fn, /if \(entity\.property \|\| entity\.critical\)/u);
+  assert.match(fn, /if \(!field\.property && !field\.critical\) return;/u);
+  assert.match(fn, /critical: !!entity\.critical/u);
+  assert.match(fn, /critical: !!field\.critical/u);
+});
+
+/** "Clear" resets the whole row, or a field could sit there still critical with nothing to show why. */
+test('clearing a profile clears critical along with the four properties', () => {
+  const fn = controller.slice(
+    controller.indexOf('onClearProperties: function'), controller.indexOf('_settingsFromTree:')
+  );
+  assert.match(fn, /entity\.critical = false;/u);
+  assert.match(fn, /field\.critical = false;/u);
 });
 
 /** Several hundred fields: a search that only matched entity names would never find PO Box. */

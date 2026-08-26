@@ -23,6 +23,18 @@ entity FieldPropertyProfiles : managed {
       role        : String(40) default '*';
 
       /**
+       * Superseded the same day it was added (2026-08-26), and kept only because `cds-deploy` refuses
+       * to drop an element - the same reason `sequence` below is still here, and `DerivationRules`
+       * still carries `createsRow`. **Nothing reads it. Do not write to it.**
+       *
+       * Tried "critical" as one qualified field per profile row, matched by (requestType, role) like
+       * every other rule table's condition. Maarten wanted it drawn alongside Mandatory/Read-only/
+       * Hidden/Optional in the Modify dialog instead - a property of the FIELD, not a condition of the
+       * PROFILE - which is `FieldPropertySettings.critical` below.
+       */
+      criticalField : String(60);
+
+      /**
        * Superseded, and kept only because `cds-deploy` refuses to drop an element - the same reason
        * `DerivationRules` still carries `createsRow` and `DuplicateRules` its four `cond*` columns.
        * **Nothing reads it. Do not write to it.**
@@ -56,7 +68,18 @@ entity FieldPropertySettings {
        *  hide or require a section without naming every field in it. */
       element  : String(60);
 
-      /** mandatory | readOnly | hidden | optional. One per row: a field is in one state, and
-       *  `hidden` + `mandatory` on the same field is a request nobody can submit. */
-      property : String(12) not null;
+      /** mandatory | readOnly | hidden | optional, or empty when the row exists only to carry
+       *  `critical` below. One of the four per row: a field is in one state, and `hidden` +
+       *  `mandatory` on the same field is a request nobody can submit. */
+      property : String(12);
+
+      /**
+       * Independent of `property` above - a field can be mandatory AND critical, or optional AND
+       * critical, so it is its own checkbox rather than a fifth value in that one-per-row set.
+       *
+       * Read at submit/resubmit and sent to SBPA as `criticalFields` in the workflow context
+       * (srv/change-request-service.js), so the process can be told which fields on THIS request
+       * warrant closer scrutiny - nothing in CAP itself blocks or warns on it.
+       */
+      critical : Boolean default false;
 }

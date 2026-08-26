@@ -69,6 +69,10 @@ service ChangeRequestService @(path: '/service/changerequest') {
     Reason          : String(250);
     /** Why the approver sent it back, so the rework screen can lead with it. */
     RejectionComment : String(250);
+    /** Why the S/4 post failed, when that is why the request is back at `reworkRequired` rather
+     *  than a human rejection. The rework screen leads with this instead of `RejectionComment`
+     *  when it is set - a failed post is not the approver sending anything back. */
+    PostError       : String(1000);
     SubmittedBy     : String(120);
     SubmittedAt     : Timestamp;
     /**

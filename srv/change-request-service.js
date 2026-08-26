@@ -13,7 +13,7 @@ const { createRegistryStages } = require('./checks/registry-checks');
 const { createCviStages } = require('./checks/cvi-checks');
 const { createRelationStages } = require('./checks/relation-checks');
 const { configuredStages } = require('./checks/rule-store');
-const { fieldPropertyStages, resolvedProperties } = require('./checks/field-property-store');
+const { fieldPropertyStages, resolvedProperties, criticalFieldsFor } = require('./checks/field-property-store');
 const { approversFor } = require('./checks/workflow-rule-store');
 const { currentProcessors } = require('./request-processors');
 const { withFullName, fullNameOf } = require('./partner-name');
@@ -430,6 +430,16 @@ class ChangeRequestService extends cds.ApplicationService {
         requestType: req.data.RequestType,
         payload: { root: payload.root || {}, sections: payload.sections || {} }
       });
+      // Which fields on THIS request the field property profiles flag critical, from
+      // db/field-properties.cds's `criticalField` column - a hint for the process, not a gate: CAP
+      // itself blocks or warns on nothing here. Best-effort like `approvers`, off the same requester
+      // context every other submit-time field-property read uses.
+      let criticalFields = [];
+      try {
+        criticalFields = await criticalFieldsFor(requesterContext(req));
+      } catch (error) {
+        console.error(`Could not resolve the critical fields for change request ${changeRequest}:`, error);
+      }
 
       return {
         changerequestid: changeRequest,
@@ -455,7 +465,10 @@ class ChangeRequestService extends cds.ApplicationService {
         // is a user. What is genuinely lost is `step`: two steps arrive as one list. Restoring it
         // means declaring `approvers` as an array of objects in the process context, after which
         // this map comes off again.
-        approvers: approvers.map((approver) => approver.value)
+        approvers: approvers.map((approver) => approver.value),
+        // Already a flat array of qualified field names - see resolveCriticalFields. Empty when no
+        // profile names one, never absent, so SPA can bind it without a null check.
+        criticalFields
       };
     };
 
@@ -1052,6 +1065,7 @@ class ChangeRequestService extends cds.ApplicationService {
         BusinessPartner: header.businessPartner,
         Reason: header.reason,
         RejectionComment: header.rejectionComment,
+        PostError: header.postError,
         SubmittedBy: header.submittedBy,
         SubmittedAt: header.submittedAt,
         ProcessorsJson: JSON.stringify(await processorsFor(header, { root, sections })),
@@ -1167,6 +1181,20 @@ class ChangeRequestService extends cds.ApplicationService {
     };
 
     /**
+     * How long `postAndRecord` waits before telling BPA the outcome of the S/4 post, once it is
+     * known (2026-08-25). The task-instances PATCH that actually resumes the workflow past the
+     * approval task is sent by the client, and only after it has received this action's response --
+     * so signalling from inside the same request is always too early: no instance is waiting on
+     * `waitForResult` yet, and BPA correctly answers "no matching workflow instance found for
+     * message" (seen in production the same day, executionId 4d0082e2-...). Delaying narrows the
+     * race, it does not close it -- a client that never sends the PATCH (tab closed, PATCH itself
+     * failing) still leaves nothing to signal, however long this waits. The real fix is a process
+     * definition where the receive activity for `waitForResult` is already active before the
+     * decision task completes; this is a stopgap until that lands.
+     */
+    const SIGNAL_POST_RESULT_DELAY_MS = 30_000;
+
+    /**
      * What the parked instance is waiting on: the outcome of the S/4 post, not the human decision.
      *
      * Best effort, and it never throws. The business partner exists in S/4 (or does not) whatever
@@ -1212,6 +1240,12 @@ class ChangeRequestService extends cds.ApplicationService {
      */
     const postAndRecord = async (req, header) => {
       const changeRequest = header.ID;
+      const { tenant, user } = req;
+      // Detached and delayed (see SIGNAL_POST_RESULT_DELAY_MS above) rather than awaited: this
+      // request's response is what triggers the client's task-instances PATCH, so waiting here
+      // would push that PATCH back by the same amount and win nothing. cds.spawn re-establishes
+      // tenant/user for the delayed run, since the request's own context is gone by the time it fires.
+      const spawnSignal = (fn) => cds.spawn({ after: SIGNAL_POST_RESULT_DELAY_MS, tenant, user }, fn);
       try {
         const businessPartner = await postToS4(req, header);
         await db.run(cds.ql.UPDATE(HEADER).set({
@@ -1220,7 +1254,7 @@ class ChangeRequestService extends cds.ApplicationService {
           postedAt: new Date().toISOString(),
           postError: null
         }).where({ ID: changeRequest }));
-        await signalPostResult(header, { businessPartner });
+        spawnSignal(() => signalPostResult(header, { businessPartner }));
         return {
           ChangeRequest: changeRequest, Status: 'posted', BusinessPartner: businessPartner, ErrorMessage: null
         };
@@ -1230,7 +1264,14 @@ class ChangeRequestService extends cds.ApplicationService {
           status: 'reworkRequired',
           postError: message.slice(0, 1000)
         }).where({ ID: changeRequest }));
-        await signalPostResult(header, { errorMessage: message });
+        // Into the shared thread too, not only the header's single `postError` -- so whoever opens
+        // the request next, approver or requester, sees WHAT failed rather than just THAT it did.
+        // Authored as the system, never the approver: nobody rejected anything here.
+        await appendComment(
+          db, changeRequest, 'System', 'SYSTEM',
+          `Approved, but the Business Partner could not be created in S/4HANA: ${message.slice(0, 1000)}`
+        );
+        spawnSignal(() => signalPostResult(header, { errorMessage: message }));
         return {
           ChangeRequest: changeRequest,
           Status: 'reworkRequired',

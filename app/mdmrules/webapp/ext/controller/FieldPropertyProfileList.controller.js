@@ -265,8 +265,11 @@ sap.ui.define([
      */
     _buildTree: function (settings) {
       var byTarget = {};
+      var criticalByTarget = {};
       (settings || []).forEach(function (setting) {
-        byTarget[setting.section + "." + (setting.element || "")] = setting.property;
+        var key = setting.section + "." + (setting.element || "");
+        byTarget[key] = setting.property;
+        criticalByTarget[key] = !!setting.critical;
       });
       var options = this.getView().getModel("opt");
       var entities = (options && options.getProperty("/entities")) || [];
@@ -278,13 +281,15 @@ sap.ui.define([
           text: entity.text,
           expanded: false,
           property: byTarget[entity.section + "."] || null,
+          critical: criticalByTarget[entity.section + "."] || false,
           fields: (entity.fields || []).map(function (field) {
             return {
               kind: "field",
               section: entity.section,
               element: field.element,
               text: field.text,
-              property: byTarget[entity.section + "." + field.element] || null
+              property: byTarget[entity.section + "." + field.element] || null,
+              critical: criticalByTarget[entity.section + "." + field.element] || false
             };
           })
         };
@@ -348,13 +353,27 @@ sap.ui.define([
       this._dialog.getModel("fp").refresh(true);
     },
 
+    /**
+     * Independent of the four above - ticking or clearing Critical never touches `property`, and
+     * vice versa. A field can be mandatory AND critical, or carry no property at all and only be
+     * critical.
+     */
+    onCriticalSelect: function (event) {
+      var row = event.getSource().getBindingContext("fp").getObject();
+      row.critical = event.getParameter("selected");
+    },
+
     onClearProperties: function () {
-      MessageBox.confirm("Clear every property in this profile?", {
+      MessageBox.confirm("Clear every property and critical flag in this profile?", {
         onClose: function (action) {
           if (action !== MessageBox.Action.OK) return;
           (this._tree || []).forEach(function (entity) {
             entity.property = null;
-            entity.fields.forEach(function (field) { field.property = null; });
+            entity.critical = false;
+            entity.fields.forEach(function (field) {
+              field.property = null;
+              field.critical = false;
+            });
           });
           this._dialog.getModel("fp").refresh(true);
         }.bind(this)
@@ -365,12 +384,18 @@ sap.ui.define([
     _settingsFromTree: function () {
       var settings = [];
       (this._tree || []).forEach(function (entity) {
-        if (entity.property) {
-          settings.push({ section: entity.section, element: null, property: entity.property });
+        if (entity.property || entity.critical) {
+          settings.push({
+            section: entity.section, element: null,
+            property: entity.property || null, critical: !!entity.critical
+          });
         }
         entity.fields.forEach(function (field) {
-          if (!field.property) return;
-          settings.push({ section: field.section, element: field.element, property: field.property });
+          if (!field.property && !field.critical) return;
+          settings.push({
+            section: field.section, element: field.element,
+            property: field.property || null, critical: !!field.critical
+          });
         });
       });
       return settings;
