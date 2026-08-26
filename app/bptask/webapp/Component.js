@@ -334,17 +334,31 @@ sap.ui.define(
             },
 
             /**
-             * Record the decision in CAP first, then complete the task. The order matters:
-             * completing the task resumes the workflow, which goes on to call completeRequest and
-             * post to S/4 - so the change request has to be `approved` by then. SignalWorkflow
-             * false stops CAP firing its own trigger, because completing the task here IS that
-             * signal; both would resume the process twice.
+             * Record the decision in CAP first, then complete the task. The order matters: an
+             * approve is what creates the business partner in S/4 (changed 2026-08-25 - it used to
+             * happen in completeRequest, after the task resumed the workflow), so the post has
+             * already been attempted by the time the task is patched. SignalWorkflow false stops
+             * CAP firing its own decision trigger, because completing the task here IS that signal;
+             * both would resume the process twice. It does NOT suppress the post result, which the
+             * process waits on separately.
+             *
+             * The task is still completed when the post failed. The human's decision stands and the
+             * task is done either way; the request has gone back to `reworkRequired` and the
+             * message below is how the approver learns that. Whether a failed post should instead
+             * leave the task open is Julien's call, not this screen's.
              */
             _completeTask: async function (outcomeId) {
                 try {
-                    await this._decideOnServer(outcomeId);
+                    var decision = await this._decideOnServer(outcomeId);
                     await this._patchTaskInstance(outcomeId);
                     this._startupParameters().inboxAPI.updateTask("NA", this._taskInstanceId());
+                    if (decision && decision.ErrorMessage) {
+                        MessageBox.error(
+                            "Approved, but the Business Partner could not be created in S/4HANA:\n\n"
+                            + decision.ErrorMessage
+                            + "\n\nThe request has been sent back to the requester for rework."
+                        );
+                    }
                 } catch (error) {
                     MessageBox.error(
                         "The decision could not be completed: " + (error.message || error)
@@ -361,6 +375,8 @@ sap.ui.define(
                 binding.setParameter("SignalWorkflow", false);
                 try {
                     await binding.execute("$direct");
+                    var value = binding.getBoundContext();
+                    return value ? value.getObject() : null;
                 } finally {
                     binding.destroy();
                 }

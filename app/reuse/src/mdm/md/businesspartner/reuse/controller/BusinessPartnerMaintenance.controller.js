@@ -2689,7 +2689,18 @@ sap.ui.define([
 
           state.requestStatus = (result && result.Status) || "";
           state.showDecisionButtons = false;
-          if (result && result.BusinessPartner) {
+          if (result && result.ErrorMessage) {
+            // Approved, and S/4 refused the post. An empty BusinessPartner used to mean "rejected"
+            // and nothing else; since the approve path creates the partner (2026-08-25) it also
+            // means "the post failed", and calling that a rejection would be a lie to the one
+            // person who can still do something about it.
+            state.businessPartner = result.BusinessPartner || state.businessPartner;
+            MessageBox.error(
+              "Approved, but the Business Partner could not be created in S/4HANA:\n\n"
+              + result.ErrorMessage
+              + "\n\nThe request has been sent back to the requester for rework."
+            );
+          } else if (result && result.BusinessPartner) {
             state.businessPartner = result.BusinessPartner;
             MessageToast.show("Approved. Business Partner " + result.BusinessPartner + " was created in S/4HANA.");
           } else {

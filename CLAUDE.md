@@ -1552,15 +1552,22 @@ Arthur which service actually holds the key before changing it.
 SPA owns approval routing entirely — how many approvers a request needs, and
 which criteria pick them. CAP deliberately knows none of that:
 
-- `decideRequest` records an outcome and **never writes to S/4**. `approve`
-  moves the request to `approved`, meaning every approval SPA wanted is in.
-  `reject` sends it to `reworkRequired` and back to the requester — see "Rework"
-  below. It is **not** terminal any more.
-- `completeRequest` is the "post it now" signal and the only thing that writes
-  to S/4. SPA calls it after its chain finishes.
+- `decideRequest` records an outcome **and, on approve, creates the business
+  partner** (changed 2026-08-25). It writes `approved` first, then posts: on
+  success the request is `posted` with the number; on failure it goes to
+  `reworkRequired` with the reason in `postError` and in the action's new
+  `ErrorMessage`. `reject` sends it to `reworkRequired` and back to the requester
+  — see "Rework" below. It is **not** terminal any more.
+- `completeRequest` is the same step, for SPA's callback. Its `postedBP` guard
+  makes it a no-op once approve has run; it still matters for a request approved
+  before this change, or one whose approve handler died between the status write
+  and the post. **Both entry points call one `postAndRecord`** so they cannot
+  drift on what they write or signal.
 
-So `approved` means *waiting to be posted*, not finished. **`posted` is the only
-terminal status**; a withdrawn request is deleted rather than parked in one.
+This closes the TODO that used to sit further down: Arthur's process calls only
+`decideRequest` and expects the partner to exist afterwards, and until now it did
+not. `approved` is therefore a passing state, not a resting one. **`posted` is the
+only terminal status**; a withdrawn request is deleted rather than parked in one.
 Individual approvals are not stored anywhere in CAP, by decision — the UI cannot
 show "2 of 3 approved" without a new table.
 
@@ -1737,9 +1744,50 @@ Open TODOs on this, agreed and deliberately deferred:
 - **`completeRequest` has no scope restriction.** It writes to S/4, so as it
   stands any authenticated user can force a post and bypass approval entirely.
   Restrict it to the SPA technical user before this goes anywhere real.
-- **Arthur's workflow still calls only `decideRequest`** and expects the partner
-  to exist afterwards. Until his process adds a `completeRequest` call, approved
-  requests will sit at `approved` and never post. Coordinate before merging.
+- ~~**Arthur's workflow still calls only `decideRequest`**~~ — closed 2026-08-25:
+  approve posts, so a request no longer sits at `approved` waiting for a
+  `completeRequest` nobody sends.
+
+##### Signalling the outcome, and three traps found on the way (2026-08-25)
+
+The instance is told the *result* of the post through its own trigger,
+`waitForResult`, whose inputs are exactly `businesspartnerid`,
+`businesspartnerfullname`, `status` (`success`/`error`) and `errormessage`.
+`executionId` is `ChangeRequests.processInstanceId`, the same correlation the
+decision triggers use. It has no `result` key, so it cannot go through
+`sendTrigger`; `triggerPostResult` posts it through the same destination.
+
+`SignalWorkflow: false` — the task form saying "completing the task already
+delivers the decision" — deliberately does **not** silence this. The decision and
+the result are different waits, and the process needs the result whichever way the
+decision arrived. Signalling is best-effort and never throws: the partner exists in
+S/4 whatever the call does, and losing it over a timed-out signal is the worse of
+the two failures.
+
+Three things that were broken or unsafe, found while wiring this and fixed with it:
+
+- **`completeRequest` threw a ReferenceError on every completion.** It called
+  `notifyWorkflow`, a `const` declared *inside* the `decideRequest` handler — so
+  after creating the partner and writing `posted`, the handler died and the caller
+  saw a 500. On the failure path too. `test/approve-posts.test.js` now pins that
+  `notifyWorkflow` is only called where it is declared.
+- **A status write immediately before `req.reject` never persists.** `req.reject`
+  throws, CAP rolls the transaction back, and the write goes with it — so the old
+  `failed` write was lost and the request stayed `approved`. That is why a failed
+  post is **returned** as `ErrorMessage` with `Status: reworkRequired` instead of
+  rejecting the action. Both screens read that field; an empty `BusinessPartner`
+  used to mean "rejected" and now also means "the post failed".
+- **Rework after a partial post could create a second partner.** A create whose
+  post half-succeeds leaves a real partner in S/4; the requester reworks,
+  resubmits, and the next approve would create another. So `postToS4` now persists
+  the number the moment S/4 hands it over — before the child nodes, which can
+  still throw — and `isCreate` is `requestType === 'create' && !businessPartner`,
+  making the retry an update.
+
+Still open, and Julien's call rather than the code's: a failed post from **My
+Inbox** completes the task anyway. The decision stands and the task is done either
+way, and the approver is shown the error — but if a failed post should leave the
+task open instead, that is a change to `_completeTask` in `app/bptask`.
 
 #### The approve screen as a BPA UI5 Task Form
 

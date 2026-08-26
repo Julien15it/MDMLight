@@ -76,18 +76,19 @@ const APPROVAL_DECISION_TRIGGER_ID = "eu10.alluvion-dev-cf.mdmlightapproval.zApp
 // bypass the destination, and with it the proxy and the token.
 const REQUESTER_CALLBACK_TRIGGER_ID = "eu10.alluvion-dev-cf.mdmlightapproval.requesterCallBack";
 
-// `extraInputs` lands flat inside `inputs` next to `result` - Arthur's shape, hence a spread rather
-// than a nested key. `executionId` is the process instance, NOT the change request UUID.
-async function sendTrigger(triggerId, label, executionId, result, extraInputs = {}) {
+// What the instance parked after the approval waits on: the outcome of the S/4 post, not the human
+// decision. Its inputs are the four fields below and there is deliberately no `result` key, so it
+// cannot go through sendTrigger.
+const POST_RESULT_TRIGGER_ID = "eu10.alluvion-dev-cf.mdmlightapproval.waitForResult";
+
+// The one place a trigger is actually posted. The host stays with `sbpa-destination` for all of
+// them - hardcoding the gateway URL would bypass the destination, and with it the proxy and the
+// token.
+async function postTrigger(triggerId, label, payload) {
     const sbpa = await cds.connect.to("SBPA_DESTINATION");
 
     const accessToken = await getAccessToken();
     const { apiKey } = getServiceCredentials("mdmlight-bpa-uaa");
-
-    const payload = {
-        executionId,
-        inputs: { result, ...extraInputs }
-    };
 
     console.log(`Sending ${label} to BPA`);
     console.log(payload);
@@ -109,6 +110,23 @@ async function sendTrigger(triggerId, label, executionId, result, extraInputs = 
     return response;
 }
 
+// `extraInputs` lands flat inside `inputs` next to `result` - Arthur's shape, hence a spread rather
+// than a nested key. `executionId` is the process instance, NOT the change request UUID.
+async function sendTrigger(triggerId, label, executionId, result, extraInputs = {}) {
+    return postTrigger(triggerId, label, { executionId, inputs: { result, ...extraInputs } });
+}
+
+/**
+ * The result of creating the business partner in S/4, for the instance waiting on it.
+ *
+ * `inputs` is passed through as given rather than spread over a `result`: this trigger's contract is
+ * exactly businesspartnerid / businesspartnerfullname / status / errormessage, and an extra key
+ * would be an input the process definition does not declare.
+ */
+async function triggerPostResult(executionId, inputs) {
+    return postTrigger(POST_RESULT_TRIGGER_ID, "post result", { executionId, inputs });
+}
+
 /** Approve and reject, from the approve view or the task form. Payload unchanged. */
 async function triggerApprovalDecision(executionId, result, extraInputs = {}) {
     return sendTrigger(APPROVAL_DECISION_TRIGGER_ID, "approval decision", executionId, result, extraInputs);
@@ -124,6 +142,8 @@ module.exports = {
     startWorkflow,
     triggerApprovalDecision,
     triggerRequesterCallback,
+    triggerPostResult,
     APPROVAL_DECISION_TRIGGER_ID,
-    REQUESTER_CALLBACK_TRIGGER_ID
+    REQUESTER_CALLBACK_TRIGGER_ID,
+    POST_RESULT_TRIGGER_ID
 };

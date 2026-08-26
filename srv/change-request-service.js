@@ -2,7 +2,7 @@
 
 const cds = require('@sap/cds');
 const {
-  startWorkflow, triggerApprovalDecision, triggerRequesterCallback
+  startWorkflow, triggerApprovalDecision, triggerRequesterCallback, triggerPostResult
 } = require('./wf/processAutomation');
 const {
   buildWorkflowInputFromRows, businessPartnerNavigationPath, normalizeRemoteResult
@@ -16,7 +16,7 @@ const { configuredStages } = require('./checks/rule-store');
 const { fieldPropertyStages, resolvedProperties } = require('./checks/field-property-store');
 const { approversFor } = require('./checks/workflow-rule-store');
 const { currentProcessors } = require('./request-processors');
-const { withFullName } = require('./partner-name');
+const { withFullName, fullNameOf } = require('./partner-name');
 const { proposeNormalisations } = require('./checks/normalise');
 const { aiAssistanceEnabled } = require('./ai/availability');
 const { PAYLOAD_NODES, ROOT_SECTION } = require('./checks/payload-fields');
@@ -1070,7 +1070,10 @@ class ChangeRequestService extends cds.ApplicationService {
     // Replayed through BusinessPartnerService, which owns the S/4 connection and payload sanitizing.
     const postToS4 = async (req, header) => {
       const bp = await cds.connect.to('BusinessPartnerService');
-      const isCreate = header.requestType === 'create';
+      // A create that already carries a number is a retry over a partial post, not a create. Since
+      // a failed post sends the request back to `reworkRequired` (2026-08-25) that retry is a
+      // normal path, and without this a resubmit would make a second business partner.
+      const isCreate = header.requestType === 'create' && !header.businessPartner;
 
       const general = await db.run(
         cds.ql.SELECT.one.from(GENERAL).where({ request_ID: header.ID })
@@ -1088,6 +1091,14 @@ class ChangeRequestService extends cds.ApplicationService {
         || root.BusinessPartner;
       if (!businessPartner) {
         throw new Error('S/4HANA did not return a Business Partner number.');
+      }
+
+      // Persisted before the child nodes run, because they can still throw. The number is the only
+      // thing that makes the retry above possible, and it exists in S/4 whether the rest succeeds
+      // or not -- losing it here is what would turn one failed post into two business partners.
+      if (!header.businessPartner) {
+        await db.run(cds.ql.UPDATE(HEADER).set({ businessPartner }).where({ ID: header.ID }));
+        header.businessPartner = businessPartner;
       }
 
       // Lazily, once per relation field: an earlier node in this run may have just created the record.
@@ -1155,6 +1166,80 @@ class ChangeRequestService extends cds.ApplicationService {
       return businessPartner;
     };
 
+    /**
+     * What the parked instance is waiting on: the outcome of the S/4 post, not the human decision.
+     *
+     * Best effort, and it never throws. The business partner exists in S/4 (or does not) whatever
+     * this call does, and losing a created partner because a signal timed out would be the worse
+     * failure of the two. `businesspartnerfullname` is composed rather than read: staging has no
+     * such column -- the screen's read-only field is composed there too.
+     */
+    const signalPostResult = async (header, { businessPartner, errorMessage } = {}) => {
+      // Said out loud rather than returned silently. A request submitted while startWorkflow
+      // answered a shape `result?.id || result?.data?.id` does not recognise lands here with a null
+      // instance and no process to signal -- and "nothing arrived in BPA" with nothing in the log
+      // is the hardest version of that to diagnose.
+      if (!header.processInstanceId) {
+        console.warn(
+          `Change request ${header.ID} has no processInstanceId, so the post result was not sent to BPA.`
+        );
+        return;
+      }
+      const general = await db.run(
+        cds.ql.SELECT.one.from(GENERAL).where({ request_ID: header.ID })
+      ) || {};
+      try {
+        await triggerPostResult(header.processInstanceId, {
+          businesspartnerid: businessPartner || '',
+          businesspartnerfullname: fullNameOf(general) || '',
+          status: errorMessage ? 'error' : 'success',
+          errormessage: errorMessage ? String(errorMessage).slice(0, 1000) : ''
+        });
+      } catch (error) {
+        console.error('Could not signal the workflow with the result of the S/4 post:', error);
+      }
+    };
+
+    /**
+     * Create the partner and record what happened, for the approve path and for SPA's
+     * completeRequest callback alike. One function because the two must not drift: they write the
+     * same statuses and send the same signal.
+     *
+     * A failure lands the request in `reworkRequired` and is reported back in `ErrorMessage`
+     * rather than as a rejected action. That is deliberate: `req.reject` throws, CAP rolls the
+     * transaction back with it, and the status write would be lost -- the request would sit in
+     * `approved` with nothing saying why nothing happened.
+     */
+    const postAndRecord = async (req, header) => {
+      const changeRequest = header.ID;
+      try {
+        const businessPartner = await postToS4(req, header);
+        await db.run(cds.ql.UPDATE(HEADER).set({
+          status: 'posted',
+          postedBP: businessPartner,
+          postedAt: new Date().toISOString(),
+          postError: null
+        }).where({ ID: changeRequest }));
+        await signalPostResult(header, { businessPartner });
+        return {
+          ChangeRequest: changeRequest, Status: 'posted', BusinessPartner: businessPartner, ErrorMessage: null
+        };
+      } catch (error) {
+        const message = String(error.message || error);
+        await db.run(cds.ql.UPDATE(HEADER).set({
+          status: 'reworkRequired',
+          postError: message.slice(0, 1000)
+        }).where({ ID: changeRequest }));
+        await signalPostResult(header, { errorMessage: message });
+        return {
+          ChangeRequest: changeRequest,
+          Status: 'reworkRequired',
+          BusinessPartner: header.businessPartner || null,
+          ErrorMessage: message.slice(0, 1000)
+        };
+      }
+    };
+
     this.on('decideRequest', async (req) => {
       const changeRequest = req.data.ChangeRequest;
       const decision = String(req.data.Decision || '').toLowerCase();
@@ -1200,14 +1285,18 @@ class ChangeRequestService extends cds.ApplicationService {
         return { ChangeRequest: changeRequest, Status: 'reworkRequired', BusinessPartner: null };
       }
 
-      // Approved, not posted. SPA decides when its chain is finished and calls
-      // completeRequest; this handler must never write to S/4.
+      // Approved, and posted from here (changed 2026-08-25, on Julien's ask). It used to stop at
+      // `approved` and leave the S/4 write to SPA's completeRequest callback; pressing Approve now
+      // creates the partner and the instance is told the outcome through `waitForResult` rather
+      // than the bare decision. `approved` is still written first, so a request whose post throws
+      // hard was at least recorded as decided, and completeRequest stays for the SPA callback -
+      // its postedBP guard makes it a no-op once this has run.
       await db.run(cds.ql.UPDATE(HEADER).set({
         status: 'approved',
         reason: req.data.Comment || header.reason
       }).where({ ID: changeRequest }));
       await appendComment(db, changeRequest, 'Approver', requestingUserEmail(req), req.data.Comment);
-      return { ChangeRequest: changeRequest, Status: 'approved', BusinessPartner: header.businessPartner };
+      return postAndRecord(req, { ...header, status: 'approved' });
     });
 
     this.on('completeRequest', async (req) => {
@@ -1224,28 +1313,15 @@ class ChangeRequestService extends cds.ApplicationService {
         return req.reject(409, `Change request ${changeRequest} is ${header.status}, not approved.`);
       }
 
-      try {
-        const businessPartner = await postToS4(req, header);
-        await db.run(cds.ql.UPDATE(HEADER).set({
-          status: 'posted',
-          postedBP: businessPartner,
-          postedAt: new Date().toISOString(),
-          postError: null
-        }).where({ ID: changeRequest }));
-        await notifyWorkflow('approved');
-        return { ChangeRequest: changeRequest, Status: 'posted', BusinessPartner: businessPartner };
-      } catch (error) {
-        // Kept in `failed` rather than rolled back to `approved`: the post is
-        // not atomic, so a partial write may exist in S/4 and needs a human.
-        await db.run(cds.ql.UPDATE(HEADER).set({
-          status: 'failed',
-          postError: String(error.message || error).slice(0, 1000)
-        }).where({ ID: changeRequest }));
-        // The human still approved - S/4 rejected the post, which is a
-        // separate failure the workflow itself did not cause and cannot fix.
-        await notifyWorkflow('approved');
-        return req.reject(502, `The Business Partner could not be created in S/4HANA: ${error.message}`);
-      }
+      // The same step the approve path runs, so the two cannot drift on what they write or signal.
+      // Reachable only for a request `approved` without a post -- one decided before 2026-08-25, or
+      // one whose approve handler died between the status write and the post.
+      //
+      // Two things here were broken until 2026-08-25 and are gone with the shared step: it called a
+      // `notifyWorkflow` declared inside the decideRequest handler, so every completion threw a
+      // ReferenceError *after* creating the partner; and it wrote `failed` immediately before
+      // `req.reject`, which rolls the transaction back and took that write with it.
+      return postAndRecord(req, header);
     });
 
     await super.init();
