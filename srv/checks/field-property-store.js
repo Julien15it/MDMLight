@@ -88,17 +88,6 @@ async function fieldPropertyStages(context, options = {}) {
   return createFieldPropertyStages(resolved, options.model);
 }
 
-/**
- * The critical fields and entities for one context, off the resolved settings - `criticalFields` is
- * fields carrying a qualified name (`Addresses.Country`), `criticalEntities` a bare section id
- * (`Addresses`) for an entity-level row. An unreadable table resolves to `[]` here too, same as
- * `resolvedProperties`: this is sent to SBPA as a hint, never a gate.
- */
-async function criticalFieldsFor(context, options = {}) {
-  const resolved = await resolvedProperties(context, options);
-  return [...(resolved.criticalEntities || []), ...(resolved.criticalFields || [])];
-}
-
 module.exports = {
   PROFILES,
   SETTINGS,
@@ -108,6 +97,5 @@ module.exports = {
   storedProfiles,
   resolvedProperties,
   fieldPropertyStages,
-  criticalFieldsFor,
   lastError: () => lastError
 };

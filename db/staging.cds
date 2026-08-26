@@ -15,9 +15,16 @@ type ChangeRequestType : String(10) enum { create; change; block; delete };
  * The request lifecycle, not the approval steps - `inApproval` covers however many steps SPA runs.
  * A rejection lands on `reworkRequired` and goes back to the requester, so it is a loop, not an end;
  * `rejected` is never written but cannot be dropped. Widened from String(12), which cds-deploy allows.
+ *
+ * `checkAndEnrich` (2026-08-26) is the data steward's own loop, parallel to `reworkRequired` rather
+ * than a step inside it: `claimDataStewardReview` moves a request here off `inApproval` the same way
+ * `claimRework` does for a rejection, and `decideDataStewardReview` moves it back to `inApproval` (data
+ * added, ready to resume) or on to `reworkRequired` (the steward could not make it work, so it goes to
+ * the requester like any other rejection) - never to `posted`, because a data steward enriches data,
+ * they do not decide the request.
  */
 type ChangeRequestStatus : String(20) enum {
-  draft; inApproval; approved; rejected; reworkRequired; posted; failed
+  draft; inApproval; approved; rejected; reworkRequired; checkAndEnrich; posted; failed
 };
 
 /** Per-row intent for the collection nodes, as MDG's change indicator. */
@@ -362,8 +369,11 @@ entity ChangeRequestComments : cuid, managed {
   request : Association to ChangeRequests;
   /** Who is speaking, not who is logged in - a steward reworking someone else's draft is still
    *  the requester's side of the conversation. `System` is neither: a failed S/4 post is reported
-   *  by `postAndRecord`, not by the approver who pressed Approve, and must not read as a rejection. */
-  role    : String(20) enum { Requester; Approver; System } not null;
+   *  by `postAndRecord`, not by the approver who pressed Approve, and must not read as a rejection.
+   *  `DataSteward` (2026-08-26) is its own value, not `Approver`: a steward enriching data during
+   *  `checkAndEnrich` is a distinct step from the approver's decision, and the conversation should
+   *  say which one actually spoke. */
+  role    : String(20) enum { Requester; Approver; System; DataSteward } not null;
   /** The actual identity, for display next to `role` - two rejections from two different
    *  approvers should not read as the same person twice. */
   author  : String(120);

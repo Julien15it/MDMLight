@@ -82,6 +82,16 @@
         <Label text="Note for the approver (optional)" labelFor="reworkCommentInput" />
         <TextArea id="reworkCommentInput" width="100%" rows="2" value="{maintenance>/reworkComment}" />
       </VBox>
+      <!-- The data steward's note - the enrichment's story on Complete Review, the reason on Reject.
+           Same reasoning as reworkCommentBox: not embedded-only, since the datastewardurl deep link
+           reaches this screen standalone too. Data steward mode only. -->
+      <VBox
+        id="dataStewardCommentBox"
+        class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
+        visible="{= ${maintenance>/mode} === 'datasteward' }">
+        <Label text="Note for the requester or approver (optional)" labelFor="dataStewardCommentInput" />
+        <TextArea id="dataStewardCommentInput" width="100%" rows="2" value="{maintenance>/dataStewardComment}" />
+      </VBox>
       <!-- One section that failed to load, or had nothing to resolve its Customer/Supplier
            relation to, must never be silent - a blank section otherwise looks identical to
            "this Business Partner genuinely has no data here". -->
@@ -359,6 +369,23 @@
           type="Reject"
           visible="{= ${maintenance>/showDecisionButtons} &amp;&amp; !${env>/embedded} }"
           press=".onReject" />
+        <!-- The data steward's own pair, alongside rework's and the approver's. Complete Review runs
+             Check/duplicate-confirm like Resubmit (it edits the payload too); Reject is a plain
+             decision like the approver's, just against decideDataStewardReview and checkAndEnrich.
+             Hidden embedded for the same reason as every other footer button here - see
+             _addDataStewardInboxActions in app/bptask's Component.js. -->
+        <Button
+          text="Complete Review"
+          icon="sap-icon://accept"
+          type="Accept"
+          visible="{= ${maintenance>/showDataStewardButtons} &amp;&amp; !${env>/embedded} }"
+          press=".onCompleteDataStewardReview" />
+        <Button
+          text="Reject"
+          icon="sap-icon://decline"
+          type="Reject"
+          visible="{= ${maintenance>/showDataStewardButtons} &amp;&amp; !${env>/embedded} }"
+          press=".onRejectDataStewardReview" />
         <Button
           text="{maintenance>/cancelButtonText}"
           visible="{maintenance>/showCancelButton}"

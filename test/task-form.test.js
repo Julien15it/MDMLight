@@ -62,16 +62,22 @@ test('the workflow base url is built from sap.cloud.service and sap.app.id', () 
 
 test('the inbox actions match the outcomes declared in sap.bpa.task', () => {
   const declared = manifest['sap.bpa.task'].outcomes.map((outcome) => outcome.id).sort();
-  // All four go through inboxAPI.addAction (reverted 2026-08-24 to this, from a brief detour
+  // All five go through inboxAPI.addAction (reverted 2026-08-24 to this, from a brief detour
   // through the object page header actions): both ARE declared outcomes, so pressing one belongs
   // in My Inbox's own action bar, the same native location as Approve/Reject - not a header
   // button that looks and behaves differently for what is, from BPA's point of view, the same
   // kind of thing. Check/Duplicate Check stay in the header: neither is an outcome, so there is
-  // nowhere else for them to go.
-  assert.deepEqual(declared, ['approve', 'reject', 'resubmit', 'withdraw']);
+  // nowhere else for them to go. The data steward's Reject reuses the approve task type's own
+  // "reject" id (2026-08-26) rather than a new one - the two task types never coexist on one task
+  // instance, so the same id can be registered with a different handler each time. Only "enrich"
+  // (Complete Review) is a genuinely new id, since there is no existing outcome to reuse for it.
+  assert.deepEqual(declared, ['approve', 'enrich', 'reject', 'resubmit', 'withdraw']);
   // Registered with the same ids, or the completion is rejected by the runtime.
   assert.match(component, /\{ id: "reject", label: "Reject", type: "reject" \}/u);
   assert.match(component, /\{ id: "approve", label: "Approve", type: "accept" \}/u);
+  assert.match(component, /\{ id: "enrich", label: "Complete Review", type: "accept" \}/u);
+  // "reject" is registered twice - once per task type that uses it, each with its own handler.
+  assert.equal((component.match(/\{ id: "reject", label: "Reject", type: "reject" \}/gu) || []).length, 2);
   assert.match(component, /inbox\.addAction\(/u);
 });
 
@@ -384,7 +390,8 @@ test('the task app is its own app on the same business service', () => {
 test('the outcome labels are literal, not i18n placeholders', () => {
   const outcomes = manifest['sap.bpa.task'].outcomes;
   assert.deepEqual(
-    outcomes.map((outcome) => outcome.label), ['Approve', 'Reject', 'Resubmit', 'Withdraw']
+    outcomes.map((outcome) => outcome.label),
+    ['Approve', 'Reject', 'Resubmit', 'Withdraw', 'Complete Review']
   );
   for (const outcome of outcomes) {
     assert.equal(
@@ -448,7 +455,10 @@ test('check and duplicate check are in the header, and only there', () => {
  * new version URL also guarantees nothing serves the old manifest from a cache.
  */
 test('the task app version is pinned, so the process keeps pointing at it', () => {
-  assert.equal(manifest['sap.app'].applicationVersion.version, '1.3.0');
+  // Raised 1.3.0 -> 1.4.0 -> 1.5.0 (2026-08-26): the data steward task type/outcomes joined
+  // sap.bpa.task, then the Reject outcome id changed to reuse "reject" - each is a schema
+  // change the Lobby only re-reads when the task is re-pointed.
+  assert.equal(manifest['sap.app'].applicationVersion.version, '1.5.0');
 });
 
 /**

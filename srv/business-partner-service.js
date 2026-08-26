@@ -708,8 +708,11 @@ function joinExpressions(expressions, operator) {
  * A partner is locked while a request over it is in flight. `failed` counts as active because the
  * post is not atomic and may have left it half-written; `reworkRequired` counts because the
  * requester is about to edit and resubmit, so leaving it out would unlock the partner mid-rework.
+ * `checkAndEnrich` counts for the same reason as `reworkRequired`: a data steward is mid-edit.
  */
-const ACTIVE_REQUEST_STATUSES = ['draft', 'inApproval', 'approved', 'reworkRequired', 'failed'];
+const ACTIVE_REQUEST_STATUSES = [
+  'draft', 'inApproval', 'approved', 'reworkRequired', 'checkAndEnrich', 'failed'
+];
 
 function applyBusinessPartnerSearch(query) {
   const select = query && query.SELECT;

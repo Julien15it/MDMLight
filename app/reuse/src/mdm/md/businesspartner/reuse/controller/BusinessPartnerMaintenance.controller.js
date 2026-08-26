@@ -364,7 +364,7 @@ sap.ui.define([
       onInit: function () {
         this._metadata = Metadata.sections;
         // Empty until a route loads them, so a render that beats the call renders as it always did.
-        this._fieldProperties = { entities: {}, fields: {} };
+        this._fieldProperties = { entities: {}, fields: {}, criticalEntities: [] };
         this._rootSection = this._metadata.find(function (section) {
           return section.kind === "root";
         });
@@ -379,7 +379,8 @@ sap.ui.define([
           ["ChangeRequestApprove", this._onApproveRoute],
           ["ChangeRequestEdit", this._onRequestEditRoute],
           ["ChangeRequestDisplay", this._onRequestDisplayRoute],
-          ["ChangeRequestRework", this._onReworkRoute]
+          ["ChangeRequestRework", this._onReworkRoute],
+          ["ChangeRequestDataSteward", this._onDataStewardRoute]
         ].forEach(function (entry) {
           var route = this._router.getRoute(entry[0]);
           if (route) route.attachPatternMatched(entry[1], this);
@@ -411,6 +412,14 @@ sap.ui.define([
         var pendingRework = component.getModel("env").getProperty("/taskReworkChangeRequest");
         if (pendingRework) this._loadStagedRequest(pendingRework, "rework");
 
+        // Same bypass again, for the data steward task: a My Inbox task carrying
+        // tasktype: "datasteward" hands its id over the same way, on its own channel.
+        component.getEventBus().subscribe("taskform", "datasteward", function (channel, event, data) {
+          if (data && data.changeRequest) this._loadStagedRequest(data.changeRequest, "datasteward");
+        }, this);
+        var pendingDataSteward = component.getModel("env").getProperty("/taskDataStewardChangeRequest");
+        if (pendingDataSteward) this._loadStagedRequest(pendingDataSteward, "datasteward");
+
         // Resubmit/Withdraw cannot complete a My Inbox task directly the way Approve/Reject do -
         // they need this screen's own Check/duplicate-confirm/submit flow to run first. So the
         // task app's inbox buttons only ask for that flow over the event bus; the outcome still
@@ -421,6 +430,19 @@ sap.ui.define([
         }, this);
         component.getEventBus().subscribe("taskform", "withdraw", function () {
           this.onWithdraw();
+        }, this);
+        // Same reasoning, for the data steward's two outcomes: both need Check/the duplicate-confirm
+        // dance (complete) or a simple decision (reject) to run on THIS screen before the task can
+        // report back, so the inbox buttons only ask for it over the event bus - see
+        // _addDataStewardInboxActions in app/bptask's Component.js. "reject" is the SAME topic the
+        // approve task type's own outcome id would publish if it went through the event bus - it
+        // does not (_addInboxActions completes the task directly), so there is nothing already
+        // listening on "taskform"/"reject" for this to collide with.
+        component.getEventBus().subscribe("taskform", "enrich", function () {
+          this.onCompleteDataStewardReview();
+        }, this);
+        component.getEventBus().subscribe("taskform", "reject", function () {
+          this.onRejectDataStewardReview();
         }, this);
       },
 
@@ -471,6 +493,8 @@ sap.ui.define([
           showDecisionButtons: false,
           // Resubmit and Withdraw, the requester's two ways out of a rejection.
           showReworkButtons: false,
+          // Complete Review and Reject, the data steward's two ways out of checkAndEnrich.
+          showDataStewardButtons: false,
           /** Why the approver sent it back. Empty except in rework mode. */
           rejectionComment: "",
           /** Why the S/4 post failed, when that - not a rejection - is why the request is back
@@ -483,6 +507,10 @@ sap.ui.define([
           /** What the requester is typing as their note for this resubmit round. Rework mode only -
            *  sent as resubmitRequest's Reason, cleared once it lands in the thread. */
           reworkComment: "",
+          /** The data steward's note for this round - the enrichment's story on Complete Review, the
+           *  reason on Reject. Data steward mode only, sent as decideDataStewardReview's Reason,
+           *  cleared once it lands in the thread. */
+          dataStewardComment: "",
           /** `{ step, processors, note }` from getRequestPayload. Null outside a change request. */
           processors: null,
           showCancelButton: true,
@@ -787,7 +815,7 @@ sap.ui.define([
        * its profiles cannot submit past one.
        */
       _loadFieldProperties: async function (requestType, role) {
-        this._fieldProperties = { entities: {}, fields: {} };
+        this._fieldProperties = { entities: {}, fields: {}, criticalEntities: [] };
         try {
           var result = await this._executeAction("effectiveFieldProperties", {
             RequestType: requestType || null,
@@ -797,7 +825,11 @@ sap.ui.define([
           var parsed = typeof raw === "string" ? JSON.parse(raw || "{}") : (raw || {});
           this._fieldProperties = {
             entities: parsed.entities || {},
-            fields: parsed.fields || {}
+            fields: parsed.fields || {},
+            // Marker only - never gates anything here, the same way hidden/readOnly/mandatory do.
+            // The field property profile's `criticalEntities` list (entity-level only, see
+            // db/field-properties.cds), used to draw the exclamation mark next to a section's title.
+            criticalEntities: parsed.criticalEntities || []
           };
         } catch (error) {
           // Nothing to tell the user: they asked to maintain a partner, not to hear about a
@@ -814,6 +846,12 @@ sap.ui.define([
 
       _entityProperty: function (section) {
         return (this._fieldProperties && this._fieldProperties.entities || {})[this._sectionKey(section)] || null;
+      },
+
+      /** A marker only, drawn as "!" next to the section title - never a gate. */
+      _isCriticalEntity: function (section) {
+        var criticalEntities = (this._fieldProperties && this._fieldProperties.criticalEntities) || [];
+        return criticalEntities.indexOf(this._sectionKey(section)) !== -1;
       },
 
       /**
@@ -845,14 +883,16 @@ sap.ui.define([
 
       _renderRootForm: function () {
         var state = this.getView().getModel("maintenance").getData();
-        this._renderRootSection("GeneralInformationContent", GENERAL_FIELDS, true, state);
-        this._renderRootSection("NamesContent", nameFieldsForCategory(state.root.BusinessPartnerCategory), false, state);
+        var critical = this._isCriticalEntity(this._rootSection);
+        this._renderRootSection("GeneralInformationContent", "General Information", GENERAL_FIELDS, true, state, critical);
+        this._renderRootSection("NamesContent", "Names", nameFieldsForCategory(state.root.BusinessPartnerCategory), false, state, critical);
       },
 
-      _renderRootSection: function (containerId, fieldNames, showAdditionalFields, state) {
+      _renderRootSection: function (containerId, title, fieldNames, showAdditionalFields, state, critical) {
         var container = this.byId(containerId);
         if (!container) return;
         container.removeAllItems();
+        this._markSectionCritical(container, title, critical);
 
         var section = Object.assign({}, this._rootSection, {
           fields: fieldNames.map(function (fieldName) {
@@ -1057,7 +1097,10 @@ sap.ui.define([
             // Re-render the Names card so it only shows the fields S/4 will
             // actually keep for this category (see nameFieldsForCategory).
             var state = this.getView().getModel("maintenance").getData();
-            this._renderRootSection("NamesContent", nameFieldsForCategory(newCategory), false, state);
+            this._renderRootSection(
+              "NamesContent", "Names", nameFieldsForCategory(newCategory), false, state,
+              this._isCriticalEntity(this._rootSection)
+            );
           }.bind(this));
         } else if (isBoolean(field)) {
           control = new CheckBox({ selected: Boolean(record[field.name]), enabled: editable });
@@ -1248,6 +1291,15 @@ sap.ui.define([
         return this.byId(section.id + "Content");
       },
 
+      /** Walks up from a section's content container to the ObjectPageSection that holds it. */
+      _objectPageSection: function (container) {
+        var control = container;
+        while (control && !(control.isA && control.isA("sap.uxap.ObjectPageSection"))) {
+          control = control.getParent && control.getParent();
+        }
+        return control;
+      },
+
       /**
        * Hides the Object Page section a container sits in, not the container: hiding the VBox alone
        * leaves the section's title and its anchor-bar button behind, which is a heading pointing at
@@ -1255,11 +1307,20 @@ sap.ui.define([
        * ObjectPageSection above it, so it hides itself.
        */
       _setSectionVisible: function (container, visible) {
-        var control = container;
-        while (control && !(control.isA && control.isA("sap.uxap.ObjectPageSection"))) {
-          control = control.getParent && control.getParent();
-        }
-        (control || container).setVisible(visible);
+        (this._objectPageSection(container) || container).setVisible(visible);
+      },
+
+      /**
+       * The exclamation mark next to a critical section's title - a marker, nothing more. No message,
+       * no block: a data steward reads the screen and sees which sections were flagged, the same way
+       * `criticalField` in the workflow context only ever says whether one was filled in, not which.
+       * A hosted container (a child section in a record dialog) has no ObjectPageSection title to
+       * mark, so this is a no-op there - the marker belongs on the Object Page, not inside a dialog.
+       */
+      _markSectionCritical: function (container, baseTitle, critical) {
+        var section = this._objectPageSection(container);
+        if (!section || !section.setTitle) return;
+        section.setTitle(critical ? baseTitle + " ⚠" : baseTitle);
       },
 
       _renderSection: function (section) {
@@ -1271,6 +1332,7 @@ sap.ui.define([
         // Emptying the container would leave a heading over nothing, which reads as a load failure.
         var entityProperty = this._entityProperty(section);
         this._setSectionVisible(container, entityProperty !== "hidden");
+        this._markSectionCritical(container, section.title, this._isCriticalEntity(section));
         if (entityProperty === "hidden") return;
 
         var state = this.getView().getModel("maintenance").getData();
@@ -1803,14 +1865,22 @@ sap.ui.define([
             ChangeRequest: state.changeRequest || null,
             RequestType: state.requestType || "create",
             BusinessPartner: state.businessPartner || null,
-            // The requester's note for this round, appended to the thread server-side. Only rework
-            // has anywhere on screen to type one; every other action still sends none.
-            Reason: action === "resubmitRequest" ? (state.reworkComment || null) : null,
+            // The requester's/data steward's note for this round, appended to the thread server-side.
+            // Only rework and data steward review have anywhere on screen to type one; every other
+            // action still sends none.
+            Reason: action === "resubmitRequest"
+              ? (state.reworkComment || null)
+              : (action === "decideDataStewardReview" ? (state.dataStewardComment || null) : null),
             DataJson: this._requestDataJson(state)
           };
+          // decideDataStewardReview is resubmitRequest's own gates under a different action name -
+          // Complete Review is the only caller, so the decision is always "complete" here. Reject
+          // goes through onRejectDataStewardReview instead, which needs none of this.
+          if (action === "decideDataStewardReview") parameters.Decision = "complete";
           // Tied to the exact payload warned about, not a flag: edit after a warning and the check has to
-          // be seen again. A resubmit needs the same second press - rework is the requester changing it.
-          if (action === "submitRequest" || action === "resubmitRequest") {
+          // be seen again. A resubmit needs the same second press - rework is the requester changing it,
+          // and a data steward's Complete Review is the same shape once more.
+          if (["submitRequest", "resubmitRequest", "decideDataStewardReview"].includes(action)) {
             parameters.Confirm = Boolean(state.awaitingConfirmationFor)
               && state.awaitingConfirmationFor === parameters.DataJson;
           }
@@ -1858,7 +1928,9 @@ sap.ui.define([
             this._setDuplicatePanel(state, this._findingsFrom(result), { RanDuplicateCheck: true });
             this._confirmDuplicates(this._findingsFrom(result), parameters.DataJson, {
               // `confirmed` stops a second dialog re-submitting, so no loop if the server asks twice.
-              confirmText: action === "resubmitRequest" ? "Resubmit" : "Submit Request",
+              confirmText: action === "resubmitRequest"
+                ? "Resubmit"
+                : (action === "decideDataStewardReview" ? "Complete Review" : "Submit Request"),
               onConfirm: confirmed ? null : function () {
                 this._sendChangeRequest(action, true);
               }.bind(this)
@@ -1875,16 +1947,19 @@ sap.ui.define([
           state.showSaveRequestButton = false;
           state.showCheckButton = false;
           state.showEditButton = false;
-          // The request is back with the approver, so Withdraw goes with the rest. It is only
-          // withdrawable while it is the requester's to act on.
+          // The request is back with the approver, so Withdraw/Reject go with the rest. It is only
+          // actionable while it is the requester's or steward's to act on.
           state.showReworkButtons = false;
+          state.showDataStewardButtons = false;
           // "Cancel" cancels nothing once the request is in approval, and with every other button
           // gone the toolbar would be an empty bar. Leaving the page is the shell's back arrow.
           state.showCancelButton = false;
           state.showFooter = false;
           state.title = action === "resubmitRequest"
             ? "Request resubmitted for approval"
-            : "Request submitted for approval";
+            : (action === "decideDataStewardReview"
+              ? "Request completed and returned for approval"
+              : "Request submitted for approval");
           state.messages = this._submitMessages(result);
           // The approver has these on CheckFindings; leaving the panel up invites editing a
           // request nobody can edit any more.
@@ -1913,6 +1988,25 @@ sap.ui.define([
               freshContext = null;
             }
             this._completeEmbeddedOutcome("resubmit", freshContext);
+          } else if (action === "decideDataStewardReview") {
+            // Same reasoning as resubmitRequest's own echo, just under the data steward's role.
+            if (state.dataStewardComment) {
+              state.comments = state.comments.concat([{
+                title: "Data Steward — You",
+                text: state.dataStewardComment,
+                date: formatCommentDate(new Date().toISOString())
+              }]);
+              state.commentsHeader = "Conversation (" + state.comments.length + ")";
+            }
+            state.dataStewardComment = "";
+
+            var freshDataStewardContext = null;
+            try {
+              freshDataStewardContext = JSON.parse((result && result.ContextJson) || "null");
+            } catch (parseError) {
+              freshDataStewardContext = null;
+            }
+            this._completeEmbeddedOutcome("enrich", freshDataStewardContext);
           }
         } catch (error) {
           MessageBox.error(errorMessage(error, "The request could not be saved."));
@@ -2496,35 +2590,54 @@ sap.ui.define([
         );
       },
 
-      // `mode` is "approve", "edit", "rework" or "view". It was a boolean until rework arrived, which
-      // needs a draft's editability and a footer of its own; "view" needs neither and offers nothing.
+      // The data steward's own screen, parallel to rework rather than a step inside it. Reached by
+      // the `datastewardurl` deep link, or by a My Inbox task carrying `tasktype: "datasteward"` -
+      // same shape as rework's two entry points, same reason. Every field is editable, and the
+      // footer offers Complete Review/Reject instead of Resubmit/Withdraw; embedded, the same
+      // "stay visible, only Approve/Reject hide" rule applies, and both report back through
+      // _completeEmbeddedOutcome once the action has already succeeded server-side.
+      _onDataStewardRoute: function (event) {
+        return this._loadStagedRequest(
+          decodeURIComponent(event.getParameter("arguments").changeRequest), "datasteward"
+        );
+      },
+
+      // `mode` is "approve", "edit", "rework", "datasteward" or "view". It was a boolean until rework
+      // arrived, which needs a draft's editability and a footer of its own; "view" needs neither and
+      // offers nothing.
       _loadStagedRequest: async function (changeRequest, mode) {
         var maintenanceModel = this.getView().getModel("maintenance");
         var reworking = mode === "rework";
+        var reviewing = mode === "datasteward";
         var viewing = mode === "view";
-        // Rework edits the payload, so it is an editing mode - it just does not save drafts.
-        var editing = mode === "edit" || reworking;
+        // Rework and a data steward's review both edit the payload, so both are editing modes - they
+        // just do not save drafts.
+        var editing = mode === "edit" || reworking || reviewing;
         var state = this._emptyState();
         state.busy = true;
-        state.mode = viewing ? "view" : (reworking ? "rework" : (editing ? "edit" : "approve"));
-        state.modeText = viewing ? "Display" : (reworking ? "Rework" : (editing ? "Draft" : "Approval"));
+        state.mode = viewing ? "view" : (reworking ? "rework" : (reviewing ? "datasteward" : (editing ? "edit" : "approve")));
+        state.modeText = viewing ? "Display" : (reworking ? "Rework" : (reviewing ? "Data Steward Review" : (editing ? "Draft" : "Approval")));
         state.editing = editing;
         state.changeRequest = changeRequest;
         state.showEditButton = false;
-        // Rework IS the draft view with one different primary action, so the buttons are the editing
-        // ones in both modes and only the label and onSave's route change.
+        // Rework and a data steward's review are both the draft view with a different primary action
+        // (or two), so the buttons are the editing ones in every mode and only the label(s) and
+        // onSave's route change.
         // Both answer read-only questions, so the approver gets them too, not just the requester.
         // Not in view mode: the screen is there to show what was asked for, not to re-run anything.
         state.showCheckButton = !viewing;
-        state.showSaveButton = editing;
-        // No Save Request in rework: it drops the screen out of editing and offers Edit, which re-enters
-        // "edit" mode - and onSave would then start a second workflow for an already-parked instance.
-        state.showSaveRequestButton = editing && !reworking;
+        state.showSaveButton = editing && !reviewing;
+        // No Save Request in rework or data steward review: it drops the screen out of editing and
+        // offers Edit, which re-enters "edit" mode - and onSave would then start a second workflow
+        // for an already-parked instance.
+        state.showSaveRequestButton = editing && !reworking && !reviewing;
         // A viewer is not an approver. Without this the decision buttons would appear on the view of
         // any request that happens to be inApproval, which is most of them.
         state.showDecisionButtons = !editing && !viewing;
-        // Set properly once the status is known: a rework link outlives the state it was sent for.
+        // Set properly once the status is known: a rework/data-steward link outlives the state it
+        // was sent for.
         state.showReworkButtons = false;
+        state.showDataStewardButtons = false;
         state.showFooter = true;
         state.saveButtonText = reworking ? "Resubmit" : "Submit Request";
         state.cancelButtonText = "Back";
@@ -2567,10 +2680,13 @@ sap.ui.define([
           );
           // Staging has no BusinessPartnerFullName column, so a request always arrives without one.
           this._refreshFullName();
-          // The approve view is the approver's, the draft and rework views are the requester's own.
-          // `hidden` is deliberately honoured on the approve view too: once approvals are split by
-          // function, a sales approver has no business reading the bank details.
-          await this._loadFieldProperties(state.requestType, mode === "approve" ? "Approver" : "Requester");
+          // The approve view is the approver's, the data steward view is the steward's own, the
+          // draft and rework views are the requester's own. `hidden` is deliberately honoured on the
+          // approve view too: once approvals are split by function, a sales approver has no business
+          // reading the bank details.
+          await this._loadFieldProperties(
+            state.requestType, mode === "approve" ? "Approver" : (reviewing ? "DataSteward" : "Requester")
+          );
           state.businessPartner = (payload && payload.BusinessPartner) || "";
           state.rejectionComment = (payload && payload.RejectionComment) || "";
           // Cleared to null on every successful post and rewritten on every failed one (never left
@@ -2584,7 +2700,9 @@ sap.ui.define([
           state.reworkComment = "";
           state.title = (viewing
             ? "Change request "
-            : (reworking ? "Rework request " : (editing ? "Change request " : "Approve request ")))
+            : (reworking
+              ? "Rework request "
+              : (reviewing ? "Data steward review " : (editing ? "Change request " : "Approve request "))))
             + changeRequest;
           state.headerTitle = previewName(state.root) || "Requested Business Partner";
           // Only a request still awaiting a decision can be decided on. Opening
@@ -2640,6 +2758,36 @@ sap.ui.define([
                 text: "The approver sent this request back. No reason was recorded with it."
               }];
             }
+          } else if (reviewing) {
+            // The claimRework pattern, for the data steward step: still inApproval means nothing on
+            // Arthur's side has moved the status yet, so arriving on this screen is taken as the
+            // evidence that the process routed a task here.
+            if (state.requestStatus === "inApproval") {
+              state.requestStatus = await this._claimDataStewardReview(changeRequest, state.requestStatus);
+            }
+            // The link outlives the state it was sent for, so an already-completed or rejected
+            // review must not offer the buttons again.
+            var awaitingReview = state.requestStatus === "checkAndEnrich";
+            state.showDataStewardButtons = awaitingReview;
+            state.editing = awaitingReview;
+            // Not awaitingReview: asking whether the record passes is still a fair question on a
+            // request that has already moved on.
+            state.showCheckButton = true;
+            if (!awaitingReview) {
+              state.modeText = state.requestStatus;
+              state.messages = [{
+                type: "Information",
+                text: "This request is " + state.requestStatus + ", so there is nothing to review."
+                  + " It has either been completed already or sent to the requester."
+              }];
+            } else {
+              state.messages = [{
+                type: "Information",
+                text: "This request is awaiting data steward review. Add or correct the data it"
+                  + " needs, then Complete Review to send it back for approval, or Reject to send"
+                  + " it to the requester."
+              }];
+            }
           } else if (viewing) {
             // Say which request this is and what state it is in, or a read-only screen with no
             // buttons is indistinguishable from one that failed to load.
@@ -2684,6 +2832,18 @@ sap.ui.define([
       _claimRework: async function (changeRequest, currentStatus) {
         try {
           var result = await this._executeAction("claimRework", { ChangeRequest: changeRequest }, "cr");
+          return (result && result.Status) || currentStatus;
+        } catch (error) {
+          return currentStatus;
+        }
+      },
+
+      // Same shape as _claimRework, for the data steward step.
+      _claimDataStewardReview: async function (changeRequest, currentStatus) {
+        try {
+          var result = await this._executeAction(
+            "claimDataStewardReview", { ChangeRequest: changeRequest }, "cr"
+          );
           return (result && result.Status) || currentStatus;
         } catch (error) {
           return currentStatus;
@@ -2753,6 +2913,70 @@ sap.ui.define([
             }
           }
         );
+      },
+
+      // The data steward's own way out of checkAndEnrich, alongside the two above. Complete Review
+      // is resubmitRequest's own shape (Check/duplicate-confirm gates, no confirm dialog - same as
+      // Resubmit, which has none either) under decideDataStewardReview's Decision "complete", and
+      // goes through _sendChangeRequest so it gets those gates. Reject needs none of that: it is a
+      // plain decision, like onReject/_decide, just against a different action and status.
+      onCompleteDataStewardReview: function () {
+        return this._sendChangeRequest("decideDataStewardReview");
+      },
+
+      onRejectDataStewardReview: function () {
+        var that = this;
+        MessageBox.confirm(
+          "Reject this request? It will be sent back to the requester for rework.",
+          {
+            onClose: function (choice) {
+              if (choice === MessageBox.Action.OK) that._declineDataStewardReview();
+            }
+          }
+        );
+      },
+
+      _declineDataStewardReview: async function () {
+        var maintenanceModel = this.getView().getModel("maintenance");
+        var state = maintenanceModel.getData();
+        state.busy = true;
+        maintenanceModel.refresh(true);
+
+        try {
+          var result = await this._executeAction("decideDataStewardReview", {
+            ChangeRequest: state.changeRequest,
+            Decision: "reject",
+            Reason: state.dataStewardComment || null
+          }, "cr");
+
+          state.requestStatus = (result && result.Status) || "";
+          state.showDataStewardButtons = false;
+          state.editing = false;
+          state.showCheckButton = false;
+          state.showFooter = false;
+          state.showCancelButton = false;
+          state.modeText = state.requestStatus;
+          state.title = "Request sent to the requester for rework";
+          // Echoed locally, same reasoning as Complete Review's own echo - the thread already has
+          // it server-side, but nothing reloads it from here.
+          if (state.dataStewardComment) {
+            state.comments = state.comments.concat([{
+              title: "Data Steward — You",
+              text: state.dataStewardComment,
+              date: formatCommentDate(new Date().toISOString())
+            }]);
+            state.commentsHeader = "Conversation (" + state.comments.length + ")";
+          }
+          state.dataStewardComment = "";
+          MessageToast.show("Request rejected and sent to the requester.");
+          this._completeEmbeddedOutcome("reject");
+        } catch (error) {
+          MessageBox.error(errorMessage(error, "The decision could not be recorded."));
+        } finally {
+          state.busy = false;
+          maintenanceModel.refresh(true);
+          this._renderAll();
+        }
       },
 
       onBackToList: function () {

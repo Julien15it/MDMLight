@@ -205,7 +205,7 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
     this.on('fieldPropertiesOf', async (req) => {
       const rows = await cds.run(
         cds.ql.SELECT.from(SETTINGS)
-          .columns('section', 'element', 'property')
+          .columns('section', 'element', 'property', 'critical')
           .where({ profile_ID: req.data.Profile })
       );
       return JSON.stringify(rows || []);

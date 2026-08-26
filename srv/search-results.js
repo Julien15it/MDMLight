@@ -13,9 +13,10 @@ const { fullNameOf } = require('./partner-name');
 /**
  * In progress for this list: a request a human still owns. `approved` (waiting to post) and
  * `failed` are out - those belong to the post, not to somebody deciding whether to raise a request.
+ * `checkAndEnrich` counts for the same reason as `reworkRequired`: a data steward is mid-edit.
  * Narrower than ACTIVE_REQUEST_STATUSES, which is a lock and must stay wider than this on purpose.
  */
-const IN_PROGRESS_REQUEST_STATUSES = Object.freeze(['draft', 'inApproval', 'reworkRequired']);
+const IN_PROGRESS_REQUEST_STATUSES = Object.freeze(['draft', 'inApproval', 'reworkRequired', 'checkAndEnrich']);
 
 const REQUEST_TYPE_LABELS = Object.freeze({
   create: 'Create', change: 'Change', block: 'Block', delete: 'Delete'
@@ -25,6 +26,7 @@ const STATUS_LABELS = Object.freeze({
   draft: 'draft',
   inApproval: 'in approval',
   reworkRequired: 'rework required',
+  checkAndEnrich: 'data steward review',
   approved: 'approved',
   failed: 'post failed'
 });

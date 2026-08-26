@@ -80,8 +80,14 @@
                 <customData><core:CustomData key="property" value="optional" /></customData>
               </CheckBox>
               <!-- Independent of the four above: a field can be mandatory AND critical, so this box
-                   neither clears nor is cleared by onPropertySelect. -->
-              <CheckBox selected="{fp>critical}" select=".onCriticalSelect" />
+                   neither clears nor is cleared by onPropertySelect. Entity-level only (2026-08-26):
+                   greyed out on a field row, because critical marks the whole entity, not one field
+                   inside it - the save action refuses a field-level critical row anyway, this just
+                   keeps the dialog from offering something the server will reject. -->
+              <CheckBox
+                selected="{fp>critical}"
+                enabled="{= ${fp>kind} === 'entity' }"
+                select=".onCriticalSelect" />
             </cells>
           </ColumnListItem>
         </items>

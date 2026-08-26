@@ -14,13 +14,14 @@ const { createCviStages } = require('./checks/cvi-checks');
 const { createBpCheckStage } = require('./checks/bp-check');
 const { createRelationStages } = require('./checks/relation-checks');
 const { configuredStages } = require('./checks/rule-store');
-const { fieldPropertyStages, resolvedProperties, criticalFieldsFor } = require('./checks/field-property-store');
+const { fieldPropertyStages, resolvedProperties } = require('./checks/field-property-store');
+const { dataStewardEmails } = require('./wf/data-stewards');
 const { approversFor } = require('./checks/workflow-rule-store');
 const { currentProcessors } = require('./request-processors');
 const { withFullName, fullNameOf } = require('./partner-name');
 const { proposeNormalisations } = require('./checks/normalise');
 const { aiAssistanceEnabled } = require('./ai/availability');
-const { PAYLOAD_NODES, ROOT_SECTION } = require('./checks/payload-fields');
+const { PAYLOAD_NODES, ROOT_SECTION, sectionRows } = require('./checks/payload-fields');
 const { uiPathPrefix } = require('./ui-prefix');
 
 const STAGING = 'mdmlight.staging.';
@@ -163,11 +164,17 @@ const APPROVAL_WORKFLOW_DEFINITION_ID =
 const SUPPORTED_REQUEST_TYPES = Object.freeze(['create', 'change']);
 
 // Payloads a requester may still change. `reworkRequired` joined `draft` because a rejection hands
-// the request back rather than ending it.
-const EDITABLE_STATUSES = Object.freeze(['draft', 'reworkRequired']);
+// the request back rather than ending it. `checkAndEnrich` joined the same way (2026-08-26): a data
+// steward enriching data is editing the payload exactly like a rework, just under a different status
+// so it cannot be confused with a rejection.
+const EDITABLE_STATUSES = Object.freeze(['draft', 'reworkRequired', 'checkAndEnrich']);
 
 // The editable ones and nothing else: anything further along carries `postedBP` (the guard against
-// an SPA retry creating a second BP) or is being decided on by someone else.
+// an SPA retry creating a second BP) or is being decided on by someone else. This aliases
+// EDITABLE_STATUSES on purpose (test/rework.test.js pins the two as equal), so `checkAndEnrich`
+// joining the one joins the other: a data steward who cannot make a request work may withdraw it the
+// same way a requester withdraws a rework, rather than leaving it stuck with no way out. Nothing in
+// the UI offers a Withdraw button in that mode today - only the action itself allows it.
 const WITHDRAWABLE_STATUSES = EDITABLE_STATUSES;
 
 // Arthur's trigger branches on this. Capitalised is his spelling; approve/reject are lowercase, so
@@ -177,6 +184,13 @@ const RESUBMITTED_SIGNAL = 'Resubmitted';
 // Same requester trigger. Follows Resubmitted's capitalisation, but he never specified this one -
 // confirm it, or the instance stays parked on a change request that no longer exists.
 const WITHDRAWN_SIGNAL = 'Withdrawn';
+
+// The data steward's own signals - placeholder names, unconfirmed like WITHDRAWN_SIGNAL above:
+// nothing on Arthur's side listens for either yet (see CLAUDE.md, "Data steward enrichment"). Follows
+// the same capitalisation convention as RESUBMITTED_SIGNAL/WITHDRAWN_SIGNAL on the assumption his
+// process will too - confirm both before relying on either, or the instance stays parked.
+const DATASTEWARD_COMPLETE_SIGNAL = 'DataStewardComplete';
+const DATASTEWARD_REJECTED_SIGNAL = 'DataStewardRejected';
 
 // A finding also carries candidateName and reasons for the SPA payload; neither is a column, and
 // spreading them into the insert would fail. Whitelisted, so a new field cannot break a submit.
@@ -288,6 +302,12 @@ function approveUrl(changeRequest) {
 // request list is steward-gated, so this link is the requester's only way to the rework screen.
 function reworkUrl(changeRequest) {
   return requestUrl(changeRequest, 'rework');
+}
+
+// Sent as `datastewardurl`, for a workflow step that routes to a data steward instead of straight
+// back to the approver - not built on Arthur's side yet, like the process side of rework itself.
+function dataStewardUrl(changeRequest) {
+  return requestUrl(changeRequest, 'datasteward');
 }
 
 /**
@@ -431,16 +451,26 @@ class ChangeRequestService extends cds.ApplicationService {
         requestType: req.data.RequestType,
         payload: { root: payload.root || {}, sections: payload.sections || {} }
       });
-      // Which fields on THIS request the field property profiles flag critical, from
-      // db/field-properties.cds's `criticalField` column - a hint for the process, not a gate: CAP
-      // itself blocks or warns on nothing here. Best-effort like `approvers`, off the same requester
-      // context every other submit-time field-property read uses.
-      let criticalFields = [];
+      // `criticalField` is a scalar 'X'/' ' input parameter on Arthur's side, not a list - so this
+      // asks one question, not one per entity: does THIS request fill in an entity the field property
+      // profiles mark critical? 'X' when at least one does, ' ' otherwise (including when nothing is
+      // marked critical at all, or the profile table cannot be read). It is a marker only - CAP itself
+      // blocks or warns on nothing here; see "Critical fields" for why an empty critical entity is not
+      // an error. Best-effort like `approvers`, off the same requester context every other submit-time
+      // field-property read uses.
+      let criticalField = ' ';
       try {
-        criticalFields = await criticalFieldsFor(requesterContext(req));
+        const resolved = await resolvedProperties(requesterContext(req));
+        const critical = resolved.criticalEntities || [];
+        if (critical.some((section) => sectionRows(payload, section).length > 0)) criticalField = 'X';
       } catch (error) {
         console.error(`Could not resolve the critical fields for change request ${changeRequest}:`, error);
       }
+      // Every BTP subaccount user holding this app's own DataSteward role template, read straight
+      // from the subaccount's role collections - not through the WorkflowRules table, unlike
+      // `approvers`. `dataStewardEmails` is already best-effort (see srv/wf/data-stewards.js): never
+      // throws, resolves to `[]` when nothing matches or the subaccount API is unreachable.
+      const datastewards = await dataStewardEmails();
 
       return {
         changerequestid: changeRequest,
@@ -450,6 +480,10 @@ class ChangeRequestService extends cds.ApplicationService {
         bpurl: approveUrl(changeRequest),
         // Where the requester goes if rejected. Sent now because SPA owns the rejection branch.
         reworkurl: reworkUrl(changeRequest),
+        // Where a data steward goes to enrich this request, if a future step of the process routes
+        // there. Sent unconditionally like reworkurl/bpurl - CAP builds every deep link it can name
+        // up front rather than only the ones the current process definition happens to use.
+        datastewardurl: dataStewardUrl(changeRequest),
         // The task UI cannot discover its own OData path; this is the only call it can make unaided.
         prefix: uiPathPrefix(),
         businesspartnerinput: businessPartnerInput,
@@ -467,9 +501,16 @@ class ChangeRequestService extends cds.ApplicationService {
         // means declaring `approvers` as an array of objects in the process context, after which
         // this map comes off again.
         approvers: approvers.map((approver) => approver.value),
-        // Already a flat array of qualified field names - see resolveCriticalFields. Empty when no
-        // profile names one, never absent, so SPA can bind it without a null check.
-        criticalFields
+        // 'X' when a critical entity was filled in on this request, ' ' otherwise - a scalar flag,
+        // not a list, because that is what the process input expects (see the comment above).
+        // Lowercase on the wire, like every other key in this context - the local variable keeps
+        // its camelCase name for readability, only the JSON key changes.
+        criticalfield: criticalField,
+        // Array of strings, like `approvers` - the same lesson applies: the deployed process
+        // validates the shape it was given, and an array of objects is not what an array-of-strings
+        // input accepts. Never absent, empty when nobody carries the role or the subaccount API
+        // could not be read, so SPA can bind it without a null check.
+        datastewards
       };
     };
 
@@ -493,7 +534,15 @@ class ChangeRequestService extends cds.ApplicationService {
           console.warn(`[processors] Could not resolve the approvers of ${header.ID}:`, error.message);
         }
       }
-      return currentProcessors(header, approvers);
+      let dataStewards = [];
+      if (header.status === 'checkAndEnrich') {
+        try {
+          dataStewards = await dataStewardEmails();
+        } catch (error) {
+          console.warn(`[processors] Could not resolve the data stewards of ${header.ID}:`, error.message);
+        }
+      }
+      return currentProcessors(header, approvers, dataStewards);
     };
 
     /**
@@ -1029,6 +1078,155 @@ class ChangeRequestService extends cds.ApplicationService {
       return { ChangeRequest: changeRequest, Deleted: true };
     });
 
+    // A data steward's own loop, parallel to rework rather than a step inside it - see
+    // ChangeRequestStatus's `checkAndEnrich` in db/staging.cds for why it is its own status. Placed
+    // after withdrawRequest rather than beside claimRework, so the resubmit->withdraw span other
+    // tests slice stays exactly what it already pinned.
+
+    // The same shortcut as claimRework, for the data steward step instead: nothing on Arthur's side
+    // calls this yet, so opening the data steward screen is what moves the status - the process
+    // routing a task here is taken as the evidence, the same way arriving on the rework screen is.
+    this.on('claimDataStewardReview', async (req) => {
+      const changeRequest = req.data.ChangeRequest;
+      const header = await db.run(cds.ql.SELECT.one.from(HEADER).where({ ID: changeRequest }));
+      if (!header) return req.reject(404, `Change request ${changeRequest} was not found.`);
+
+      // A posted request has a business partner behind it, whatever its status says.
+      if (header.postedBP || header.status !== 'inApproval') {
+        return { ChangeRequest: changeRequest, Status: header.status, Claimed: false };
+      }
+
+      // No workflow signal: the process is the one routing the task here, and a status this screen
+      // sets to catch up is not a decision it is waiting for.
+      await db.run(cds.ql.UPDATE(HEADER).set({ status: 'checkAndEnrich' }).where({ ID: changeRequest }));
+      return { ChangeRequest: changeRequest, Status: 'checkAndEnrich', Claimed: true };
+    });
+
+    /**
+     * The data steward's decision, from `checkAndEnrich`. `complete` is resubmitRequest's own shape -
+     * persist, the same gates, rebuild the context, hand the SAME parked instance back to `inApproval`
+     * - because a steward enriching data is a rework of the payload, just under a status of its own.
+     * `reject` is decideRequest's reject branch instead: no payload to persist, straight to
+     * `reworkRequired`, because the steward could not make the request work and it goes back to
+     * whoever raised it, not back to the approver.
+     */
+    this.on('decideDataStewardReview', async (req) => {
+      const changeRequest = req.data.ChangeRequest;
+      const decision = String(req.data.Decision || '').toLowerCase();
+      if (!['complete', 'reject'].includes(decision)) {
+        return req.reject(400, "Decision must be 'complete' or 'reject'.", 'Decision');
+      }
+
+      const before = await db.run(cds.ql.SELECT.one.from(HEADER).where({ ID: changeRequest }));
+      if (!before) return req.reject(404, `Change request ${changeRequest} was not found.`);
+      if (before.status !== 'checkAndEnrich') {
+        return req.reject(409,
+          `Change request ${changeRequest} is ${before.status}, not awaiting data steward review.`);
+      }
+
+      if (decision === 'reject') {
+        await db.run(cds.ql.UPDATE(HEADER).set({
+          status: 'reworkRequired',
+          rejectionComment: req.data.Reason || null
+        }).where({ ID: changeRequest }));
+        await appendComment(db, changeRequest, 'DataSteward', requestingUserEmail(req), req.data.Reason);
+        if (before.processInstanceId) {
+          try {
+            await triggerRequesterCallback(before.processInstanceId, DATASTEWARD_REJECTED_SIGNAL, {
+              changerequestid: changeRequest
+            });
+          } catch (error) {
+            console.error(`Could not signal that data steward review of ${changeRequest} was rejected:`, error);
+          }
+        }
+        return {
+          ChangeRequest: changeRequest,
+          Status: 'reworkRequired',
+          ProcessInstanceId: before.processInstanceId,
+          NeedsConfirmation: false,
+          Valid: true,
+          ValidationsJson: JSON.stringify([]),
+          MessagesJson: JSON.stringify([]),
+          ContextJson: null
+        };
+      }
+
+      // decision === 'complete', resubmitRequest's own body from here down.
+      if (!before.processInstanceId) {
+        return req.reject(409,
+          `Change request ${changeRequest} has no approval process to hand back to, so it cannot be`
+          + ' completed. Reject it, or withdraw it and raise a new request.');
+      }
+
+      const changeRequestId = await persist(req);
+      if (!changeRequestId) return;
+
+      const data = parseJsonObject(req.data.DataJson, 'DataJson');
+      const registry = createRegistryStages();
+      const configured = await configuredStages();
+      const properties = await fieldPropertyStages(requesterContext(req));
+      const validations = await runValidations(
+        { root: data.root || {}, sections: data.sections || {} },
+        [...properties.validations, ...configured.validations,
+        ...createCviStages().validations, ...registry.validations,
+        ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations]
+      );
+      if (validations.some((message) => message.severity === BLOCKING)) {
+        return {
+          ChangeRequest: changeRequestId,
+          Status: 'checkAndEnrich',
+          NeedsConfirmation: false,
+          Valid: false,
+          ValidationsJson: JSON.stringify(validations),
+          MessagesJson: JSON.stringify([])
+        };
+      }
+
+      await recordValidationFindings(changeRequestId, validations);
+
+      const findings = await recordDuplicateFindings(changeRequestId, req.data.BusinessPartner);
+      const duplicates = findings.filter((finding) => finding.verdict);
+      if (duplicates.length && !req.data.Confirm) {
+        return {
+          ChangeRequest: changeRequestId,
+          Status: 'checkAndEnrich',
+          NeedsConfirmation: true,
+          Valid: true,
+          ValidationsJson: JSON.stringify(validations),
+          MessagesJson: JSON.stringify(findings)
+        };
+      }
+
+      const header = await db.run(cds.ql.SELECT.one.from(HEADER).where({ ID: changeRequestId }));
+      const context = await workflowContext(req, changeRequestId, header, findings);
+
+      // Best-effort, like resubmitRequest's own signal - the data steward task itself completing is
+      // what resumes the process, this is a second, optional path for a process that listens for it.
+      try {
+        await triggerRequesterCallback(before.processInstanceId, DATASTEWARD_COMPLETE_SIGNAL, context);
+      } catch (error) {
+        console.error(`Could not signal that data steward review of ${changeRequestId} was completed:`, error);
+      }
+
+      await db.run(cds.ql.UPDATE(HEADER).set({
+        status: 'inApproval',
+        submittedAt: new Date().toISOString(),
+        submittedBy: requestingUserEmail(req)
+      }).where({ ID: changeRequestId }));
+      await appendComment(db, changeRequestId, 'DataSteward', requestingUserEmail(req), req.data.Reason);
+
+      return {
+        ChangeRequest: changeRequestId,
+        Status: 'inApproval',
+        ProcessInstanceId: before.processInstanceId,
+        NeedsConfirmation: false,
+        Valid: true,
+        ValidationsJson: JSON.stringify(validations),
+        MessagesJson: JSON.stringify(findings),
+        ContextJson: JSON.stringify(context)
+      };
+    });
+
     // Staged rows back into the screen's own payload shape, so the approve view reuses one code path.
     this.on('getRequestPayload', async (req) => {
       const changeRequest = req.data.ChangeRequest;
@@ -1384,12 +1582,15 @@ ChangeRequestService._internals = {
   stateOfAction,
   UNTOUCHED,
   reworkUrl,
+  dataStewardUrl,
   buildBusinessPartnerInput,
   activeStagedRows,
   SUPPORTED_REQUEST_TYPES,
   EDITABLE_STATUSES,
   WITHDRAWABLE_STATUSES,
   RESUBMITTED_SIGNAL,
+  DATASTEWARD_COMPLETE_SIGNAL,
+  DATASTEWARD_REJECTED_SIGNAL,
   WITHDRAWN_SIGNAL,
   FINDING_COLUMNS,
   stagedFinding,

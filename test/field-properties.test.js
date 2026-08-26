@@ -91,14 +91,25 @@ test('an unknown entity, field or property is refused rather than stored', () =>
 });
 
 /**
- * `critical` (2026-08-26) is independent of the four states: a field can be mandatory AND critical,
+ * `critical` (2026-08-26) is independent of the four states: an entity can be mandatory AND critical,
  * or carry no property at all and only be critical - so an empty property is no longer, on its own,
  * a reason to refuse the row.
  */
-test('a row may carry critical with no property at all', () => {
-  const { setting, error } = validateSetting({ section: 'Addresses', element: 'Country', critical: true }, csn);
+test('an entity-level row may carry critical with no property at all', () => {
+  const { setting, error } = validateSetting({ section: 'Addresses', critical: true }, csn);
   assert.equal(error, undefined);
-  assert.deepEqual(setting, { section: 'Addresses', element: 'Country', property: null, critical: true });
+  assert.deepEqual(setting, { section: 'Addresses', element: null, property: null, critical: true });
+});
+
+/**
+ * Entity-level only (2026-08-26): critical marks the whole entity, not one field inside it, so a
+ * field-level row is refused on the write path even though `resolveProfiles` still reads an older
+ * one - see field-property-apply.test.js for that read-side tolerance.
+ */
+test('a field-level critical row is refused, not stored', () => {
+  const { setting, error } = validateSetting({ section: 'Addresses', element: 'Country', critical: true }, csn);
+  assert.equal(setting, undefined);
+  assert.match(error, /cannot be critical/u);
 });
 
 /** One state per target: the dialog is a radio group drawn as checkboxes, and the store agrees. */
@@ -215,9 +226,9 @@ test('the dialog lists entities that open up to their fields, with the four boxe
 /**
  * Critical (2026-08-26, asked for after the per-profile column that shipped first): drawn as a fifth
  * checkbox next to Mandatory/Read-only/Hidden/Optional, but independent of them - it neither clears
- * nor is cleared by `onPropertySelect`, because a field can be mandatory AND critical.
+ * nor is cleared by `onPropertySelect`, because an entity can be mandatory AND critical.
  */
-test('critical is a fifth, independent checkbox on both levels', () => {
+test('critical is a fifth, independent checkbox drawn on both levels', () => {
   assert.equal((dialog.match(/<CheckBox/gu) || []).length, 5, 'four states plus critical, one row template');
   assert.match(dialog, /selected="\{fp>critical\}"/u);
   assert.match(dialog, /select="\.onCriticalSelect"/u);
@@ -230,6 +241,18 @@ test('critical is a fifth, independent checkbox on both levels', () => {
   assert.match(body, /row\.critical = event\.getParameter\("selected"\)/u);
   // Independent: it never touches `property`, and onPropertySelect never touches `critical`.
   assert.equal(/\.property/u.test(body), false);
+});
+
+/**
+ * Entity-level only (2026-08-26): critical marks the whole entity, so the box is disabled on a field
+ * row rather than removed - a requester can still see an older field-level value, just not set one.
+ */
+test('the critical box is only enabled on an entity row', () => {
+  assert.match(dialog, /enabled="\{= \$\{fp>kind\} === 'entity' \}"[\s\S]{0,40}select="\.onCriticalSelect"/u);
+  // Guarded on the JS side too, rather than trusting the binding alone.
+  const handler = controller.slice(controller.indexOf('onCriticalSelect: function'));
+  const body = handler.slice(0, handler.indexOf('\n    },'));
+  assert.match(body, /if \(row\.kind !== "entity"\) return;/u);
 });
 
 /**

@@ -67,7 +67,7 @@ test('the rejection comment is kept apart from the requester reason', () => {
  */
 test('every decision and resubmit appends to the running thread, not just the latest fields', () => {
   assert.match(staging, /entity ChangeRequestComments\s*:\s*cuid,\s*managed\s*\{/u);
-  assert.match(staging, /role\s*:\s*String\(20\) enum \{ Requester; Approver; System \} not null/u);
+  assert.match(staging, /role\s*:\s*String\(20\) enum \{ Requester; Approver; System; DataSteward \} not null/u);
   assert.match(staging, /comments\s*:\s*Composition of many ChangeRequestComments/u);
   assert.match(
     serviceCds, /@readonly entity ChangeRequestComments as projection on staging\.ChangeRequestComments/u
@@ -125,9 +125,10 @@ test('rework offers its own comment box, not the embedded-only approver one', ()
   assert.equal(/env>\/embedded/u.test(box), false, 'not gated on embedded, unlike approverCommentBox');
 });
 
-test('resubmit sends the rework note as Reason, and only resubmit does', () => {
+test('resubmit sends the rework note as Reason, and a data steward review sends its own note', () => {
   assert.match(
-    controller, /Reason: action === "resubmitRequest" \? \(state\.reworkComment \|\| null\) : null/u
+    controller,
+    /Reason: action === "resubmitRequest"\s*\n?\s*\? \(state\.reworkComment \|\| null\)\s*\n?\s*: \(action === "decideDataStewardReview" \? \(state\.dataStewardComment \|\| null\) : null\)/u
   );
 });
 
@@ -135,14 +136,18 @@ test('resubmit sends the rework note as Reason, and only resubmit does', () => {
 // cds-deploy performs; renaming or dropping the old value would have failed the deploy.
 test('the status column was widened rather than renamed', () => {
   assert.match(staging, /type ChangeRequestStatus : String\(20\) enum/u);
-  assert.match(staging, /draft; inApproval; approved; rejected; reworkRequired; posted; failed/u);
+  assert.match(
+    staging, /draft; inApproval; approved; rejected; reworkRequired; checkAndEnrich; posted; failed/u
+  );
   assert.equal(/Status\s+: String\(12\)/u.test(serviceCds), false, 'the action returns were widened too');
   assert.ok('reworkRequired'.length <= 20);
+  assert.ok('checkAndEnrich'.length <= 20);
 });
 
-// The guard that decides whether rework is possible at all. It was draft-only.
-test('a request awaiting rework is editable, and nothing further along is', () => {
-  assert.deepEqual(EDITABLE_STATUSES, ['draft', 'reworkRequired']);
+// The guard that decides whether rework is possible at all. It was draft-only, then reworkRequired
+// joined it, then checkAndEnrich for the same reason: a data steward mid-edit is editing a payload.
+test('a request awaiting rework or data steward review is editable, and nothing further along is', () => {
+  assert.deepEqual(EDITABLE_STATUSES, ['draft', 'reworkRequired', 'checkAndEnrich']);
   assert.match(serviceJs, /if \(!EDITABLE_STATUSES\.includes\(existing\.status\)\)/u);
   for (const closed of ['inApproval', 'approved', 'posted', 'failed', 'rejected']) {
     assert.equal(EDITABLE_STATUSES.includes(closed), false, `${closed} is not editable`);
@@ -207,36 +212,55 @@ test('the resubmit signal carries the BP context flat inside inputs', () => {
  * One builder for both paths. Two copies of this object would drift the first time one grew a key,
  * and the approver would be shown a different shape depending on which route the request took.
  */
-test('submit and resubmit send the same BP context, built once', () => {
+test('submit, resubmit and a data steward completing review send the same BP context, built once', () => {
   assert.match(serviceJs, /const workflowContext = async \(req, changeRequest, header, findings\)/u);
-  assert.equal((serviceJs.match(/await workflowContext\(/gu) || []).length, 2, 'both paths use it');
+  // submitRequest, resubmitRequest, decideDataStewardReview's `complete` branch.
+  assert.equal((serviceJs.match(/await workflowContext\(/gu) || []).length, 3, 'all three paths use it');
   // Scoped to the builder, not the whole file: withdraw also sends `changerequestid`, but as a
   // single field on its own signal rather than a second copy of the context.
   const builder = serviceJs.slice(
     serviceJs.indexOf('const workflowContext ='), serviceJs.indexOf('const persist =')
   );
   assert.equal((builder.match(/changerequestid:/gu) || []).length, 1, 'one context literal');
-  for (const key of ['businesspartnerinput', 'bpduplicates', 'bpurl', 'reworkurl', 'requesttype', 'prefix']) {
-    assert.match(builder, new RegExp(`${key}:`, 'u'), `${key} is in the context`);
+  for (const key of [
+    'businesspartnerinput', 'bpduplicates', 'bpurl', 'reworkurl', 'datastewardurl', 'requesttype',
+    'prefix', 'criticalfield'
+  ]) {
+    assert.match(builder, new RegExp(`${key}[,:]`, 'u'), `${key} is in the context`);
   }
-  // Shorthand, not `key: value` like the others - checked in its own test below, which also pins
-  // where the value comes from.
-  assert.match(builder, /\n\s*criticalFields\n\s*\};/u, 'criticalFields is in the context');
+  // Last key in the object, shorthand, no trailing comma - checked in its own test below.
+  assert.match(builder, /\n\s*datastewards\n\s*\};/u, 'datastewards is in the context');
 });
 
 /**
- * A hint for the process, not a gate - CAP itself blocks or warns on nothing here. Best-effort like
- * `approvers`: an unreadable profile table sends an empty list rather than losing the submit.
+ * `criticalfield` is a scalar 'X'/' ' flag, not a list - a marker for a data steward, not a gate:
+ * CAP itself blocks or warns on nothing here. Best-effort like `approvers`: an unreadable profile
+ * table leaves it ' ' rather than losing the submit. Lowercase on the wire like every other key in
+ * this context; the local variable keeps its camelCase name for readability.
  */
-test('the critical fields come from the field property profiles, best-effort like approvers', () => {
+test('criticalfield is X only when a critical entity was actually filled in on this request', () => {
   const builder = serviceJs.slice(
     serviceJs.indexOf('const workflowContext ='), serviceJs.indexOf('const persist =')
   );
-  assert.match(builder, /let criticalFields = \[\];/u);
-  assert.match(builder, /criticalFields = await criticalFieldsFor\(requesterContext\(req\)\)/u);
+  assert.match(builder, /let criticalField = ' ';/u);
+  assert.match(builder, /const resolved = await resolvedProperties\(requesterContext\(req\)\);/u);
+  assert.match(builder, /const critical = resolved\.criticalEntities \|\| \[\];/u);
+  assert.match(builder, /if \(critical\.some\(\(section\) => sectionRows\(payload, section\)\.length > 0\)\) criticalField = 'X';/u);
   assert.match(builder, /catch \(error\) \{\s*console\.error\(`Could not resolve the critical fields/u);
-  // Returned as a shorthand property, already the flat array resolveCriticalFields produces.
-  assert.match(builder, /\n\s*criticalFields\n\s*\};/u);
+  assert.match(builder, /criticalfield: criticalField,/u);
+});
+
+/**
+ * `datastewards` is read straight from the BTP subaccount's role collections (srv/wf/data-stewards.js),
+ * the same way `approvers` is fetched fresh at submit time - not through the WorkflowRules table.
+ */
+test('datastewards is fetched from BTP role collections, the same way approvers is fetched', () => {
+  assert.match(serviceJs, /const \{ dataStewardEmails \} = require\('\.\/wf\/data-stewards'\)/u);
+  const builder = serviceJs.slice(
+    serviceJs.indexOf('const workflowContext ='), serviceJs.indexOf('const persist =')
+  );
+  assert.match(builder, /const datastewards = await dataStewardEmails\(\);/u);
+  assert.match(builder, /datastewards$/mu);
 });
 
 /**
@@ -568,11 +592,15 @@ test('a failed post is told apart from a rejection on the rework screen', () => 
 });
 
 // Once it is back with the approver it is not the requester's to withdraw.
-test('a resubmitted request stops offering Withdraw', () => {
+test('a resubmitted request stops offering Withdraw, and a completed review stops offering its own buttons', () => {
   const send = controller.slice(controller.indexOf('_sendChangeRequest: async function'));
   assert.match(send, /state\.showReworkButtons = false/u);
+  assert.match(send, /state\.showDataStewardButtons = false/u);
   assert.match(send, /action === "resubmitRequest"\s*\n?\s*\? "Request resubmitted for approval"/u);
   // The duplicate gate's dialog names the action it will actually take.
-  assert.match(send, /confirmText: action === "resubmitRequest" \? "Resubmit" : "Submit Request"/u);
-  assert.match(send, /action === "submitRequest" \|\| action === "resubmitRequest"/u);
+  assert.match(
+    send,
+    /confirmText: action === "resubmitRequest"\s*\n?\s*\? "Resubmit"\s*\n?\s*: \(action === "decideDataStewardReview" \? "Complete Review" : "Submit Request"\)/u
+  );
+  assert.match(send, /\["submitRequest", "resubmitRequest", "decideDataStewardReview"\]\.includes\(action\)/u);
 });

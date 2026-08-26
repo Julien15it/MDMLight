@@ -5,7 +5,7 @@
     "type": "application",
     "i18n": "i18n/i18n.properties",
     "applicationVersion": {
-      "version": "1.3.0"
+      "version": "1.5.0"
     },
     "title": "{{appTitle}}",
     "description": "{{appDescription}}",
@@ -87,6 +87,11 @@
           "pattern": "ChangeRequests/{changeRequest}/rework",
           "name": "ChangeRequestRework",
           "target": "BusinessPartnerMaintenance"
+        },
+        {
+          "pattern": "ChangeRequests/{changeRequest}/datasteward",
+          "name": "ChangeRequestDataSteward",
+          "target": "BusinessPartnerMaintenance"
         }
       ],
       "targets": {
@@ -127,6 +132,11 @@
         "id": "withdraw",
         "label": "Withdraw",
         "type": "negative"
+      },
+      {
+        "id": "enrich",
+        "label": "Complete Review",
+        "type": "positive"
       }
     ],
     "inputs": {

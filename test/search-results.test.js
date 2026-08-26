@@ -29,7 +29,9 @@ const SEARCHABLE_FIELDS = [
 const contains = (field, value) => ({ func: 'contains', args: [{ ref: [field] }, { val: value }] });
 
 test('in progress is narrower than the lock: approved and failed belong to the post', () => {
-  assert.deepEqual([...IN_PROGRESS_REQUEST_STATUSES], ['draft', 'inApproval', 'reworkRequired']);
+  assert.deepEqual(
+    [...IN_PROGRESS_REQUEST_STATUSES], ['draft', 'inApproval', 'reworkRequired', 'checkAndEnrich']
+  );
   assert.equal(IN_PROGRESS_REQUEST_STATUSES.includes('approved'), false);
   assert.equal(IN_PROGRESS_REQUEST_STATUSES.includes('posted'), false);
 });

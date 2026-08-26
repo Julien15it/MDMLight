@@ -170,6 +170,10 @@ module.exports = {
   TTL_MS,
   workflowAgents,
   reset,
+  // Shared with data-stewards.js, which reads the same Authorization Management API through the same
+  // token cache - a second module fetching its own token would be a second, redundant call to the
+  // XSUAA token endpoint for the one client credential this app has for that API.
+  callApi,
   // Exported for tests only, same convention as _internals elsewhere in this codebase.
   _internals: { fetchRoleCollections, fetchUsers, getCredentials, apiHost }
 };

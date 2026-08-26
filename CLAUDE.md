@@ -1326,6 +1326,96 @@ must not read as "nothing to report"; an unreadable *profile* table resolves to
 nothing, because a read failure that hid every field or blocked every submit would
 take the maintenance screen down over a control that is not a verdict on the data.
 
+#### Critical fields, entity-level only, and who to notify (2026-08-26)
+
+Three things changed together, all off the same `critical` column:
+
+- **The Critical checkbox stopped saving.** `fieldPropertiesOf`'s read
+  (`srv/duplicate-config-service.js`) selected `section`, `element`, `property` —
+  never `critical` — so every reopen of the dialog rebuilt the tree with
+  `critical: undefined` on every row, regardless of what was stored. The box
+  looked cleared the moment the dialog was reopened, even though the save itself
+  (`saveFieldProperties`) always persisted it correctly. Fixed by adding
+  `critical` to that column list; the bug was on the read side only.
+- **Critical is entity-level only.** `validateSetting` in
+  `srv/checks/field-properties.js` refuses a row that carries both `element` and
+  `critical: true` — "critical applies to the whole entity, not one field" — and
+  the dialog greys the box out on a field row (`enabled="{= ${fp>kind} ===
+  'entity'}"`) to match, guarded again in `onCriticalSelect` rather than trusting
+  the binding alone. `resolveProfiles` still *reads* an older field-level critical
+  row rather than dropping it — the same tolerance the withdrawn multi-value
+  feature's delimited-list reader keeps — and the dialog's `_buildTree` never
+  carries a field-level `critical` back into the editable tree, so a profile with
+  one left over self-migrates to entity-level the next time someone presses
+  Apply, rather than becoming unsavable.
+- **Critical is a marker, not a gate — deliberately.** A first version blocked an
+  empty critical entity with an error strip at the top of the screen; Maarten
+  rejected that the same day. `createFieldPropertyStages` was reverted to enforce
+  `mandatory` only, and `critical` contributes no validation stage on its own.
+
+**The marker is drawn on the screen, not written as a message.** The maintenance
+screen (`app/reuse/.../BusinessPartnerMaintenance.controller.js`) already loads
+`effectiveFieldProperties` before every render; `_isCriticalEntity` reads its
+`criticalEntities` list and `_markSectionCritical` appends "⚠" to the Object Page
+section's own title (`section.setTitle`) when the section is critical — "Address
+Data ⚠", not a strip, not a popup. Applied in `_renderSection` for the nine node
+sections and in `_renderRootForm`/`_renderRootSection` for the two cards the root
+section splits into (General Information, Names), since both render the same
+`General` payload section and critical is decided per section, not per card.
+
+**`criticalFields` became two scalar fields in the workflow context, not a list.**
+`criticalfield` (lowercase on the wire, like every other key in this context —
+the local variable in `srv/change-request-service.js` stays `criticalField` for
+readability) is Arthur's BPA input parameter and takes exactly one value:
+`'X'` or `' '` — never an array, and never one entry per entity the way the first
+version sent it. `workflowContext` (`srv/change-request-service.js`) answers one
+question: does this request fill in **any** entity a field property profile marks
+critical? It reads `resolvedProperties(requesterContext(req)).criticalEntities`
+and checks each with `sectionRows(payload, section)` — 'X' the moment one has a
+row, ' ' otherwise, including when nothing is marked critical at all or the
+profile table cannot be read. There is no per-entity detail in the payload; SBPA
+is told *that* something critical was filled in, never *which* — the screen's "⚠"
+is where a human sees which.
+
+**`datastewards` is a flat array of e-mails, resolved the same way `approvers`
+is — fresh at submit time, never through the `WorkflowRules` table.**
+`srv/wf/data-stewards.js` resolves every BTP subaccount user holding this app's
+own `DataSteward` role template (`xs-security.json`), because unlike
+`btp-agents.js`'s `MDMLIGHT`-prefixed collections for the approver picker, a
+`DataSteward`-carrying collection can be named anything, so membership has to be
+resolved by role template rather than read off a naming convention. It shares
+`btp-agents.js`'s HTTP client (`callApi`, now exported) rather than fetching its
+own token, and follows the same best-effort discipline: never throws, resolves to
+`[]` on any failure, cached 5 minutes. Sent as `string[]`, like `approvers` — the
+same lesson applies: the deployed process validates the shape it declared, and an
+array of objects is not what an array-of-strings input accepts.
+
+**Shipped empty, diagnosed and fixed the same day against the live subaccount.**
+The first version made two wrong assumptions, neither of which threw — both just
+quietly resolved to nothing, so the symptom was `datastewards: []` on every
+submit with no warning in the logs to point at why:
+
+- **The role-collection detail call read the wrong key.** `GET
+  /sap/rest/authorization/v2/rolecollections` already returns each collection's
+  roles inline as `roleReferences` — there is no separate detail call needed at
+  all. The first version made one anyway (`GET .../rolecollections/{name}`) and
+  read its result as `detail.roles`, a key that does not exist on the response,
+  so `carriesTemplate` was always false and no collection ever matched.
+- **The per-user role-collection endpoint doesn't answer what it sounds like it
+  should.** `GET /sap/rest/authorization/v2/users/{name}/rolecollections`
+  answered `{ roleCollections: [], roleCollectionsBySamlAssignment: [] }` for a
+  user confirmed (via `/Users`) to be a member of two collections — wrong for
+  this purpose, live-tested rather than assumed. `GET /Users` already returns
+  each user's own membership inline as `groups`
+  (`[{ value, display, type: 'DIRECT' }]`, both `value` and `display` the
+  collection name), which costs nothing extra since `/Users` is fetched anyway.
+
+Diagnosed by running a small script as a one-off `cf run-task` against the
+already-bound `mdm-businesspartner-authmgmt` credentials (same approach as
+`tools/wipe-staging.js`'s env-var-passthrough trick) to print the real API
+responses — the fix in both bullets above was copied from that live output, not
+reasoned about from documentation. `test/data-stewards.test.js` pins both real
+response shapes so a future refactor cannot reintroduce either wrong key.
 
 
 ### Workflow Agent Determination — who approves what (2026-08-21)
@@ -1844,6 +1934,109 @@ Inbox** completes the task anyway. The decision stands and the task is done eith
 way, and the approver is shown the error — but if a failed post should leave the
 task open instead, that is a change to `_completeTask` in `app/bptask`.
 
+#### Data steward enrichment (2026-08-26)
+
+A third loop, parallel to rework rather than a step inside it: a data steward can
+be handed a request mid-approval to add or correct data, then send it back — to
+the approver if they made it work, to the requester if they could not. Built by
+copying rework's own shape wherever the two are genuinely the same thing, and
+diverging only where the roles differ.
+
+- **`checkAndEnrich` is its own status** (`db/staging.cds`), not a value of
+  `reworkRequired` — a data steward's edit and a rejection are different events,
+  and collapsing them would make the screen unable to tell "the requester is
+  reworking this" from "the steward is". It joined `EDITABLE_STATUSES`,
+  `ACTIVE_REQUEST_STATUSES` and `IN_PROGRESS_REQUEST_STATUSES` for exactly the
+  reasons `reworkRequired` is in each: a payload someone may still edit, a
+  partner still locked, a request still owned by a human. `WITHDRAWABLE_STATUSES`
+  aliases `EDITABLE_STATUSES` (test-pinned), so a data steward who cannot make a
+  request work may withdraw it the same way a requester withdraws a rework —
+  accepted rather than special-cased, though nothing in the UI offers a Withdraw
+  button in this mode today.
+- **`claimDataStewardReview` is `claimRework`'s own pattern**: arrival on the
+  screen (via the `datastewardurl` deep link or a My Inbox task carrying
+  `tasktype: "datasteward"`) moves `inApproval` → `checkAndEnrich`, because
+  nothing on Arthur's side calls a CAP action to make this transition — the
+  process routing a task here is taken as the evidence, same as claimRework's own
+  reasoning, and no workflow signal is sent for the same reason claimRework sends
+  none.
+- **`decideDataStewardReview` is two different existing shapes under one action**,
+  picked by `Decision`: `'complete'` is **`resubmitRequest`'s own body** — persist,
+  the same validation/duplicate-check gates, `Confirm` included, rebuild the
+  workflow context, hand the **same parked instance** back to `inApproval`. A data
+  steward enriching data is reworking the payload, just under a different status,
+  so nothing about the gates changes. `'reject'` is **`decideRequest`'s reject
+  branch** instead: no payload to persist, straight to `reworkRequired` with the
+  steward's note on `rejectionComment`, because the steward could not make the
+  request work and it goes back to whoever raised it — never back to the
+  approver, who never asked the steward anything.
+- **Both are placed after `withdrawRequest`, not beside `claimRework`.** Several
+  tests slice `serviceJs` from `resubmitRequest` to `withdrawRequest` expecting an
+  exact shape (an exact `workflowContext` call count, no workflow signal inside
+  `claimRework`'s own slice); inserting the new handlers between `claimRework` and
+  `withdrawRequest` would have landed inside those slices and broken assertions
+  about behaviour that did not change. Ordering in the file is not the same as
+  ordering in the CDS service definition, and does not need to be.
+- **Two new signals, `DataStewardComplete` / `DataStewardRejected`, are
+  unconfirmed placeholders** — like `WITHDRAWN_SIGNAL` was until confirmed,
+  nothing on Arthur's side listens for either yet. `triggerRequesterCallback` is
+  reused rather than duplicated: it was already generic, told apart only by
+  `result`, and now carries four signals instead of two.
+- **The screen is the same shared `BusinessPartnerMaintenance` screen**, in a
+  fourth mode (`"datasteward"`, alongside `"approve"`/`"edit"`/`"rework"`/`"view"`),
+  reached by `_onDataStewardRoute` and the route `ChangeRequests/{id}/datasteward`
+  in both `app/businesspartner` and `app/bptask`. Editable like rework
+  (`showSaveButton`/`showSaveRequestButton` both false, unlike rework, because
+  there is no generic Save — only the two decision buttons below), and the field
+  property profile is read under the `DataSteward` role rather than `Requester` or
+  `Approver` — a role that already existed in `srv/checks/field-properties.js`'s
+  `ROLES` for exactly this, unused until now.
+- **Two buttons, not one primary action like rework's Resubmit.** *Complete
+  Review* goes through `_sendChangeRequest("decideDataStewardReview")`, which gets
+  it the same Check/duplicate-confirm dialog dance as Resubmit (it edits the
+  payload too) and, on success, `_completeEmbeddedOutcome("enrich", ...)`.
+  *Reject* is a plain decision — `onRejectDataStewardReview` confirms, then
+  `_declineDataStewardReview` calls the action directly with no gates, mirroring
+  `onReject`/`_decide`'s shape rather than `_sendChangeRequest`'s. A
+  `dataStewardCommentBox`, not embedded-only (same reasoning as
+  `reworkCommentBox`: the deep link reaches this screen standalone too), carries
+  the steward's note either way.
+- **The task app's outcome ids are `"enrich"` and `"reject"` — Reject reuses the
+  approve task type's own id rather than a new one (changed 2026-08-26 on
+  Julien's ask; the first version used `"decline"`).** `sap.bpa.task.outcomes`
+  is one flat array across every task type this app handles, and an id only has
+  to be unique **within** it, not per handler: `_addInboxActions` (approve type)
+  and `_addDataStewardInboxActions` (data steward type) both register `"reject"`,
+  each with its own callback, and that is safe because the two task types never
+  coexist on one task instance — `_initTaskForm` picks exactly one branch per
+  task, so only one handler for `"reject"` is ever registered at a time. Reusing
+  the id also means the Lobby needs no new outcome mapped for the data steward
+  step beyond `"enrich"`, which has no existing outcome to reuse. Both go through
+  `_addDataStewardInboxActions`, event-bus-publish only like
+  `_addReworkInboxActions` (never `_completeTask` directly, unlike the approve
+  task type's own `"reject"`) — Complete Review needs the shared screen's gates
+  to run first, and Reject needs `decideDataStewardReview`'s result before the
+  task can be patched. `applicationVersion` was bumped `1.3.0` → `1.4.0` → `1.5.0`
+  across the two changes (outcomes added, then the id reused), per the rule
+  pinned in `test/task-form.test.js`: the Lobby only re-reads `sap.bpa.task` when
+  the task is re-pointed at a new version.
+- **The processors strip and the merged search list both learned the new status.**
+  `request-processors.js` gained a `checkAndEnrich` branch (step "Data Steward
+  Review", named by whichever `dataStewardEmails()` resolves — read only while the
+  status actually is `checkAndEnrich`, the same discipline `approvers` follows for
+  `inApproval`) and `search-results.js`'s `IN_PROGRESS_REQUEST_STATUSES` /
+  `STATUS_LABELS` both list it, for the same reason `reworkRequired` is in both: a
+  human still owns the request.
+- **Not built on Arthur's side at all yet** — this is further behind than rework
+  was at the equivalent point, because nothing routes a task to a data steward in
+  the first place: which condition sends a request to `checkAndEnrich` instead of
+  straight through approval, how the parked instance is told to wait for
+  `DataStewardComplete`/`DataStewardRejected`, and re-pointing whichever user task
+  in the Lobby is meant to render `mdm.md.businesspartner.task` for this step. CAP
+  and the UI hold up their end (the status, the actions, the screen, the task
+  type) and wait for the process side the same way rework's did before Arthur
+  wired up the rejection branch.
+
 #### The approve screen as a BPA UI5 Task Form
 
 **The task form is its own app since 2026-08-20: `app/bptask`
@@ -2021,6 +2214,9 @@ first rather than "fixing" it locally:
 
 - Approver task URL: `<app-url>#/ChangeRequests/{changeRequestId}/approve`
 - Requester rework URL: `<site-url>#BusinessPartner-manage&/ChangeRequests/{id}/rework`
+- Data steward review URL: `<site-url>#BusinessPartner-manage&/ChangeRequests/{id}/datasteward`
+  (sent as `datastewardurl`, added 2026-08-26 - not yet used by any process definition, see "Data
+  steward enrichment")
 
 **Both deep links are Work Zone intents, not approuter paths (fixed 2026-08-19).** They were built
 as `<approuter-host>/mdmmdbusinesspartnermanage/index.html#<route>`, which is the standalone
@@ -2033,7 +2229,7 @@ host, so the variable was renamed rather than reused - unset now yields `''`, an
 diagnosable where a 404 is not. The intent must match the `BusinessPartner-manage` inbound.
 - Workflow context sent at submit:
   `{ changerequestid, requesttype, businesspartner, emailadressinitiator, bpurl, reworkurl,
-  prefix, businesspartnerinput, bpduplicates, approvers }`
+  datastewardurl, prefix, businesspartnerinput, bpduplicates, approvers, criticalfield, datastewards }`
 - **`prefix` must be mapped onto the approval AND rework task inputs** (added 2026-08-25, agreed
   with Maarten). It is the destination service instance GUID, and it is the only way the task UI
   can learn its own OData path — see "The task app". Declared in `app/bptask`'s `sap.bpa.task.inputs`
@@ -2043,6 +2239,11 @@ diagnosable where a 404 is not. The intent must match the `BusinessPartner-manag
 - `approvers` is an **array of strings** from the `WorkflowRules` table — e-mail
   addresses and role names mixed, `kind` derivable from the `@`. It is **not** an
   array of objects: see "What actually goes over the wire" under "Workflow rules".
+- `criticalfield` (lowercase on the wire, like every other key here) is a
+  **scalar `'X'`/`' '` flag**, never a list — see "Critical
+  fields, entity-level only, and who to notify". `datastewards` is an **array of
+  strings**, resolved fresh from BTP role collections, the same shape discipline
+  as `approvers` for the same reason.
 
 **Not built on Arthur's side yet — rework needs three things from his definition,
 and the loop does not close without them:**

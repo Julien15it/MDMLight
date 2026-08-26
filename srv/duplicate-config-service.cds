@@ -152,8 +152,9 @@ service DuplicateConfigService {
    *  the closed lists behind the two condition dropdowns. Never a hand-kept copy in the UI. */
   function fieldPropertyOptions() returns FieldPropertyOptions;
 
-  /** A profile's settings as `[{ section, element, property }]`. `element` is null for a setting
-   *  that applies to the whole entity. One call, because the dialog needs them all at once. */
+  /** A profile's settings as `[{ section, element, property, critical }]`. `element` is null for a
+   *  setting that applies to the whole entity - which is the only level `critical` may be true on.
+   *  One call, because the dialog needs them all at once. */
   function fieldPropertiesOf(
     Profile : UUID not null
   ) returns LargeString;

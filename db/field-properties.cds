@@ -74,12 +74,21 @@ entity FieldPropertySettings {
       property : String(12);
 
       /**
-       * Independent of `property` above - a field can be mandatory AND critical, or optional AND
+       * Independent of `property` above - an entity can be mandatory AND critical, or optional AND
        * critical, so it is its own checkbox rather than a fifth value in that one-per-row set.
        *
-       * Read at submit/resubmit and sent to SBPA as `criticalFields` in the workflow context
-       * (srv/change-request-service.js), so the process can be told which fields on THIS request
-       * warrant closer scrutiny - nothing in CAP itself blocks or warns on it.
+       * Entity-level only (2026-08-26): `element` must be null on a critical row - the write path
+       * (`validateSetting` in srv/checks/field-properties.js) refuses a field-level one, and the
+       * dialog greys the box out on a field row to match. `resolveProfiles` still reads an older
+       * field-level row rather than dropping it, the same tolerance the withdrawn multi-value feature
+       * left behind for its own stored data.
+       *
+       * A marker, not a gate (reverted 2026-08-26 the same day it was tried) - `createFieldPropertyStages`
+       * enforces `mandatory` only, never `critical`. Two things read it instead: the maintenance
+       * screen draws "⚠" next to a critical section's title, and `workflowContext`
+       * (srv/change-request-service.js) reduces every critical entity on the request to one scalar
+       * `criticalField` - `'X'` if any of them has data, `' '` otherwise. Neither ever names which
+       * entity; that is what the screen's marker is for.
        */
       critical : Boolean default false;
 }

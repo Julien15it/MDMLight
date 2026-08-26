@@ -54,7 +54,7 @@ test('the action declares Propose and Scope, and the runner threads both', () =>
   assert.match(checkAction, /Scope\s+:\s+String\(40\)/u);
 
   const js = fs.readFileSync(path.join(__dirname, '..', 'srv', 'change-request-service.js'), 'utf8');
-  assert.match(js, /runRequestChecks = async \(req, \{ propose, duplicates, scope = null \}\)/u);
+  assert.match(js, /runRequestChecks = async \(req, \{ propose, duplicates, scope = null, standard = false \}\)/u);
   // Matched loosely on purpose: what matters is that the payload and the scope reach
   // proposeNormalisations, not how the call is wrapped - it also carries the AI switch now.
   const proposeCall = js.slice(js.indexOf('proposeNormalisations({'));

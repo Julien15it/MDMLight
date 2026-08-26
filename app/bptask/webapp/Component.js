@@ -168,9 +168,9 @@ sap.ui.define(
                 }
                 // Nothing may bind before this: the OData path is only knowable from the context.
                 this._begin(context.prefix);
-                // `tasktype` is the only thing telling a rework task apart from the approver's
-                // decision task. Absent - every task built before rework existed - still means
-                // approve, so no workflow that already works needs its input mapping touched.
+                // `tasktype` is the only thing telling a rework or data steward task apart from the
+                // approver's decision task. Absent - every task built before either existed - still
+                // means approve, so no workflow that already works needs its input mapping touched.
                 if (context.tasktype === "rework") {
                     if (context.changerequestid) {
                         this._openRework(context.changerequestid);
@@ -182,6 +182,21 @@ sap.ui.define(
                         );
                     }
                     this._addReworkInboxActions();
+                    return;
+                }
+
+                if (context.tasktype === "datasteward") {
+                    if (context.changerequestid) {
+                        this._openDataStewardReview(context.changerequestid);
+                    } else {
+                        MessageBox.error(
+                            "This task carries no change request id, so there is nothing to show. "
+                            + "In the data steward step of the process, map the process context onto "
+                            + "the task inputs declared in sap.bpa.task - changerequestid is the "
+                            + "required one."
+                        );
+                    }
+                    this._addDataStewardInboxActions();
                     return;
                 }
 
@@ -271,6 +286,26 @@ sap.ui.define(
                 if (targets) targets.display("BusinessPartnerMaintenance");
             },
 
+            // Same shape as _openRework - see that one's comment for why routing is bypassed
+            // embedded and both the model and the event are used.
+            _openDataStewardReview: function (changeRequest) {
+                if (!this.getModel("env").getProperty("/embedded")) {
+                    this.getRouter().navTo(
+                        "ChangeRequestDataSteward",
+                        { changeRequest: encodeURIComponent(changeRequest) },
+                        true
+                    );
+                    return;
+                }
+
+                this.getModel("env").setProperty("/taskDataStewardChangeRequest", changeRequest);
+                this.getEventBus().publish("taskform", "datasteward", { changeRequest: changeRequest });
+
+                var router = this.getRouter();
+                var targets = router && router.getTargets && router.getTargets();
+                if (targets) targets.display("BusinessPartnerMaintenance");
+            },
+
             _startupParameters: function () {
                 var componentData = (this.getComponentData && this.getComponentData()) || {};
                 return componentData.startupParameters || {};
@@ -310,6 +345,31 @@ sap.ui.define(
                 [
                     { id: "withdraw", label: "Withdraw", type: "reject" },
                     { id: "resubmit", label: "Resubmit", type: "accept" }
+                ].forEach(function (outcome) {
+                    inbox.addAction(
+                        { action: outcome.id, label: outcome.label, type: outcome.type },
+                        function () { eventBus.publish("taskform", outcome.id); }
+                    );
+                }, this);
+            },
+
+            /**
+             * Same shape as _addReworkInboxActions, for the data steward's two outcomes. Reject
+             * reuses the approve task type's own "reject" id rather than a new one - the two never
+             * coexist on one task instance (tasktype picks exactly one of _addInboxActions/
+             * _addReworkInboxActions/_addDataStewardInboxActions), so the same id can be registered
+             * with a different handler each time. "enrich" has no such counterpart to reuse. Complete
+             * Review needs the shared screen's Check/duplicate-confirm flow (it edits the payload),
+             * and Reject is a plain decision - but both still go through the event bus rather than
+             * completing the task directly, because both need decideDataStewardReview's result (a
+             * fresh ContextJson on complete) before the task can be patched.
+             */
+            _addDataStewardInboxActions: function () {
+                var inbox = this._startupParameters().inboxAPI;
+                var eventBus = this.getEventBus();
+                [
+                    { id: "reject", label: "Reject", type: "reject" },
+                    { id: "enrich", label: "Complete Review", type: "accept" }
                 ].forEach(function (outcome) {
                     inbox.addAction(
                         { action: outcome.id, label: outcome.label, type: outcome.type },

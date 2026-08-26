@@ -154,10 +154,11 @@ test('the duplicate dialog offers Submit Request only where there is something t
   // Submit gets both buttons, Check gets Continue Editing alone - there is nothing to cancel.
   assert.match(controllerSource, /actions: confirmText \? \[confirmText, keepEditing\] : \[keepEditing\]/u);
   assert.match(controllerSource, /var keepEditing = "Continue Editing";/u);
-  // The button names the action it will actually take: a rework resubmits rather than submits.
+  // The button names the action it will actually take: a rework resubmits, a data steward review
+  // completes, rather than either submitting.
   assert.match(
     controllerSource,
-    /confirmText: action === "resubmitRequest" \? "Resubmit" : "Submit Request"/u
+    /confirmText: action === "resubmitRequest"\s*\n?\s*\? "Resubmit"\s*\n?\s*: \(action === "decideDataStewardReview" \? "Complete Review" : "Submit Request"\)/u
   );
   // No Cancel on this dialog. The delete confirmation keeps its own, so the check is scoped.
   const dialog = controllerSource.slice(

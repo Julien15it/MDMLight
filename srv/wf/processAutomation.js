@@ -132,8 +132,10 @@ async function triggerApprovalDecision(executionId, result, extraInputs = {}) {
     return sendTrigger(APPROVAL_DECISION_TRIGGER_ID, "approval decision", executionId, result, extraInputs);
 }
 
-// The requester's two ways out of `reworkRequired`. Withdraw calls it so SPA stops the workflow:
-// CAP deletes the request, and the instance would otherwise wait on one that no longer exists.
+// The requester's two ways out of `reworkRequired` (Resubmit/Withdraw), and the data steward's two
+// ways out of `checkAndEnrich` (complete/reject) - one generic trigger, told apart only by `result`.
+// Withdraw calls it so SPA stops the workflow: CAP deletes the request, and the instance would
+// otherwise wait on one that no longer exists.
 async function triggerRequesterCallback(executionId, result, extraInputs = {}) {
     return sendTrigger(REQUESTER_CALLBACK_TRIGGER_ID, "requester callback", executionId, result, extraInputs);
 }

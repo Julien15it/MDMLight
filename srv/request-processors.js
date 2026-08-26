@@ -22,6 +22,7 @@ const STEPS = Object.freeze({
   submit: 'Submit',
   approval: 'Approval',
   rework: 'Rework',
+  review: 'Data Steward Review',
   post: 'Post',
   done: 'Done',
   failed: 'Post failed'
@@ -47,10 +48,11 @@ function requester(header = {}) {
 }
 
 /**
- * The step, the people, and a sentence for the screen. `approvers` is only read for `inApproval` -
- * resolving them for a draft would name people who are not responsible for anything yet.
+ * The step, the people, and a sentence for the screen. `approvers` is only read for `inApproval`,
+ * `dataStewards` only for `checkAndEnrich` - resolving either for a status that is not theirs would
+ * name people who are not responsible for anything yet.
  */
-function currentProcessors(header = {}, approvers = []) {
+function currentProcessors(header = {}, approvers = [], dataStewards = []) {
   const status = header.status;
 
   if (status === 'draft') {
@@ -73,6 +75,18 @@ function currentProcessors(header = {}, approvers = []) {
         ? ''
         : 'No workflow rule names an approver for this request, so the workflow routes it itself'
           + ' - who holds the task is only visible in the approver\'s inbox.'
+    };
+  }
+
+  if (status === 'checkAndEnrich') {
+    const processors = dataStewards.map((email) => processor(email, 'dataSteward'));
+    return {
+      step: STEPS.review,
+      processors,
+      note: processors.length
+        ? ''
+        : 'No data steward could be resolved for this request, so nobody is named here - see the'
+          + ' DataSteward role in the BTP subaccount, or check with a subaccount administrator.'
     };
   }
 

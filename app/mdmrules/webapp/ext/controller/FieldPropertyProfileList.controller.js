@@ -282,6 +282,11 @@ sap.ui.define([
           expanded: false,
           property: byTarget[entity.section + "."] || null,
           critical: criticalByTarget[entity.section + "."] || false,
+          // Critical is entity-level only (2026-08-26) - a field row never carries it into the
+          // editable tree, even if an older save left one stored, or resaving this profile with the
+          // box now disabled would resend that stale value and the server would refuse the whole
+          // batch. Leaving it off here is what lets a profile with old field-level data self-migrate
+          // the next time someone presses Apply, rather than becoming unsavable.
           fields: (entity.fields || []).map(function (field) {
             return {
               kind: "field",
@@ -289,7 +294,7 @@ sap.ui.define([
               element: field.element,
               text: field.text,
               property: byTarget[entity.section + "." + field.element] || null,
-              critical: criticalByTarget[entity.section + "." + field.element] || false
+              critical: false
             };
           })
         };
@@ -355,11 +360,16 @@ sap.ui.define([
 
     /**
      * Independent of the four above - ticking or clearing Critical never touches `property`, and
-     * vice versa. A field can be mandatory AND critical, or carry no property at all and only be
+     * vice versa. An entity can be mandatory AND critical, or carry no property at all and only be
      * critical.
+     *
+     * Entity-level only (2026-08-26): the box is disabled on a field row (see the fragment), so this
+     * should never fire for one - guarded anyway, the same "refused, not filtered" discipline the
+     * server side applies, rather than trusting the `enabled` binding alone.
      */
     onCriticalSelect: function (event) {
       var row = event.getSource().getBindingContext("fp").getObject();
+      if (row.kind !== "entity") return;
       row.critical = event.getParameter("selected");
     },
 

@@ -238,6 +238,55 @@ service ChangeRequestService @(path: '/service/changerequest') {
     Claimed       : Boolean;
   };
 
+  // A data steward's own loop, parallel to rework rather than a step inside it - see
+  // ChangeRequestStatus's `checkAndEnrich` in db/staging.cds for why it is its own status.
+
+  /**
+   * The `claimRework` pattern, for the data steward instead of the requester: moves a request out of
+   * `inApproval` and into `checkAndEnrich` the moment the data steward's screen opens it, so CAP has
+   * somewhere to hang the edit before the workflow side of this is built. No-op on any other status,
+   * and the workflow is deliberately NOT signalled - the process is the one routing the task here.
+   */
+  action claimDataStewardReview(
+    ChangeRequest : UUID not null
+  ) returns {
+    ChangeRequest : UUID;
+    Status        : String(20);
+    /** True only when this call moved the status. False means it was already there, or elsewhere. */
+    Claimed       : Boolean;
+  };
+
+  /**
+   * The data steward's decision, from `checkAndEnrich`. `complete` saves the enriched payload and
+   * hands the request back to the SAME parked instance, exactly like resubmitRequest - the same gates,
+   * `Confirm` included, because the steward may have changed the very data those gates check. `reject`
+   * needs none of that: it sends the request to `reworkRequired`, the same destination an approver's
+   * rejection reaches, because the steward could not make the request work and it goes back to
+   * whoever raised it.
+   */
+  action decideDataStewardReview(
+    ChangeRequest   : UUID not null,
+    Decision        : String(10) not null,
+    RequestType     : String(10),
+    BusinessPartner : String(10),
+    /** The steward's own note - the enrichment round's story on `complete`, the reason on `reject`.
+     *  Appended to ChangeRequestComments with role DataSteward either way. */
+    Reason          : String(250),
+    /** Required on `complete`, the reworked payload. Not read on `reject`. */
+    DataJson        : LargeString,
+    Confirm         : Boolean
+  ) returns {
+    ChangeRequest     : UUID;
+    Status            : String(20);
+    ProcessInstanceId : String(60);
+    NeedsConfirmation : Boolean;
+    Valid             : Boolean;
+    ValidationsJson   : LargeString;
+    MessagesJson      : LargeString;
+    // Only set on `complete` - see resubmitRequest's ContextJson for what this carries and why.
+    ContextJson       : LargeString;
+  };
+
   /**
    * Cancels the request and **deletes it**, staging rows and all — the
    * compositions cascade. Only from `reworkRequired` or `draft`: anything that

@@ -253,6 +253,29 @@ test('a mandatory entity with no rows blocks the submit', async () => {
 });
 
 /**
+ * `critical` is a marker for a data steward (drawn as "!" next to the section title), never a gate
+ * (2026-08-26, revised): an empty critical entity does not block, and contributes no stage on its own
+ * - only `mandatory` does that. Whether it was filled in is reported to SBPA via the `criticalField`
+ * flag in the workflow context, not enforced here.
+ */
+test('critical alone contributes no validation stage, and blocks nothing', async () => {
+  const resolved = resolveProfiles([profile('p', '*', '*')], [
+    { ...setting('p', 'TaxNumbers', null, null), critical: true }
+  ], {});
+  assert.deepEqual(createFieldPropertyStages(resolved, csn).validations, []);
+});
+
+test('an entity that is both mandatory and critical still blocks only for being empty, not for being critical', async () => {
+  const resolved = resolveProfiles([profile('p', '*', '*')], [
+    { ...setting('p', 'TaxNumbers', null, 'mandatory'), critical: true }
+  ], {});
+  const stages = createFieldPropertyStages(resolved, csn);
+  const findings = await stages.validations[0].run({ root: {}, sections: {} });
+  assert.equal(findings.length, 1);
+  assert.match(findings[0].message, /At least one/u);
+});
+
+/**
  * Nobody can fill in a field they cannot see, so the cascade is read before anything blocks - and
  * with nothing left to enforce there is no stage at all, not a stage that runs and finds nothing.
  */
@@ -281,8 +304,9 @@ test('no profile means no stage at all, not an empty one that runs per request',
  */
 test('the enforcing context is the requester, never a role the client named', () => {
   assert.match(serviceJs, /const requesterContext = \(req\) => \(\{ requestType: req\.data\.RequestType, role: 'Requester' \}\)/u);
-  // Three call sites: the two check buttons share one runner, then submit and resubmit.
-  assert.equal((serviceJs.match(/fieldPropertyStages\(requesterContext\(req\)\)/gu) || []).length, 3);
+  // Four call sites: the two check buttons share one runner, then submit, resubmit, and a data
+  // steward's `complete` decision - which runs the same gates as resubmit under a different status.
+  assert.equal((serviceJs.match(/fieldPropertyStages\(requesterContext\(req\)\)/gu) || []).length, 4);
   // The rendering answer is a separate, read-only function.
   assert.match(serviceCds, /function effectiveFieldProperties\(/u);
   assert.match(serviceJs, /this\.on\('effectiveFieldProperties'/u);
@@ -293,8 +317,8 @@ test('the property validations run alongside the configured ones, on every gate'
     (serviceJs.match(
       /\[\.\.\.properties\.validations, \.\.\.configured\.validations,\s*\.\.\.createCviStages\(\)\.validations, \.\.\.registry\.validations,\s*\.\.\.relationStages\([^)]*\)\.validations\]/gu
     ) || []).length,
-    3,
-    'check/duplicate-check, submit and resubmit'
+    4,
+    'check/duplicate-check, submit, resubmit and a data steward completing review'
   );
 });
 
@@ -303,7 +327,10 @@ test('the property validations run alongside the configured ones, on every gate'
 test('the screen loads the profiles before it renders, for the role it is showing', () => {
   assert.match(controller, /_loadFieldProperties\("create", "Requester"\)/u);
   assert.match(controller, /_loadFieldProperties\(state\.requestType \|\| "change", "Requester"\)/u);
-  assert.match(controller, /_loadFieldProperties\(state\.requestType, mode === "approve" \? "Approver" : "Requester"\)/u);
+  assert.match(
+    controller,
+    /_loadFieldProperties\(\s*state\.requestType, mode === "approve" \? "Approver" : \(reviewing \? "DataSteward" : "Requester"\)\s*\)/u
+  );
   // Rendering is synchronous, so a field the profiles hide must never be painted and taken away.
   const create = controller.slice(controller.indexOf('_onCreateRoute:'));
   const body = create.slice(0, create.indexOf('_onDisplayRoute:'));
@@ -337,8 +364,48 @@ test('a hidden entity hides its whole Object Page section', () => {
   assert.match(controller, /Boolean\(state\.editing\) && this\._entityProperty\(section\) !== "readOnly"/u);
 });
 
+/**
+ * `critical` (2026-08-26, revised) draws an exclamation mark next to a section's title - a marker
+ * for a data steward, never a message strip and never a gate. Wired through the same
+ * `effectiveFieldProperties` read the other four properties use, so a screen loaded for one role
+ * cannot see a stale answer from another.
+ */
+test('a critical entity gets an exclamation mark next to its title, drawn on both root cards too', () => {
+  assert.match(controller, /_isCriticalEntity: function \(section\) \{/u);
+  assert.match(controller, /_markSectionCritical: function \(container, baseTitle, critical\)/u);
+  const marker = controller.slice(controller.indexOf('_markSectionCritical: function'));
+  const body = marker.slice(0, marker.indexOf('\n      },'));
+  assert.match(body, /section\.setTitle\(critical \? baseTitle \+ " ⚠" : baseTitle\)/u);
+  // Wired into the section renderer, and into both root cards (General Information and Names) -
+  // critical is entity-level, and both cards render the same `General` payload section.
+  const render = controller.slice(controller.indexOf('_renderSection: function'));
+  assert.match(render.slice(0, render.indexOf('_openNewRecord:')), /_markSectionCritical\(container, section\.title, this\._isCriticalEntity\(section\)\)/u);
+  assert.match(controller, /_isCriticalEntity\(this\._rootSection\)/u);
+});
+
 /** The metadata's root section id is not the payload catalog's, and only one place may know that. */
 test('the root section is mapped to the catalog name in exactly one place', () => {
   assert.match(controller, /_sectionKey: function \(section\) \{\s*\n\s*return section\.kind === "root" \? "General" : section\.id;/u);
   assert.equal((controller.match(/"General" : section\.id/gu) || []).length, 1);
+});
+
+// --- What workflowContext sends for critical fields -------------------------------------
+
+/**
+ * `criticalField` is a scalar 'X'/' ' flag on the workflow context, not a list - `resolved
+ * .criticalEntities` (from `resolveProfiles`, already exercised above) is what `workflowContext`
+ * checks against the submitted payload's own sections via `sectionRows`, straight off
+ * `resolvedProperties` - there is no separate store function for this any more.
+ */
+test('workflowContext resolves criticalField from resolvedProperties, not a dedicated store call', () => {
+  assert.match(serviceJs, /const resolved = await resolvedProperties\(requesterContext\(req\)\);/u);
+  assert.match(serviceJs, /const critical = resolved\.criticalEntities \|\| \[\];/u);
+  assert.match(serviceJs, /if \(critical\.some\(\(section\) => sectionRows\(payload, section\)\.length > 0\)\) criticalField = 'X';/u);
+  assert.match(serviceJs, /let criticalField = ' ';/u);
+});
+
+/** `datastewards` is read straight from BTP role collections, the same way `approvers` is fetched. */
+test('datastewards comes from the BTP role collections directly, not the WorkflowRules table', () => {
+  assert.match(serviceJs, /const \{ dataStewardEmails \} = require\('\.\/wf\/data-stewards'\)/u);
+  assert.match(serviceJs, /const datastewards = await dataStewardEmails\(\);/u);
 });

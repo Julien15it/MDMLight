@@ -86,6 +86,13 @@ function validateSetting(setting, model) {
   if (element && !resolvePayloadField(`${section}.${element}`, model)) {
     return { error: `“${element}” is not a field of ${SECTION_TEXT[section] || section}.` };
   }
+  // Critical is entity-level only (2026-08-26): the dialog greys the box out on a field row, and this
+  // is the write-path guard behind it - refused, not filtered, the same discipline every other unknown
+  // setting on this row already gets. `resolveProfiles` still reads an older field-level critical row
+  // rather than dropping it, the same tolerance the delimited-list reader keeps for withdrawn features.
+  if (element && critical) {
+    return { error: `“${SECTION_TEXT[section] || section}.${element}” cannot be critical - critical applies to the whole entity, not one field.` };
+  }
   return { setting: { section, element, property: property || null, critical } };
 }
 
@@ -231,6 +238,11 @@ function fieldState(resolved, section, element) {
  * The submit-time half. A mandatory field left empty blocks, and a mandatory entity with no rows
  * blocks - otherwise the profile is screen decoration that a direct service call, or a field the
  * screen never rendered, walks straight past.
+ *
+ * `critical` is deliberately NOT enforced here (2026-08-26 revision) - it is a marker for a data
+ * steward, shown as "!" next to a section's title on the screen, not a requirement CAP gates on. An
+ * empty critical entity is not an error; it is simply reported to SBPA as not (yet) filled in via the
+ * `criticalField` flag in the workflow context - see `workflowContext` in change-request-service.js.
  */
 function createFieldPropertyStages(resolved, model) {
   const entities = Object.entries((resolved && resolved.entities) || {})
