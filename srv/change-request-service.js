@@ -11,6 +11,7 @@ const { candidateFromStagedRequest, duplicateSummary } = require('./ai/duplicate
 const { runChecks, runValidations, BLOCKING } = require('./checks/pipeline');
 const { createRegistryStages } = require('./checks/registry-checks');
 const { createCviStages } = require('./checks/cvi-checks');
+const { createBpCheckStage } = require('./checks/bp-check');
 const { createRelationStages } = require('./checks/relation-checks');
 const { configuredStages } = require('./checks/rule-store');
 const { fieldPropertyStages, resolvedProperties, criticalFieldsFor } = require('./checks/field-property-store');
@@ -672,7 +673,7 @@ class ChangeRequestService extends cds.ApplicationService {
 
     // Both buttons, one pipeline: each runs only the stages its answer needs, and neither stages
     // anything. Derivations run for both — a rule needs them even when the screen never shows them.
-    const runRequestChecks = async (req, { propose, duplicates, scope = null }) => {
+    const runRequestChecks = async (req, { propose, duplicates, scope = null, standard = false }) => {
       const data = parseJsonObject(req.data.DataJson, 'DataJson');
       // Created per request: the pair shares one VIES/GLEIF lookup between the validation and the
       // derivation, and must not carry it over to the next press of the button.
@@ -707,6 +708,13 @@ class ChangeRequestService extends cds.ApplicationService {
               scope: scope || null,
               aiEnabled: await aiAssistanceEnabled()
             })
+            : undefined,
+          // Only where a human is looking and only for the whole record. A field trigger passes a
+          // `scope` and must not pay for a remote round trip on every keystroke, and the submit
+          // path has its own stage list. Roles are left out of the payload so the check draws no
+          // vendor number -- see INCLUDE_ROLES in bp-check.js.
+          checkStandard: standard && !scope
+            ? createBpCheckStage({ requestId: req.data.ChangeRequest || null })
             : undefined,
           checkDuplicates: duplicates ? async (payload) => {
             const bp = await cds.connect.to('BusinessPartnerService');
@@ -744,7 +752,8 @@ class ChangeRequestService extends cds.ApplicationService {
       const result = await runRequestChecks(req, {
         propose: req.data.Propose !== false,
         duplicates: false,
-        scope: req.data.Scope || null
+        scope: req.data.Scope || null,
+        standard: true
       });
       return {
         Valid: result.valid,

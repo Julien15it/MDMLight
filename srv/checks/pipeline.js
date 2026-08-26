@@ -123,7 +123,7 @@ async function runDerivations(payload, derivations = DERIVATIONS) {
 
 // `checkDuplicates` is injected, not imported: this module stays free of the S/4 connection, and the
 // caller decides what to compare against - submit excludes the request's own staged copy, a check does not.
-async function runChecks(payload, { checkDuplicates, validations, derivations, propose } = {}) {
+async function runChecks(payload, { checkDuplicates, checkStandard, validations, derivations, propose } = {}) {
   const validationMessages = await runValidations(payload, validations);
   if (validationMessages.some((message) => message.severity === BLOCKING)) {
     return {
@@ -133,7 +133,8 @@ async function runChecks(payload, { checkDuplicates, validations, derivations, p
       normalisations: [],
       derived: payload,
       duplicates: [],
-      ranDuplicateCheck: false
+      ranDuplicateCheck: false,
+      standard: []
     };
   }
 
@@ -147,6 +148,23 @@ async function runChecks(payload, { checkDuplicates, validations, derivations, p
   } catch (error) {
     // A convenience, never a gate: an unavailable model must not stop a check or a submit.
     console.warn('[checks] Normalisation proposals unavailable:', error.message);
+  }
+
+  // After the derivations and on the derived payload, because these checks depend on fields the
+  // derivations fill -- the account group derived from the grouping being the clear case. Sending
+  // the typed payload would surface errors the app was about to fix itself. Reported alongside the
+  // validations rather than gating: `severity` decides that, not the stage it came from.
+  let standard = [];
+  try {
+    standard = checkStandard ? await checkStandard(derived) || [] : [];
+  } catch (error) {
+    // Same reasoning as the duplicate check below: "nothing objected" produced by a check that
+    // never ran is the one answer this must not give.
+    standard = [{
+      check: 'sap_standard_checks',
+      severity: 'info',
+      message: `The SAP standard checks could not run (${error.message}).`
+    }];
   }
 
   let duplicates = [];
@@ -166,12 +184,15 @@ async function runChecks(payload, { checkDuplicates, validations, derivations, p
 
   return {
     valid: true,
-    validations: validationMessages,
+    // The standard checks join the validation list, because to a requester they are validations --
+    // where a message came from is a detail of `check`, not a separate list to render.
+    validations: [...validationMessages, ...standard],
     derivations: applied,
     normalisations,
     derived,
     duplicates,
-    ranDuplicateCheck
+    ranDuplicateCheck,
+    standard
   };
 }
 
