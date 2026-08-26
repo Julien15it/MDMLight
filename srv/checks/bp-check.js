@@ -193,9 +193,17 @@ function toFindings(messages) {
  * Headers are deliberately NOT logged: they carry the bearer token and the CSRF token.
  */
 function logRemoteFailure(error) {
-  const response = error?.response || error?.cause?.response || error?.rootCause?.response;
+  // `error.reason.response` FIRST, and that ordering is the fix: CAP wraps the remote failure and
+  // reports its own 502 on the outer error while the real status and body sit on `reason`. The
+  // first version read the outer one and printed "status 502: (no response body)" over a perfectly
+  // good `500 RAISE_SHORTDUMP` -- a log line that hid the answer it existed to show.
+  const response = error?.reason?.response
+    || error?.response
+    || error?.cause?.response
+    || error?.rootCause?.response;
+
   const status = response?.status ?? error?.status ?? error?.statusCode;
-  const body = response?.data ?? error?.cause?.message;
+  const body = response?.body ?? response?.data ?? error?.cause?.message;
 
   const detail = typeof body === 'string' ? body.slice(0, 2000)
     : body ? JSON.stringify(body).slice(0, 2000)
