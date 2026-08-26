@@ -26,6 +26,22 @@
 
 const cds = require('@sap/cds');
 
+/**
+ * Declared in package.json against **`VF_S4HANA_V4_DEST`**, not `VF_S4HANA_DEST`, and that is not
+ * tidiness -- it is required.
+ *
+ * `VF_S4HANA_DEST` ends in `/sap/opu/odata/sap`, the OData **V2** namespace. `/sap/opu/odata4` is a
+ * SIBLING of it, not a child, so a V4 service cannot be reached through it: CAP appends the path
+ * and the result is `/sap/opu/odata/sap/sap/opu/odata4/...`, which the gateway answers 403 to with
+ * `x-csrf-token: Required` -- a misleading symptom that cost an afternoon on 2026-08-26 and sent
+ * the diagnosis to SU53 and to CSRF, neither of which was the problem.
+ *
+ * A `..` traversal in the path is NOT the fix: axios concatenates baseURL and path rather than
+ * resolving them, so the literal `..` reaches the ICM.
+ *
+ * The new destination is rooted at `/sap/opu/odata4/sap`, mirroring how `VF_S4HANA_DEST` is rooted
+ * at the V2 namespace -- so a second V4 service later costs a path, not another destination.
+ */
 const SERVICE = 'ZMDML_BPCHECK';
 
 // Read from the live $metadata on 2026-08-26, not guessed. `srvd_a2x` (not `srvd`) is the Web API
