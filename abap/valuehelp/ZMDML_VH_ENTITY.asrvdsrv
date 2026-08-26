@@ -48,4 +48,5 @@ define service ZMDML_VH_ENTITY {
   expose Z_I_CVI_NUM_ASGN_CUSTOMER      as CviCustomerNumberAssignments;
   expose Z_I_CVI_NUM_ASGN_VENDOR        as CviSupplierNumberAssignments;
   expose Z_I_CVI_SYNC_DIRECTION         as CviSyncDirections;
+  expose Z_I_CVI_EU_COUNTRY             as CviEuCountries;
 }
