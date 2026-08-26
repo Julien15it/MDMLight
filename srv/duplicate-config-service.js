@@ -22,6 +22,7 @@ const {
   STEPS, STEP_TEXT, validateWorkflowRule, runnableWorkflowRules
 } = require('./checks/workflow-rules');
 const workflowRuleStore = require('./checks/workflow-rule-store');
+const { workflowAgents } = require('./wf/btp-agents');
 
 const RULES = 'mdmlight.config.DuplicateRules';
 const VALIDATIONS = 'mdmlight.config.ValidationRules';
@@ -121,11 +122,11 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
           code, text: WORKFLOW_REQUEST_TYPE_TEXT[code] || code
         })),
         steps: STEPS.map((code) => ({ code, text: STEP_TEXT[code] || code })),
-        // The same roles the field property profiles condition on, so the two cannot drift - minus
-        // `*`, which is a wildcard for matching and not somebody who can approve a request.
-        roles: ROLES.filter((code) => code !== '*').map((code) => ({
-          code, text: ROLE_TEXT[code] || code
-        })),
+        // The subaccount's own role collections (MDMLIGHT* only) and users - see srv/wf/btp-agents.js
+        // and CLAUDE.md "Workflow Agent Determination". Not this app's own Requester/Approver/
+        // DataSteward roles: those are what the Field Property Profiles page still conditions on
+        // (ROLES/ROLE_TEXT, unchanged), a different concept entirely.
+        agents: await workflowAgents(),
         ruleCount
       };
     });

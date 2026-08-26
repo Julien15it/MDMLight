@@ -135,10 +135,11 @@ sap.ui.define([
     // --- The role value help -----------------------------------------------
 
     /**
-     * The roles half of the approver cell. Typing an address is the other half and needs no dialog;
-     * a role has to be spelled exactly as SBPA knows it, so it is picked rather than remembered.
+     * The approver half of the cell. Typing an address is the other half and needs no dialog; a
+     * role has to be spelled exactly as SBPA knows it, so it is picked rather than remembered - and
+     * so is a user, since nobody should have to know how a colleague's e-mail is written.
      *
-     * One role, because the cell holds one approver: several approvers are several rows, which is
+     * One entry, because the cell holds one approver: several approvers are several rows, which is
      * what the Add button is for and what the engine merges.
      */
     onRoleValueHelp: async function (event) {
@@ -150,8 +151,9 @@ sap.ui.define([
       };
       if (!this._roleTarget.context || !this._roleTarget.path) return;
       if (!this._roleHelp) {
+        this._roleFragmentId = this.getView().getId() + "-roles";
         this._roleHelp = await Fragment.load({
-          id: this.getView().getId() + "-roles",
+          id: this._roleFragmentId,
           name: "mdm.md.mdmrules.manage.ext.fragment.RoleValueHelp",
           controller: this
         });
@@ -159,35 +161,51 @@ sap.ui.define([
       }
       // Cleared on the way IN, never on the way out - the same rule the field value help follows,
       // and for the same reason: resetting a filtered list re-templates its rows.
-      var items = this._roleHelp.getBinding("items");
+      var items = this._roleTable().getBinding("items");
       if (items) items.filter([]);
-      this._roleHelp.open("");
+      this._roleHelp.open();
+    },
+
+    // A real Table, not a SelectDialog, so Type and Name/E-mail render as genuine columns - see the
+    // fragment. Looked up by local id rather than kept as a field, the same way _table() looks up
+    // the main table: the fragment owns its own control tree.
+    _roleTable: function () {
+      return Fragment.byId(this._roleFragmentId, "agentTable");
     },
 
     onRoleSearch: function (event) {
-      var query = event.getParameter("value") || event.getParameter("newValue") || "";
-      var items = event.getSource().getBinding("items");
+      // A plain sap.m.SearchField, unlike SelectDialog's own re-exposed search/liveChange, names its
+      // parameter "newValue" on liveChange and "query" on search (Enter or the icon) - neither is
+      // "value", which only ever existed on SelectDialog's own events.
+      var query = event.getParameter("newValue") || event.getParameter("query") || "";
+      var items = this._roleTable().getBinding("items");
       if (!items) return;
       items.filter(query ? new Filter({
         filters: [
-          new Filter("text", FilterOperator.Contains, query),
-          new Filter("code", FilterOperator.Contains, query)
+          new Filter("value", FilterOperator.Contains, query),
+          new Filter("type", FilterOperator.Contains, query)
         ],
         and: false
       }) : []);
     },
 
-    // The code is read off its binding context before anything touches the list, for the reason
+    // The value is read off its binding context before anything touches the list, for the reason
     // the field value help spells out - a reset re-binds the items to different rows.
     // (Written without naming that handler and a colon: these tests find a method by that exact
     // string, so a comment carrying it sends the slice to the wrong function.)
     onRolesChosen: function (event) {
-      var selected = event.getParameter("selectedItem");
-      var context = selected && selected.getBindingContext("opt");
-      var code = context && context.getProperty("code");
-      if (!code || !this._roleTarget) return;
-      this._roleTarget.context.setProperty(this._roleTarget.path, code);
-      this._markDirty();
+      var listItem = event.getParameter("listItem");
+      var context = listItem && listItem.getBindingContext("opt");
+      var value = context && context.getProperty("value");
+      if (value && this._roleTarget) {
+        this._roleTarget.context.setProperty(this._roleTarget.path, value);
+        this._markDirty();
+      }
+      this._roleHelp.close();
+    },
+
+    onRoleValueHelpCancel: function () {
+      this._roleHelp.close();
     },
 
     // --- The field value help ----------------------------------------------

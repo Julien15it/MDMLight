@@ -197,39 +197,53 @@ test('the approver cell offers the roles and still takes a typed address', () =>
   );
 });
 
-// Its own fragment, and one role: the cell holds one approver, so several approvers are several
+// Its own fragment, and one entry: the cell holds one approver, so several approvers are several
 // rows - which is what the Add button is for and what the engine merges.
-test('the role help is a single-select dialog over the served roles', () => {
+test('the role help is a real two-column table over the served agents', () => {
   const fragment = read(APP, 'ext', 'fragment', 'RoleValueHelp.fragment.xml');
-  assert.match(fragment, /<SelectDialog/u);
-  assert.equal(/multiSelect/u.test(fragment), false, 'one role per cell');
-  assert.match(fragment, /items="\{ path: 'opt>\/roles'/u);
+  // Not sap.m.SelectDialog: it wraps a plain List with no column headers, and Type vs. Name/E-mail
+  // is exactly the distinction this picker has to show.
+  assert.equal(/<SelectDialog/u.test(fragment), false, 'a real Table, not a SelectDialog');
+  assert.match(fragment, /<Table[\s\S]*items="\{ path: 'opt>\/agents'/u);
+  const columns = [...fragment.matchAll(/<Column[^>]*>\s*<Text text="([^"]+)"/gu)].map((match) => match[1]);
+  assert.deepEqual(columns, ['Type', 'Name / E-mail']);
   assert.match(controller, /ext\.fragment\.RoleValueHelp/u);
-  // Searchable over the code as well as the label, like the field help.
+  // Searchable over the value as well as the type, like the field help.
   assert.match(controller, /onRoleSearch/u);
   assert.match(controller, /FilterOperator\.Contains/u);
 });
 
 /**
- * The roles come from the same list the field property profiles condition on, so the two cannot
- * drift - minus `*`, which is a wildcard for matching and not somebody who can approve a request.
+ * The picker is sourced from the BTP subaccount itself, not from this app's own hand-kept role list
+ * (ROLES/ROLE_TEXT, still used by the Field Property Profiles page, unchanged - a different concept:
+ * Requester/Approver/DataSteward, versus who can actually be assigned an approval in the subaccount).
  */
-test('the roles are served, and the wildcard is not one of them', () => {
-  assert.match(serviceCds, /roles {8}: array of Option;/u);
-  assert.match(serviceJs, /roles: ROLES\.filter\(\(code\) => code !== '\*'\)/u);
-  const { ROLES } = require('../srv/checks/field-properties');
-  assert.ok(ROLES.includes('DataSteward'), 'DataSteward is one of them');
-  assert.ok(ROLES.includes('*'), 'and the wildcard is in the source list, which is why it is filtered');
+test('the approver picker is served from the BTP subaccount, not the hard-coded roles', () => {
+  assert.match(serviceCds, /agents {7}: array of Agent;/u);
+  assert.match(serviceJs, /require\('\.\/wf\/btp-agents'\)/u);
+  assert.match(serviceJs, /agents: await workflowAgents\(\)/u);
+  assert.equal(/roles: ROLES\.filter/u.test(serviceJs), false, 'the hard-coded role list is gone here');
+  // ROLES/ROLE_TEXT stay imported for fieldPropertyOptions - a different picker, untouched.
+  assert.match(serviceJs, /ROLES, ROLE_TEXT/u);
+
+  const agentsModule = read(ROOT, 'srv', 'wf', 'btp-agents.js');
+  assert.match(agentsModule, /ROLE_COLLECTION_PREFIX = 'MDMLIGHT'/u);
+  assert.match(agentsModule, /description\.startsWith\(ROLE_COLLECTION_PREFIX\)/u);
+  assert.match(agentsModule, /type: 'Role'/u);
+  assert.match(agentsModule, /type: 'User'/u);
+  // Best-effort like every other BTP-platform read here: an unreachable subaccount API leaves the
+  // picker empty, never the page down.
+  assert.match(agentsModule, /console\.warn/u);
 });
 
-// Written through the cell's own binding, like every other value help on these pages, and the code
+// Written through the cell's own binding, like every other value help on these pages, and the value
 // is read off its binding context before anything touches the list.
-test('choosing a role writes it into the cell', () => {
+test('choosing an agent writes it into the cell', () => {
   const chosen = controller.slice(controller.indexOf('onRolesChosen:'));
   const body = chosen.slice(0, chosen.indexOf('\n    },'));
-  assert.match(body, /getProperty\("code"\)/u);
-  assert.match(body, /this\._roleTarget\.context\.setProperty\(this\._roleTarget\.path, code\)/u);
-  assert.ok(body.indexOf('getProperty("code")') < body.indexOf('setProperty('));
+  assert.match(body, /getProperty\("value"\)/u);
+  assert.match(body, /this\._roleTarget\.context\.setProperty\(this\._roleTarget\.path, value\)/u);
+  assert.ok(body.indexOf('getProperty("value")') < body.indexOf('setProperty('));
 });
 
 /**

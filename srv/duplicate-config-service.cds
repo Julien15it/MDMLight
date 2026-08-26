@@ -96,12 +96,22 @@ service DuplicateConfigService {
    *  rules that would actually run, so a page can say when a saved row is being skipped. */
   function qualityRuleOptions() returns QualityRuleOptions;
 
+  /** One entry in the approver picker - a BTP role collection or a BTP user, told apart by `type`
+   *  because the value alone does not say which (a role collection name and a user name are both
+   *  free text). See srv/wf/btp-agents.js. */
+  type Agent {
+    type  : String enum { Role; User; };
+    value : String;
+  }
+
   type WorkflowRuleOptions {
     /** The same qualified payload catalog the quality rules use - a condition names a payload field. */
     fields       : array of PayloadField;
-    /** The roles an approver step can name, `*` left out: "every role" cannot approve anything. An
-     *  approver may also be an e-mail address, which is free text and needs no list. */
-    roles        : array of Option;
+    /** The BTP subaccount's role collections (Description starting with `MDMLIGHT` only) and users,
+     *  for the approver picker. An approver may also be typed as a free-text e-mail address, which
+     *  needs no list either way. Best-effort: an unreachable subaccount API leaves this empty rather
+     *  than failing the page. */
+    agents       : array of Agent;
     /** All four CR types. No `*`: an approver list is not something to default. */
     requestTypes : array of Option;
     /** `Approve` today. A column rather than an assumption - see db/workflow-rules.cds. */
