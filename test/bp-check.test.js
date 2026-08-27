@@ -156,11 +156,37 @@ test('a result that is not readable JSON does not pass as clean', async () => {
   assert.ok(Array.isArray(found));
 });
 
-test('the stage runs on the derived payload, after the derivations', async () => {
+// Changed 2026-08-27. S/4 was objecting to values a derivation had only PROPOSED, which is an
+// error with no field on the screen to clear it. Acceptance is what puts a value in front of it.
+test('a proposed derivation is not shown to the standard checks', async () => {
   const seen = [];
   const derivations = [{
-    name: 'fill_grouping',
-    run: async () => [{ target: 'root', field: 'BusinessPartnerGrouping', value: '0001' }]
+    name: 'fill_postcode',
+    run: async () => [{ target: 'Addresses', index: 0, field: 'PostalCode', value: '9000' }]
+  }];
+
+  const result = await runChecks({ root: {}, sections: { Addresses: [{}] } }, {
+    validations: [],
+    derivations,
+    checkStandard: async (payload) => {
+      seen.push(payload.sections.Addresses[0].PostalCode);
+      return [];
+    }
+  });
+
+  assert.deepEqual(seen, [undefined]);
+  // Still proposed to the requester, and still filled in for the duplicate check.
+  assert.equal(result.derivations.length, 1);
+  assert.equal(result.derived.sections.Addresses[0].PostalCode, '9000');
+});
+
+test('a system derivation IS shown to the standard checks', async () => {
+  const seen = [];
+  const derivations = [{
+    name: 'cvi_account_group',
+    run: async () => [{
+      target: 'root', field: 'BusinessPartnerGrouping', value: '0001', system: true
+    }]
   }];
 
   await runChecks({ root: {}, sections: {} }, {
@@ -174,6 +200,56 @@ test('the stage runs on the derived payload, after the derivations', async () =>
 
   // If this were a plain validation it would see undefined: validations run before derivations.
   assert.deepEqual(seen, ['0001']);
+});
+
+// The row the customer/vendor tier needs to exist at all -- without it ZMDML_BPCHECK sends no
+// relation node and CVI examines nothing.
+test('a system derivation creates its row on the payload the standard checks see', async () => {
+  const seen = [];
+  const derivations = [{
+    name: 'cvi_account_group',
+    run: async () => [{
+      target: 'Suppliers',
+      index: 0,
+      field: 'SupplierAccountGroup',
+      value: 'LIEF',
+      createsRow: true,
+      system: true
+    }]
+  }];
+
+  await runChecks({ root: {}, sections: {} }, {
+    validations: [],
+    derivations,
+    checkStandard: async (payload) => {
+      seen.push(payload.sections.Suppliers);
+      return [];
+    }
+  });
+
+  assert.deepEqual(seen, [[{ SupplierAccountGroup: 'LIEF' }]]);
+});
+
+test('a system derivation the pipeline refused to write is not replayed either', async () => {
+  const seen = [];
+  const derivations = [{
+    name: 'cvi_account_group',
+    run: async () => [{
+      target: 'root', field: 'BusinessPartnerGrouping', value: '0001', system: true
+    }]
+  }];
+
+  await runChecks({ root: { BusinessPartnerGrouping: 'MDM0' }, sections: {} }, {
+    validations: [],
+    derivations,
+    checkStandard: async (payload) => {
+      seen.push(payload.root.BusinessPartnerGrouping);
+      return [];
+    }
+  });
+
+  // A derivation never overwrites what was typed, and the replay must not either.
+  assert.deepEqual(seen, ['MDM0']);
 });
 
 test('standard findings join the validation list', async () => {
@@ -212,4 +288,35 @@ test('a throwing standard check is reported, not swallowed', async () => {
   assert.equal(result.standard.length, 1);
   assert.equal(result.standard[0].severity, 'info');
   assert.match(result.standard[0].message, /could not run \(boom\)/);
+});
+
+// The whole customer/vendor tier in one assertion: typed roles plus the system-derived account
+// group node are what reach the wire, and CVI gates on the role before it reads any of the data.
+test('the roles and the derived relation node both reach the wire', async () => {
+  const calls = [];
+  const derivations = [{
+    name: 'cvi_account_group',
+    run: async () => [{
+      target: 'Suppliers',
+      index: 0,
+      field: 'SupplierAccountGroup',
+      value: 'LIEF',
+      createsRow: true,
+      system: true
+    }]
+  }];
+
+  await runChecks({
+    root: { BusinessPartnerCategory: '2', BusinessPartnerGrouping: '0002' },
+    sections: { BusinessPartnerRoles: [{ BusinessPartnerRole: 'FLVN01' }] }
+  }, {
+    validations: [],
+    derivations,
+    checkStandard: createBpCheckStage({ requestId: 'cr-1', send: sender(answer(), calls) })
+  });
+
+  const sent = JSON.parse(calls[0].data.PayloadJson);
+  assert.deepEqual(sent.sections.BusinessPartnerRoles, [{ BusinessPartnerRole: 'FLVN01' }]);
+  assert.deepEqual(sent.sections.Suppliers, [{ SupplierAccountGroup: 'LIEF' }]);
+  assert.equal(calls[0].data.IncludeRelations, true);
 });

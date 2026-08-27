@@ -613,6 +613,43 @@ Two things worth not undoing:
   up re-deriving where it lives, and a test pins that a rule cannot mistake one
   direction for the other.
 
+#### The S/4 standard checks only see accepted values (fixed 2026-08-27)
+
+`runDerivations` returns a third payload, `systemDerived`: what was **typed**, plus only the
+entries a derivation marked `system: true`. `checkStandard` runs on that, never on `derived`.
+
+Before this, S/4 was objecting to postal codes VIES had merely *proposed* — an error a requester
+cannot clear, because no field on the screen holds the value it is about. A proposal the requester
+accepts is written into the payload by `_applyProposals`, so it arrives as a typed value on the
+next press and is checked then. **Acceptance is the gate**, and nothing else had to change to
+enforce it.
+
+- **`cvi_account_group` is the only `system` derivation**, and the flag is load-bearing twice
+  over: `TBD001` decides the account group whatever the screen says, so checking against it is
+  checking reality — and it is what *creates* the `Customers`/`Suppliers` node, without which
+  `ZMDML_BPCHECK` sends no relation node and the **customer and vendor tiers silently examine
+  nothing**. Withholding it would have taken the whole tier out while still reporting a clean run.
+- **The duplicate check still reads `derived`.** A value nobody accepted yet makes the comparison
+  better without committing anyone to anything, which is the whole reason derive precedes match.
+- **`systemDerived` is replayed from `applied`, not written in the derivation loop**, so an entry
+  the pipeline refused to write (a typed value already there) is not replayed either.
+
+#### The Why column is three words, with the sentence on hover (2026-08-27)
+
+A derivation entry carries a short `label` beside its long `message`; the proposal dialog shows
+`label` as **Why** and puts `message` in that cell's **tooltip**. Labels: `VIES check` /
+`GLEIF check` (`registry-checks.js`, named after the source rather than the action — a requester
+needs to know which register to argue with), `CVI customizing`, `Derivation rule`.
+
+Normalisations get theirs from the **model**: `PROPOSAL_SCHEMA` requires `reason` *and* `detail`,
+the prompt asks for at most three words and one or two sentences respectively, and `shortReason`
+clamps to three words server-side whatever comes back. A proposal with no `detail` falls back to a
+stated sentence rather than `''` — an empty tooltip reads as a broken one.
+
+A field that was derived and then reformatted is still one row: the derivation's label leads (it
+is why the field has a value at all) and the reformatting is appended to the **tooltip**, rather
+than growing the label past three words.
+
 #### A derivation may create the row it needs (changed 2026-08-20)
 
 A derivation used to refuse to invent a row: with no address on the screen, a VIES

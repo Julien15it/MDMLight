@@ -379,3 +379,20 @@ test('company code, sales area and purchasing org live inside their role Details
   assert.match(controller, /_hostedSectionContainers/);
   assert.match(controller, /section\.childSections/);
 });
+
+// The Why column is a three-word label with the full explanation on hover, and the dialog is big
+// enough to read the table in (2026-08-27).
+test('the proposal dialog shows a short reason and hides the sentence in its tooltip', () => {
+  const controller = fs.readFileSync(
+    path.join(REUSE, 'controller', 'BusinessPartnerMaintenance.controller.js'),
+    'utf8'
+  );
+
+  assert.match(controller, /text: "\{reason\}", wrapping: false, tooltip: "\{detail\}"/);
+  // The derivation's short label leads, never its message: that is what the tooltip carries.
+  assert.match(controller, /reason: entry\.label \|\| "Derived value"/);
+  assert.match(controller, /detail: entry\.message \|\|/);
+  assert.doesNotMatch(controller, /reason: entry\.message/);
+  assert.match(controller, /contentWidth: "76rem"/);
+  assert.match(controller, /contentHeight: "40rem"/);
+});

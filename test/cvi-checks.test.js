@@ -544,3 +544,15 @@ test('the configuration is read once and cached across runs', async () => {
   await validation.run(payload('2', [{ BusinessPartnerRole: 'FLCU01' }]));
   assert.strictEqual(reads, 1);
 });
+
+// The one system derivation in the app: it is what CVI will use whatever anybody ticks, and it is
+// what makes the Customers/Suppliers node exist for the customer and vendor tiers of the S/4 check.
+test('the account group derivation is marked system and labelled in three words', async () => {
+  const request = payload('2', [{ BusinessPartnerRole: 'FLVN01' }], '0002');
+  const { applied } = await runDerivations(request, [derivation(withConfig())]);
+
+  assert.strictEqual(applied.length, 1);
+  assert.strictEqual(applied[0].system, true);
+  assert.strictEqual(applied[0].label, 'CVI customizing');
+  assert.ok(applied[0].label.split(' ').length <= 3);
+});

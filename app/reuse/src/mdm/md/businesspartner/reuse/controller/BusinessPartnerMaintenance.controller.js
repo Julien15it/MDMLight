@@ -2365,7 +2365,10 @@ sap.ui.define([
             field: entry.field,
             current: "",
             proposed: entry.value,
-            reason: entry.message || "found in the official register",
+            // Why is a label; the sentence behind it is the tooltip. A derivation names its own
+            // source in `label`, and `message` is already the one-sentence version.
+            reason: entry.label || "Derived value",
+            detail: entry.message || "This value was filled in from the official register.",
             accepted: true
           });
         });
@@ -2374,7 +2377,9 @@ sap.ui.define([
           // A field derived and then reformatted is one row: applying both writes it twice.
           if (existing !== undefined) {
             rows[existing].proposed = entry.proposed;
-            rows[existing].reason += " (" + entry.reason + ")";
+            // The derivation label still leads — it is why the field has a value at all — and the
+            // reformatting is said in the tooltip rather than growing the label past three words.
+            rows[existing].detail += " " + (entry.detail || entry.reason);
             return;
           }
           rows.push({
@@ -2385,6 +2390,7 @@ sap.ui.define([
             current: entry.current,
             proposed: entry.proposed,
             reason: entry.reason,
+            detail: entry.detail || entry.reason,
             accepted: true
           });
         });
@@ -2443,7 +2449,7 @@ sap.ui.define([
             new Column({ header: new Text({ text: "Change" }) }),
             new Column({ header: new Text({ text: "Current" }) }),
             new Column({ header: new Text({ text: "Proposed" }), width: "14rem" }),
-            new Column({ header: new Text({ text: "Why" }) })
+            new Column({ header: new Text({ text: "Why" }), width: "11rem" })
           ]
         });
         table.bindItems({
@@ -2455,7 +2461,9 @@ sap.ui.define([
               new Text({ text: "{change}" }),
               new Text({ text: "{current}" }),
               new Input({ value: "{proposed}" }),
-              new Text({ text: "{reason}" })
+              // The full explanation is the tooltip, so the column stays a label. `wrapping: false`
+              // is what makes hovering the only way to read it, rather than a second-best.
+              new Text({ text: "{reason}", wrapping: false, tooltip: "{detail}" })
             ]
           })
         });
@@ -2463,11 +2471,14 @@ sap.ui.define([
 
         var dialog = new Dialog({
           title: "Proposed changes",
-          contentWidth: "56rem",
+          contentWidth: "76rem",
+          contentHeight: "40rem",
           resizable: true,
+          draggable: true,
+          stretchOnPhone: true,
           content: [
             new Text({
-              text: "These values were filled in from the official register, or differ from how master data is usually written. Edit anything you want to change, untick what you do not want, and nothing else is touched.",
+              text: "These values were filled in from the official register, or differ from how master data is usually written. Edit anything you want to change, untick what you do not want, and nothing else is touched. Hover over a reason in the Why column to read it in full.",
               wrapping: true
             }).addStyleClass("sapUiSmallMargin"),
             table
