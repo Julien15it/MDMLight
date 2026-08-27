@@ -2,25 +2,35 @@
 @Metadata.ignorePropagatedAnnotations: true
 @EndUserText.label: 'Derivation: address defaults per country'
 
-// The address family, one row per country. T005-SPRAS is the LANGU default S/4
-// itself uses, and FSBP_GENERIC/008 is what a blank LANGU costs -- see
-// mdmlbpcheck/README.md, "Two messages that fired unconditionally".
+// The address family, one row per country. Column names READ from DD03L on
+// 2026-08-27, not inferred -- the first draft had XREGI and LNCMP, neither of
+// which exists.
 //
-// Country-level only, deliberately. Time zone lives on TTZ5S keyed by country
-// AND region, so it is its own view: putting it here would multiply this one by
-// every region and make the country default ambiguous.
+// SPRAS is the address language S/4 itself defaults, and a blank LANGU is what
+// FSBP_GENERIC/008 costs -- see "Two messages that fired unconditionally".
 define view entity Z_I_DER_ADDR_DEFAULT
   as select from t005 as Country
 {
   key Country.land1 as Country,
-      // The address language S/4 defaults. Confirmed as the source 2026-08-27:
-      // T005 is "Countries", 249 rows on S4A.
+
+      // The derivation this view exists for.
       Country.spras as AddressLanguage,
-      // Carried because a region-dependent derivation has to know whether the
-      // country even has regions before it reports "no region found".
-      Country.xregi as HasRegions,
+
+      // A second one, found while reading the column list rather than looked
+      // for: the name format S/4 uses for this country. Not staged today.
+      Country.nmfmt as NameFormat,
+
+      // Not derivations -- the guards a derivation needs so it can say "this
+      // country has no regions" instead of deriving from nothing. XREGS, not
+      // XREGI. Region matters twice over: TTZ5S is keyed by it, so a missing
+      // region means no time zone either.
+      Country.xregs as RegionIsMandatory,
       Country.xaddr as AddressCheckActive,
-      // The postal-code length, so a derivation can say a code is implausible
-      // rather than deriving from a bad one.
-      Country.lncmp as PostalCodeLength
+      Country.lnplz as PostalCodeLength,
+      Country.prplz as PostalCodeCheckRule,
+
+      // Carried because tax and EU checks elsewhere already ask these two of
+      // T005, and one view over one table beats two.
+      Country.xegld as IsEuCountry,
+      Country.intca as IsoCode
 }
