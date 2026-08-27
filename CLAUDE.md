@@ -287,6 +287,16 @@ Consequences worth knowing before changing this:
 - The computed columns are declared **non-filterable and non-sortable**
   (`@Capabilities.FilterRestrictions` / `SortRestrictions`). Sorting on a
   computed column would silently sort one half of the list only.
+- **Every filterable table column is also in `UI.SelectionFields`** (asked for
+  2026-08-27), because OData V4 Fiori Elements builds the filter bar - and its
+  "Adapt Filters" dialog - from `SelectionFields` alone; unlike V2, there is no
+  "every property is a candidate" fallback, so a column left out of that list
+  cannot be added as a filter no matter how visible it already is in the table.
+  `BusinessPartnerFullName` and `SearchTerm1` were LineItem columns without a
+  matching `SelectionFields` entry until then. `RecordStatus` is the one column
+  deliberately still absent: it is computed and filtered/sorted in memory, same
+  reasoning as the bullet above, and a filter on it would only ever reach the
+  S/4 half of the merged list.
 - Sorting on a field S/4 *can* sort still leaves the staged rows on top —
   `remoteOrderBy` drops what S/4 has never heard of, `ResultKey` included.
 - The **object page and the maintenance screens still read `BusinessPartners`**,
@@ -1712,6 +1722,64 @@ responses — the fix in both bullets above was copied from that live output, no
 reasoned about from documentation. `test/data-stewards.test.js` pins both real
 response shapes so a future refactor cannot reintroduce either wrong key.
 
+#### Critical is Requester-scoped, and reflected read-only everywhere else (2026-08-27)
+
+Asked for once profiles started being split by BTP role for approvers (see
+"Field property profiles" and its "Applying them" section below): a request
+carries **one** set of critical entities for its whole lifetime, decided once
+by whoever files it, not one per role that happens to review it later. So
+`critical` is now only ever **read** off a profile matching role `Requester`
+(or `*`, which covers `Requester` along with everything else) — an Approver or
+DataSteward profile's own `critical` column, if one is somehow stored, is
+simply never consulted by the running app.
+
+- **`resolveProfiles` (`srv/checks/field-properties.js`) computes critical from
+  a SEPARATE matching set than the four property states.** `criticalMatching`/
+  `criticalIds` re-run `profileMatches` against `{ requestType: context.requestType,
+  role: 'Requester' }`, independent of whatever role the caller actually asked
+  about — `entities`/`fields` (the mandatory/readOnly/hidden/optional states)
+  keep using the caller's own `matching`/`ids` exactly as before. The two
+  aggregations were kept apart on purpose rather than overloaded onto one set:
+  they answer different questions ("what does this role see" vs. "what did the
+  requester mark critical"), and entangling them would make either one
+  impossible to reason about alone.
+- **The Modify dialog only lets the box be ticked from a Requester-scoped
+  profile.** `_openPropertyDialog` (`app/mdmrules/.../FieldPropertyProfileList.controller.js`)
+  computes `canEditCritical = !role || role === "*" || role === "Requester"` —
+  a profile with no role yet (a just-added row) counts as editable too, the
+  same way it defaults to matching everything until something narrower is
+  chosen — and stores it on the `fp` model as `/canEditCritical`. The checkbox's
+  `enabled` binding in `FieldPropertyDialog.fragment.xml` gained `&& ${fp>/canEditCritical}`
+  alongside its existing entity-row-only condition, and `onCriticalSelect`
+  guards the same flag again in code, the same discipline the entity-only
+  restriction already used rather than trusting the binding alone.
+- **Every other role's dialog still SHOWS the box, ticked or not, just
+  disabled** — a steward reviewing an Approver profile should still be able to
+  see which entities the requester already marked critical, the same reasoning
+  "hidden is honoured on the approve view" argues the other way for visibility
+  of data. `fieldPropertiesOf` (`srv/duplicate-config-service.js`) now returns
+  `{ settings, requesterCritical }` instead of a bare settings array —
+  `requesterCritical.entities` is `resolvedProperties({ requestType, role:
+  'Requester' }).criticalEntities`, the exact same runtime resolution the
+  maintenance screen itself reads "⚠" from, reused rather than re-derived, so
+  the config screen and the running app can never disagree about what critical
+  means for a given request type. (Only `entities` is carried over — critical
+  is entity-level only, so the field-level half of that resolved shape has
+  nothing to contribute here.) `_buildTree` reads an entity row's displayed
+  `critical` from `requesterCriticalEntities.includes(entity.section)` instead
+  of this profile's own (normally empty, since editing it here is blocked)
+  stored value whenever `canEditCritical` is false.
+- **The reflection is read-only in the truest sense: Apply cannot write it
+  back.** Without a guard, pressing Apply on an Approver profile — having
+  touched nothing — would silently copy the Requester profile's own critical
+  flag into the Approver profile's storage, which is exactly the kind of
+  profile-owns-what-it-shouldn't bug this whole feature exists to prevent
+  elsewhere. `_settingsFromTree` reads `canEditCritical` off the same `fp`
+  model property and computes `entityCritical = canEditCritical &&
+  entity.critical` / `fieldCritical = canEditCritical && field.critical`,
+  using these — never the raw `entity.critical`/`field.critical` — for both
+  whether a row is worth sending at all and what `critical` value it carries.
+
 
 ### Workflow Agent Determination — who approves what (2026-08-21)
 
@@ -2431,22 +2499,30 @@ type.** `state.trackChanges` decides whether one is meaningful at all:
   never yet submitted - `trackChanges` is false there anyway - or a parse
   failure, logged rather than thrown).
   **Deliberately NOT reset by `decideDataStewardReview`'s own `'complete'`
-  branch**, unlike `resubmitRequest`: a resubmit follows a rejection and starts a
-  genuinely fresh round, so whoever reviews it next should see only what changed
-  since then - but a data steward completing their review is not a new round, it
-  is the SAME round the original submit or resubmit started, and the approver
-  receiving it back is meant to see the steward's own edits highlighted too.
+  branch, and — reversed later the same day — not by `resubmitRequest` either.**
+  The first cut of this feature had `resubmitRequest` write a fresh
+  `baselineDataJson` on the reasoning that a resubmit follows a rejection and
+  starts a new round, so whoever reviews it next should see only what changed
+  since then. That shipped and was wrong: it is backwards from what was actually
+  asked for. The requester's OWN rework edits are exactly what the next
+  reviewer - an approver, or a data steward again - is meant to see highlighted,
+  the same way a data steward's edits already stay visible through to the
+  approver. So `resubmitRequest`'s final `UPDATE(HEADER)` no longer touches
+  `baselineDataJson` at all, and **nothing after the very first successful
+  `submitRequest` ever writes this column again**, however many rework rounds a
+  request goes through: the baseline set at first submit is what a create
+  request compares against for its entire lifetime.
   **The same guarantee is what makes it work when a rejection sends the
   request back to the REQUESTER instead** (confirmed 2026-08-27, asked for
   explicitly): `decideRequest`'s reject branch and `claimRework` - the stopgap
   for the missing reject callback - both only ever write `status` (and, for
   `decideRequest`, `rejectionComment`); neither touches `baselineDataJson`. So
   by the time the rework screen loads, the baseline is still whatever
-  `submitRequest`/`resubmitRequest` last wrote - the pre-steward data - and the
-  requester sees exactly what the steward changed, the same colours the
-  approver would have seen had the request been accepted instead. Nothing extra
-  had to be built for this; it falls out of the same one column never being
-  reset except on a genuinely fresh round.
+  `submitRequest` last wrote - the pre-steward data - and the requester sees
+  exactly what the steward changed, the same colours the approver would have
+  seen had the request been accepted instead. Nothing extra had to be built for
+  this; it falls out of the same one column never being reset except at the
+  very first submit.
 
 **Rows are matched by CONTENT against the baseline, never by `record.__state`**
 - revised twice the same day, and the second revision is the one that stuck.

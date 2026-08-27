@@ -732,7 +732,7 @@ sap.ui.define([], function () {
           },
           {
             "name": "AddressTimeZone",
-            "label": "Address Time Zone",
+            "label": "Time Zone",
             "type": "cds.String",
             "key": false,
             "nullable": true,

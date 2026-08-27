@@ -406,10 +406,21 @@ annotate service.BusinessPartnerSearchResults with @(
     Description   : { Value: RecordStatus }
   },
 
+  // Every LineItem column below that S/4 can actually filter on is listed here too, so "Adapt
+  // Filters" can offer it - in OData V4 Fiori Elements the filter bar (and its Adapt Filters
+  // dialog) is built from SelectionFields alone, unlike V2's "every property is a candidate"
+  // behaviour, so a column left out of this list is simply never offerable as a filter, however
+  // visible it already is in the table. RecordStatus is the one LineItem column deliberately
+  // NOT here: it is computed and filtered/sorted in memory (see FilterRestrictions on
+  // BusinessPartnerSearchResults), and a filter on it would only ever apply to the S/4 half of
+  // the merged list - the same reasoning that keeps it out of NonFilterableProperties' opposite,
+  // sortable, list.
   UI.SelectionFields: [
     BusinessPartner,
+    BusinessPartnerFullName,
     BusinessPartnerCategory,
     BusinessPartnerGrouping,
+    SearchTerm1,
     BusinessPartnerIsBlocked
   ],
 

@@ -201,12 +201,16 @@ test('the live snapshot reuses _loadSection, the same reader _loadBusinessPartne
 // --- The server side: where the baseline is written and read --------------------------------
 
 /**
- * Only a FRESH round resets the baseline - a first submit (trivially its own data, so nothing is
- * highlighted yet) and a resubmit (a fresh round after a rejection). A data steward's own completed
- * review deliberately does NOT reset it, so the approver receiving it next still sees what the
- * steward changed - see CLAUDE.md "Highlighting what changed".
+ * Only the very FIRST successful submitRequest ever writes the baseline (reversed 2026-08-27, having
+ * shipped a reset-on-resubmit the same day): a first submit's baseline is trivially its own data, so
+ * nothing is highlighted yet, and every later write to this request - a data steward's own completed
+ * review, or a resubmit after a rejection - deliberately leaves it alone. That is what lets a create
+ * request's baseline stay "the original submission" for its entire lifetime, however many rework
+ * rounds it takes, so the requester's OWN rework edits stay visible to whoever reviews it next -
+ * exactly the same way a data steward's edits already stayed visible through to the approver. See
+ * CLAUDE.md "Highlighting what changed".
  */
-test('submitRequest and resubmitRequest write a fresh baseline; the data steward completion does not', () => {
+test('only the first submitRequest ever writes the baseline - resubmit and steward completion both leave it', () => {
   assert.match(stagingCds, /baselineDataJson\s*:\s*LargeString;/u);
   assert.match(serviceCds, /BaselineDataJson\s*:\s*LargeString;/u);
   assert.match(serviceJs, /BaselineDataJson: header\.baselineDataJson \|\| null/u);
@@ -217,7 +221,10 @@ test('submitRequest and resubmitRequest write a fresh baseline; the data steward
 
   const resubmit = serviceJs.slice(serviceJs.indexOf("this.on('resubmitRequest'"));
   const resubmitBody = resubmit.slice(0, resubmit.indexOf('claimRework'));
-  assert.match(resubmitBody, /baselineDataJson: req\.data\.DataJson/u);
+  assert.equal(
+    /baselineDataJson: req\.data\.DataJson/u.test(resubmitBody), false,
+    'a resubmit must not reset the baseline any more - the requester\'s rework edits should stay visible'
+  );
 
   const stewardComplete = serviceJs.slice(serviceJs.indexOf("decision === 'complete', resubmitRequest"));
   const stewardBody = stewardComplete.slice(0, stewardComplete.indexOf('getRequestPayload'));

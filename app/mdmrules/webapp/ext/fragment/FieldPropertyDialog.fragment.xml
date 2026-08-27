@@ -83,10 +83,17 @@
                    neither clears nor is cleared by onPropertySelect. Entity-level only (2026-08-26):
                    greyed out on a field row, because critical marks the whole entity, not one field
                    inside it - the save action refuses a field-level critical row anyway, this just
-                   keeps the dialog from offering something the server will reject. -->
+                   keeps the dialog from offering something the server will reject.
+                   Requester-scoped profiles only (2026-08-27): resolveProfiles only ever reads
+                   critical off a profile matching role Requester (or `*`), so ticking it from any
+                   other role's Modify dialog would silently have no effect - fp>/canEditCritical is
+                   set once, when the dialog opens, from the profile's own role (see
+                   _openPropertyDialog). Still shown, not hidden, on the other roles: a steward
+                   reviewing an Approver profile should still be able to SEE which entities the
+                   requester already marked critical. -->
               <CheckBox
                 selected="{fp>critical}"
-                enabled="{= ${fp>kind} === 'entity' }"
+                enabled="{= ${fp>kind} === 'entity' &amp;&amp; ${fp>/canEditCritical} }"
                 select=".onCriticalSelect" />
             </cells>
           </ColumnListItem>

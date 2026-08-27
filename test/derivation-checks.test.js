@@ -206,12 +206,17 @@ test('a country with several categories says how many, rather than covering one 
     CONFIG
   );
 
-  assert.equal(entries.length, 2);
+  // Three entries: the proposed category, the DepartureCountry that always rides along with it
+  // (without it the row would carry a tax category and no departure country, half a KNVI key), and
+  // the ambiguity statement - a silent partial answer would read as "these are all of them".
+  assert.equal(entries.length, 3);
   assert.equal(entries[0].value, 'UTXJ', 'the lowest sequence number is the one proposed');
-  // The second entry carries no field: a statement, not a value, so it renders as a strip.
-  assert.equal(entries[1].field, undefined);
-  assert.match(entries[1].message, /2 tax categories/u);
-  assert.match(entries[1].message, /UTXJ, UTX2/u);
+  assert.equal(entries[1].field, 'DepartureCountry');
+  assert.equal(entries[1].value, 'US');
+  // The third entry carries no field: a statement, not a value, so it renders as a strip.
+  assert.equal(entries[2].field, undefined);
+  assert.match(entries[2].message, /2 tax categories/u);
+  assert.match(entries[2].message, /UTXJ, UTX2/u);
 });
 
 test('nothing is proposed without a customer, a country, or into rows somebody added', () => {

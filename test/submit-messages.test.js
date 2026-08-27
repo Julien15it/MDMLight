@@ -435,7 +435,10 @@ test('submit validates but does not derive', () => {
   // sources: the steward's derivation table as well as VIES/GLEIF.
   const runnerAt = service.indexOf('const runRequestChecks =');
   const runnerBody = service.slice(runnerAt, service.indexOf("this.on('checkRequest'", runnerAt));
-  assert.match(runnerBody, /derivations: \[\.\.\.configured\.derivations, \.\.\.registry\.derivations,\s*\.\.\.createCviStages\(\)\.derivations\]/u);
+  assert.match(
+    runnerBody,
+    /derivations: \[\.\.\.configured\.derivations, \.\.\.registry\.derivations,\s*\.\.\.createCviStages\(\)\.derivations, \.\.\.createDerivationStages\(\)\.derivations\]/u
+  );
   // Submit does still run the configured validations, so the table gates a request as well as
   // reporting on one.
   assert.match(submitBody, /configured\.validations/u);

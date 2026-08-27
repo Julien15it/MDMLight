@@ -267,6 +267,33 @@ test('the status column is coloured by its criticality', () => {
   );
 });
 
+/**
+ * In OData V4 Fiori Elements the filter bar - and its "Adapt Filters" dialog - is built from
+ * SelectionFields alone, unlike V2's "every property is a candidate" behaviour: a LineItem column
+ * left out of SelectionFields is simply never offerable as a filter, however visible it already
+ * is in the table (asked for 2026-08-27). Every column shown in the table's own Settings dialog
+ * must therefore also be a SelectionFields entry, except the one that genuinely cannot be: a
+ * computed column the merged list only filters in memory.
+ */
+test('every filterable table column is also offered by Adapt Filters', () => {
+  const annotations = root('srv', 'annotations.cds');
+  const start = annotations.indexOf('annotate service.BusinessPartnerSearchResults');
+  const block = annotations.slice(start, annotations.indexOf(');', start) + 2);
+  const selectionFields = block.slice(
+    block.indexOf('UI.SelectionFields'), block.indexOf('UI.LineItem')
+  );
+  const lineItemFields = [...block.matchAll(/\{ Value: (\w+),/gu)].map((match) => match[1]);
+  assert.ok(lineItemFields.length > 0, 'the LineItem columns could not be parsed');
+  for (const field of lineItemFields) {
+    if (field === 'RecordStatus') {
+      // The one deliberate exception: computed, and non-filterable for the reason pinned below.
+      assert.equal(selectionFields.includes(field), false, 'RecordStatus cannot be filtered on');
+      continue;
+    }
+    assert.ok(selectionFields.includes(field), `${field} is a column but not offered as a filter`);
+  }
+});
+
 // Sorting or filtering on a computed column would silently apply to one half of the list only.
 test('the computed columns are neither filterable nor sortable', () => {
   const service = root('srv', 'business-partner-service.cds');

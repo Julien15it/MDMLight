@@ -273,13 +273,60 @@ test('critical is a fifth, independent checkbox drawn on both levels', () => {
 /**
  * Entity-level only (2026-08-26): critical marks the whole entity, so the box is disabled on a field
  * row rather than removed - a requester can still see an older field-level value, just not set one.
+ *
+ * Requester-scoped profiles only (2026-08-27): resolveProfiles only ever reads critical off a profile
+ * matching role Requester (or `*`), so the box is also disabled on every OTHER role's profile - still
+ * shown, so a steward can see what a matching Requester profile marked critical, just not change it
+ * from here.
  */
-test('the critical box is only enabled on an entity row', () => {
-  assert.match(dialog, /enabled="\{= \$\{fp>kind\} === 'entity' \}"[\s\S]{0,40}select="\.onCriticalSelect"/u);
+test('the critical box is only enabled on an entity row of a Requester-scoped profile', () => {
+  assert.match(
+    dialog,
+    /enabled="\{= \$\{fp>kind\} === 'entity' &amp;&amp; \$\{fp>\/canEditCritical\} \}"[\s\S]{0,40}select="\.onCriticalSelect"/u
+  );
   // Guarded on the JS side too, rather than trusting the binding alone.
   const handler = controller.slice(controller.indexOf('onCriticalSelect: function'));
   const body = handler.slice(0, handler.indexOf('\n    },'));
   assert.match(body, /if \(row\.kind !== "entity"\) return;/u);
+  assert.match(body, /if \(!this\._dialog\.getModel\("fp"\)\.getProperty\("\/canEditCritical"\)\) return;/u);
+});
+
+/**
+ * A non-Requester profile's Modify dialog reflects what a matching Requester profile actually marked
+ * critical (not this profile's own, normally-empty storage), by re-asking the same runtime
+ * resolution the app itself uses - so the config screen and the running app can never disagree about
+ * what critical means. Reflected only, never written back: see the next test.
+ */
+test('a non-Requester profile shows the Requester profile\'s own critical entities, read-only', () => {
+  assert.match(serviceJs, /requesterCritical/u);
+  const handler = serviceJs.slice(serviceJs.indexOf("this.on('fieldPropertiesOf'"));
+  const body = handler.slice(0, handler.indexOf('\n    });'));
+  assert.match(body, /role: 'Requester'/u);
+  assert.match(body, /fieldPropertyStore\.resolvedProperties\(/u);
+  assert.match(body, /JSON\.stringify\(\{ settings: rows \|\| \[\], requesterCritical \}\)/u);
+
+  const openDialog = controller.slice(controller.indexOf('_openPropertyDialog: async function'));
+  const dialogBody = openDialog.slice(0, openDialog.indexOf('if (!this._dialog)'));
+  assert.match(dialogBody, /canEditCritical = !role \|\| role === "\*" \|\| role === "Requester"/u);
+  assert.match(dialogBody, /this\._buildTree\(settings, canEditCritical \? null : \(parsed\.requesterCritical \|\| \{\}\)\)/u);
+
+  const buildTree = controller.slice(controller.indexOf('_buildTree: function'));
+  const buildBody = buildTree.slice(0, buildTree.indexOf('\n    },'));
+  assert.match(buildBody, /requesterCriticalEntities\.includes\(entity\.section\)/u);
+});
+
+/**
+ * The read-only reflection must never be written BACK as though this profile owned it - pressing
+ * Apply on an Approver profile without touching anything must not silently copy the Requester
+ * profile's critical flag into the Approver profile's own storage.
+ */
+test('the read-only reflection is never sent back as this profile\'s own setting', () => {
+  const fn = controller.slice(
+    controller.indexOf('_settingsFromTree: function'), controller.indexOf('onApplyProperties:')
+  );
+  assert.match(fn, /var canEditCritical = this\._dialog\.getModel\("fp"\)\.getProperty\("\/canEditCritical"\);/u);
+  assert.match(fn, /var entityCritical = canEditCritical && entity\.critical;/u);
+  assert.match(fn, /var fieldCritical = canEditCritical && field\.critical;/u);
 });
 
 /**
@@ -294,15 +341,18 @@ test('ticking a box writes to the tree, and clears the other three', () => {
   assert.match(controller, /getModel\("fp"\)\.refresh\(true\)/u);
 });
 
-/** A row exists to carry either state, so it must be sent when it carries only one of them. */
+/**
+ * A row exists to carry either state, so it must be sent when it carries only one of them - `critical`
+ * gated on canEditCritical since 2026-08-27 (see the read-only-reflection tests above).
+ */
 test('a row is sent when only critical is set, and when only a property is set', () => {
   const fn = controller.slice(
     controller.indexOf('_settingsFromTree: function'), controller.indexOf('onApplyProperties:')
   );
-  assert.match(fn, /if \(entity\.property \|\| entity\.critical\)/u);
-  assert.match(fn, /if \(!field\.property && !field\.critical\) return;/u);
-  assert.match(fn, /critical: !!entity\.critical/u);
-  assert.match(fn, /critical: !!field\.critical/u);
+  assert.match(fn, /if \(entity\.property \|\| entityCritical\)/u);
+  assert.match(fn, /if \(!field\.property && !fieldCritical\) return;/u);
+  assert.match(fn, /critical: !!entityCritical/u);
+  assert.match(fn, /critical: !!fieldCritical/u);
 });
 
 /** "Clear" resets the whole row, or a field could sit there still critical with nothing to show why. */

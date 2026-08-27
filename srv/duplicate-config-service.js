@@ -243,7 +243,32 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
           .columns('section', 'element', 'property', 'critical')
           .where({ profile_ID: req.data.Profile })
       );
-      return JSON.stringify(rows || []);
+      // Critical is only ever EDITABLE from a Requester-scoped profile (see resolveProfiles in
+      // field-properties.js), but the Modify dialog for every OTHER role still shows the box, read-
+      // only - and a box that always renders unticked there would not be "read-only", it would just
+      // be wrong. This reflects what a matching Requester profile actually marked critical, by
+      // reusing the exact same resolution the running app renders "!" from, so the config screen and
+      // the app can never disagree about what critical means for the request type this profile is for.
+      // Entity-level only, like critical itself (validateSetting refuses a field-level critical row),
+      // so only criticalEntities is worth carrying over here - the field-level half of that resolved
+      // shape is the same abandoned-column tolerance covered elsewhere and has no bearing on this
+      // reflection.
+      let requesterCritical = { entities: [] };
+      try {
+        const own = await cds.run(
+          cds.ql.SELECT.one.from(PROFILES).columns('requestType').where({ ID: req.data.Profile })
+        );
+        const resolved = await fieldPropertyStore.resolvedProperties({
+          requestType: own && own.requestType,
+          role: 'Requester'
+        });
+        requesterCritical = { entities: resolved.criticalEntities || [] };
+      } catch (error) {
+        // Best-effort: the dialog still has to open and let a steward see/change the properties even
+        // if this extra reflection could not be built.
+        console.warn('[field-properties] Could not resolve the Requester-critical reflection:', error.message);
+      }
+      return JSON.stringify({ settings: rows || [], requesterCritical });
     });
 
     // Wholesale replace: the dialog always sends the complete state of the profile, so rewriting

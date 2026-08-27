@@ -163,7 +163,10 @@ test('the configured stages join the registry stages, configured first', () => {
     changeRequestJs,
     /validations: \[\.\.\.properties\.validations, \.\.\.configured\.validations,\s*\.\.\.createCviStages\(\)\.validations, \.\.\.registry\.validations,\s*\.\.\.relationStages\([^)]*\)\.validations\]/u
   );
-  assert.match(changeRequestJs, /derivations: \[\.\.\.configured\.derivations, \.\.\.registry\.derivations,\s*\.\.\.createCviStages\(\)\.derivations\]/u);
+  assert.match(
+    changeRequestJs,
+    /derivations: \[\.\.\.configured\.derivations, \.\.\.registry\.derivations,\s*\.\.\.createCviStages\(\)\.derivations, \.\.\.createDerivationStages\(\)\.derivations\]/u
+  );
 });
 
 // Submit runs the validations and not the derivations (decided 2026-08-13): a derivation changes the

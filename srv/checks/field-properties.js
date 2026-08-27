@@ -163,18 +163,33 @@ const settingKey = (section, element) => (element ? `${section}.${element}` : se
  * `{ entities: { Addresses: 'readOnly' }, fields: { 'Addresses.Country': 'mandatory' } }`.
  * A target nothing says anything about is absent, which is deliberately not the same as `optional`.
  *
- * `criticalEntities`/`criticalFields` are gathered the same pass, independently of `property`: a row
- * can carry `critical` with no property at all, and a critical row contributes even when its
- * property is not one of the four states (or is absent) - the two are unrelated axes, not merged or
- * cascaded the way `broadestProperty` merges visible/editable/required. Any matching profile's row
- * saying critical is enough; there is nothing to reconcile between profiles that disagree, because
- * "critical" has no broader/narrower answer the way a property does.
+ * `criticalEntities`/`criticalFields` are gathered from a DIFFERENT set of matching profiles than
+ * `entities`/`fields` (2026-08-27) - profiles matched against `role: 'Requester'` specifically,
+ * whatever role the caller actually asked about. Marking a section critical is a decision about what
+ * the DATA needs, made from the Requester's own profile (that is the only place the checkbox is
+ * editable at all - see the Modify dialog), and the "!" it produces has to show up on every screen
+ * that renders the section - the approver's, the data steward's, the requester's own - not only on
+ * whichever role happens to match the profile it was set on. Before this, a critical flag set on a
+ * Requester-scoped profile was invisible to every OTHER role's screen, because `profileMatches`
+ * correctly says a Requester profile does not apply to an Approver request - true for `mandatory`/
+ * `readOnly`/etc., wrong for `critical`, which was never meant to be role-scoped at all.
+ *
+ * Gathered independently of `property` either way: a row can carry `critical` with no property at
+ * all, and a critical row contributes even when its property is not one of the four states (or is
+ * absent) - the two are unrelated axes, not merged or cascaded the way `broadestProperty` merges
+ * visible/editable/required. Any matching profile's row saying critical is enough; there is nothing
+ * to reconcile between profiles that disagree, because "critical" has no broader/narrower answer the
+ * way a property does.
  */
 function resolveProfiles(profiles, settings, context) {
-  const matching = (profiles || [])
-    .filter((profile) => profile.isActive !== false)
-    .filter((profile) => profileMatches(profile, context || {}));
+  const active = (profiles || []).filter((profile) => profile.isActive !== false);
+  const matching = active.filter((profile) => profileMatches(profile, context || {}));
   const ids = new Set(matching.map((profile) => profile.ID));
+
+  const criticalMatching = active.filter((profile) => (
+    profileMatches(profile, { requestType: context?.requestType, role: 'Requester' })
+  ));
+  const criticalIds = new Set(criticalMatching.map((profile) => profile.ID));
 
   const entities = {};
   const fields = {};
@@ -187,11 +202,11 @@ function resolveProfiles(profiles, settings, context) {
 
   for (const setting of settings || []) {
     const owner = setting.profile_ID || (setting.profile && setting.profile.ID);
-    if (!ids.has(owner)) continue;
-    if (setting.critical) {
+    if (setting.critical && criticalIds.has(owner)) {
       if (setting.element) criticalFields.add(settingKey(setting.section, setting.element));
       else criticalEntities.add(setting.section);
     }
+    if (!ids.has(owner)) continue;
     if (!PROPERTY_STATE[setting.property]) continue;
     if (setting.element) collect(fields, settingKey(setting.section, setting.element), setting.property);
     else collect(entities, setting.section, setting.property);

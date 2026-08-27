@@ -944,9 +944,12 @@ class ChangeRequestService extends cds.ApplicationService {
         processInstanceId,
         submittedAt: new Date().toISOString(),
         submittedBy: requestingUserEmail(req),
-        // The "before" a data steward's or a reworking requester's changes get judged against - see
-        // baselineDataJson in db/staging.cds. A first submit's baseline is trivially its own data,
-        // which is exactly why nothing is highlighted on a brand new create until someone edits it.
+        // The "before" a data steward's or a reworking requester's changes get judged against, for
+        // the ENTIRE remaining lifetime of this request - see baselineDataJson in db/staging.cds.
+        // Nothing later ever resets it (not resubmitRequest, not decideDataStewardReview's own
+        // complete branch), so this is the only write it ever gets. A first submit's baseline is
+        // trivially its own data, which is exactly why nothing is highlighted on a brand new create
+        // until someone edits it.
         baselineDataJson: req.data.DataJson
       }).where({ ID: changeRequest }));
 
@@ -1040,17 +1043,20 @@ class ChangeRequestService extends cds.ApplicationService {
         console.error(`Could not signal the approval process that ${changeRequest} was resubmitted:`, error);
       }
 
+      // baselineDataJson is deliberately NOT touched here (reversed 2026-08-27, having shipped
+      // resetting it the same day) - see db/staging.cds. It was reset on the reasoning that a resubmit
+      // starts a fresh round, so whoever reviews it next should see only what changed since then - but
+      // that is backwards from what was actually asked for: the requester's OWN rework edits are
+      // exactly what the next reviewer (an approver, or a data steward again) is meant to see
+      // highlighted, the same way a data steward's edits already stay visible through to the approver.
+      // Leaving it alone means the baseline set at the very first successful submitRequest is what a
+      // create request compares against for its ENTIRE lifetime, however many rework rounds it takes.
       await db.run(cds.ql.UPDATE(HEADER).set({
         status: 'inApproval',
         // Overwritten on purpose: the resubmit is the submission that matters now, and the original
         // timestamp is of no use to anyone once the request has been round the loop.
         submittedAt: new Date().toISOString(),
-        submittedBy: requestingUserEmail(req),
-        // A fresh round starts a fresh "before" - see baselineDataJson in db/staging.cds. Unlike
-        // decideDataStewardReview's own complete branch, a resubmit follows a REJECTION, so whoever
-        // reviews it next should see only what changed since THIS resubmit, not the entire history
-        // back to the original submission.
-        baselineDataJson: req.data.DataJson
+        submittedBy: requestingUserEmail(req)
       }).where({ ID: changeRequest }));
       await appendComment(db, changeRequest, 'Requester', requestingUserEmail(req), req.data.Reason);
 
@@ -1272,10 +1278,10 @@ class ChangeRequestService extends cds.ApplicationService {
         console.error(`Could not signal that data steward review of ${changeRequestId} was completed:`, error);
       }
 
-      // baselineDataJson is deliberately NOT touched here, unlike submitRequest/resubmitRequest: this
-      // is not a fresh round, it is the SAME round the requester's submit or resubmit started, so the
-      // approver receiving it next is meant to see the data steward's own edits highlighted too - see
-      // "Highlighting what changed" in CLAUDE.md.
+      // baselineDataJson is deliberately NOT touched here - nor is it anywhere past the very first
+      // submitRequest any more (resubmitRequest included, reversed 2026-08-27) - so the approver
+      // receiving it next is meant to see the data steward's own edits highlighted too, on top of
+      // whatever the requester changed getting here - see "Highlighting what changed" in CLAUDE.md.
       await db.run(cds.ql.UPDATE(HEADER).set({
         status: 'inApproval',
         submittedAt: new Date().toISOString(),
