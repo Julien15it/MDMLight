@@ -731,6 +731,16 @@ sap.ui.define([], function () {
             "updatable": true
           },
           {
+            "name": "AddressTimeZone",
+            "label": "Address Time Zone",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 6,
+            "creatable": true,
+            "updatable": true
+          },
+          {
             "name": "CityName",
             "label": "City",
             "type": "cds.String",

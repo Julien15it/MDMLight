@@ -748,9 +748,25 @@ claim on any field here. On Check and Duplicate Check only; submit still validat
   Covering one of five silently would read as "these are all of them", which is the answer this
   codebase refuses everywhere.
 
-Still not built, and both for a reason rather than an oversight: **time zone**, because
-`StagedAddresses` has no column to hold one (`TTZ5S` is ready and `Z_I_DER_TIME_ZONE` is exposed);
-and **partner functions**, because nothing links an account group to a determination procedure.
+- **Address time zone** from `TTZ5S`, added 2026-08-27 along with `StagedAddresses.AddressTimeZone`
+  (`ADRC-TIME_ZONE`). **Keyed by country AND region**, so an address with no region has nothing to
+  derive — and that is said as a statement rather than skipped, because "no time zone appeared" and
+  "your address needs a region first" are different answers. One statement however many rows are
+  short of a region. Where a region carries several zones, `TZONEDFT` decides; where several exist
+  and **none** is marked default, nothing is derived — that is a customizing gap, not a coin toss.
+- **`TransportZone` is deliberately NOT staged.** `TZONE` holds valid zones per country and carries
+  no determination data at all, so nothing could ever fill it. A column would be a field the
+  requester has to type with no help, which is what this whole feature exists to remove.
+
+**A created tax row needs TWO entries**, and the mechanism is worth knowing before adding a third
+multi-field derivation: `createsRow` writes exactly one field, so the departure country comes from a
+second entry that finds the row the first one made. `runDerivations` applies each entry to `derived`
+as it goes, so within one stage a later entry sees an earlier entry's row. Without it the row would
+carry a tax category and no departure country — half a `KNVI` key.
+
+Still not built: **partner functions**, because nothing found so far links an account group to a
+determination procedure. `Z_I_DER_PARTNER_FUNC_PROC` carries `TPAER-PAPFL`, the mandatory flag, and
+is exposed but unconsumed for exactly that reason.
 
 #### Two standard-check messages nobody could clear (fixed 2026-08-27)
 

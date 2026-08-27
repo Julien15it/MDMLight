@@ -36,13 +36,15 @@ function invalidate() {
 
 async function readConfiguration() {
   const service = await cds.connect.to(SERVICE);
-  const [countries, taxCategories] = await Promise.all([
+  const [countries, taxCategories, timeZones] = await Promise.all([
     service.run(cds.ql.SELECT.from('DerAddressDefaults')),
-    service.run(cds.ql.SELECT.from('DerTaxCategories'))
+    service.run(cds.ql.SELECT.from('DerTaxCategories')),
+    service.run(cds.ql.SELECT.from('DerTimeZones'))
   ]);
   return {
     countries: Array.isArray(countries) ? countries : [],
-    taxCategories: Array.isArray(taxCategories) ? taxCategories : []
+    taxCategories: Array.isArray(taxCategories) ? taxCategories : [],
+    timeZones: Array.isArray(timeZones) ? timeZones : []
   };
 }
 
@@ -102,6 +104,68 @@ function addressLanguageEntries(payload, { countries }) {
 }
 
 /**
+ * The address time zone, from `TTZ5S`.
+ *
+ * **Keyed by country AND region**, which is the whole shape of this one: `TTZ5S` assigns zones to
+ * regions, not to postal codes, so an address with no region has nothing to derive. Said as a
+ * statement rather than skipped silently, because "no time zone appeared" and "your address needs a
+ * region first" are different answers to a requester.
+ *
+ * `AddressTimeZone` is part of the key, so a country + region may carry several zones. `IsDefault`
+ * is what makes this a derivation rather than a validity list: propose the row S/4 marks default,
+ * and fall silent when none is marked. That is better than "only when exactly one matches" -- a
+ * region with three zones still derives.
+ */
+function timeZoneEntries(payload, { timeZones }) {
+  const entries = [];
+  let missingRegion = 0;
+
+  liveRows(payload, 'Addresses').forEach((row, index) => {
+    const country = text(row?.Country);
+    if (!country) return;
+    if (text(row?.AddressTimeZone)) return;
+
+    const region = text(row?.Region);
+    if (!region) {
+      missingRegion += 1;
+      return;
+    }
+
+    const matches = timeZones.filter(
+      (entry) => text(entry.Country) === country && text(entry.Region) === region
+    );
+    if (!matches.length) return;
+
+    // The default, or nothing. A region with several zones and none marked default is a
+    // customizing gap, not an invitation to pick one.
+    const preferred = matches.length === 1 ? matches[0] : matches.find((entry) => entry.IsDefault);
+    const zone = text(preferred?.AddressTimeZone);
+    if (!zone) return;
+
+    entries.push({
+      target: 'Addresses',
+      index,
+      field: 'AddressTimeZone',
+      value: zone,
+      label: 'Region default',
+      message: `Time zone ${zone} is assigned to region ${region} in country ${country} in the `
+        + `S/4 time zone settings${matches.length > 1 ? ', and is the default of several' : ''}.`
+    });
+  });
+
+  // Only where something could otherwise have been derived, and only once however many rows are
+  // short of a region -- one strip per address would be noise about the same missing field.
+  if (missingRegion && timeZones.length) {
+    entries.push({
+      message: `${missingRegion} address(es) have no region, so no time zone could be derived — `
+        + 'S/4 assigns time zones per region, not per postal code.'
+    });
+  }
+
+  return entries;
+}
+
+/**
  * The customer tax classification rows, from `TSTL`.
  *
  * A genuinely multi-row derivation, and the only one here: a Belgian customer gets one
@@ -135,6 +199,10 @@ function taxCategoryEntries(payload, { taxCategories }) {
   if (liveRows(payload, 'CustomerTaxIndicators').length) return [];
 
   const [first, ...remaining] = forCountry;
+  // TWO entries for one row, because `createsRow` writes exactly one field. The second finds the
+  // row the first just made: runDerivations applies each entry to `derived` as it goes, so within
+  // one stage a later entry sees an earlier entry's row. Without it the row would carry a tax
+  // category and no departure country, which is half a KNVI key.
   const entries = [{
     target: 'CustomerTaxIndicators',
     index: 0,
@@ -145,6 +213,14 @@ function taxCategoryEntries(payload, { taxCategories }) {
     message: `Tax category ${text(first.TaxCategory)} is valid for country ${country} in the S/4 `
       + 'tax settings. The classification itself is a decision about this customer, so it is left '
       + 'for you to fill in.'
+  }, {
+    target: 'CustomerTaxIndicators',
+    index: 0,
+    field: 'DepartureCountry',
+    value: country,
+    label: 'Address country',
+    message: `Departure country ${country} is taken from the partner's own address — the tax `
+      + 'country of a customer is where they are.'
   }];
 
   // A country with several categories: the pipeline can only create the FIRST row of an empty
@@ -186,6 +262,7 @@ function createDerivationStages({ read = readConfiguration } = {}) {
         }
         return [
           ...addressLanguageEntries(payload, config),
+          ...timeZoneEntries(payload, config),
           ...taxCategoryEntries(payload, config)
         ];
       }
@@ -201,6 +278,7 @@ module.exports = {
     configuration,
     readConfiguration,
     addressLanguageEntries,
+    timeZoneEntries,
     taxCategoryEntries,
     liveRows
   }

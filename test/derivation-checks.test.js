@@ -8,7 +8,7 @@ const path = require('node:path');
 const { createDerivationStages, invalidate, _internals } = require('../srv/checks/derivation-checks');
 const { runDerivations } = require('../srv/checks/pipeline');
 
-const { addressLanguageEntries, taxCategoryEntries } = _internals;
+const { addressLanguageEntries, timeZoneEntries, taxCategoryEntries } = _internals;
 
 // T005 and TSTL as the service serves them. Column names are the view aliases, read from the live
 // $metadata on 2026-08-27 rather than guessed -- see mdmlbpcheck/README.md.
@@ -23,6 +23,15 @@ const CONFIG = Object.freeze({
     { Country: 'BE', SequenceNumber: '1', TaxCategory: 'MWST' },
     { Country: 'US', SequenceNumber: '1', TaxCategory: 'UTXJ' },
     { Country: 'US', SequenceNumber: '2', TaxCategory: 'UTX2' }
+  ],
+  timeZones: [
+    { Country: 'BE', Region: 'VOV', AddressTimeZone: 'CET', IsDefault: true },
+    // A region with two zones, one marked default -- what TZONEDFT is for.
+    { Country: 'US', Region: 'NY', AddressTimeZone: 'EST', IsDefault: true },
+    { Country: 'US', Region: 'NY', AddressTimeZone: 'UTC', IsDefault: false },
+    // Two zones and NEITHER marked default: a customizing gap, not a coin toss.
+    { Country: 'DE', Region: 'BY', AddressTimeZone: 'CET', IsDefault: false },
+    { Country: 'DE', Region: 'BY', AddressTimeZone: 'UTC', IsDefault: false }
   ]
 });
 
@@ -92,6 +101,69 @@ test('a row on its way out is not derived onto', () => {
   );
 });
 
+// --- Time zone -------------------------------------------------------------
+
+test('the time zone is derived from country and region', () => {
+  const entries = timeZoneEntries(
+    payload({}, { Addresses: [{ Country: 'BE', Region: 'VOV' }] }),
+    CONFIG
+  );
+
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].field, 'AddressTimeZone');
+  assert.equal(entries[0].value, 'CET');
+  assert.equal(entries[0].label, 'Region default');
+});
+
+// TZONEDFT is what makes this a derivation rather than a validity list.
+test('a region with several zones takes the one S/4 marks default', () => {
+  const entries = timeZoneEntries(
+    payload({}, { Addresses: [{ Country: 'US', Region: 'NY' }] }),
+    CONFIG
+  );
+
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].value, 'EST');
+  assert.match(entries[0].message, /the default of several/u);
+});
+
+// A customizing gap, not an invitation to pick one.
+test('several zones and none marked default derives nothing', () => {
+  const entries = timeZoneEntries(
+    payload({}, { Addresses: [{ Country: 'DE', Region: 'BY' }] }),
+    CONFIG
+  );
+  assert.deepEqual(entries.filter((entry) => entry.field), []);
+});
+
+// "No time zone appeared" and "your address needs a region first" are different answers.
+test('an address with no region says so rather than deriving nothing silently', () => {
+  const entries = timeZoneEntries(
+    payload({}, { Addresses: [{ Country: 'BE' }, { Country: 'US' }] }),
+    CONFIG
+  );
+
+  assert.equal(entries.length, 1, 'one statement, however many rows are short of a region');
+  assert.equal(entries[0].field, undefined);
+  assert.match(entries[0].message, /2 address\(es\) have no region/u);
+  assert.match(entries[0].message, /per region, not per postal code/u);
+});
+
+test('a typed time zone, an unknown region and a missing country all derive nothing', () => {
+  const cases = [
+    { Country: 'BE', Region: 'VOV', AddressTimeZone: 'UTC' },
+    { Country: 'BE', Region: 'ZZZ' },
+    { Region: 'VOV' }
+  ];
+  for (const row of cases) {
+    assert.deepEqual(
+      timeZoneEntries(payload({}, { Addresses: [row] }), CONFIG).filter((entry) => entry.field),
+      [],
+      JSON.stringify(row)
+    );
+  }
+});
+
 // --- Tax categories --------------------------------------------------------
 
 test('a customer request proposes the tax category valid for its country', () => {
@@ -100,13 +172,30 @@ test('a customer request proposes the tax category valid for its country', () =>
     CONFIG
   );
 
-  assert.equal(entries.length, 1);
+  // TWO entries for one row: createsRow writes one field, so a second fills the row it made.
+  assert.equal(entries.length, 2);
   assert.equal(entries[0].target, 'CustomerTaxIndicators');
   assert.equal(entries[0].field, 'CustomerTaxCategory');
   assert.equal(entries[0].value, 'MWST');
   assert.equal(entries[0].createsRow, true);
   // The classification is a decision about this customer, not something customizing knows.
-  assert.match(entries[0].message, /left\s+for you to fill in/u);
+  assert.match(entries[0].message, /for you to fill in/u);
+  assert.equal(entries[1].field, 'DepartureCountry');
+  assert.equal(entries[1].value, 'BE');
+  assert.equal(entries[1].createsRow, undefined, 'the row exists by the time this one applies');
+});
+
+// Half a KNVI key would be worse than no row at all.
+test('the created tax row carries both the category and the departure country', async () => {
+  const request = payload({}, {
+    Addresses: [{ Country: 'BE' }],
+    Customers: [{ CustomerAccountGroup: 'KUNA' }]
+  });
+  const { derived } = await runDerivations(request, stages());
+
+  assert.deepEqual(derived.sections.CustomerTaxIndicators, [
+    { CustomerTaxCategory: 'MWST', DepartureCountry: 'BE' }
+  ]);
 });
 
 // A silent partial answer would read as "these are all of them", which is the answer this codebase
@@ -150,23 +239,29 @@ test('nothing is proposed without a customer, a country, or into rows somebody a
 // --- Through the pipeline --------------------------------------------------
 
 test('the stage reaches the payload through the pipeline, as a proposal', async () => {
-  const request = payload({}, { Addresses: [{ Country: 'BE', CityName: 'Gent' }] });
+  const request = payload({}, { Addresses: [{ Country: 'BE', Region: 'VOV', CityName: 'Gent' }] });
   const { derived, applied } = await runDerivations(request, stages());
 
   assert.equal(derived.sections.Addresses[0].Language, 'N');
-  assert.equal(applied.length, 1);
-  assert.equal(applied[0].check, 'sap_derivations');
-  assert.equal(applied[0].label, 'Country default');
+  assert.equal(derived.sections.Addresses[0].AddressTimeZone, 'CET');
+  assert.equal(applied.length, 2);
+  assert.equal(applied.every((entry) => entry.check === 'sap_derivations'), true);
+  assert.deepEqual(applied.map((entry) => entry.label), ['Country default', 'Region default']);
 });
 
 // The flag says "S/4 will use this whatever anyone ticks" -- true of the CVI account group and of
 // nothing here. A country default is a proposal like any other.
 test('nothing here is a system derivation, so the standard checks never see it unaccepted', async () => {
-  const request = payload({}, { Addresses: [{ Country: 'BE' }] });
+  const request = payload({}, { Addresses: [{ Country: 'BE', Region: 'VOV' }] });
   const { applied, systemDerived } = await runDerivations(request, stages());
 
-  assert.equal(applied.every((entry) => entry.system === false), true);
+  // Only the entries that write: a field-less statement carries no `system` flag at all, because
+  // the pipeline shapes it as a plain info message.
+  const written = applied.filter((entry) => entry.field);
+  assert.equal(written.length, 2);
+  assert.equal(written.every((entry) => entry.system === false), true);
   assert.equal(systemDerived.sections.Addresses[0].Language, undefined);
+  assert.equal(systemDerived.sections.Addresses[0].AddressTimeZone, undefined);
 });
 
 test('the payload the requester typed is never mutated', async () => {

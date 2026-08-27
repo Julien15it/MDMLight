@@ -183,6 +183,10 @@ entity StagedAddresses : cuid {
   // ADDR1_DATA-LANGU, and required by S/4 (FSBP_GENERIC/008). NOT the same field as the root's
   // CorrespondenceLanguage, which is BP-level and person-only on an organisation (R11/336).
   Language        : String(2);
+  // ADRC-TIME_ZONE. Derived from country + REGION via TTZ5S, so a row with no region has no time
+  // zone to derive - see derivation-checks.js. TransportZone is deliberately absent: TZONE holds
+  // valid zones per country and no determination data at all, so nothing could fill it.
+  AddressTimeZone : String(6);
 }
 
 entity StagedRoles : cuid {
