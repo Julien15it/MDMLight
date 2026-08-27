@@ -17,22 +17,29 @@
 // points at (KU customer, LI vendor, AP contact person). Without it a vendor
 // function could be proposed onto a customer sales area, which is the same
 // class of error `accountGroupConflictFindings` already reports.
+// **Every PARVW-typed field is CAST to abap.char( 2 ).** The data element carries
+// a conversion exit and the V2 binding refuses it outright -- the service answers
+// `SY/530 Do not use conversion exit PARVW here.` and no metadata is served at
+// all, so this is not cosmetic. Casting drops the data element and its exit.
+// The exit only formats a partner function for display; nothing here is a UI
+// value help, so there is nothing to lose. Same for UPARV, which shares the
+// domain and would have failed the moment PARVW was fixed on its own.
 define view entity Z_I_DER_PARTNER_FUNC
   as select from tpakd as AccountGroupFunction
     inner join   tpar  as PartnerFunction
       on PartnerFunction.parvw = AccountGroupFunction.parvw
 {
-  key AccountGroupFunction.ktokd as AccountGroup,
-  key AccountGroupFunction.parvw as PartnerFunction,
+  key AccountGroupFunction.ktokd                          as AccountGroup,
+  key cast( AccountGroupFunction.parvw as abap.char( 2 ) ) as PartnerFunction,
 
       // KU / LI / AP -- which side of the partner this function belongs to.
-      PartnerFunction.nrart      as PartnerType,
+      PartnerFunction.nrart                               as PartnerType,
 
       // The function this one is a sub-function of, where it has one. Carried
       // because a derivation that proposes SH should not also propose its
       // higher-level SP as a second, separate row.
-      PartnerFunction.uparv      as HigherLevelFunction,
+      cast( PartnerFunction.uparv as abap.char( 2 ) )     as HigherLevelFunction,
 
-      PartnerFunction.stein      as PartnerCategory,
-      PartnerFunction.hityp      as HierarchyType
+      PartnerFunction.stein                               as PartnerCategory,
+      PartnerFunction.hityp                               as HierarchyType
 }

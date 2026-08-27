@@ -17,21 +17,24 @@
 //
 // SORTF is carried because SAP orders the functions of a procedure, and a
 // requester shown four proposed rows should see them in the order S/4 uses.
+// PARVW is CAST to abap.char( 2 ) for the same reason as in
+// Z_I_DER_PARTNER_FUNC: its conversion exit makes the V2 binding serve no
+// metadata at all (`SY/530 Do not use conversion exit PARVW here.`).
 define view entity Z_I_DER_PARTNER_FUNC_PROC
   as select from tpaer as ProcedureFunction
     inner join   tpar  as PartnerFunction
       on PartnerFunction.parvw = ProcedureFunction.parvw
 {
-  key ProcedureFunction.pargr as DeterminationProcedure,
-  key ProcedureFunction.parvw as PartnerFunction,
+  key ProcedureFunction.pargr                          as DeterminationProcedure,
+  key cast( ProcedureFunction.parvw as abap.char( 2 ) ) as PartnerFunction,
 
       // 'X' = S/4 requires this function. The whole point of the view.
-      ProcedureFunction.papfl as IsMandatory,
+      ProcedureFunction.papfl                          as IsMandatory,
 
       // Whether the assignment may be changed, and whether it must be unique.
-      ProcedureFunction.aendb as IsChangeable,
-      ProcedureFunction.parei as IsUnique,
-      ProcedureFunction.sortf as SortOrder,
+      ProcedureFunction.aendb                          as IsChangeable,
+      ProcedureFunction.parei                          as IsUnique,
+      ProcedureFunction.sortf                          as SortOrder,
 
-      PartnerFunction.nrart   as PartnerType
+      PartnerFunction.nrart                            as PartnerType
 }
