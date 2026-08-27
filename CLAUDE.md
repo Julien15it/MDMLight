@@ -134,17 +134,23 @@ Both checked-in copies got here by hand, from Julien and Arthur respectively.
 There has never been an automated path, so treat a re-import as a manual step
 someone performs, not as something the app can do for itself.
 
-**`ZSRVB_MDMLIGHT_VH.cds` and `.edmx` currently DISAGREE, deliberately (2026-08-27).** The five
-`Der*` derivation entities were transcribed into the **`.cds`** by hand from the served `$metadata`,
-because `npm run import:valuehelp` could not be run against this landscape. The `.edmx` does not
-carry them. Consequences, all of them intended:
+**The five `Der*` entities were HAND-ADDED to both copies (2026-08-27), not imported.**
+`npm run import:valuehelp` could not be run against this landscape, so they were transcribed from
+the served `$metadata` into `ZSRVB_MDMLIGHT_VH.cds` *and* `.edmx`. The two agree, and the drift
+check (which reads the `.edmx`) is therefore quiet about them rather than nagging.
 
-- The **`checksum`** comment at the top of the `.cds` is stale. Nothing verifies it; it exists for
-  `cds import`.
-- The **drift check reads the `.edmx`** (`metadata-drift.js`), and the derivation sets are now in
-  its watch list — so it reports the live service as having *gained* five sets, at **info** level,
-  until a real import runs. That is true, and the reminder is the point.
-- A real `cds import` reconciles both and should replace the hand-written block wholesale.
+Worth knowing before touching either file:
+
+- The **`checksum`** comment at the top of the `.cds` is now stale. Nothing verifies it; it exists
+  for `cds import`'s own change detection.
+- The `.edmx` is a **single minified line**, so it was edited by anchored string insertion, not by
+  appending. Verified afterwards by tag balance (53 `EntityType` / 53 `Key` / 53 self-closing
+  `EntitySet`, up from 48 each) and by byte offset — the types land before the first
+  `<Association>`, the sets inside `<EntityContainer>` before the first `<AssociationSet>`.
+- **No `Annotations` block was added** for these five. The imported copy carries
+  `Common.SAPObjectNodeType` annotations for a dozen value helps; the served metadata carries none
+  for the `Der*` types, so neither does this.
+- A real `cds import` supersedes all of it and should be preferred whenever one can be run.
 
 **The drift check earns its keep, and its output needs reading against the excludes**
 (2026-08-21). It reported six fields gone from the live service; five were already in

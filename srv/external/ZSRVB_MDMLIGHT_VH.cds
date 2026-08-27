@@ -1154,12 +1154,10 @@ entity ZSRVB_MDMLIGHT_VH.CviSyncDirections {
 /* --------------------------------------------------------------------------
  * The five Der* entities below were transcribed BY HAND from the served
  * $metadata on 2026-08-27, because `npm run import:valuehelp` could not be
- * run against this landscape. Two consequences:
- *   - the `checksum` at the top of this file is now STALE
- *   - ZSRVB_MDMLIGHT_VH.edmx does NOT carry them, so the two copies disagree
- * A real `cds import` reconciles both and should replace this block whenever
- * one can be run. Types and annotations are copied verbatim from $metadata,
- * so what is here is what the service actually serves.
+ * run against this landscape. They were added to ZSRVB_MDMLIGHT_VH.edmx too, so
+ * the two copies agree; only the `checksum` above is now stale, and nothing
+ * verifies it. Types and annotations are verbatim from $metadata, so what is
+ * here is what the service actually serves. A real `cds import` supersedes it.
  * -------------------------------------------------------------------------- */
 
 @cds.external : true
