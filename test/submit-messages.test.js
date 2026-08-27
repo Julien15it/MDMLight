@@ -306,13 +306,22 @@ test('a derived field the model then reformatted is one row, not two', () => {
   const controller = loadController();
   const rows = controller._proposalRows.call(
     controller,
-    [{ target: 'Addresses', index: 0, field: 'StreetName', value: 'koedreef st', message: 'From GLEIF.' }],
-    [{ target: 'Addresses', index: 0, field: 'StreetName', current: 'koedreef st', proposed: 'Koedreef Straat', reason: 'street type spelled out' }]
+    [{
+      target: 'Addresses', index: 0, field: 'StreetName', value: 'koedreef st',
+      label: 'GLEIF check', message: 'From GLEIF.'
+    }],
+    [{
+      target: 'Addresses', index: 0, field: 'StreetName', current: 'koedreef st',
+      proposed: 'Koedreef Straat', reason: 'Street type', detail: 'Spelled out as Straat.'
+    }]
   );
   assert.equal(rows.length, 1);
   assert.equal(rows[0].change, 'Filled in');
   assert.equal(rows[0].proposed, 'Koedreef Straat', 'the normalised value wins');
-  assert.match(rows[0].reason, /street type spelled out/u);
+  // The derivation's label leads — it is why the field has a value at all — and the reformatting
+  // is said in the tooltip rather than growing the label past three words (2026-08-27).
+  assert.equal(rows[0].reason, 'GLEIF check');
+  assert.match(rows[0].detail, /From GLEIF\. Spelled out as Straat\./u);
 });
 
 // "st" needing to be resolved is right; resolving it to "Straat" rather than "Sint" may not be.
