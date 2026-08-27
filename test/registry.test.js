@@ -396,7 +396,7 @@ test('the country may come from the address rather than the root field', async (
  * has no country to offer; its answer is a suggestion in chat, not a value proposed into a field, so
  * it opts out explicitly rather than the gate being loosened for everybody.
  */
-test('requireCountry:false is the assistant's opt-out, and it is opt-in only', async () => {
+test('requireCountry:false is the assistant opt-out, and it is opt-in only', async () => {
   let asked = 0;
   const lookupName = async () => { asked += 1; return recordsFrom({ data: [gleifRecord()] }); };
   const enriched = await enrichCandidate(
