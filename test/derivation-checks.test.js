@@ -500,3 +500,78 @@ test('the stage runs on Check and Duplicate Check, and still not on submit', () 
   const submit = serviceJs.slice(serviceJs.indexOf("this.on('submitRequest'"));
   assert.equal(/createDerivationStages/u.test(submit), false);
 });
+
+
+// --- Diagnostics -----------------------------------------------------------
+
+/**
+ * Maarten, 2026-08-27: account group `DEBI`, one sales area row, no partner-function rows, and the
+ * customizing confirmed by hand -- `DEBI` -> `AG` -> `AG, RE, RG, WE` mandatory, `PartnerType` KU.
+ * Nothing was proposed, and because the stage says nothing about unmet preconditions there was no
+ * way to tell WHICH guard stopped it. Two wrong guesses later, this is the instrumentation.
+ *
+ * The first half is the case itself, pinned as a regression: that payload against that config must
+ * produce the AG proposal.
+ */
+test('the DEBI case proposes AG, and the stage logs what it saw', async () => {
+  const lines = [];
+  const original = console.log;
+  console.log = (line) => lines.push(String(line));
+
+  let entries;
+  try {
+    entries = await stages()[0].run(payload(
+      { BusinessPartnerCategory: '2', BusinessPartnerGrouping: '0001' },
+      {
+        Addresses: [{ Country: 'BE', Language: 'N', CityName: 'Destelbergen' }],
+        Customers: [{ CustomerAccountGroup: 'DEBI' }],
+        CustomerSalesArea: [{ SalesOrganization: '0001', DistributionChannel: '01', Division: '01' }],
+        CustomerTaxIndicators: [{ CustomerTaxCategory: 'MWST', DepartureCountry: 'BE' }],
+        CustomerSalesPartnerFunctions: []
+      }
+    ));
+  } finally {
+    console.log = original;
+  }
+
+  const proposed = entries.filter((entry) => entry.target === 'CustomerSalesPartnerFunctions');
+  assert.equal(proposed[0].field, 'PartnerFunction');
+  assert.equal(proposed[0].value, 'AG');
+  assert.equal(proposed[0].createsRow, true);
+
+  const [diagnostic] = lines.filter((line) => line.startsWith('[sap-derivations] '));
+  assert.ok(diagnostic, 'the stage logged one diagnostic line');
+  const seen = JSON.parse(diagnostic.slice('[sap-derivations] '.length));
+
+  // The row counts, because an empty read looks exactly like customizing that says nothing -- which
+  // is the ambiguity that cost two rounds.
+  assert.equal(seen.config.partnerFunctions, CONFIG.partnerFunctions.length);
+  assert.equal(seen.config.taxCategories, CONFIG.taxCategories.length);
+  // And every field the five builders branch on.
+  assert.equal(seen.payload.customerAccountGroup, 'DEBI');
+  assert.equal(seen.payload.salesAreas, 1);
+  assert.equal(seen.payload.customerFunctionRows, 0);
+  assert.equal(seen.payload.addressLanguage, 'N');
+  assert.equal(seen.payload.addressRegion, '', 'no region is why the time zone stayed silent');
+  assert.equal(seen.payload.taxIndicatorRows, 1, 'and rows already there are why tax did');
+  assert.equal(seen.entries, entries.length);
+});
+
+// A derivation that had nothing to do must still say so: the whole point is telling that apart from
+// a read that came back empty.
+test('the diagnostic is logged even when nothing was derived', async () => {
+  const lines = [];
+  const original = console.log;
+  console.log = (line) => lines.push(String(line));
+  try {
+    await stages()[0].run(payload({}, {}));
+  } finally {
+    console.log = original;
+  }
+  const [diagnostic] = lines.filter((line) => line.startsWith('[sap-derivations] '));
+  assert.ok(diagnostic);
+  const seen = JSON.parse(diagnostic.slice('[sap-derivations] '.length));
+  assert.equal(seen.entries, 0);
+  assert.equal(seen.payload.addresses, 0);
+  assert.equal(seen.payload.customerAccountGroup, '');
+});

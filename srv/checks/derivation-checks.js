@@ -388,6 +388,42 @@ function supplierFunctionEntries(payload, { supplierFunctions }) {
 }
 
 /**
+ * Why a derivation produced nothing, to `cf logs`. Not a message: staying silent about unmet
+ * preconditions is Maarten's rule and it is right for requesters, but it also makes "the config is
+ * there and nothing was proposed" undiagnosable from the screen. One line, everything the five
+ * builders branch on, so the answer is in the log rather than in a guess.
+ */
+function diagnose(payload, config, entries) {
+  const addresses = liveRows(payload, 'Addresses');
+  console.log('[sap-derivations] ' + JSON.stringify({
+    entries: entries.length,
+    // Row counts, because an empty read looks exactly like customizing that says nothing.
+    config: {
+      countries: config.countries.length,
+      taxCategories: config.taxCategories.length,
+      timeZones: config.timeZones.length,
+      partnerFunctions: config.partnerFunctions.length,
+      supplierFunctions: config.supplierFunctions.length
+    },
+    payload: {
+      addresses: addresses.length,
+      addressCountry: text(addresses[0]?.Country),
+      addressRegion: text(addresses[0]?.Region),
+      addressLanguage: text(addresses[0]?.Language),
+      customers: liveRows(payload, 'Customers').length,
+      customerAccountGroup: text(liveRows(payload, 'Customers')[0]?.CustomerAccountGroup),
+      salesAreas: liveRows(payload, 'CustomerSalesArea').length,
+      taxIndicatorRows: liveRows(payload, 'CustomerTaxIndicators').length,
+      customerFunctionRows: liveRows(payload, 'CustomerSalesPartnerFunctions').length,
+      suppliers: liveRows(payload, 'Suppliers').length,
+      supplierAccountGroup: text(liveRows(payload, 'Suppliers')[0]?.SupplierAccountGroup),
+      purchasingOrgs: liveRows(payload, 'SupplierPurchasingOrg').length,
+      supplierFunctionRows: liveRows(payload, 'SupplierPartnerFunctions').length
+    }
+  }));
+}
+
+/**
  * One stage, not two, and the reason is the pipeline's own: every rule in a single stage sees the
  * same payload, because entries are applied only after the stage returns. These two touch different
  * sections and neither reads what the other writes, so they can share one -- unlike the configured
@@ -412,13 +448,15 @@ function createDerivationStages({ read = readConfiguration } = {}) {
               + 'was derived from them.'
           }];
         }
-        return [
+        const entries = [
           ...addressLanguageEntries(payload, config),
           ...timeZoneEntries(payload, config),
           ...taxCategoryEntries(payload, config),
           ...partnerFunctionEntries(payload, config),
           ...supplierFunctionEntries(payload, config)
         ];
+        diagnose(payload, config, entries);
+        return entries;
       }
     }]
   };
@@ -429,6 +467,7 @@ module.exports = {
   invalidate,
   TTL_MS,
   _internals: {
+    diagnose,
     configuration,
     readConfiguration,
     addressLanguageEntries,
