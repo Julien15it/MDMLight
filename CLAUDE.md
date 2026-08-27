@@ -697,11 +697,19 @@ post time.
 `StagedSupplierPartnerFunc` already exist, are catalogued, and are on the screen. Only the
 customizing source is missing, which is true of every row in that table.
 
-The blocker is shared and it is the mechanism, not the individual derivations: `MAINTAIN` returns
-messages, not an enriched record. Either every derivation is re-implemented from customizing (one
-CDS view plus one stage each, the way `cvi_account_group` was built, and it drifts with support
-packages) or the enriched record is read back once and harvested. `ZMDML_DERIV_PROBE` is what
-decides between them — do not build either route before it has been run.
+**The mechanism is settled (2026-08-27), and it is the deterministic one.** Four probe rounds
+established that S/4 has no callable way to tell us what it would derive: `CL_MD_BP_MAINTAIN` is
+**final**, the only two methods that hand the payload back enriched are **protected and private**
+respectively, and all eight public methods take `i_data` as `IMPORTING`. A real `MAINTAIN` rolled
+back would harvest everything but cannot be what a Check button does — it creates the partner, and
+number assignment commits outside the LUW. So each derivation is read from its own customizing
+through a CDS view, exactly the way `cvi_account_group` reads `TBD001`. Every source table is
+confirmed to exist with data; the full write-up, including two wrong table guesses and the
+`SEOCOMPO` visibility trap that cost a round, is in `mdmlbpcheck/README.md`.
+
+**Do not copy `cvi_account_group`'s `system: true` flag onto these.** That flag says "S/4 will use
+this whatever anyone ticks", which is true of the CVI account group and of nothing else here — a
+derived language or partner function is a proposal like every other.
 
 #### Two standard-check messages nobody could clear (fixed 2026-08-27)
 
