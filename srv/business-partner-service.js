@@ -119,6 +119,7 @@ const ASSISTANT_MAX_ROWS = 100000;
 
 const { STOP_WORDS: ASSISTANT_STOP_WORDS } = require('./ai/stop-words');
 const { CVI_REMOTE_SETS } = require('./cvi-config-service');
+const { DERIVATION_REMOTE_SETS } = require('./derivation-config-service');
 
 // Read from ZSRVB_MDMLIGHT_VH rather than forwarded to S/4. One place, so the CDS, the READ handler
 // loop and the UI's VALUE_HELP_FIELDS stay in sync when a lookup is added.
@@ -1776,7 +1777,8 @@ class BusinessPartnerService extends cds.ApplicationService {
       requires: cds.env.requires,
       maintenanceEntities: MAINTENANCE_ENTITIES,
       valueHelpEntities: VALUE_HELP_ENTITIES,
-      cviConfigSets: CVI_REMOTE_SETS,
+      // One list to the drift check: both project on ZSRVB_MDMLIGHT_VH and both are remote names.
+      cviConfigSets: [...CVI_REMOTE_SETS, ...DERIVATION_REMOTE_SETS],
       executeHttpRequest,
       readFile: require('fs').promises.readFile,
       log: cds.log('metadata')

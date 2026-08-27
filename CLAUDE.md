@@ -134,6 +134,18 @@ Both checked-in copies got here by hand, from Julien and Arthur respectively.
 There has never been an automated path, so treat a re-import as a manual step
 someone performs, not as something the app can do for itself.
 
+**`ZSRVB_MDMLIGHT_VH.cds` and `.edmx` currently DISAGREE, deliberately (2026-08-27).** The five
+`Der*` derivation entities were transcribed into the **`.cds`** by hand from the served `$metadata`,
+because `npm run import:valuehelp` could not be run against this landscape. The `.edmx` does not
+carry them. Consequences, all of them intended:
+
+- The **`checksum`** comment at the top of the `.cds` is stale. Nothing verifies it; it exists for
+  `cds import`.
+- The **drift check reads the `.edmx`** (`metadata-drift.js`), and the derivation sets are now in
+  its watch list — so it reports the live service as having *gained* five sets, at **info** level,
+  until a real import runs. That is true, and the reminder is the point.
+- A real `cds import` reconciles both and should replace the hand-written block wholesale.
+
 **The drift check earns its keep, and its output needs reading against the excludes**
 (2026-08-21). It reported six fields gone from the live service; five were already in
 the exclusion lists, and the sixth — `RecipientType` on `A_CustomerWithHoldingTax` —
