@@ -34,16 +34,22 @@ const REQUEST_TYPE_TEXT = Object.freeze({
   change: 'Change'
 });
 
-// Not derived from xs-security.json on purpose: `Approver` is a workflow role that no scope
-// carries, so the scopes are the wrong list. Keep the two in step by hand.
-const ROLES = Object.freeze(['*', 'Requester', 'Approver', 'DataSteward']);
+// `Approver` and `DataSteward` stopped being fixed values here 2026-08-27: the picker now offers the
+// subaccount's own BTP role collections for those two instead (see fieldPropertyOptions in
+// duplicate-config-service.js), matched against the screen's category by a naming convention - see
+// profileMatches. `Requester` stays hard-coded: it names who submitted, never a role collection.
+const ROLES = Object.freeze(['*', 'Requester']);
 
 const ROLE_TEXT = Object.freeze({
   '*': 'All roles',
-  Requester: 'Requester',
-  Approver: 'Approver',
-  DataSteward: 'Data Steward'
+  Requester: 'Requester'
 });
+
+// Grandfathered, not offered by the picker any more: a profile saved before 2026-08-27 may still
+// carry the literal `Approver`/`DataSteward` value, and profileMatches still matches it exactly - so
+// the write guard has to keep accepting it too, or an untouched legacy row would fail to re-save the
+// moment anything else on it changes.
+const LEGACY_ROLES = Object.freeze(['Approver', 'DataSteward']);
 
 const ANY = '*';
 
@@ -290,11 +296,24 @@ function createFieldPropertyStages(resolved, model) {
   };
 }
 
-/** True when a profile's conditions cover this request. `*` matches anything, otherwise exact. */
+/**
+ * True when a profile's conditions cover this request. `requestType` is exact (a closed enum, no
+ * business in a prefix match). `role` is exact first - for `*`, `Requester`, and any row still
+ * carrying the literal `Approver`/`DataSteward` values from before 2026-08-27 - and otherwise a
+ * case-insensitive PREFIX match: a profile's `role` is now free text naming a BTP role collection
+ * (see fieldPropertyOptions in duplicate-config-service.js), and "ApproverSales" or "ApproverFinance"
+ * both count as an Approver-category profile the same way the literal value used to, so a steward can
+ * scope a profile to a specific approver function once such roles exist, without CAP knowing their
+ * names in advance.
+ */
 function profileMatches(profile, { requestType, role }) {
-  const condition = (stored, actual) =>
-    !stored || stored === ANY || String(stored) === String(actual);
-  return condition(profile?.requestType, requestType) && condition(profile?.role, role);
+  const exact = (stored, actual) => !stored || stored === ANY || String(stored) === String(actual);
+  const roleMatches = (stored, actual) => {
+    if (exact(stored, actual)) return true;
+    if (typeof stored !== 'string' || typeof actual !== 'string') return false;
+    return stored.toLowerCase().startsWith(actual.toLowerCase());
+  };
+  return exact(profile?.requestType, requestType) && roleMatches(profile?.role, role);
 }
 
 module.exports = {
@@ -313,6 +332,7 @@ module.exports = {
   REQUEST_TYPE_TEXT,
   ROLES,
   ROLE_TEXT,
+  LEGACY_ROLES,
   ANY,
   fieldPropertyTree,
   validateSetting,

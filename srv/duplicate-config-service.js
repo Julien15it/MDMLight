@@ -13,7 +13,7 @@ const {
   ENTITY: FEATURES, SINGLETON_ID, forgetCachedSettings
 } = require('./ai/availability');
 const {
-  PROPERTIES, PROPERTY_TEXT, REQUEST_TYPES, REQUEST_TYPE_TEXT, ROLES, ROLE_TEXT,
+  PROPERTIES, PROPERTY_TEXT, REQUEST_TYPES, REQUEST_TYPE_TEXT, ROLES, ROLE_TEXT, LEGACY_ROLES,
   fieldPropertyTree, normaliseSettings
 } = require('./checks/field-properties');
 const fieldPropertyStore = require('./checks/field-property-store');
@@ -188,13 +188,15 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
       if (requestType !== undefined && requestType !== null && !REQUEST_TYPES.includes(requestType)) {
         req.error(400, `“${requestType}” is not a request type. Use * for every type.`, 'requestType');
       }
-      if (role !== undefined && role !== null && !ROLES.includes(role)) {
-        // Not one of the fixed four - it may still be a BTP role collection (MDMLIGHT* only), the
-        // same source the approval role picker offers. Checked live rather than trusted blindly: a
-        // role collection deleted or renamed in the subaccount must not leave a typo silently stored
-        // as a profile that looks configured and never matches.
+      if (role !== undefined && role !== null && !ROLES.includes(role) && !LEGACY_ROLES.includes(role)) {
+        // Not `*`/Requester and not a grandfathered legacy value - it may still be a BTP role
+        // collection, the same source the approval role picker offers. Checked live rather than
+        // trusted blindly: a role collection deleted or renamed in the subaccount must not leave a
+        // typo silently stored as a profile that looks configured and never matches.
         const agents = await workflowAgents();
-        const isKnownAgentRole = agents.some((agent) => agent.type === 'Role' && agent.value === role);
+        const isKnownAgentRole = agents.some((agent) => (
+          agent.type === 'Role' && agent.value === role && agent.value.toUpperCase() !== 'MDMLIGHT'
+        ));
         if (!isKnownAgentRole) {
           req.error(400, `“${role}” is not a role. Use * for every role.`, 'role');
         }
@@ -207,17 +209,22 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
       entities: fieldPropertyTree(),
       properties: PROPERTIES.map((code) => ({ code, text: PROPERTY_TEXT[code] || code })),
       requestTypes: REQUEST_TYPES.map((code) => ({ code, text: REQUEST_TYPE_TEXT[code] || code })),
-      // The fixed four, unchanged, plus the subaccount's own MDMLIGHT-prefixed role collections for
-      // the approval role - sourced exactly like the Workflow Agent Determination picker (see
-      // srv/wf/btp-agents.js and CLAUDE.md). Additive: `Approver` itself still works precisely as
-      // before, so an existing profile scoped to it is unaffected. The new entries let a profile be
-      // scoped to a SPECIFIC approver role instead - see CLAUDE.md for the runtime gap this does not
-      // close on its own (every approve screen still asks effectiveFieldProperties for the role
-      // 'Approver' literally, whoever is approving).
+      // `*` and `Requester` stay hard-coded (ROLES/ROLE_TEXT). `Approver` and `DataSteward` are no
+      // longer fixed values (2026-08-27) - the subaccount's own MDMLIGHT-prefixed role collections
+      // fill that slot instead, sourced exactly like the Workflow Agent Determination picker (see
+      // srv/wf/btp-agents.js). A role whose name starts with "Approver"/"DataSteward"/"Requester" is
+      // matched against that screen category by profileMatches (srv/checks/field-properties.js), so a
+      // steward can eventually scope a profile to a specific approver function rather than the one
+      // blanket Approver screen - see CLAUDE.md for the runtime gap this does not close on its own.
+      //
+      // The bare "MDMLIGHT" role collection itself is excluded here: it is the catalog-level role
+      // covering this app as a whole, not a functional Requester/Approver/DataSteward-shaped one, and
+      // offering it would let a profile be scoped to "everyone with any access to this app" while
+      // looking like a deliberate, narrow choice.
       roles: [
         ...ROLES.map((code) => ({ code, text: ROLE_TEXT[code] || code })),
         ...(await workflowAgents())
-          .filter((agent) => agent.type === 'Role')
+          .filter((agent) => agent.type === 'Role' && agent.value.toUpperCase() !== 'MDMLIGHT')
           .map((agent) => ({ code: agent.value, text: agent.value }))
       ]
     }));

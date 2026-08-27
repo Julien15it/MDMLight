@@ -16,7 +16,7 @@ const controller = read(
 
 const {
   PROPERTY_STATE, PROPERTIES, broadestProperty, resolveProfiles, effectiveProperty, entityProperty,
-  fieldState, createFieldPropertyStages
+  fieldState, createFieldPropertyStages, profileMatches, LEGACY_ROLES
 } = require('../srv/checks/field-properties');
 
 const csn = {
@@ -120,6 +120,31 @@ test('only active profiles whose conditions match are merged', () => {
   assert.equal(resolved.profiles, 2);
   // An inactive profile says nothing, so POBox is unmentioned rather than hidden.
   assert.equal(resolved.fields['Addresses.POBox'], undefined);
+});
+
+/**
+ * Approver/DataSteward stopped being fixed values 2026-08-27 - a profile's role is now free text
+ * naming a BTP role collection, matched against the screen's own category by a case-insensitive
+ * prefix. A steward can scope a profile to "ApproverSales" and it still applies to the one Approve
+ * screen today (there is no per-function approve screen yet - see CLAUDE.md), the same way the
+ * literal "Approver" value used to.
+ */
+test('a role is matched by category prefix, case-insensitively, once it is not one of the fixed two', () => {
+  assert.equal(profileMatches({ role: 'ApproverSales' }, { role: 'Approver' }), true);
+  assert.equal(profileMatches({ role: 'approversales' }, { role: 'Approver' }), true);
+  assert.equal(profileMatches({ role: 'DataStewardEU' }, { role: 'DataSteward' }), true);
+  // The other way round does not hold - "Approver" is not a prefix of "ApproverSales".
+  assert.equal(profileMatches({ role: 'Approver' }, { role: 'ApproverSales' }), false);
+  // A role for one category never matches a screen asking for a different one.
+  assert.equal(profileMatches({ role: 'ApproverSales' }, { role: 'DataSteward' }), false);
+});
+
+test('the literal Approver/DataSteward values from before 2026-08-27 still match exactly', () => {
+  assert.ok(LEGACY_ROLES.includes('Approver'));
+  assert.ok(LEGACY_ROLES.includes('DataSteward'));
+  assert.equal(profileMatches({ role: 'Approver' }, { role: 'Approver' }), true);
+  assert.equal(profileMatches({ role: 'DataSteward' }, { role: 'DataSteward' }), true);
+  assert.equal(profileMatches({ role: 'Approver' }, { role: 'DataSteward' }), false);
 });
 
 test('entity settings and field settings are kept apart', () => {

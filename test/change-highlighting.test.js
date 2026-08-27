@@ -19,13 +19,16 @@ const view = read(
 const css = read(
   ROOT, 'app', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse', 'css', 'maintenance.css'
 );
+const stagingCds = read(ROOT, 'db', 'staging.cds');
+const serviceCds = read(ROOT, 'srv', 'change-request-service.cds');
+const serviceJs = read(ROOT, 'srv', 'change-request-service.js');
 
 // --- The colour rules themselves -----------------------------------------------------------
 
 /**
- * The two functions the whole feature is judged by. Pinned as literal source rather than executed:
- * this file is a sap.ui.define AMD module built around SAPUI5 controls, so - like every other test
- * against it in this codebase (see field-property-apply.test.js) - the contract is read off the text.
+ * Pinned as literal source rather than executed: this file is a sap.ui.define AMD module built
+ * around SAPUI5 controls, so - like every other test against it in this codebase (see
+ * field-property-apply.test.js) - the contract is read off the text.
  */
 test('fieldChangeKind: added only when the baseline was empty, changed otherwise, nothing when they agree', () => {
   const fn = controller.slice(controller.indexOf('function fieldChangeKind'));
@@ -35,11 +38,22 @@ test('fieldChangeKind: added only when the baseline was empty, changed otherwise
   assert.match(body, /return "changed";/u);
 });
 
-test('rowChangeKind reads record.__state directly, and only that', () => {
-  const fn = controller.slice(controller.indexOf('function rowChangeKind'));
+/**
+ * NOT based on record.__state as the primary signal (2026-08-27 revision): that flag survives every
+ * reload, staged straight off the DB `action` column, so a row the ORIGINAL requester added still
+ * carries "new" when a data steward opens the very same request later. Matching by content against
+ * the baseline is what tells "untouched this round" apart from "this round's own edit" - __state is
+ * only the tiebreaker for genuine ambiguity.
+ */
+test('matchSectionRows matches by content first, and only falls back to __state', () => {
+  const fn = controller.slice(controller.indexOf('function matchSectionRows'));
   const body = fn.slice(0, fn.indexOf('\n  }') + 4);
-  assert.match(body, /if \(!record \|\| !record\.__state\) return "";/u);
-  assert.match(body, /record\.__state === "new" \? "added" : "changed"/u);
+  assert.match(body, /var matchIndex = remaining\.findIndex/u);
+  assert.match(body, /remaining\.splice\(matchIndex, 1\);/u);
+  assert.match(body, /return \{ kind: "", baseline: null \};/u);
+  assert.match(body, /record\.__state === "new" \|\| !remaining\.length/u);
+  assert.match(body, /return \{ kind: "added", baseline: \{\} \};/u);
+  assert.match(body, /return \{ kind: "changed", baseline: remaining\.shift\(\) \};/u);
 });
 
 // --- Scoped to where a baseline is meaningful ----------------------------------------------
@@ -73,7 +87,10 @@ test('a staged request tracks changes everywhere except a create draft with no p
     controller,
     /state\.trackChanges = state\.requestType === "change" \|\| mode !== "edit";/u
   );
-  assert.match(controller, /if \(state\.trackChanges\) await this\._loadChangeBaseline\(state, mode\);/u);
+  assert.match(
+    controller,
+    /if \(state\.trackChanges\) await this\._loadChangeBaseline\(state, payload && payload\.BaselineDataJson\);/u
+  );
 });
 
 // --- The baseline itself --------------------------------------------------------------------
@@ -81,20 +98,37 @@ test('a staged request tracks changes everywhere except a create draft with no p
 /**
  * A change request is judged against S/4's OWN current values, re-read live - staging only ever
  * holds the merged result (original fields and this round's edits together), never a copy of what
- * was true before anyone touched it. A create request has no live partner, so its baseline is simply
- * the payload as this screen loaded it.
+ * was true before anyone touched it.
  */
-test('a change request baseline is re-read live; a create request baseline is the as-loaded snapshot', () => {
+test('a change request baseline is re-read live from S/4', () => {
   const fn = controller.slice(controller.indexOf('_loadChangeBaseline: async function'));
   const body = fn.slice(0, fn.indexOf('_fetchLiveSnapshotForDiff: async function'));
   assert.match(body, /state\.originalRoot = clone\(state\.root\);/u);
   assert.match(body, /state\.originalSections = clone\(state\.sections\);/u);
-  assert.match(body, /if \(state\.requestType !== "change" \|\| !state\.businessPartner\) return;/u);
+  assert.match(body, /if \(state\.requestType === "change"\) \{/u);
+  assert.match(body, /if \(!state\.businessPartner\) return;/u);
   assert.match(body, /this\._fetchLiveSnapshotForDiff\(state\.businessPartner\)/u);
   // Best-effort: a failed live re-read keeps the as-loaded snapshot already assigned above rather
   // than leaving the screen without any baseline at all.
-  assert.match(body, /catch \(error\) \{/u);
   assert.match(body, /console\.warn/u);
+});
+
+/**
+ * A create request's baseline is server-persisted, NOT merely "as this screen loaded it" (revised
+ * 2026-08-27) - that made the highlighting disappear the moment a different actor (a data steward,
+ * then an approver) reopened the request, since each load re-snapshotted against itself. See
+ * ChangeRequests.baselineDataJson in db/staging.cds.
+ */
+test('a create request baseline comes from the server, and survives a missing/unparsable one', () => {
+  const fn = controller.slice(controller.indexOf('_loadChangeBaseline: async function'));
+  const body = fn.slice(0, fn.indexOf('\n      },'));
+  assert.match(body, /if \(!baselineDataJson\) return;/u);
+  assert.match(body, /JSON\.parse\(baselineDataJson\)/u);
+  assert.match(body, /state\.originalRoot = baseline\.root \|\| \{\};/u);
+  // A parse failure must not throw the whole load - it leaves the as-loaded fallback already set.
+  const parseAttempt = body.slice(body.indexOf('try {', body.indexOf('!baselineDataJson')));
+  assert.match(parseAttempt, /catch \(error\) \{/u);
+  assert.match(parseAttempt, /console\.warn/u);
 });
 
 test('the live snapshot reuses _loadSection, the same reader _loadBusinessPartner uses', () => {
@@ -104,17 +138,43 @@ test('the live snapshot reuses _loadSection, the same reader _loadBusinessPartne
   assert.match(body, /BusinessPartners\('" \+ escapeODataKey\(businessPartner\)/u);
 });
 
+// --- The server side: where the baseline is written and read --------------------------------
+
+/**
+ * Only a FRESH round resets the baseline - a first submit (trivially its own data, so nothing is
+ * highlighted yet) and a resubmit (a fresh round after a rejection). A data steward's own completed
+ * review deliberately does NOT reset it, so the approver receiving it next still sees what the
+ * steward changed - see CLAUDE.md "Highlighting what changed".
+ */
+test('submitRequest and resubmitRequest write a fresh baseline; the data steward completion does not', () => {
+  assert.match(stagingCds, /baselineDataJson\s*:\s*LargeString;/u);
+  assert.match(serviceCds, /BaselineDataJson\s*:\s*LargeString;/u);
+  assert.match(serviceJs, /BaselineDataJson: header\.baselineDataJson \|\| null/u);
+
+  const submit = serviceJs.slice(serviceJs.indexOf("this.on('submitRequest'"));
+  const submitBody = submit.slice(0, submit.indexOf("this.on('resubmitRequest'"));
+  assert.match(submitBody, /baselineDataJson: req\.data\.DataJson/u);
+
+  const resubmit = serviceJs.slice(serviceJs.indexOf("this.on('resubmitRequest'"));
+  const resubmitBody = resubmit.slice(0, resubmit.indexOf('claimRework'));
+  assert.match(resubmitBody, /baselineDataJson: req\.data\.DataJson/u);
+
+  const stewardComplete = serviceJs.slice(serviceJs.indexOf("decision === 'complete', resubmitRequest"));
+  const stewardBody = stewardComplete.slice(0, stewardComplete.indexOf('getRequestPayload'));
+  assert.equal(/baselineDataJson: req\.data\.DataJson/u.test(stewardBody), false);
+});
+
 // --- The summary panel ------------------------------------------------------------------------
 
-test('_refreshChangeSummary is a no-op when nothing is being tracked', () => {
+test('_refreshChangeSummary is a no-op when nothing is being tracked, and matches rows consistently', () => {
   const fn = controller.slice(controller.indexOf('_refreshChangeSummary: function'));
   const body = fn.slice(0, fn.indexOf('_rootFieldLabel: function'));
   assert.match(body, /if \(!state\.trackChanges\) \{/u);
   assert.match(body, /state\.changeSummary = \[\];/u);
   // The composed full name is never something anyone typed, so it must not appear as a "change".
   assert.match(body, /BusinessPartnerFullName/u);
-  // Section rows are read off __state via rowChangeKind, never re-derived here.
-  assert.match(body, /rowChangeKind\(record\)/u);
+  // The same matching function _renderSection colours the row on.
+  assert.match(body, /matchSectionRows\(records, baselineRecords, fieldNames\)/u);
 });
 
 test('the panel is a plain three-column table, coloured on the New Value cell, not the row', () => {
@@ -167,10 +227,12 @@ test('only the root form renderers pass a baseline into _createForm', () => {
   assert.match(formCall, /this\._createForm\(section, record, isCreate, editing, grouped\);/u);
 });
 
-test('a section row is coloured off __state, gated on trackChanges', () => {
+test('a section row is coloured off the baseline match, gated on trackChanges', () => {
   const renderSection = controller.slice(controller.indexOf('_renderSection: function'));
   const body = renderSection.slice(0, renderSection.indexOf('_openNewRecord: function'));
-  assert.match(body, /var rowKind = state\.trackChanges \? rowChangeKind\(record\) : "";/u);
+  assert.match(body, /var rowMatches = state\.trackChanges/u);
+  assert.match(body, /matchSectionRows\(\s*records,/u);
+  assert.match(body, /var rowKind = rowMatches\[index\] && rowMatches\[index\]\.kind;/u);
   assert.match(body, /item\.addStyleClass\(rowKind === "added" \? "mdmAddedRow" : "mdmChangedRow"\)/u);
 });
 

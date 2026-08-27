@@ -1446,41 +1446,56 @@ must not read as "nothing to report"; an unreadable *profile* table resolves to
 nothing, because a read failure that hid every field or blocked every submit would
 take the maintenance screen down over a control that is not a verdict on the data.
 
-#### The approval role is also BTP-sourced now, additively (2026-08-27)
+#### The approval role is BTP-sourced now, by naming convention (2026-08-27)
 
-The role condition's four fixed values (`*`, `Requester`, `Approver`, `DataSteward`)
-stay exactly as they were - `ROLES`/`ROLE_TEXT` in `field-properties.js` are
-untouched, and an existing profile scoped to `Approver` still works precisely as
-before. `fieldPropertyOptions()` now **appends** the subaccount's own
-`MDMLIGHT`-prefixed role collections to the same `roles` list, sourced through
-`workflowAgents()` - the identical function the Workflow Agent Determination
-picker uses (see that section), filtered to `type === 'Role'` since a field
-property profile's role condition is about a screen/actor kind, not a named
-individual, so users are left out here on purpose. No CDS shape change was needed:
-`roles` was already `array of Option`, and a BTP role collection name has no
-friendlier label to offer than itself, so `{ code, text }` are the same string.
+`Approver` and `DataSteward` stopped being fixed values the same day they were
+first added. The first version kept all four (`*`/`Requester`/`Approver`/
+`DataSteward`) and only *appended* BTP role collections alongside them; Maarten
+asked for the hardcoded two to come out entirely, so a profile's role is now one
+of `*`, `Requester` (`ROLES`/`ROLE_TEXT` in `field-properties.js` - the only two
+concepts that are not a role collection), or a BTP role collection name.
 
-The write guard (`before CREATE/UPDATE FieldPropertyProfiles`) was widened the
-same way: a `role` outside the fixed four is checked against `workflowAgents()`
-live rather than rejected outright, so a profile can be saved against a real BTP
-role - and a typo or a deleted role collection is still refused, the same
-"looks configured and never fires" concern every other rule table in this
-codebase guards against.
+- **The picker still sources from `workflowAgents()`** - the identical function
+  the Workflow Agent Determination picker uses (see that section) - filtered to
+  `type === 'Role'`, since a field property profile's role condition is about a
+  screen/actor kind, not a named individual, so users stay out of this one.
+- **The bare `MDMLIGHT` role collection itself is excluded**, here only (not from
+  the Workflow Agent Determination picker) - it is the catalog-level role for the
+  whole app, not a Requester/Approver/DataSteward-shaped one, and offering it
+  would let a profile be scoped to "everyone with any access to this app" while
+  looking like a deliberate, narrow choice.
+- **A role is matched against the screen's own category by a case-insensitive
+  PREFIX**, not an exact value any more - `profileMatches` in
+  `field-properties.js`: a BTP role named `ApproverSales` or `ApproverFinance`
+  both count as an Approver-category profile the way the literal `Approver`
+  value used to, `DataStewardEU` counts as DataSteward, and so on. This is what
+  makes the naming convention do real work: a steward names role collections by
+  the layout they are meant to configure, and CAP tells them apart without
+  needing to know any of their names in advance.
+- **A profile saved before this change still matches.** `LEGACY_ROLES`
+  (`['Approver', 'DataSteward']`) keeps the write guard accepting the literal
+  values a profile may already carry, and `profileMatches` checks an exact match
+  before ever falling back to the prefix - `cds-deploy` cannot rename a stored
+  value any more than it can drop one, so an old row has to keep working exactly
+  as it did, not merely keep saving.
 
 **This does not, on its own, make a profile scoped to a specific approver role
 actually apply differently at runtime.** Every approve screen still calls
 `effectiveFieldProperties` with the literal role `'Approver'`
-(`BusinessPartnerMaintenance.controller.js`), whoever is actually approving - there
-is no per-function approver distinction anywhere in the runtime yet, only the
-one generic approve screen. A profile saved against, say, `MDMLIGHT_Finance_Approver`
-is accepted and stored, but will never be the profile `effectiveFieldProperties`
-resolves for an approve screen until something reads the actual approver's BTP
-role membership and passes it as `Role` instead of the hardcoded literal - the
-same "scope read off `req.user`" the paragraph above already flags as deferred.
-This is the same shape of gap the Workflow Agent Determination table shipped
-with and still has (**"Arthur's process ignores `approvers` entirely"**): the
-configuration surface exists ahead of the runtime consuming it, on purpose,
-rather than withheld until both halves are ready together.
+(`BusinessPartnerMaintenance.controller.js`), whoever is actually approving -
+`profileMatches`'s prefix rule happily matches `'ApproverSales'` against the
+category `'Approver'`, but there is still only the one generic approve screen
+asking for it, no per-function distinction anywhere in the runtime yet. A
+profile saved against, say, `MDMLIGHT_Finance_Approver` is accepted, stored, and
+matched by category - but it applies to the SAME approve screen every other
+Approver-category profile does, until something reads the actual approver's BTP
+role membership and passes their specific role as `Role` instead of the
+hardcoded literal - the same "scope read off `req.user`" the paragraph above
+already flags as deferred. This is the same shape of gap the Workflow Agent
+Determination table shipped with and still has (**"Arthur's process ignores
+`approvers` entirely"**): the configuration surface exists ahead of the runtime
+consuming it, on purpose, rather than withheld until both halves are ready
+together.
 
 #### Critical fields, entity-level only, and who to notify (2026-08-26)
 
@@ -2219,11 +2234,6 @@ type.** `state.trackChanges` decides whether one is meaningful at all:
   `state.trackChanges = state.requestType === "change" || mode !== "edit"`. That
   one exception is the same reasoning as the plain create route - continuing your
   own unsubmitted work is not a round somebody else is reviewing.
-- **A create-type staged request's baseline is simply the payload as this screen
-  loaded it** - `_loadChangeBaseline` clones `state.root`/`state.sections` before
-  anything is touched this round, exactly the way `_loadBusinessPartner` already
-  did. That is "what the previous round left it as", which is precisely what a
-  steward's or a reworking requester's edits should be measured against.
 - **A change-type request is judged against S/4's OWN current values, re-read
   live**, never against staging's own copy. Staging holds the *merged* result -
   the partner's original fields and this round's edits sitting in the same
@@ -2235,17 +2245,53 @@ type.** `state.trackChanges` decides whether one is meaningful at all:
   fails leaves the as-loaded snapshot in place (a diff one round behind) rather
   than none at all, logged with `console.warn` and never shown to the user - they
   came here to review a record, not to hear about a comparison that could not run.
+- **A create-type staged request's baseline is server-persisted**
+  (`ChangeRequests.baselineDataJson`, `db/staging.cds`) - **revised the same day**
+  after the first version (clone `state.root`/`state.sections` as this screen
+  loaded them) shipped a real gap: a data steward's edits coloured correctly on
+  their OWN screen, but the moment the request moved on to the approver, THAT
+  screen's own load re-snapshotted against itself and the colouring vanished -
+  exactly the "also in the following steps" case that was asked for. `submitRequest`
+  and `resubmitRequest` write `req.data.DataJson` into it the moment the status
+  becomes `inApproval` - a first submit's baseline is trivially its own data,
+  which is why nothing is highlighted on a brand new create until someone edits
+  it later. `getRequestPayload` returns it as `BaselineDataJson`, and
+  `_loadChangeBaseline` parses it into `state.originalRoot`/`originalSections`
+  when present, falling back to the as-loaded snapshot when it is not (a request
+  never yet submitted - `trackChanges` is false there anyway - or a parse
+  failure, logged rather than thrown).
+  **Deliberately NOT reset by `decideDataStewardReview`'s own `'complete'`
+  branch**, unlike `resubmitRequest`: a resubmit follows a rejection and starts a
+  genuinely fresh round, so whoever reviews it next should see only what changed
+  since then - but a data steward completing their review is not a new round, it
+  is the SAME round the original submit or resubmit started, and the approver
+  receiving it back is meant to see the steward's own edits highlighted too.
 
-**Rows already know their own answer - `record.__state`.** The Add/Edit dialog
-marks a brand new row `"new"` and an edited one `"modified"`, and
-`_applyProposals` marks an accepted proposal on an existing row `"changed"` -
-all three existed before this feature for staging's own benefit. `rowChangeKind`
-just reads it: `"new"` is an addition, anything else with a `__state` is a
-change, and a row with none was not touched this round. **Gated on
-`trackChanges`, in `_renderSection`** - `__state` gets set on every row a plain
-new create adds too, and none of that is a "change" worth marking.
+**Rows are matched by CONTENT against the baseline, not by `record.__state`** -
+also revised the same day, for the same underlying reason as the baseline
+itself. The first version read `__state` directly (`"new"` set by the Add/Edit
+dialog, `"modified"`/`"changed"` by an edit or an accepted proposal) and coloured
+the row straight off it. That flag is staged as the DB `action` column and
+**survives every reload** - so a row the ORIGINAL requester added still comes
+back `"new"` when a data steward opens the very same request, and colouring
+every row like that marks the whole record instead of what the steward is
+actually changing. `matchSectionRows(records, baselineRecords, fieldNames)` now
+matches each current row against the baseline by content: an exact match
+(every field equal) is **consumed** so two identical rows are never both
+matched to the same baseline row, and is left uncoloured (kind `""`). Whatever
+is left unmatched is either an addition or an edit of one of the remaining
+baseline rows, and `__state === "new"` is the tiebreaker for which - not the
+primary signal any more, but still correct precisely because that flag's own
+history says the row never came from editing something that already existed,
+whichever round created it. The one known limitation is the same as before:
+without a stable row key (staging has one, a cuid, but `getRequestPayload`
+strips it before it ever reaches the client), an unmatched edit claims the
+remaining baseline rows in array order. **`_renderSection` and
+`_refreshChangeSummary` both call the same function** over the same two arrays,
+so the row a table colours red or orange is exactly the row the summary panel
+lists fields for.
 
-**Root fields have no such flag, so they are diffed value by value** -
+**Root fields have no row to match, so they are diffed value by value** -
 `fieldChangeKind(baselineValue, currentValue)`: nothing when both sides agree,
 `"added"` when the baseline was empty and this one is not, `"changed"`
 otherwise - which deliberately also covers a field that was **cleared**: undoing
@@ -2280,10 +2326,9 @@ exactly the three columns asked for while still carrying the colour. Built by
 turned into `{ field, oldValue, newValue, kind }` rows; a **new** section row
 lists each of its own populated fields against `"—"` rather than trying to name
 a baseline that does not exist for it, and a **changed** row is matched against
-`originalSections` **positionally** - the one known limitation, since a row
-deleted earlier in the same session ahead of an edited one would misalign this.
-The row's own colour never has that problem, because it comes straight off
-`__state` rather than from matching anything.
+its own baseline row by `matchSectionRows` - the same function and the same call
+`_renderSection` makes, so the fields listed here are exactly the fields of the
+row shown red or orange in the table.
 
 **The panel is collapsible and empty-hides**, the same shape every other panel
 above the form uses (`_setDuplicatePanel`, `_setCommentsPanel`): `visible` is

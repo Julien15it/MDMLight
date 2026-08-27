@@ -65,6 +65,15 @@ entity ChangeRequests : cuid, managed {
   postedAt          : Timestamp;
   postError         : String(1000);
 
+  /** A create request's own DataJson, snapshotted the moment a submit or a resubmit hands it to
+   *  inApproval - the "before" a data steward's or a reworking requester's changes are judged
+   *  against, so highlighting survives a reload and is still there for the NEXT actor too (an
+   *  approver seeing what the data steward changed). Null until first submitted, and unused for a
+   *  `change` request, which is always compared against the BP's own live S/4 values instead - see
+   *  "Highlighting what changed" in CLAUDE.md. NOT reset by a data steward's own completed review on
+   *  purpose: only submitRequest/resubmitRequest (a fresh round) write a new one. */
+  baselineDataJson  : LargeString;
+
   // One row per node, keyed by the request; General is 1:1, the rest match the object page sections.
   // Every child has a `request` backlink, so the to-ONE compositions need an ON condition too - without
   // it CAP puts a foreign key on the header instead of using the backlink.

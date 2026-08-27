@@ -97,6 +97,10 @@ service ChangeRequestService @(path: '/service/changerequest') {
      *  the latest one. */
     CommentsJson    : LargeString;
     DataJson        : LargeString;
+    /** A create request's own DataJson from the start of the current round - see
+     *  `ChangeRequests.baselineDataJson` in db/staging.cds. Null for a `change` request; the
+     *  maintenance screen re-reads the Business Partner's live S/4 values for that case instead. */
+    BaselineDataJson : LargeString;
   };
 
   /**

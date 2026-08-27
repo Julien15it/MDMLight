@@ -52,7 +52,12 @@ test('both condition lists lead with the wildcard', () => {
   assert.equal(REQUEST_TYPES[0], '*');
   assert.equal(ROLES[0], '*');
   assert.ok(REQUEST_TYPES.includes('create') && REQUEST_TYPES.includes('change'));
-  for (const role of ['Requester', 'Approver', 'DataSteward']) assert.ok(ROLES.includes(role));
+  // Approver/DataSteward stopped being fixed values 2026-08-27 - the picker sources those from BTP
+  // role collections instead (see fieldPropertyOptions). Requester is the one role concept that is
+  // not a role collection, so it stays hard-coded.
+  assert.ok(ROLES.includes('Requester'));
+  assert.equal(ROLES.includes('Approver'), false);
+  assert.equal(ROLES.includes('DataSteward'), false);
   // block/delete are in the status enum but no request carries them: a profile for one would look
   // configured and never match.
   assert.equal(REQUEST_TYPES.includes('delete'), false);
@@ -195,23 +200,25 @@ test('the conditions are checked on the way in', () => {
 });
 
 /**
- * The approval role is additionally sourced from the BTP subaccount, the same way the Workflow
- * Agent Determination picker is (2026-08-27) - Requester/DataSteward/`*` stay exactly the hard-coded
- * four they always were.
+ * Approver/DataSteward are sourced from the BTP subaccount now (2026-08-27), the same way the
+ * Workflow Agent Determination picker is - `*` and Requester are the only two still hard-coded
+ * (ROLES), and a row saved before this change with the literal Approver/DataSteward value is still
+ * accepted (LEGACY_ROLES). The bare "MDMLIGHT" role itself is excluded everywhere here - it is the
+ * catalog-level role for the whole app, not a Requester/Approver/DataSteward-shaped one.
  */
-test('a profile can also be scoped to a BTP role, not only the fixed four', () => {
+test('a profile can also be scoped to a BTP role, and legacy rows still save', () => {
   assert.match(serviceJs, /require\('\.\/wf\/btp-agents'\)/u);
   const guard = serviceJs.slice(serviceJs.indexOf("'FieldPropertyProfiles'"));
   const guardBody = guard.slice(0, guard.indexOf('\n    });'));
-  assert.match(guardBody, /!ROLES\.includes\(role\)/u);
+  assert.match(guardBody, /!ROLES\.includes\(role\) && !LEGACY_ROLES\.includes\(role\)/u);
   assert.match(guardBody, /workflowAgents\(\)/u);
-  assert.match(guardBody, /agent\.type === 'Role' && agent\.value === role/u);
+  assert.match(guardBody, /agent\.value === role && agent\.value\.toUpperCase\(\) !== 'MDMLIGHT'/u);
 
   const options = serviceJs.slice(serviceJs.indexOf("this.on('fieldPropertyOptions'"));
   const optionsBody = options.slice(0, options.indexOf('\n    }));') + 6);
   assert.match(optionsBody, /ROLES\.map/u);
   assert.match(optionsBody, /workflowAgents\(\)/u);
-  assert.match(optionsBody, /agent\.type === 'Role'/u);
+  assert.match(optionsBody, /agent\.type === 'Role' && agent\.value\.toUpperCase\(\) !== 'MDMLIGHT'/u);
 });
 
 // --- The page --------------------------------------------------------------------------

@@ -320,12 +320,43 @@ sap.ui.define([
     return "changed";
   }
 
-  /** Row-level colour for a section record, straight off __state: "new" is this session's own
-   *  addition, "modified"/"changed" (the dialog and _applyProposals spell it differently) is an edit
-   *  to a row that already existed. A row with no __state was not touched this round. */
-  function rowChangeKind(record) {
-    if (!record || !record.__state) return "";
-    return record.__state === "new" ? "added" : "changed";
+  /**
+   * Matches every current section row against the baseline (the payload before this round's edits -
+   * see _loadChangeBaseline), by CONTENT rather than any stored id: a staging row has one (a cuid),
+   * but getRequestPayload strips it before it ever reaches the client, and a live S/4 row's own key
+   * varies by section. An exact match (every field equal) is consumed first, so two rows with
+   * identical content are never both matched to the same baseline row and left uncoloured either way.
+   *
+   * Deliberately NOT based on record.__state ("new"/"modified"/"changed"): that flag tracks whether a
+   * row has EVER been created or edited since the request began - it survives every reload, staged
+   * straight off the `action` column - so a row the ORIGINAL requester added still carries `"new"`
+   * when a data steward opens the very same request. Colouring every one of those rows on the
+   * steward's screen would mark the whole record, not what the steward is actually changing. __state
+   * is used only as a tiebreaker: a row it calls `"new"` is treated as an addition outright, because
+   * that flag's own history says it never came from editing something that already existed - never as
+   * the primary signal.
+   *
+   * Whatever is left unmatched after the exact passes is either an addition (no baseline row could
+   * have become it) or an edit of one of the remaining ones, claimed in array order - the one thing
+   * this still cannot get exactly right without a stable key. See "Highlighting what changed" in
+   * CLAUDE.md.
+   */
+  function matchSectionRows(records, baselineRecords, fieldNames) {
+    var remaining = (baselineRecords || []).slice();
+    var exactMatch = function (candidate, record) {
+      return fieldNames.every(function (name) {
+        return String(candidate[name] || "") === String(record[name] || "");
+      });
+    };
+    return (records || []).map(function (record) {
+      var matchIndex = remaining.findIndex(function (candidate) { return exactMatch(candidate, record); });
+      if (matchIndex !== -1) {
+        remaining.splice(matchIndex, 1);
+        return { kind: "", baseline: null };
+      }
+      if (record.__state === "new" || !remaining.length) return { kind: "added", baseline: {} };
+      return { kind: "changed", baseline: remaining.shift() };
+    });
   }
 
   function categoryText(category) {
@@ -1498,6 +1529,17 @@ sap.ui.define([
           header: new Text({ text: "Actions" })
         }));
 
+        // Computed once for the whole table, gated on trackChanges: on a plain new create every row
+        // would otherwise match nothing in an empty baseline and paint the whole section orange -
+        // see matchSectionRows and "Highlighting what changed" in CLAUDE.md.
+        var rowMatches = state.trackChanges
+          ? matchSectionRows(
+            records,
+            (state.originalSections || {})[section.id] || [],
+            section.fields.map(function (field) { return field.name; })
+          )
+          : [];
+
         records.forEach(function (record, index) {
           var cells = summaryFields.map(function (field) {
             return new Text({ text: this._describeCode(field.name, record[field.name]), wrapping: false });
@@ -1525,11 +1567,7 @@ sap.ui.define([
             type: "Active",
             cells: cells
           });
-          // A row this session's steward/requester added or edited is coloured directly on
-          // record.__state - see rowChangeKind. Gated on trackChanges: __state is set on every row a
-          // plain new create adds too, and none of that is a "change" worth marking - there is
-          // nothing yet to compare it against.
-          var rowKind = state.trackChanges ? rowChangeKind(record) : "";
+          var rowKind = rowMatches[index] && rowMatches[index].kind;
           if (rowKind) item.addStyleClass(rowKind === "added" ? "mdmAddedRow" : "mdmChangedRow");
           item.attachPress(this._openExistingRecord.bind(this, section, index));
           table.addItem(item);
@@ -2470,19 +2508,22 @@ sap.ui.define([
           .forEach(function (section) {
             var records = state.sections[section.id] || [];
             var baselineRecords = (state.originalSections || {})[section.id] || [];
+            var fieldNames = section.fields.map(function (field) { return field.name; });
+            // The same matching _renderSection colours the row on - see matchSectionRows - so a row
+            // shown red or orange in the table is exactly the row whose fields are listed here.
+            var matches = matchSectionRows(records, baselineRecords, fieldNames);
             records.forEach(function (record, index) {
-              var kind = rowChangeKind(record);
-              if (!kind) return;
-              var baseline = kind === "added" ? {} : (baselineRecords[index] || {});
+              var match = matches[index];
+              if (!match || !match.kind) return;
               section.fields.forEach(function (field) {
                 if (field.name === section.relationField) return;
-                var fieldKind = kind === "added"
+                var fieldKind = match.kind === "added"
                   ? (isBlank(record[field.name]) ? "" : "added")
-                  : fieldChangeKind(baseline[field.name], record[field.name]);
+                  : fieldChangeKind(match.baseline[field.name], record[field.name]);
                 if (!fieldKind) return;
                 rows.push({
                   field: section.title + " – " + field.label,
-                  oldValue: displayValue(baseline[field.name]) || "—",
+                  oldValue: displayValue(match.baseline[field.name]) || "—",
                   newValue: displayValue(record[field.name]) || "—",
                   kind: fieldKind
                 });
@@ -2923,7 +2964,7 @@ sap.ui.define([
           // submitted create draft (mode "edit" with no prior round): everything would show as an
           // addition, which says nothing anyone does not already know.
           state.trackChanges = state.requestType === "change" || mode !== "edit";
-          if (state.trackChanges) await this._loadChangeBaseline(state, mode);
+          if (state.trackChanges) await this._loadChangeBaseline(state, payload && payload.BaselineDataJson);
           state.rejectionComment = (payload && payload.RejectionComment) || "";
           // Cleared to null on every successful post and rewritten on every failed one (never left
           // stale across rounds the way rejectionComment can be), so it is the more trustworthy of
@@ -3081,16 +3122,44 @@ sap.ui.define([
        * round behind is better than none, the same trade-off metadata-drift.js and every other
        * best-effort BTP/S4 read in this codebase makes.
        */
-      _loadChangeBaseline: async function (state, mode) {
+      _loadChangeBaseline: async function (state, baselineDataJson) {
+        // The as-loaded payload is the fallback for both branches below: a change request with no
+        // businessPartner yet, a live re-read that fails, or a create request with no persisted
+        // baseline at all (never yet submitted - trackChanges is false for that case anyway, so this
+        // only matters as a safety net). Set first, so every early return already leaves a baseline.
         state.originalRoot = clone(state.root);
         state.originalSections = clone(state.sections);
-        if (state.requestType !== "change" || !state.businessPartner) return;
+
+        if (state.requestType === "change") {
+          if (!state.businessPartner) return;
+          try {
+            var live = await this._fetchLiveSnapshotForDiff(state.businessPartner);
+            state.originalRoot = live.root;
+            state.originalSections = live.sections;
+          } catch (error) {
+            console.warn("[change-summary] Could not re-read the live Business Partner for comparison:", error);
+          }
+          return;
+        }
+
+        // A create request: the baseline is server-persisted (ChangeRequests.baselineDataJson), set
+        // the moment a submit or a resubmit last handed this request to inApproval - NOT merely "as
+        // this screen loaded it". That is what makes the highlighting survive a screen reload and
+        // still be there for the NEXT actor (an approver seeing what the data steward changed) rather
+        // than only for whoever is editing right now - see "Highlighting what changed" in CLAUDE.md.
+        if (!baselineDataJson) return;
         try {
-          var live = await this._fetchLiveSnapshotForDiff(state.businessPartner);
-          state.originalRoot = live.root;
-          state.originalSections = live.sections;
+          var baseline = JSON.parse(baselineDataJson);
+          state.originalRoot = baseline.root || {};
+          state.originalSections = {};
+          this._metadata
+            .filter(function (section) { return section.kind !== "root"; })
+            .forEach(function (section) {
+              var value = baseline.sections && baseline.sections[section.id];
+              state.originalSections[section.id] = Array.isArray(value) ? value : (value ? [value] : []);
+            });
         } catch (error) {
-          console.warn("[change-summary] Could not re-read the live Business Partner for comparison:", error);
+          console.warn("[change-summary] Could not parse the stored baseline - comparing against the as-loaded payload instead:", error);
         }
       },
 
