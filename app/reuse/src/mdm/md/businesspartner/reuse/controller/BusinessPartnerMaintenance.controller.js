@@ -1362,7 +1362,12 @@ sap.ui.define([
         // (_openRecordDialog reads the same property). The section is still there to be read.
         var editing = state.editing && entityProperty !== "readOnly";
         var records = state.sections[section.id] || [];
-        var summaryFields = this._summaryFields(section);
+        // _openRecordDialog's form already drops a hidden field via _isHiddenField - without the same
+        // filter here the table kept showing it as a column (and searching/sorting on it), the one
+        // place on this screen a Field Property Profile's "hidden" was not honoured.
+        var summaryFields = this._summaryFields(section).filter(function (field) {
+          return !this._isHiddenField(section, field);
+        }, this);
         var searchField = new SearchField({
           width: "18rem",
           placeholder: "Search"

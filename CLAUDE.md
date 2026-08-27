@@ -1388,6 +1388,17 @@ Two halves, and they are not the same code path for a reason:
   walks straight past. It reads the cascade back first: a field marked mandatory
   inside an entity a broader profile hid or froze is not something anyone can fill.
 
+**"Both layouts" used to mean the two record-dialog forms, not the section's own
+summary table — reported directly with a screenshot (2026-08-27): a field hidden
+by a profile correctly disappeared from the Add/Edit Addresses popup
+(`_createFieldGrid`/`_createFieldTable`, both already filtering on
+`_isHiddenField`) but stayed as a column, and searchable, on the Addresses
+section's own table.** `_summaryFields` just mapped `section.summaryFields`
+straight to field objects — nothing there ever read a profile. `_renderSection`
+now filters that result through `_isHiddenField` too, the same way the dialog
+already does, so a hidden field is gone from the column list, the rendered
+cells, and the search.
+
 **The role a submit is judged under is never the client's to name.**
 `requesterContext(req)` hardcodes `Requester` on every write path — whoever submits
 is the requester — while the *screen* asks for whatever role it is rendering
