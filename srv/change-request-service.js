@@ -888,7 +888,11 @@ class ChangeRequestService extends cds.ApplicationService {
         status: 'inApproval',
         processInstanceId,
         submittedAt: new Date().toISOString(),
-        submittedBy: requestingUserEmail(req)
+        submittedBy: requestingUserEmail(req),
+        // The "before" a data steward's or a reworking requester's changes get judged against - see
+        // baselineDataJson in db/staging.cds. A first submit's baseline is trivially its own data,
+        // which is exactly why nothing is highlighted on a brand new create until someone edits it.
+        baselineDataJson: req.data.DataJson
       }).where({ ID: changeRequest }));
 
       return {
@@ -986,7 +990,12 @@ class ChangeRequestService extends cds.ApplicationService {
         // Overwritten on purpose: the resubmit is the submission that matters now, and the original
         // timestamp is of no use to anyone once the request has been round the loop.
         submittedAt: new Date().toISOString(),
-        submittedBy: requestingUserEmail(req)
+        submittedBy: requestingUserEmail(req),
+        // A fresh round starts a fresh "before" - see baselineDataJson in db/staging.cds. Unlike
+        // decideDataStewardReview's own complete branch, a resubmit follows a REJECTION, so whoever
+        // reviews it next should see only what changed since THIS resubmit, not the entire history
+        // back to the original submission.
+        baselineDataJson: req.data.DataJson
       }).where({ ID: changeRequest }));
       await appendComment(db, changeRequest, 'Requester', requestingUserEmail(req), req.data.Reason);
 
@@ -1208,6 +1217,10 @@ class ChangeRequestService extends cds.ApplicationService {
         console.error(`Could not signal that data steward review of ${changeRequestId} was completed:`, error);
       }
 
+      // baselineDataJson is deliberately NOT touched here, unlike submitRequest/resubmitRequest: this
+      // is not a fresh round, it is the SAME round the requester's submit or resubmit started, so the
+      // approver receiving it next is meant to see the data steward's own edits highlighted too - see
+      // "Highlighting what changed" in CLAUDE.md.
       await db.run(cds.ql.UPDATE(HEADER).set({
         status: 'inApproval',
         submittedAt: new Date().toISOString(),
@@ -1284,7 +1297,8 @@ class ChangeRequestService extends cds.ApplicationService {
           text: comment.text,
           createdAt: comment.createdAt
         }))),
-        DataJson: JSON.stringify({ root, sections, deleted })
+        DataJson: JSON.stringify({ root, sections, deleted }),
+        BaselineDataJson: header.baselineDataJson || null
       };
     });
 
