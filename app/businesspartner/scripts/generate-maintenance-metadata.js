@@ -31,9 +31,11 @@ const sections = [
     relationField: 'BusinessPartner',
     typeName: 'A_BusinessPartnerAddressType',
     kind: 'collection',
+    // Language is ADDR1_DATA-LANGU and S/4 requires it (FSBP_GENERIC/008). Left off the summary:
+    // a two-letter code earns no column beside the street when the row is collapsed.
     fieldNames: [
       'BusinessPartner', 'AddressID', 'StreetName', 'HouseNumber',
-      'PostalCode', 'CityName', 'Country', 'Region', 'POBox'
+      'PostalCode', 'CityName', 'Country', 'Region', 'POBox', 'Language'
     ],
     summaryFields: [
       'StreetName', 'HouseNumber', 'PostalCode', 'CityName', 'Country', 'Region', 'POBox'

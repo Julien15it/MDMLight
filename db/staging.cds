@@ -171,6 +171,9 @@ entity StagedAddresses : cuid {
   Country         : String(3);
   Region          : String(3);
   POBox           : String(10);
+  // ADDR1_DATA-LANGU, and required by S/4 (FSBP_GENERIC/008). NOT the same field as the root's
+  // CorrespondenceLanguage, which is BP-level and person-only on an organisation (R11/336).
+  Language        : String(2);
 }
 
 entity StagedRoles : cuid {
