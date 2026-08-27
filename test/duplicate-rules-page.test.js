@@ -81,10 +81,12 @@ test('the field, comparison and indicator lists come from the service', () => {
   assert.match(view, /items="\{ path: 'opt>\/fields'/u);
   assert.match(view, /items="\{ path: 'opt>\/comparisons'/u);
   assert.match(view, /items="\{ path: 'opt>\/indicators'/u);
+  assert.match(view, /items="\{ path: 'opt>\/conditionLogics'/u);
   assert.match(controllerSource, /_callAction\("ruleOptions"/u);
   // Bare-string arrays do not bind inside a table cell; every list is code/text for that reason.
   assert.equal(/<core:Item key="\{opt>\}"/u.test(view), false);
-  assert.equal((view.match(/<core:Item key="\{opt>code\}" text="\{opt>text\}"/gu) || []).length, 5);
+  // Six since 2026-08-27: the AND/OR/NOR cell between the two conditions is the sixth.
+  assert.equal((view.match(/<core:Item key="\{opt>code\}" text="\{opt>text\}"/gu) || []).length, 6);
   // `key` is a CDS keyword and prefixes a key element, so the property cannot be called that.
   const serviceCds = fs.readFileSync(
     path.join(__dirname, '..', 'srv', 'duplicate-config-service.cds'), 'utf8'
@@ -117,11 +119,13 @@ test('the grid asks only for what a steward has to decide', () => {
 test('the grid fills the page and carries no permanent info strip', () => {
   assert.equal(view.includes('type="Information"'), false, 'the info strip is gone');
   assert.equal(view.includes('Rows are additive'), false);
-  for (const width of ['12%', '10%', '18%', '17%']) {
+  // 11%/9% since 2026-08-27, shaved from 12%/10% to make room for the titleless AND/OR/NOR
+  // column between the two conditions.
+  for (const width of ['11%', '9%', '18%', '17%', '5%']) {
     assert.ok(view.includes(`width="${width}"`), `no column at ${width}`);
   }
   // A ComboBox left at its default width is what put the gaps between the cells.
-  assert.equal((view.match(/<ComboBox\s+width="100%"/gu) || []).length, 5);
+  assert.equal((view.match(/<ComboBox\s+width="100%"/gu) || []).length, 6);
 });
 
 // The permission model is unchanged by the move to a tile: a tile cannot be hidden from the app,
