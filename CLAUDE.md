@@ -684,6 +684,25 @@ enforce it.
 - **`systemDerived` is replayed from `applied`, not written in the derivation loop**, so an entry
   the pipeline refused to write (a typed value already there) is not replayed either.
 
+#### SPRO derivations: nine gaps, one open mechanism (2026-08-27)
+
+The app derives the CVI account group, VIES/GLEIF addresses and the steward's own rules. **Nine
+things SAP standard fills in and this app does not** are listed with their customizing sources in
+`mdmlbpcheck/README.md` — partner functions, address language / time zone / transportation zone /
+tax jurisdiction, tax classification rows, withholding tax types, search term, and reference-customer
+defaults. Out of scope by decision: the BP, customer and vendor **numbers**, which CVI assigns at
+post time.
+
+**Partner functions need no new node** — `StagedCustomerSalesPartnerFunc` and
+`StagedSupplierPartnerFunc` already exist, are catalogued, and are on the screen. Only the
+customizing source is missing, which is true of every row in that table.
+
+The blocker is shared and it is the mechanism, not the individual derivations: `MAINTAIN` returns
+messages, not an enriched record. Either every derivation is re-implemented from customizing (one
+CDS view plus one stage each, the way `cvi_account_group` was built, and it drifts with support
+packages) or the enriched record is read back once and harvested. `ZMDML_DERIV_PROBE` is what
+decides between them — do not build either route before it has been run.
+
 #### Two standard-check messages nobody could clear (fixed 2026-08-27)
 
 Both reported from the live app after the customer/supplier tier went on, and both were in the
