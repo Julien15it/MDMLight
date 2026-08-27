@@ -393,6 +393,17 @@ sap.ui.define([
       || "";
   }
 
+  // A_Customer/A_Supplier carry no address field of their own - in real CVI a Customer/Supplier
+  // never has one either, it shares the Business Partner's own address record once S/4 creates it
+  // from the BP. There is nothing to fill in here on either side of the wire; this is a read-only
+  // reminder of what the requester already typed under Addresses, not a value staged anywhere new.
+  function addressPreview(address) {
+    if (!address) return "";
+    var line1 = [address.StreetName, address.HouseNumber].filter(Boolean).join(" ");
+    var line2 = [address.PostalCode, address.CityName].filter(Boolean).join(" ");
+    return [line1, line2, address.Country].filter(Boolean).join(", ");
+  }
+
   return Controller.extend(
     "mdm.md.businesspartner.reuse.controller.BusinessPartnerMaintenance",
     {
@@ -1415,6 +1426,20 @@ sap.ui.define([
         if (entityProperty === "hidden") return;
 
         var state = this.getView().getModel("maintenance").getData();
+        // Reported directly: it looks like the standard address stopped carrying over to Customer/
+        // Supplier. It never carried over as a value because there is no field for it to land in -
+        // A_Customer/A_Supplier expose no address field, the same way real CVI shares the BP's own
+        // address rather than duplicating it. This is a reminder of what will be shared, not a value
+        // this screen stages anywhere.
+        if (section.id === "Customers" || section.id === "Suppliers") {
+          var addresses = state.sections.Addresses || [];
+          container.addItem(new Text({
+            text: addresses.length
+              ? "Shares the Business Partner's own address: " + addressPreview(addresses[0])
+              : "Shares the Business Partner's own address, once one is added under Addresses.",
+            wrapping: true
+          }).addStyleClass("sapUiTinyMarginBottom"));
+        }
         // Read-only freezes the rows: no Add, no Delete, and the detail dialog opens in display mode
         // (_openRecordDialog reads the same property). The section is still there to be read.
         var editing = state.editing && entityProperty !== "readOnly";
