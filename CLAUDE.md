@@ -1420,7 +1420,7 @@ response shapes so a future refactor cannot reintroduce either wrong key.
 
 ### Workflow Agent Determination — who approves what (2026-08-21)
 
-`db/workflow-rules.cds` adds `WorkflowRules`, the fifth table on the MDM Rules
+`db/workflow-rules.cds` adds `WorkflowRules`, the fifth table on the MDM Configuration Panel
 tile and the first one that is **not a check on the data**: it produces the
 `approvers` list in the workflow context, and SBPA routes on it.
 
