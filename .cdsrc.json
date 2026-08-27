@@ -4,7 +4,12 @@
   },
   "[production]": {
     "requires": {
-      "auth": "xsuaa"
+      "auth": {
+        "kind": "xsuaa",
+        "vcap": {
+          "name": "mdm-businesspartner-auth"
+        }
+      }
     }
   }
 }

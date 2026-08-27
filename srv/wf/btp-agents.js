@@ -94,13 +94,16 @@ async function callApi(path) {
 
 /** Role collections whose Description starts with MDMLIGHT - see CLAUDE.md. Description, never
  *  Name: the prefix is a naming convention applied to the description a subaccount admin writes,
- *  not to the role collection's own (often short, unrelated) name. */
+ *  not to the role collection's own (often short, unrelated) name. Case-insensitive on purpose: an
+ *  admin typing "Mdmlight" or "mdmlight" is not a mistake this filter should be able to make into a
+ *  silently-empty list. */
 async function fetchRoleCollections() {
   const data = await callApi('/sap/rest/authorization/v2/rolecollections');
   const collections = Array.isArray(data) ? data : (data.roleCollections || data.value || []);
   return collections
     .filter((collection) => (
-      typeof collection.description === 'string' && collection.description.startsWith(ROLE_COLLECTION_PREFIX)
+      typeof collection.description === 'string'
+      && collection.description.toUpperCase().startsWith(ROLE_COLLECTION_PREFIX)
     ))
     .map((collection) => ({ type: 'Role', value: collection.name }))
     .filter((agent) => agent.value);

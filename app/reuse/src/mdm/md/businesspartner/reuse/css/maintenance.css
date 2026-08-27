@@ -33,10 +33,35 @@
   background: var(--sapGroup_ContentBackground);
 }
 
-.bpAssistantConversation textarea {
-  font-family: var(--sapFontFamily);
-  line-height: 1.45;
+/* The assistant chat: one FeedListItem per turn, coloured by who is speaking rather than read out
+   of "You: "/"Assistant: " prefixes in a wall of plain text. Semantic background tokens, not fixed
+   hex, so the three colours stay theme-correct (light/dark/HCB) the way the rest of this app does. */
+.bpAssistantChat {
+  max-height: 32rem;
+  overflow-y: auto;
   background: var(--sapGroup_ContentBackground);
+  border-radius: 0.5rem;
+}
+
+.bpChatUser,
+.bpChatAssistant,
+.bpChatSystem {
+  border-radius: 0.5rem;
+  margin: 0.25rem 0.5rem;
+}
+
+.bpChatUser {
+  background-color: var(--sapInformationBackground, #f0f7ff);
+}
+
+.bpChatAssistant {
+  background-color: var(--sapSuccessBackground, #f1fdf6);
+}
+
+/* The one-time intro message only - visually a notice, not a turn either side spoke. */
+.bpChatSystem {
+  background-color: var(--sapWarningBackground, #fef7f1);
+  font-style: italic;
 }
 
 .sapUxAPObjectPageLayout .sapUxAPObjectPageSectionHeaderTitle {
@@ -45,6 +70,29 @@
 
 .sapUxAPObjectPageLayout .sapUxAPBlockContainer {
   padding-top: 0.5rem;
+}
+
+/* What a data steward or a reworking requester changed this round, against the baseline
+   BusinessPartnerMaintenance.controller.js computes in _refreshChangeSummary - see "Highlighting
+   what changed" in CLAUDE.md. Semantic theme tokens, so both colours stay correct in dark mode
+   too, with a plain fallback for a theme that does not define them. Light-red vs light-orange, as
+   asked for: a value that already existed and was edited, versus one that is new. */
+.mdmChangedField {
+  background: var(--sapErrorBackground, #ffebee);
+  border-radius: 0.5rem;
+}
+
+.mdmAddedField {
+  background: var(--sapWarningBackground, #fff4e5);
+  border-radius: 0.5rem;
+}
+
+.mdmChangedRow, .mdmChangedRow > td {
+  background-color: var(--sapErrorBackground, #ffebee) !important;
+}
+
+.mdmAddedRow, .mdmAddedRow > td {
+  background-color: var(--sapWarningBackground, #fff4e5) !important;
 }
 
 @media (max-width: 600px) {

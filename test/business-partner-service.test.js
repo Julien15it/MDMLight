@@ -16,6 +16,11 @@ const {
   readAssistantAddresses,
   addDefaultAddressUsage,
   businessPartnerCreationSuggestion,
+  registryEnrichment,
+  extractVatNumber,
+  directVatLookup,
+  detectRequestedRoles,
+  externalResearchAnswer,
   businessPartnerNavigationPath,
   createBusinessPartnerChild,
   createBusinessPartnerAddress,
@@ -407,16 +412,19 @@ test('assistant proposes a prefilled Business Partner when a company is absent',
   );
   assert.equal(suggestion.SuggestedAction, 'CREATE_BUSINESS_PARTNER');
   assert.deepEqual(JSON.parse(suggestion.SuggestedData), {
-    BusinessPartnerCategory: '2',
-    OrganizationBPName1: 'Coca-Cola',
-    SearchTerm1: 'Coca Cola'
+    root: {
+      BusinessPartnerCategory: '2',
+      OrganizationBPName1: 'Coca-Cola',
+      SearchTerm1: 'Coca Cola'
+    },
+    sections: {}
   });
   assert.equal(
     JSON.parse(businessPartnerCreationSuggestion(
       'Geef info over het bedrijf Coca-Cola',
       partners,
       { title: 'The Coca-Cola Company', source: 'Wikipedia' }
-    ).SuggestedData).OrganizationBPName1,
+    ).SuggestedData).root.OrganizationBPName1,
     'The Coca-Cola Company'
   );
   assert.equal(
@@ -438,8 +446,288 @@ test('assistant proposes a prefilled Business Partner when a company is absent',
       }
     }
   ).SuggestedData);
-  assert.equal(publicSuggestion.OrganizationBPName1, 'SPAR Destelbergen');
-  assert.equal(publicSuggestion.AddressStreetName, 'Dendermondsesteenweg');
+  assert.equal(publicSuggestion.root.OrganizationBPName1, 'SPAR Destelbergen');
+  assert.equal(publicSuggestion.sections.Addresses[0].StreetName, 'Dendermondsesteenweg');
+});
+
+test('assistant prefers a VIES-confirmed registry name, address and tax number over research', () => {
+  const partners = [];
+  const registry = {
+    name: 'Spar Destelbergen NV',
+    address: {
+      StreetName: 'Dendermondsesteenweg', HouseNumber: '468',
+      PostalCode: '9070', CityName: 'Destelbergen', Country: 'BE'
+    },
+    taxNumber: { BPTaxType: 'BE0', BPTaxNumber: '0123456789' },
+    source: 'VIES'
+  };
+  const suggestion = JSON.parse(businessPartnerCreationSuggestion(
+    'Geef info over het bedrijf SPAR Destelbergen',
+    partners,
+    { title: 'Contact - Spar Destelbergen', source: 'Public web search' },
+    '',
+    registry
+  ).SuggestedData);
+  assert.equal(suggestion.root.OrganizationBPName1, 'Spar Destelbergen NV');
+  assert.equal(suggestion.sections.Addresses[0].StreetName, 'Dendermondsesteenweg');
+  assert.deepEqual(suggestion.sections.TaxNumbers, [{ BPTaxType: 'BE0', BPTaxNumber: '0123456789' }]);
+});
+
+test('a GLEIF-only registry match (no VIES confirmation) still contributes name and address, never a tax number', () => {
+  const suggestion = JSON.parse(businessPartnerCreationSuggestion(
+    'Geef info over het bedrijf Voorbeeld',
+    [],
+    null,
+    '',
+    {
+      name: 'Voorbeeld NV',
+      address: { StreetName: 'Teststraat', HouseNumber: '1', PostalCode: '1000', CityName: 'Brussel', Country: 'BE' },
+      taxNumber: null,
+      source: 'GLEIF'
+    }
+  ).SuggestedData);
+  assert.equal(suggestion.root.OrganizationBPName1, 'Voorbeeld NV');
+  assert.equal(suggestion.sections.Addresses[0].CityName, 'Brussel');
+  assert.equal(suggestion.sections.TaxNumbers, undefined);
+});
+
+/**
+ * registryEnrichment is the assistant's own use of the same GLEIF/VIES tools duplicate-check
+ * enrichment already relies on (srv/ai/registry.js). It is deliberately narrow: GLEIF finds a company
+ * by name, but its enterprise number is not proof of VAT registration and its registration-authority
+ * id is not an SAP BPTaxType - so a tax number is only ever proposed once VIES has confirmed it, and
+ * only for Belgium, the one country/number relationship this app already trusts elsewhere.
+ */
+test('registryEnrichment proposes a VIES-confirmed Belgian VAT number, and only then', async () => {
+  const gleifEntity = {
+    legalName: 'Spar Destelbergen NV',
+    registeredAs: '0123456789',
+    address: { StreetName: 'Dendermondsesteenweg', HouseNumber: '468', PostalCode: '9070', CityName: 'Destelbergen', Country: 'BE' }
+  };
+  const lookup = async () => ({
+    record: { additionalNames: ['Spar Destelbergen NV'], addresses: [gleifEntity.address] },
+    facts: { gleif: [gleifEntity] }
+  });
+  const checkVat = async (country, vatNumber) => {
+    assert.equal(country, 'BE');
+    assert.equal(vatNumber, '0123456789');
+    return { status: 'valid', name: 'SPAR DESTELBERGEN', address: gleifEntity.address, vatNumber, countryCode: 'BE' };
+  };
+  const result = await registryEnrichment('Spar Destelbergen', { lookup, checkVat });
+  assert.equal(result.source, 'VIES');
+  assert.equal(result.name, 'SPAR DESTELBERGEN');
+  assert.deepEqual(result.taxNumber, { BPTaxType: 'BE0', BPTaxNumber: 'BE0123456789' });
+});
+
+test('registryEnrichment falls back to the GLEIF name/address alone when VIES does not confirm it', async () => {
+  const gleifEntity = {
+    legalName: 'Spar Destelbergen NV',
+    registeredAs: '0123456789',
+    address: { StreetName: 'Dendermondsesteenweg', HouseNumber: '468', PostalCode: '9070', CityName: 'Destelbergen', Country: 'BE' }
+  };
+  const lookup = async () => ({
+    record: { additionalNames: ['Spar Destelbergen NV'], addresses: [gleifEntity.address] },
+    facts: { gleif: [gleifEntity] }
+  });
+  const checkVat = async () => ({ status: 'invalid' });
+  const result = await registryEnrichment('Spar Destelbergen', { lookup, checkVat });
+  assert.equal(result.source, 'GLEIF');
+  assert.equal(result.name, 'Spar Destelbergen NV');
+  assert.equal(result.taxNumber, null);
+});
+
+test('registryEnrichment never chains VIES for a non-Belgian GLEIF match', async () => {
+  const gleifEntity = {
+    legalName: 'Voorbeeld GmbH',
+    registeredAs: 'HRB123456',
+    address: { StreetName: 'Teststrasse', HouseNumber: '1', PostalCode: '10115', CityName: 'Berlin', Country: 'DE' }
+  };
+  const lookup = async () => ({
+    record: { additionalNames: ['Voorbeeld GmbH'], addresses: [gleifEntity.address] },
+    facts: { gleif: [gleifEntity] }
+  });
+  const checkVat = async () => { throw new Error('VIES must not be called for a non-Belgian match'); };
+  const result = await registryEnrichment('Voorbeeld', { lookup, checkVat });
+  assert.equal(result.source, 'GLEIF');
+  assert.equal(result.taxNumber, null);
+});
+
+test('registryEnrichment is best-effort: a lookup failure resolves to null, never throws', async () => {
+  const lookup = async () => { throw new Error('GLEIF unavailable'); };
+  assert.equal(await registryEnrichment('Anything', { lookup }), null);
+});
+
+test('registryEnrichment resolves to null when GLEIF finds nothing', async () => {
+  const lookup = async () => ({ record: {}, facts: { gleif: [] } });
+  assert.equal(await registryEnrichment('Nobody Ltd', { lookup }), null);
+});
+
+/**
+ * A requester typing a VAT number directly in the chat ("BP ING aanmaken met VIes nummer
+ * BE0403.200.393") is a stronger signal than a name search - extractVatNumber finds it in free text,
+ * and directVatLookup answers it via VIES directly rather than only reaching VIES indirectly through
+ * a GLEIF name match.
+ */
+test('extractVatNumber finds a VAT number in free-form Dutch prose, dots and all', () => {
+  assert.deepEqual(
+    extractVatNumber('Ik zou graag een nieuwe BP ING aanmaken met volgende VIes nummer BE0403.200.393'),
+    { country: 'BE', vatNumber: 'BE0403200393' }
+  );
+  assert.deepEqual(extractVatNumber('VAT: BE 0403 200 393 graag'), { country: 'BE', vatNumber: 'BE0403200393' });
+  assert.deepEqual(extractVatNumber('vat number FR12345678901'), { country: 'FR', vatNumber: 'FR12345678901' });
+  assert.equal(extractVatNumber('Does Alluvion already exist in our system?'), null);
+  assert.equal(extractVatNumber(''), null);
+  assert.equal(extractVatNumber(null), null);
+  // XX is not a country VIES recognises, so it is left alone rather than misread as a VAT number.
+  assert.equal(extractVatNumber('order XX1234567 was shipped'), null);
+});
+
+test('directVatLookup confirms a valid Belgian VAT number and proposes it as a tax number', async () => {
+  const checkVat = async (country, vatNumber) => {
+    assert.equal(country, 'BE');
+    assert.equal(vatNumber, 'BE0403200393');
+    return {
+      status: 'valid', name: 'ING BELGIUM NV', countryCode: 'BE', vatNumber: '0403200393',
+      address: { StreetName: 'Sint-Michielswarande', HouseNumber: '60', PostalCode: '1040', CityName: 'Brussel', Country: 'BE' }
+    };
+  };
+  const result = await directVatLookup('BP ING aanmaken met VIes nummer BE0403.200.393', checkVat);
+  assert.equal(result.status, 'valid');
+  assert.equal(result.name, 'ING BELGIUM NV');
+  assert.deepEqual(result.taxNumber, { BPTaxType: 'BE0', BPTaxNumber: 'BE0403200393' });
+});
+
+test('directVatLookup reports a non-Belgian confirmation without inventing a tax number', async () => {
+  const checkVat = async () => ({
+    status: 'valid', name: 'Voorbeeld GmbH', countryCode: 'DE', vatNumber: '123456789',
+    address: { CityName: 'Berlin', Country: 'DE' }
+  });
+  const result = await directVatLookup('VAT DE123456789', checkVat);
+  assert.equal(result.name, 'Voorbeeld GmbH');
+  assert.equal(result.taxNumber, null);
+});
+
+test('directVatLookup still answers when VIES does not confirm the number', async () => {
+  const invalid = await directVatLookup(
+    'BE0403.200.393',
+    async () => ({ status: 'invalid', countryCode: 'BE', vatNumber: '0403200393' })
+  );
+  assert.deepEqual(invalid, { status: 'invalid', countryCode: 'BE', vatNumber: '0403200393', reason: undefined });
+
+  const unknown = await directVatLookup(
+    'BE0403.200.393',
+    async () => ({ status: 'unknown', countryCode: 'BE', vatNumber: '0403200393', reason: 'timeout' })
+  );
+  assert.equal(unknown.status, 'unknown');
+  assert.equal(unknown.reason, 'timeout');
+});
+
+test('directVatLookup resolves to null when the question carries no VAT number, and is best-effort on failure', async () => {
+  assert.equal(await directVatLookup('Does Alluvion already exist?', async () => { throw new Error('unreachable'); }), null);
+  assert.equal(await directVatLookup('BE0403.200.393', async () => { throw new Error('VIES down'); }), null);
+});
+
+/**
+ * Asking the assistant to create a supplier/customer used to propose only General/Addresses/
+ * TaxNumbers - no BusinessPartnerRoles row, so the existing cvi_account_group derivation (which keys
+ * off the role) never had anything to fire on and the Customers/Suppliers section stayed empty too.
+ */
+test('detectRequestedRoles reads customer/supplier intent from free text, Dutch and English', () => {
+  assert.deepEqual(detectRequestedRoles('Maak een supplier aan voor Alluvion'), ['FLVN01']);
+  assert.deepEqual(detectRequestedRoles('please create a customer for Alluvion'), ['FLCU01']);
+  assert.deepEqual(detectRequestedRoles('maak een leverancier aan'), ['FLVN01']);
+  assert.deepEqual(detectRequestedRoles('maak een klant aan'), ['FLCU01']);
+  assert.deepEqual(detectRequestedRoles('create a vendor and a customer for this company').sort(), ['FLCU01', 'FLVN01']);
+  assert.deepEqual(detectRequestedRoles('does Alluvion already exist?'), []);
+  assert.deepEqual(detectRequestedRoles(''), []);
+});
+
+test('businessPartnerCreationSuggestion proposes the matching role, leaving the account-group section for Check to derive', () => {
+  // requestedCompanyName has no pattern for "create a BP for X" imperatives - in production that
+  // resolution comes from the model-based intent parser (ASSISTANT_INTENT_SOURCE: model) and reaches
+  // this function as resolvedCompanyName, exactly as passed here.
+  const supplier = JSON.parse(businessPartnerCreationSuggestion(
+    'Maak een supplier aan voor Alluvion', [], null, 'Alluvion'
+  ).SuggestedData);
+  assert.deepEqual(supplier.sections.BusinessPartnerRoles, [{ BusinessPartnerRole: 'FLVN01' }]);
+  assert.equal(supplier.sections.Suppliers, undefined);
+
+  const customer = JSON.parse(businessPartnerCreationSuggestion(
+    'please create a customer for Alluvion', [], null, 'Alluvion'
+  ).SuggestedData);
+  assert.deepEqual(customer.sections.BusinessPartnerRoles, [{ BusinessPartnerRole: 'FLCU01' }]);
+
+  const neither = JSON.parse(businessPartnerCreationSuggestion('Does Alluvion already exist in our system?', []).SuggestedData);
+  assert.equal(neither.sections.BusinessPartnerRoles, undefined);
+});
+
+test('businessPartnerCreationSuggestion names the proposal from the registry when no company name was typed', () => {
+  const suggestion = JSON.parse(businessPartnerCreationSuggestion(
+    'BE0403.200.393',
+    [],
+    null,
+    '',
+    { name: 'ING BELGIUM NV', address: { CityName: 'Brussel', Country: 'BE' }, taxNumber: { BPTaxType: 'BE0', BPTaxNumber: 'BE0403200393' }, source: 'VIES' }
+  ).SuggestedData);
+  assert.equal(suggestion.root.OrganizationBPName1, 'ING BELGIUM NV');
+  assert.deepEqual(suggestion.sections.TaxNumbers, [{ BPTaxType: 'BE0', BPTaxNumber: 'BE0403200393' }]);
+});
+
+test('externalResearchAnswer reports what VIES said about a directly-typed VAT number that was not confirmed', () => {
+  const invalid = externalResearchAnswer('ING', null, null, { status: 'invalid', countryCode: 'BE', vatNumber: '0403200393' });
+  assert.match(invalid, /VIES says VAT number BE0403200393 is not registered\./u);
+
+  const unknown = externalResearchAnswer('ING', null, null, { status: 'unknown', countryCode: 'BE', vatNumber: '0403200393', reason: 'timeout' });
+  assert.match(unknown, /VIES could not confirm VAT number BE0403200393 right now \(timeout\)\./u);
+
+  const notApplicable = externalResearchAnswer('ING', null, null, { status: 'not_applicable', countryCode: 'US', vatNumber: '123456789' });
+  assert.match(notApplicable, /VIES does not cover US/u);
+
+  // A VALID verdict is folded into `registry` and reported via registryAnswerLine instead - passing
+  // it here must not double it up.
+  const valid = externalResearchAnswer('ING', null, null, { status: 'valid', countryCode: 'BE', vatNumber: 'BE0403200393' });
+  assert.doesNotMatch(valid, /VIES/u);
+});
+
+test('externalResearchAnswer surfaces the registry line whatever the research outcome', () => {
+  const confirmed = { name: 'SPAR DESTELBERGEN', taxNumber: { BPTaxType: 'BE0', BPTaxNumber: 'BE0123456789' } };
+  const unconfirmed = { name: 'Voorbeeld NV', address: { CityName: 'Brussel' }, taxNumber: null };
+
+  assert.match(
+    externalResearchAnswer('Spar Destelbergen', null, confirmed),
+    /VIES confirms SPAR DESTELBERGEN — VAT number BE0123456789\./u
+  );
+  assert.match(
+    externalResearchAnswer('Voorbeeld', null, unconfirmed),
+    /GLEIF lists Voorbeeld NV in Brussel \(not confirmed via VIES\)\./u
+  );
+  assert.doesNotMatch(externalResearchAnswer('Nobody', null, null), /VIES|GLEIF/u);
+  assert.match(
+    externalResearchAnswer('Spar Destelbergen', { source: 'Wikipedia', title: 'Spar', extract: 'A retailer.', url: 'https://x' }, confirmed),
+    /VIES confirms SPAR DESTELBERGEN/u
+  );
+});
+
+/**
+ * A country only ever proposes CorrespondenceLanguage where the business language is unambiguous -
+ * BE and LU stay silent on the field (Dutch/French, and French/German/Luxembourgish respectively),
+ * because a wrong guess is worse than an empty one the requester fills in themselves.
+ */
+test('the language proposal only fires for a country with one dominant business language', () => {
+  const partners = [];
+  const forCountry = (country) => JSON.parse(businessPartnerCreationSuggestion(
+    'Geef info over het bedrijf Voorbeeld',
+    partners,
+    { source: 'Public web search', suggestedAddress: { Country: country } }
+  ).SuggestedData).root.CorrespondenceLanguage;
+
+  assert.equal(forCountry('NL'), 'NL');
+  assert.equal(forCountry('DE'), 'DE');
+  assert.equal(forCountry('FR'), 'FR');
+  assert.equal(forCountry('GB'), 'EN');
+  assert.equal(forCountry('BE'), undefined);
+  assert.equal(forCountry('LU'), undefined);
+  assert.equal(forCountry(''), undefined);
 });
 
 test('assistant recognizes free-form Dutch and English company lookup requests', () => {
@@ -560,8 +848,8 @@ test('assistant resolves a company from prior turns for a follow-up create reque
     },
     contextualCompanyName('Yes', history)
   ).SuggestedData);
-  assert.equal(confirmedSuggestion.OrganizationBPName1, 'Spar Destelbergen');
-  assert.equal(confirmedSuggestion.AddressCityName, 'Destelbergen');
+  assert.equal(confirmedSuggestion.root.OrganizationBPName1, 'Spar Destelbergen');
+  assert.equal(confirmedSuggestion.sections.Addresses[0].CityName, 'Destelbergen');
   assert.equal(contextualCompanyName('SPAR destelbergen', history), 'SPAR destelbergen');
   assert.throws(
     () => parseConversationHistory('{broken'),

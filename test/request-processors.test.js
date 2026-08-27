@@ -134,7 +134,10 @@ test('the strip goes last, so a message explaining the screen still leads', () =
     'app', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse',
     'controller', 'BusinessPartnerMaintenance.controller.js'
   );
-  assert.match(controller, /var processorStrip = processorMessage\(state\.processors\);/u);
+  // Suppressed on the rework screen (2026-08-26): the rework branch already explains why the
+  // requester is looking at this screen, and "Current step: Rework - with <requester> ..." read as
+  // noise on top of that rather than new information.
+  assert.match(controller, /var processorStrip = reworking \? null : processorMessage\(state\.processors\);/u);
   // Widened 2026-08-24 to fold in the submitted-validations findings too, but the processor strip
   // is still the LAST thing concatenated - the property this test exists to pin.
   assert.match(

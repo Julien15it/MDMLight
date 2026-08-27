@@ -810,57 +810,98 @@ function humanize(name) {
     .replace(/\bSuplr\b/gu, 'Supplier');
 }
 
-for (const section of sections) {
-  const definition = csn.definitions[`API_BUSINESS_PARTNER.${section.remoteEntity}`];
-  const edmxProperties = entityTypeProperties(section.typeName);
-
-  // A grouped section states its fields once, in the groups. Deriving the flat list from
-  // them keeps the two in step: a field added to a group is fetched, and one that is only
-  // fetched but belongs to no group would never render, so it is not silently allowed.
-  if (section.fieldGroups) {
-    if (section.fieldNames) {
-      throw new Error(`${section.id}: set either fieldGroups or fieldNames, not both.`);
-    }
-    section.fieldNames = section.fieldGroups.flatMap((group) => group.fields);
-    const unknown = section.fieldNames.filter((name) => !definition.elements[name]);
-    if (unknown.length) {
-      throw new Error(
-        `${section.id}: fieldGroups name field(s) that ${section.remoteEntity} does not have: `
-        + `${unknown.join(', ')}.`
-      );
-    }
-    const excluded = section.fieldNames.filter((name) => (section.excludedFields || []).includes(name));
-    if (excluded.length) {
-      throw new Error(
-        `${section.id}: fieldGroups name excluded field(s): ${excluded.join(', ')}. `
-        + 'Remove them from the group or from excludedFields.'
-      );
-    }
+/**
+ * `srv/business-partner-service.cds` excludes a handful of fields per entity (`A_Customer excluding
+ * {...}`, etc.) to work around fields the imported metadata has but this on-premise release does not
+ * expose - see CLAUDE.md, "The imported models are copies, and they go stale silently". Those
+ * exclusions live in the CDS source; this generator reads the RAW imported CSN directly and never
+ * compiled that file, so a field added to an `excluding {}` clause to fix a live read failure stayed
+ * on the create screen until someone remembered to also add it, by hand, to that section's own
+ * `excludedFields` here - a second, easy-to-forget copy of the same fact. Compiling the service once
+ * and diffing each entity's projected elements against the raw ones derives the same list
+ * automatically, so a CDS-side exclusion is what it should always have been: the only place this is
+ * declared.
+ */
+async function cdsExcludedFieldsBySection() {
+  const cds = require('@sap/cds');
+  const model = cds.linked(await cds.load(path.join(projectRoot, 'srv', 'business-partner-service')));
+  const excludedBySection = {};
+  for (const section of sections) {
+    const serviceEntity = model.definitions[`BusinessPartnerService.${section.entitySet}`];
+    if (!serviceEntity) continue;
+    const definition = csn.definitions[`API_BUSINESS_PARTNER.${section.remoteEntity}`];
+    excludedBySection[section.id] = Object.entries(definition.elements)
+      .filter(([name, element]) => !element.target && !(name in serviceEntity.elements))
+      .map(([name]) => name);
   }
-
-  section.fields = Object.entries(definition.elements)
-    .filter(([name, element]) => (
-      !element.target &&
-      !(section.excludedFields || []).includes(name) &&
-      (!section.fieldNames || section.fieldNames.includes(name))
-    ))
-    .map(([name, element]) => {
-      const property = edmxProperties[name] || {};
-      return {
-        name,
-        label: property['sap:label'] || humanize(name),
-        type: element.type,
-        key: Boolean(element.key),
-        nullable: element.notNull !== true,
-        maxLength: element.length,
-        precision: element.precision,
-        scale: element.scale,
-        creatable: property['sap:creatable'] !== 'false' && !SERVER_ASSIGNED_KEYS.has(name),
-        updatable: property['sap:updatable'] !== 'false'
-      };
-    });
+  return excludedBySection;
 }
 
+(async () => {
+  const cdsExcluded = await cdsExcludedFieldsBySection();
+
+  for (const section of sections) {
+    const definition = csn.definitions[`API_BUSINESS_PARTNER.${section.remoteEntity}`];
+    const edmxProperties = entityTypeProperties(section.typeName);
+    section.excludedFields = [...new Set([
+      ...(section.excludedFields || []),
+      ...(cdsExcluded[section.id] || [])
+    ])];
+
+    // A grouped section states its fields once, in the groups. Deriving the flat list from
+    // them keeps the two in step: a field added to a group is fetched, and one that is only
+    // fetched but belongs to no group would never render, so it is not silently allowed.
+    if (section.fieldGroups) {
+      if (section.fieldNames) {
+        throw new Error(`${section.id}: set either fieldGroups or fieldNames, not both.`);
+      }
+      section.fieldNames = section.fieldGroups.flatMap((group) => group.fields);
+      const unknown = section.fieldNames.filter((name) => !definition.elements[name]);
+      if (unknown.length) {
+        throw new Error(
+          `${section.id}: fieldGroups name field(s) that ${section.remoteEntity} does not have: `
+          + `${unknown.join(', ')}.`
+        );
+      }
+      const excluded = section.fieldNames.filter((name) => (section.excludedFields || []).includes(name));
+      if (excluded.length) {
+        throw new Error(
+          `${section.id}: fieldGroups name field(s) the CAP service no longer exposes: ${excluded.join(', ')}. `
+          + 'Remove them from the group - business-partner-service.cds already excludes them.'
+        );
+      }
+    }
+
+    section.fields = Object.entries(definition.elements)
+      .filter(([name, element]) => (
+        !element.target &&
+        !(section.excludedFields || []).includes(name) &&
+        (!section.fieldNames || section.fieldNames.includes(name))
+      ))
+      .map(([name, element]) => {
+        const property = edmxProperties[name] || {};
+        return {
+          name,
+          label: property['sap:label'] || humanize(name),
+          type: element.type,
+          key: Boolean(element.key),
+          nullable: element.notNull !== true,
+          maxLength: element.length,
+          precision: element.precision,
+          scale: element.scale,
+          creatable: property['sap:creatable'] !== 'false' && !SERVER_ASSIGNED_KEYS.has(name),
+          updatable: property['sap:updatable'] !== 'false'
+        };
+      });
+  }
+
+  finishGeneration();
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
+
+function finishGeneration() {
 // A child section is hosted in its parent's Details dialog and has no Object Page block of
 // its own, so a stale id here would leave its data unreachable rather than merely unstyled.
 const sectionIds = new Set(sections.map((section) => section.id));
@@ -897,3 +938,4 @@ const target = path.join(
 );
 fs.writeFileSync(target, output, 'utf8');
 console.log(`Generated ${target}`);
+}

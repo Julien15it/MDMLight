@@ -89,6 +89,30 @@ test('role collections are filtered to the MDMLIGHT prefix and named, never thei
   }));
 });
 
+// An admin typing "Mdmlight" or "mdmlight" in the description must not silently produce an empty
+// picker - the prefix check is not the place to demand a particular casing convention.
+test('the MDMLIGHT prefix check is case-insensitive', () => {
+  return withVcap({ xsuaa: [{ name: btpAgents.SERVICE_NAME, credentials: CREDENTIALS }] }, () => withAxios({
+    post: async () => ({ data: { access_token: 'tok', expires_in: 3600 } }),
+    get: async (url) => {
+      if (url.endsWith('/sap/rest/authorization/v2/rolecollections')) {
+        return {
+          data: [
+            { name: 'Lowercase', description: 'mdmlight Sales Approver' },
+            { name: 'MixedCase', description: 'MdmLight Data Steward' },
+            { name: 'NoMatch', description: 'md-light but not it' }
+          ]
+        };
+      }
+      return { data: [] };
+    }
+  }, async () => {
+    const agents = await btpAgents.workflowAgents();
+    const roles = agents.filter((agent) => agent.type === 'Role');
+    assert.deepEqual(roles.map((role) => role.value).sort(), ['Lowercase', 'MixedCase']);
+  }));
+});
+
 test('users are named by e-mail, falling back to their user name when they have none', () => {
   return withVcap({ xsuaa: [{ name: btpAgents.SERVICE_NAME, credentials: CREDENTIALS }] }, () => withAxios({
     post: async () => ({ data: { access_token: 'tok', expires_in: 3600 } }),

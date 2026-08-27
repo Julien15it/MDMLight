@@ -183,23 +183,43 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
 
     // The condition pair is the whole of a profile's matching, so a value outside the closed list
     // makes a profile that can never fire - and looks configured while doing nothing.
-    this.before(['CREATE', 'UPDATE'], 'FieldPropertyProfiles', (req) => {
+    this.before(['CREATE', 'UPDATE'], 'FieldPropertyProfiles', async (req) => {
       const { requestType, role } = req.data;
       if (requestType !== undefined && requestType !== null && !REQUEST_TYPES.includes(requestType)) {
         req.error(400, `“${requestType}” is not a request type. Use * for every type.`, 'requestType');
       }
       if (role !== undefined && role !== null && !ROLES.includes(role)) {
-        req.error(400, `“${role}” is not a role. Use * for every role.`, 'role');
+        // Not one of the fixed four - it may still be a BTP role collection (MDMLIGHT* only), the
+        // same source the approval role picker offers. Checked live rather than trusted blindly: a
+        // role collection deleted or renamed in the subaccount must not leave a typo silently stored
+        // as a profile that looks configured and never matches.
+        const agents = await workflowAgents();
+        const isKnownAgentRole = agents.some((agent) => agent.type === 'Role' && agent.value === role);
+        if (!isKnownAgentRole) {
+          req.error(400, `“${role}” is not a role. Use * for every role.`, 'role');
+        }
       }
     });
 
     // The entity/field tree and the two closed lists, generated from the staging model so a new node
     // shows up in the dialog without anyone editing the UI.
-    this.on('fieldPropertyOptions', () => ({
+    this.on('fieldPropertyOptions', async () => ({
       entities: fieldPropertyTree(),
       properties: PROPERTIES.map((code) => ({ code, text: PROPERTY_TEXT[code] || code })),
       requestTypes: REQUEST_TYPES.map((code) => ({ code, text: REQUEST_TYPE_TEXT[code] || code })),
-      roles: ROLES.map((code) => ({ code, text: ROLE_TEXT[code] || code }))
+      // The fixed four, unchanged, plus the subaccount's own MDMLIGHT-prefixed role collections for
+      // the approval role - sourced exactly like the Workflow Agent Determination picker (see
+      // srv/wf/btp-agents.js and CLAUDE.md). Additive: `Approver` itself still works precisely as
+      // before, so an existing profile scoped to it is unaffected. The new entries let a profile be
+      // scoped to a SPECIFIC approver role instead - see CLAUDE.md for the runtime gap this does not
+      // close on its own (every approve screen still asks effectiveFieldProperties for the role
+      // 'Approver' literally, whoever is approving).
+      roles: [
+        ...ROLES.map((code) => ({ code, text: ROLE_TEXT[code] || code })),
+        ...(await workflowAgents())
+          .filter((agent) => agent.type === 'Role')
+          .map((agent) => ({ code: agent.value, text: agent.value }))
+      ]
     }));
 
     this.on('fieldPropertiesOf', async (req) => {

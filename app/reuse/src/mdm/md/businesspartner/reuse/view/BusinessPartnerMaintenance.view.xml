@@ -34,26 +34,6 @@
             class="sapUiTinyMarginBottom" />
         </VBox>
       </Panel>
-      <!-- The requester/approver conversation, oldest first. Collapsible like the duplicate findings
-           below - a rework loop can run several rounds, and a closed panel still says how many
-           messages it holds. rejectionComment/reason only ever held the latest side's word; this is
-           the full thread behind it, from getRequestPayload's CommentsJson via _setCommentsPanel. -->
-      <Panel
-        id="commentsPanel"
-        class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
-        expandable="true"
-        expanded="true"
-        visible="{= ${maintenance>/comments}.length > 0 }"
-        headerText="{maintenance>/commentsHeader}">
-        <List items="{ path: 'maintenance>/comments', templateShareable: false }">
-          <StandardListItem
-            title="{maintenance>title}"
-            description="{maintenance>text}"
-            info="{maintenance>date}"
-            infoState="None"
-            wrapping="true" />
-        </List>
-      </Panel>
       <!-- The approver's note to the requester, sent back only if rejected - see
            _decideOnServer in app/bptask's Component.js, which already reads context>/comment
            for decideRequest's Comment. `context` is a model only app/bptask's Component sets,
@@ -131,6 +111,61 @@
               wrapping="true" />
           </List>
         </ScrollContainer>
+      </Panel>
+      <!-- What a data steward or a reworking requester changed this round, against the baseline
+           _refreshChangeSummary computed - see "Highlighting what changed" in CLAUDE.md. Collapsible
+           like the panels above it, for the same reason: a long list of touched fields must not push
+           the form itself off screen. New Value carries the colour (Warning = an addition, Error = a
+           change to something that was already there) rather than the row, so the panel stays a
+           plain three-column table - Field / Previous Value / New Value, as asked for. -->
+      <Panel
+        id="changeSummaryPanel"
+        class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
+        expandable="true"
+        expanded="false"
+        visible="{= ${maintenance>/changeSummary}.length > 0 }"
+        headerText="{maintenance>/changeSummaryHeader}">
+        <Table items="{ path: 'maintenance>/changeSummary', templateShareable: false }">
+          <columns>
+            <Column><Text text="Field" /></Column>
+            <Column><Text text="Previous Value" /></Column>
+            <Column><Text text="New Value" /></Column>
+          </columns>
+          <items>
+            <ColumnListItem>
+              <cells>
+                <Text text="{maintenance>field}" wrapping="true" />
+                <Text text="{maintenance>oldValue}" wrapping="true" />
+                <ObjectStatus
+                  text="{maintenance>newValue}"
+                  state="{= ${maintenance>kind} === 'added' ? 'Warning' : 'Error' }" />
+              </cells>
+            </ColumnListItem>
+          </items>
+        </Table>
+      </Panel>
+      <!-- The requester/approver conversation, oldest first. Collapsible like the panels above it -
+           a rework loop can run several rounds, and a closed panel still says how many messages it
+           holds. rejectionComment/reason only ever held the latest side's word; this is the full
+           thread behind it, from getRequestPayload's CommentsJson via _setCommentsPanel.
+           Deliberately LAST of the panels above the form (2026-08-27): the actual Business Partner
+           data - the name, the sections - starts right after it, and nothing here should stand
+           between a reader and that data except this conversation. -->
+      <Panel
+        id="commentsPanel"
+        class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
+        expandable="true"
+        expanded="true"
+        visible="{= ${maintenance>/comments}.length > 0 }"
+        headerText="{maintenance>/commentsHeader}">
+        <List items="{ path: 'maintenance>/comments', templateShareable: false }">
+          <StandardListItem
+            title="{maintenance>title}"
+            description="{maintenance>text}"
+            info="{maintenance>date}"
+            infoState="None"
+            wrapping="true" />
+        </List>
       </Panel>
       <uxap:ObjectPageLayout
         id="maintenanceObjectPage"
