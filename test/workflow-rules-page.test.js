@@ -161,14 +161,18 @@ test('the approvers are sent with the workflow context, and never absent', () =>
   const body = builder.slice(0, builder.indexOf('\n    };'));
   assert.match(body, /approversFor\(\{/u);
   assert.match(body, /requestType: req\.data\.RequestType/u);
-  // Flattened to the values at this boundary: the deployed process declares `approvers` as an
-  // array of strings, and sending objects failed the whole submit with "/approvers/0 The value
+  // Flattened to plain e-mail addresses at this boundary: the deployed process declares `approvers`
+  // as an array of strings, and sending objects failed the whole submit with "/approvers/0 The value
   // must be of string type". resolveApprovers still returns { step, kind, value } - only what
-  // crosses to SBPA is narrowed, so restoring it is a process-side schema change and this map.
-  assert.match(
-    body, /approvers: approvers\.map\(\(approver\) => approver\.value\)/u,
-    'the context carries approvers as strings'
-  );
+  // crosses to SBPA is narrowed.
+  //
+  // A role entry (2026-08-27) is resolved to its actual member e-mails HERE, not sent as its bare
+  // name - SBPA does not resolve BTP role collection membership itself, so a role name reaching it
+  // unresolved names nobody it can assign a task to.
+  assert.match(body, /emailsForRoleCollections\(roleNames\)/u);
+  assert.match(body, /approver\.kind === 'user'/u);
+  assert.match(body, /approver\.kind === 'role'/u);
+  assert.match(body, /approvers: approverEmails/u, 'the context carries resolved e-mails, not role names');
   // Best-effort, like `businesspartnerinput`: an empty list is what SBPA read before this table
   // existed, so a routing hint must not cost a requester their submit.
   assert.match(body, /console\.warn/u);

@@ -324,22 +324,24 @@ sap.ui.define([
    * Matches every current section row against the baseline (the payload before this round's edits -
    * see _loadChangeBaseline), by CONTENT rather than any stored id: a staging row has one (a cuid),
    * but getRequestPayload strips it before it ever reaches the client, and a live S/4 row's own key
-   * varies by section. An exact match (every field equal) is consumed first, so two rows with
-   * identical content are never both matched to the same baseline row and left uncoloured either way.
+   * varies by section.
    *
-   * Deliberately NOT based on record.__state ("new"/"modified"/"changed"): that flag tracks whether a
-   * row has EVER been created or edited since the request began - it survives every reload, staged
-   * straight off the `action` column - so a row the ORIGINAL requester added still carries `"new"`
-   * when a data steward opens the very same request. Colouring every one of those rows on the
-   * steward's screen would mark the whole record, not what the steward is actually changing. __state
-   * is used only as a tiebreaker: a row it calls `"new"` is treated as an addition outright, because
-   * that flag's own history says it never came from editing something that already existed - never as
-   * the primary signal.
+   * Two passes. First, an exact match (every field equal) is consumed, so an untouched row is never
+   * coloured just because some OTHER row moved - two rows with identical content are never both
+   * matched to the same baseline row either. Second, whatever is left is paired off in array order:
+   * a row is an EDIT of one of the still-unconsumed baseline rows for as long as any remain, and only
+   * becomes an ADDITION once they run out - i.e. only when this section ends up with more rows than
+   * the baseline had. That is the one thing this cannot get exactly right without a stable key.
    *
-   * Whatever is left unmatched after the exact passes is either an addition (no baseline row could
-   * have become it) or an edit of one of the remaining ones, claimed in array order - the one thing
-   * this still cannot get exactly right without a stable key. See "Highlighting what changed" in
-   * CLAUDE.md.
+   * Deliberately NOT based on record.__state ("new"/"modified"/"changed") for the second pass, even
+   * as a tiebreaker (reverted 2026-08-27 - it was one at first, and it was wrong): that flag tracks
+   * whether a row has EVER been created or edited since the request began, staged straight off the
+   * `action` column, and it never resets - a row the ORIGINAL requester added still carries `"new"`
+   * on every later reload, through every later edit. Treating `"new"` as "this is an addition" then
+   * misclassified every EDIT to an original row as an addition too (the row never stopped being
+   * `"new"`), which is exactly the bug reported: changing one field turned the WHOLE row orange and
+   * listed every one of its fields in the summary, because the row's baseline was substituted with
+   * `{}` before a single field was actually compared.
    */
   function matchSectionRows(records, baselineRecords, fieldNames) {
     var remaining = (baselineRecords || []).slice();
@@ -348,15 +350,20 @@ sap.ui.define([
         return String(candidate[name] || "") === String(record[name] || "");
       });
     };
-    return (records || []).map(function (record) {
+    var results = (records || []).map(function () { return null; });
+    (records || []).forEach(function (record, index) {
       var matchIndex = remaining.findIndex(function (candidate) { return exactMatch(candidate, record); });
-      if (matchIndex !== -1) {
-        remaining.splice(matchIndex, 1);
-        return { kind: "", baseline: null };
-      }
-      if (record.__state === "new" || !remaining.length) return { kind: "added", baseline: {} };
-      return { kind: "changed", baseline: remaining.shift() };
+      if (matchIndex === -1) return;
+      remaining.splice(matchIndex, 1);
+      results[index] = { kind: "", baseline: null };
     });
+    (records || []).forEach(function (record, index) {
+      if (results[index]) return;
+      results[index] = remaining.length
+        ? { kind: "changed", baseline: remaining.shift() }
+        : { kind: "added", baseline: {} };
+    });
+    return results;
   }
 
   function categoryText(category) {
@@ -1051,11 +1058,10 @@ sap.ui.define([
 
         var blocks = section.fieldGroups.map(function (group) {
           var fields = group.fields.map(function (name) { return byName[name]; }).filter(Boolean);
-          // These sit directly above child tables in the same dialog, so they use the same table control
-          // rather than a form - otherwise the fields appear to float next to bounded tables. Never
-          // passed a baseline: this branch only ever runs for a record dialog (see _openRecordDialog).
+          // These sit directly above child tables in the same dialog, so they use the same table
+          // control rather than a form - otherwise the fields appear to float next to bounded tables.
           var body = compact
-            ? this._createFieldTable(section, fields, record, isCreate, editing)
+            ? this._createFieldTable(section, fields, record, isCreate, editing, baseline)
             : this._createFieldGrid(section, fields, record, isCreate, editing, baseline);
           // A group whose every field was filtered out (all keys hidden on create, say)
           // would otherwise leave a heading with nothing under it.
@@ -1080,7 +1086,9 @@ sap.ui.define([
 
       // One field group in the same sap.m.Table the record sections use, so both carry identical
       // chrome. Chunked four to a table and padded back to four, so the widths line up down the block.
-      _createFieldTable: function (section, fields, record, isCreate, editing) {
+      // `baseline`, when given, colours a cell straight on the control - there is no label wrapper to
+      // carry it the way _createFieldGrid's VBox does, but the class tints whatever it is put on.
+      _createFieldTable: function (section, fields, record, isCreate, editing, baseline) {
         var COLUMNS = 4;
         var shown = fields.filter(function (field) {
           // Noise on a collection, where it repeats per row; on a "single" section it is the record's
@@ -1109,7 +1117,12 @@ sap.ui.define([
           }
 
           var cells = chunk.map(function (field) {
-            return this._createFieldControl(section, field, record, isCreate, editing);
+            var control = this._createFieldControl(section, field, record, isCreate, editing);
+            if (baseline) {
+              var kind = fieldChangeKind(baseline[field.name], record[field.name]);
+              if (kind) control.addStyleClass(kind === "added" ? "mdmAddedField" : "mdmChangedField");
+            }
+            return control;
           }, this);
           while (cells.length < COLUMNS) cells.push(new Text({ text: "" }));
 
@@ -1293,6 +1306,13 @@ sap.ui.define([
               this._valueHelpTarget.record[this._valueHelpTarget.field.name] = value;
               this._valueHelpTarget.input.setValue(value);
               if (this._valueHelpTarget.section.kind === "root") this._updatePreview();
+              // Choosing a value from this dialog never fires the input's own "change" event, so
+              // nothing that normally rides on a commit would otherwise run for it: the root form's
+              // own recolouring and change summary refresh (see "Highlighting what changed" in
+              // CLAUDE.md - this was the reported gap), a tax number's registry trigger, the debounced
+              // auto-check. Reusing _onFieldCommitted rather than repeating pieces of it here also
+              // means a value-help-driven field behaves exactly like a typed one, not almost.
+              this._onFieldCommitted(this._valueHelpTarget.section, this._valueHelpTarget.field);
             }.bind(this),
             search: function (event) {
               var searchValue = event.getParameter("value");
@@ -1541,8 +1561,20 @@ sap.ui.define([
           : [];
 
         records.forEach(function (record, index) {
+          var match = rowMatches[index];
+          var rowKind = match && match.kind;
           var cells = summaryFields.map(function (field) {
-            return new Text({ text: this._describeCode(field.name, record[field.name]), wrapping: false });
+            var cell = new Text({ text: this._describeCode(field.name, record[field.name]), wrapping: false });
+            // A CHANGED row colours only the cell(s) that actually differ - an edited City must not
+            // paint Street and Country too, which is what colouring the row itself used to do (and
+            // the same over-reporting the summary panel had, from the same root cause - see
+            // matchSectionRows). An ADDED row still tints as a whole below: every one of its fields is
+            // new, so there is nothing selective to compute.
+            if (rowKind === "changed") {
+              var fieldKind = fieldChangeKind(match.baseline[field.name], record[field.name]);
+              if (fieldKind) cell.addStyleClass(fieldKind === "added" ? "mdmAddedField" : "mdmChangedField");
+            }
+            return cell;
           }, this);
           var actions = [
             new Button({
@@ -1567,8 +1599,9 @@ sap.ui.define([
             type: "Active",
             cells: cells
           });
-          var rowKind = rowMatches[index] && rowMatches[index].kind;
-          if (rowKind) item.addStyleClass(rowKind === "added" ? "mdmAddedRow" : "mdmChangedRow");
+          // Only an ADDED row is tinted whole - every one of its fields is new, so the row and its
+          // cells would agree anyway. A CHANGED row is coloured per cell instead, just above.
+          if (rowKind === "added") item.addStyleClass("mdmAddedRow");
           item.attachPress(this._openExistingRecord.bind(this, section, index));
           table.addItem(item);
         }, this);
@@ -1600,12 +1633,28 @@ sap.ui.define([
           : section.relationField === "Supplier" ? state.supplierNumber
           : state.businessPartner;
         if (relationValue) record[section.relationField] = relationValue;
-        this._openRecordDialog(section, record, true, -1);
+        // An empty baseline: every field the requester or steward types into a brand new row is an
+        // addition, the same way the row itself is once it lands in the table - see _renderSection.
+        this._openRecordDialog(section, record, true, -1, state.trackChanges ? {} : null);
       },
 
       _openExistingRecord: function (section, index) {
-        var records = this.getView().getModel("maintenance").getData().sections[section.id] || [];
-        this._openRecordDialog(section, clone(records[index]), false, index);
+        var state = this.getView().getModel("maintenance").getData();
+        var records = state.sections[section.id] || [];
+        this._openRecordDialog(section, clone(records[index]), false, index, this._rowBaseline(section, index));
+      },
+
+      /** The baseline row this record should be coloured against inside its own Add/Edit dialog -
+       *  the exact match _renderSection's own row colour is computed from, so a dialog never disagrees
+       *  with the row it was opened from. Null when nothing is being tracked. */
+      _rowBaseline: function (section, index) {
+        var state = this.getView().getModel("maintenance").getData();
+        if (!state.trackChanges) return null;
+        var records = state.sections[section.id] || [];
+        var baselineRecords = (state.originalSections || {})[section.id] || [];
+        var fieldNames = section.fields.map(function (field) { return field.name; });
+        var matches = matchSectionRows(records, baselineRecords, fieldNames);
+        return (matches[index] && matches[index].baseline) || null;
       },
 
       _confirmDeleteRecord: function (section, index) {
@@ -1653,14 +1702,18 @@ sap.ui.define([
         return errors;
       },
 
-      _openRecordDialog: function (section, record, isCreate, index) {
+      _openRecordDialog: function (section, record, isCreate, index, baseline) {
         var state = this.getView().getModel("maintenance").getData();
         // A read-only entity opens for reading, whatever the screen's own mode is.
         var editing = Boolean(state.editing) && this._entityProperty(section) !== "readOnly";
         // Only a grouped section switches to the table layout, because only there do field blocks sit
         // above child tables and need to match them.
         var grouped = Boolean(section.fieldGroups && section.fieldGroups.length);
-        var form = this._createForm(section, record, isCreate, editing, grouped);
+        // Coloured against the same baseline row _renderSection's own row colour comes from - see
+        // _rowBaseline/_openNewRecord - so a field inside this dialog never disagrees with the row it
+        // was opened from. Computed once, at open time; it does not track further edits made while the
+        // dialog stays open, the way the root form's own fields do on every commit.
+        var form = this._createForm(section, record, isCreate, editing, grouped, baseline);
         var items = [form];
 
         // Child sections render inside this dialog rather than as blocks of their own, so one role is one

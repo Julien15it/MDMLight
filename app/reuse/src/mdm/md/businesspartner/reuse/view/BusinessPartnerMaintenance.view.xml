@@ -34,44 +34,6 @@
             class="sapUiTinyMarginBottom" />
         </VBox>
       </Panel>
-      <!-- The approver's note to the requester, sent back only if rejected - see
-           _decideOnServer in app/bptask's Component.js, which already reads context>/comment
-           for decideRequest's Comment. `context` is a model only app/bptask's Component sets,
-           so this is embedded-only; a standalone approve (dev testing only, per CLAUDE.md) has
-           no comment path either way. Approve mode only - a rework/edit screen has nothing to
-           decide yet. Kept near the top, beside the message panel, rather than at the bottom of
-           the content: My Inbox does not reliably give an embedded app's own lower content room
-           either (confirmed 2026-08-24 - it rendered, cut off below the visible area), the same
-           lesson the footer buttons already taught. -->
-      <VBox
-        id="approverCommentBox"
-        class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
-        visible="{= ${env>/embedded} &amp;&amp; ${maintenance>/mode} === 'approve' }">
-        <Label text="Comment for the requester (sent back if rejected)" labelFor="approverCommentInput" />
-        <TextArea id="approverCommentInput" width="100%" rows="2" value="{context>/comment}" />
-      </VBox>
-      <!-- The requester's note for this round, appended to the same thread on Resubmit - see
-           _sendChangeRequest, which sends it as resubmitRequest's Reason. Unlike the approver's box
-           above this is NOT embedded-only: rework is reached standalone too, by the reworkurl deep
-           link SPA sends on a rejection (see CLAUDE.md, "Rework"), and context>/comment does not
-           exist there. Rework mode only - nothing to say yet on a draft or a fresh create. -->
-      <VBox
-        id="reworkCommentBox"
-        class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
-        visible="{= ${maintenance>/mode} === 'rework' }">
-        <Label text="Note for the approver (optional)" labelFor="reworkCommentInput" />
-        <TextArea id="reworkCommentInput" width="100%" rows="2" value="{maintenance>/reworkComment}" />
-      </VBox>
-      <!-- The data steward's note - the enrichment's story on Complete Review, the reason on Reject.
-           Same reasoning as reworkCommentBox: not embedded-only, since the datastewardurl deep link
-           reaches this screen standalone too. Data steward mode only. -->
-      <VBox
-        id="dataStewardCommentBox"
-        class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
-        visible="{= ${maintenance>/mode} === 'datasteward' }">
-        <Label text="Note for the requester or approver (optional)" labelFor="dataStewardCommentInput" />
-        <TextArea id="dataStewardCommentInput" width="100%" rows="2" value="{maintenance>/dataStewardComment}" />
-      </VBox>
       <!-- One section that failed to load, or had nothing to resolve its Customer/Supplier
            relation to, must never be silent - a blank section otherwise looks identical to
            "this Business Partner genuinely has no data here". -->
@@ -167,6 +129,46 @@
             wrapping="true" />
         </List>
       </Panel>
+      <!-- The current actor's OWN note, placed right after the conversation it adds to (moved here
+           2026-08-27) - typing a reply immediately under the thread it answers reads as what it is,
+           rather than a box floating near the top of the screen with no visible connection to it.
+           Still not INSIDE commentsPanel: only one of the three is ever visible for a given mode, and
+           none of them is a message that has been sent yet. -->
+      <!-- The approver's note to the requester, sent back only if rejected - see
+           _decideOnServer in app/bptask's Component.js, which already reads context>/comment
+           for decideRequest's Comment. `context` is a model only app/bptask's Component sets,
+           so this is embedded-only; a standalone approve (dev testing only, per CLAUDE.md) has
+           no comment path either way. Approve mode only - a rework/edit screen has nothing to
+           decide yet. -->
+      <VBox
+        id="approverCommentBox"
+        class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
+        visible="{= ${env>/embedded} &amp;&amp; ${maintenance>/mode} === 'approve' }">
+        <Label text="Comment for the requester (sent back if rejected)" labelFor="approverCommentInput" />
+        <TextArea id="approverCommentInput" width="100%" rows="2" value="{context>/comment}" />
+      </VBox>
+      <!-- The requester's note for this round, appended to the same thread on Resubmit - see
+           _sendChangeRequest, which sends it as resubmitRequest's Reason. Unlike the approver's box
+           above this is NOT embedded-only: rework is reached standalone too, by the reworkurl deep
+           link SPA sends on a rejection (see CLAUDE.md, "Rework"), and context>/comment does not
+           exist there. Rework mode only - nothing to say yet on a draft or a fresh create. -->
+      <VBox
+        id="reworkCommentBox"
+        class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
+        visible="{= ${maintenance>/mode} === 'rework' }">
+        <Label text="Note for the approver (optional)" labelFor="reworkCommentInput" />
+        <TextArea id="reworkCommentInput" width="100%" rows="2" value="{maintenance>/reworkComment}" />
+      </VBox>
+      <!-- The data steward's note - the enrichment's story on Complete Review, the reason on Reject.
+           Same reasoning as reworkCommentBox: not embedded-only, since the datastewardurl deep link
+           reaches this screen standalone too. Data steward mode only. -->
+      <VBox
+        id="dataStewardCommentBox"
+        class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
+        visible="{= ${maintenance>/mode} === 'datasteward' }">
+        <Label text="Note for the requester or approver (optional)" labelFor="dataStewardCommentInput" />
+        <TextArea id="dataStewardCommentInput" width="100%" rows="2" value="{maintenance>/dataStewardComment}" />
+      </VBox>
       <uxap:ObjectPageLayout
         id="maintenanceObjectPage"
         showAnchorBar="true"

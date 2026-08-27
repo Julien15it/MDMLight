@@ -174,3 +174,117 @@ test('a second call within the TTL does not call the API again', () => {
     assert.equal(calls, 2);
   }));
 });
+
+// --- emailsForRoleCollections --------------------------------------------------------------
+
+/**
+ * What makes a `WorkflowRules.approvers` entry naming a role (e.g. "Approver Customer", picked from
+ * the Workflow Agent Determination cell) actually reach anyone: SBPA does not resolve BTP role
+ * collection membership itself, so this is resolved to real e-mails before it ever crosses the wire -
+ * see workflowContext in change-request-service.js. Shared with data-stewards.js's own lookup.
+ */
+test('emailsForRoleCollections resolves membership off /Users own groups', () => {
+  return withVcap({ xsuaa: [{ name: btpAgents.SERVICE_NAME, credentials: CREDENTIALS }] }, () => withAxios({
+    post: async () => ({ data: { access_token: 'tok', expires_in: 3600 } }),
+    get: async (url) => {
+      if (url.endsWith('/Users')) {
+        return {
+          data: [
+            {
+              userName: 'maarten', emails: [{ value: 'maarten@alluvion.eu' }],
+              groups: [{ value: 'Approver Customer', display: 'Approver Customer' }]
+            },
+            {
+              userName: 'julien', emails: [{ value: 'julien@alluvion.eu' }],
+              groups: [{ value: 'Approver Customer', display: 'Approver Customer' }]
+            },
+            {
+              userName: 'other', emails: [{ value: 'other@alluvion.eu' }],
+              groups: [{ value: 'Some_Other_Role', display: 'Some_Other_Role' }]
+            }
+          ]
+        };
+      }
+      return { data: [] };
+    }
+  }, async () => {
+    const emails = await btpAgents.emailsForRoleCollections(['Approver Customer']);
+    assert.deepEqual(emails.sort(), ['julien@alluvion.eu', 'maarten@alluvion.eu']);
+  }));
+});
+
+test('emailsForRoleCollections never calls the API for an empty list, and never throws', async () => {
+  assert.deepEqual(await btpAgents.emailsForRoleCollections([]), []);
+  assert.deepEqual(await btpAgents.emailsForRoleCollections(null), []);
+  await withVcap(undefined, async () => {
+    assert.deepEqual(await btpAgents.emailsForRoleCollections(['Approver Customer']), []);
+  });
+});
+
+// --- specificRoleFor -----------------------------------------------------------------------
+
+/**
+ * What lets two Field Property Profiles scoped to different approver functions actually apply to
+ * different people - see effectiveFieldProperties in change-request-service.js and CLAUDE.md "Field
+ * property profiles". Reads the SAME /Users response as emailsForRoleCollections, in the other
+ * direction: given a user, which of their own groups matches the category being asked about.
+ */
+test('specificRoleFor finds the one of a user\'s own groups matching the category', () => {
+  return withVcap({ xsuaa: [{ name: btpAgents.SERVICE_NAME, credentials: CREDENTIALS }] }, () => withAxios({
+    post: async () => ({ data: { access_token: 'tok', expires_in: 3600 } }),
+    get: async (url) => {
+      if (url.endsWith('/Users')) {
+        return {
+          data: [{
+            userName: 'maarten', emails: [{ value: 'maarten@alluvion.eu' }],
+            groups: [
+              { value: 'Approver Customer', display: 'Approver Customer' },
+              { value: 'Alluvion_Developer', display: 'Alluvion_Developer' }
+            ]
+          }]
+        };
+      }
+      return { data: [] };
+    }
+  }, async () => {
+    assert.equal(await btpAgents.specificRoleFor('maarten@alluvion.eu', 'Approver'), 'Approver Customer');
+  }));
+});
+
+test('specificRoleFor is null when nothing matches, when several do, or when the user is unknown', () => {
+  return withVcap({ xsuaa: [{ name: btpAgents.SERVICE_NAME, credentials: CREDENTIALS }] }, () => withAxios({
+    post: async () => ({ data: { access_token: 'tok', expires_in: 3600 } }),
+    get: async (url) => {
+      if (url.endsWith('/Users')) {
+        return {
+          data: [
+            {
+              userName: 'nomatch', emails: [{ value: 'nomatch@alluvion.eu' }],
+              groups: [{ value: 'Alluvion_Developer', display: 'Alluvion_Developer' }]
+            },
+            {
+              userName: 'both', emails: [{ value: 'both@alluvion.eu' }],
+              // Ambiguous on purpose: two of their own roles both match the category - picking one
+              // would be a guess, so the caller falls back to the bare category instead.
+              groups: [
+                { value: 'Approver Customer', display: 'Approver Customer' },
+                { value: 'Approver Vendor', display: 'Approver Vendor' }
+              ]
+            }
+          ]
+        };
+      }
+      return { data: [] };
+    }
+  }, async () => {
+    assert.equal(await btpAgents.specificRoleFor('nomatch@alluvion.eu', 'Approver'), null);
+    assert.equal(await btpAgents.specificRoleFor('both@alluvion.eu', 'Approver'), null);
+    assert.equal(await btpAgents.specificRoleFor('nobody@alluvion.eu', 'Approver'), null);
+  }));
+});
+
+test('specificRoleFor never throws - an unreachable subaccount resolves to null', () => {
+  return withVcap(undefined, async () => {
+    assert.equal(await btpAgents.specificRoleFor('a@b.com', 'Approver'), null);
+  });
+});

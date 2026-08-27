@@ -23,6 +23,31 @@ const stagingCds = read(ROOT, 'db', 'staging.cds');
 const serviceCds = read(ROOT, 'srv', 'change-request-service.cds');
 const serviceJs = read(ROOT, 'srv', 'change-request-service.js');
 
+/**
+ * Pulls the (pure, self-contained - no `this`, no closure over other module state) matchSectionRows
+ * function out of the controller's source and turns it into something callable, so its row-matching
+ * logic can be exercised directly rather than only pinned as a regex against the text. Everything
+ * else in this file stays source-string pinning, like the rest of this codebase's tests against a
+ * sap.ui.define AMD module - this one function earns the extra ceremony because it is exactly what a
+ * real, reported bug turned out to be wrong inside.
+ */
+function extractMatchSectionRows(source) {
+  const start = source.indexOf('function matchSectionRows');
+  const braceStart = source.indexOf('{', start);
+  let depth = 0;
+  let end = braceStart;
+  for (let i = braceStart; i < source.length; i += 1) {
+    if (source[i] === '{') depth += 1;
+    if (source[i] === '}') {
+      depth -= 1;
+      if (depth === 0) { end = i + 1; break; }
+    }
+  }
+  const code = source.slice(start, end);
+  // eslint-disable-next-line no-new-func
+  return new Function('return (' + code + ')')();
+}
+
 // --- The colour rules themselves -----------------------------------------------------------
 
 /**
@@ -39,21 +64,56 @@ test('fieldChangeKind: added only when the baseline was empty, changed otherwise
 });
 
 /**
- * NOT based on record.__state as the primary signal (2026-08-27 revision): that flag survives every
- * reload, staged straight off the DB `action` column, so a row the ORIGINAL requester added still
- * carries "new" when a data steward opens the very same request later. Matching by content against
- * the baseline is what tells "untouched this round" apart from "this round's own edit" - __state is
- * only the tiebreaker for genuine ambiguity.
+ * NOT based on record.__state at all any more (reverted 2026-08-27, having shipped as a tiebreaker
+ * the same day and been wrong): that flag survives every reload, staged straight off the DB `action`
+ * column, so a row the ORIGINAL requester added still carries "new" on every later reload, through
+ * every later edit. Treating "new" as "this is an addition" then misclassified every EDIT to an
+ * original row as an addition too - reported the same day as "change one field, the whole row (and
+ * the whole summary line) lights up". Two passes instead: exact matches are consumed first: whatever
+ * is left is an edit of a still-unconsumed baseline row for as long as any remain, and only becomes
+ * an addition once they run out - i.e. only when the section actually ends up with more rows than
+ * the baseline had.
  */
-test('matchSectionRows matches by content first, and only falls back to __state', () => {
+test('matchSectionRows: exact matches first, then pair off by count - never by __state', () => {
   const fn = controller.slice(controller.indexOf('function matchSectionRows'));
   const body = fn.slice(0, fn.indexOf('\n  }') + 4);
+  assert.equal(/__state/u.test(body), false, 'the second pass reads nothing off __state any more');
   assert.match(body, /var matchIndex = remaining\.findIndex/u);
   assert.match(body, /remaining\.splice\(matchIndex, 1\);/u);
-  assert.match(body, /return \{ kind: "", baseline: null \};/u);
-  assert.match(body, /record\.__state === "new" \|\| !remaining\.length/u);
-  assert.match(body, /return \{ kind: "added", baseline: \{\} \};/u);
-  assert.match(body, /return \{ kind: "changed", baseline: remaining\.shift\(\) \};/u);
+  assert.match(body, /kind: "", baseline: null/u);
+  assert.match(body, /kind: "changed", baseline: remaining\.shift\(\)/u);
+  assert.match(body, /kind: "added", baseline: \{\}/u);
+  // Two passes: nothing in the second reruns exact matching, it only consumes what pass one left.
+  assert.match(body, /records \|\| \[\]\)\.forEach/gu);
+});
+
+/**
+ * The bug this was all rewritten for: editing ONE field of a row that already existed (added in an
+ * earlier round, so its __state is "new" and always will be) must classify as "changed" against its
+ * own baseline row - not "added" against an empty one, which is what made every other, untouched
+ * field look changed too.
+ */
+test('editing one field of a row __state still calls "new" is a change, not an addition', () => {
+  const matchSectionRows = extractMatchSectionRows(controller);
+  const baseline = [{ __state: 'new', StreetName: 'Main St', CityName: 'Ghent', Country: 'BE' }];
+  const current = [{ __state: 'new', StreetName: 'Main St', CityName: 'Antwerp', Country: 'BE' }];
+  const [match] = matchSectionRows(current, baseline, ['StreetName', 'CityName', 'Country']);
+  assert.equal(match.kind, 'changed');
+  assert.deepEqual(match.baseline, baseline[0]);
+});
+
+test('a row with no baseline counterpart at all is an addition', () => {
+  const matchSectionRows = extractMatchSectionRows(controller);
+  const current = [{ __state: 'new', StreetName: 'New St', CityName: 'Bruges', Country: 'BE' }];
+  const [match] = matchSectionRows(current, [], ['StreetName', 'CityName', 'Country']);
+  assert.equal(match.kind, 'added');
+});
+
+test('an untouched row exactly matching its baseline is not coloured at all', () => {
+  const matchSectionRows = extractMatchSectionRows(controller);
+  const row = { __state: 'new', StreetName: 'Main St', CityName: 'Ghent', Country: 'BE' };
+  const [match] = matchSectionRows([row], [{ ...row }], ['StreetName', 'CityName', 'Country']);
+  assert.equal(match.kind, '');
 });
 
 // --- Scoped to where a baseline is meaningful ----------------------------------------------
@@ -164,6 +224,38 @@ test('submitRequest and resubmitRequest write a fresh baseline; the data steward
   assert.equal(/baselineDataJson: req\.data\.DataJson/u.test(stewardBody), false);
 });
 
+/**
+ * Asked for explicitly (2026-08-27): when a data steward's edit gets the request rejected and it
+ * comes back to the REQUESTER, the rework screen must show what changed too - the same highlighting
+ * the steward saw, now for the person picking the request back up. Nothing extra was needed to make
+ * this true: neither decideRequest's reject branch nor claimRework (the stopgap for the missing
+ * reject callback) ever touch baselineDataJson, so it still holds whatever submitRequest/
+ * resubmitRequest last wrote - the ORIGINAL, pre-steward data - by the time the rework screen loads
+ * it. This test exists so that guarantee cannot regress silently.
+ */
+test('a rejection never resets the baseline, so the reworking requester sees what the steward changed', () => {
+  // Anchored on decideRequest itself first - decideDataStewardReview has its own, differently-shaped
+  // "if (decision === 'reject')" branch earlier in the file, and slicing from that string alone would
+  // run all the way into decideRequest's, picking up resubmitRequest's baselineDataJson write in
+  // between and reporting a false positive.
+  const decideRequest = serviceJs.slice(serviceJs.indexOf("this.on('decideRequest'"));
+  const reject = decideRequest.slice(decideRequest.indexOf("if (decision === 'reject') {"));
+  const rejectBody = reject.slice(0, reject.indexOf("await notifyWorkflow('rejected');") + 40);
+  assert.equal(/baselineDataJson/u.test(rejectBody), false, "decideRequest's reject branch leaves it alone");
+
+  const claimRework = serviceJs.slice(serviceJs.indexOf("this.on('claimRework'"));
+  const claimBody = claimRework.slice(0, claimRework.indexOf("this.on('withdrawRequest'"));
+  assert.equal(/baselineDataJson/u.test(claimBody), false, 'claimRework leaves it alone too');
+
+  // Rework is one of the modes _loadStagedRequest tracks changes in, and a create request's baseline
+  // comes from the server either way - both already pinned above, restated here as the guarantee
+  // this specific scenario depends on.
+  assert.match(
+    controller,
+    /state\.trackChanges = state\.requestType === "change" \|\| mode !== "edit";/u
+  );
+});
+
 // --- The summary panel ------------------------------------------------------------------------
 
 test('_refreshChangeSummary is a no-op when nothing is being tracked, and matches rows consistently', () => {
@@ -201,19 +293,39 @@ test('the comments panel is the last panel before the object page, not the first
   assert.ok(duplicatesAt < commentsAt, 'duplicates panel comes before comments');
   assert.ok(summaryAt < commentsAt, 'change summary panel comes before comments');
   assert.ok(commentsAt < objectPageAt, 'comments panel comes before the object page');
-  // Nothing else sits between the comments panel and the actual Business Partner data.
+  // No other PANEL sits between the comments panel and the actual Business Partner data - the three
+  // comment INPUT boxes do (moved there 2026-08-27, see the next test), but none of them is a Panel.
   const between = view.slice(view.indexOf('</Panel>', commentsAt), objectPageAt);
   assert.equal(/<Panel/u.test(between), false, 'no other panel sits between comments and the form');
 });
 
-// --- Field/row highlighting is threaded, and kept out of record dialogs -----------------------
+/**
+ * Asked for the same day: the box where the CURRENT actor types their OWN note should sit right
+ * after the conversation it replies to, not disconnected near the top of the screen - so reading
+ * top to bottom now goes "what was said" then "say something back" then the form itself.
+ */
+test('the comment input boxes sit right after the conversation, still before the form', () => {
+  const commentsAt = view.indexOf('id="commentsPanel"');
+  const objectPageAt = view.indexOf('<uxap:ObjectPageLayout');
+  for (const id of ['approverCommentBox', 'reworkCommentBox', 'dataStewardCommentBox']) {
+    const at = view.indexOf('id="' + id + '"');
+    assert.ok(at > commentsAt, id + ' comes after the conversation panel');
+    assert.ok(at < objectPageAt, id + ' still comes before the object page');
+  }
+});
+
+// --- Field/row highlighting is threaded into record dialogs too (2026-08-27) -------------------
 
 /**
- * A baseline is only ever passed by the root form's own renderers. A section's Add/Edit dialog gets
- * none - the row itself is coloured in the outer table instead (see _renderSection), so a dialog
- * never has to resolve which of its own fields to tint.
+ * A section's Add/Edit dialog now gets a baseline too - reversed the same day it was decided the
+ * other way: colouring only the outer row left a data steward with no way to see WHICH field inside
+ * the dialog they were actually changing, and the row itself over-reported (see matchSectionRows).
+ * `_openExistingRecord` resolves the matching baseline row through `_rowBaseline` - the exact same
+ * matchSectionRows call `_renderSection`'s own row colour comes from, so a dialog never disagrees
+ * with the row it was opened from. `_openNewRecord` passes `{}`: every field typed into a brand new
+ * row is an addition, the same as the row itself once it lands in the table.
  */
-test('only the root form renderers pass a baseline into _createForm', () => {
+test('a record dialog is coloured against the same baseline row the table itself uses', () => {
   const rootSection = controller.slice(controller.indexOf('_renderRootSection: function'));
   const rootBody = rootSection.slice(0, rootSection.indexOf('_createForm: function'));
   assert.match(rootBody, /state\.trackChanges \? state\.originalRoot : null/u);
@@ -222,18 +334,49 @@ test('only the root form renderers pass a baseline into _createForm', () => {
   const additionalBody = additionalFields.slice(0, additionalFields.indexOf('_updatePreview: function'));
   assert.match(additionalBody, /state\.trackChanges \? state\.originalRoot : null/u);
 
+  const newRecord = controller.slice(controller.indexOf('_openNewRecord: function'));
+  const newRecordBody = newRecord.slice(0, newRecord.indexOf('_openExistingRecord: function'));
+  assert.match(newRecordBody, /this\._openRecordDialog\(section, record, true, -1, state\.trackChanges \? \{\} : null\)/u);
+
+  const existingRecord = controller.slice(controller.indexOf('_openExistingRecord: function'));
+  const existingBody = existingRecord.slice(0, existingRecord.indexOf('_rowBaseline: function'));
+  assert.match(existingBody, /this\._rowBaseline\(section, index\)/u);
+
+  const rowBaseline = controller.slice(controller.indexOf('_rowBaseline: function'));
+  const rowBaselineBody = rowBaseline.slice(0, rowBaseline.indexOf('\n      },'));
+  assert.match(rowBaselineBody, /if \(!state\.trackChanges\) return null;/u);
+  assert.match(rowBaselineBody, /matchSectionRows\(records, baselineRecords, fieldNames\)/u);
+
   const recordDialog = controller.slice(controller.indexOf('_openRecordDialog: function'));
   const formCall = recordDialog.slice(0, recordDialog.indexOf('var items = [form];'));
-  assert.match(formCall, /this\._createForm\(section, record, isCreate, editing, grouped\);/u);
+  assert.match(formCall, /this\._createForm\(section, record, isCreate, editing, grouped, baseline\);/u);
 });
 
-test('a section row is coloured off the baseline match, gated on trackChanges', () => {
+/**
+ * A CHANGED row colours only the cell(s) that actually differ - the bug reported the same day was
+ * exactly the opposite: editing one field (City) painted the whole row, and the summary panel listed
+ * every field of that row as changed. An ADDED row is still tinted whole, because every one of its
+ * fields really is new.
+ */
+test('a changed row colours only the cells that differ; an added row is tinted whole', () => {
   const renderSection = controller.slice(controller.indexOf('_renderSection: function'));
   const body = renderSection.slice(0, renderSection.indexOf('_openNewRecord: function'));
   assert.match(body, /var rowMatches = state\.trackChanges/u);
   assert.match(body, /matchSectionRows\(\s*records,/u);
-  assert.match(body, /var rowKind = rowMatches\[index\] && rowMatches\[index\]\.kind;/u);
-  assert.match(body, /item\.addStyleClass\(rowKind === "added" \? "mdmAddedRow" : "mdmChangedRow"\)/u);
+  assert.match(body, /if \(rowKind === "changed"\) \{/u);
+  assert.match(body, /fieldChangeKind\(match\.baseline\[field\.name\], record\[field\.name\]\)/u);
+  assert.match(body, /cell\.addStyleClass\(fieldKind === "added" \? "mdmAddedField" : "mdmChangedField"\)/u);
+  assert.match(body, /if \(rowKind === "added"\) item\.addStyleClass\("mdmAddedRow"\);/u);
+  // No whole-row treatment for "changed" any more.
+  assert.equal(/"mdmChangedRow"/u.test(body), false);
+});
+
+test('_createFieldTable also colours a cell against its baseline, the same as the grid', () => {
+  const fn = controller.slice(controller.indexOf('_createFieldTable: function'));
+  const body = fn.slice(0, fn.indexOf('\n      },'));
+  assert.match(body, /if \(baseline\) \{/u);
+  assert.match(body, /fieldChangeKind\(baseline\[field\.name\], record\[field\.name\]\)/u);
+  assert.match(body, /control\.addStyleClass\(kind === "added" \? "mdmAddedField" : "mdmChangedField"\)/u);
 });
 
 test('every place a record changes refreshes the summary afterwards', () => {
@@ -254,12 +397,36 @@ test('every place a record changes refreshes the summary afterwards', () => {
   assert.match(committedBody, /this\._refreshChangeSummary\(\);/u);
 });
 
+/**
+ * Reported 2026-08-27: a field picked from the F4 value help dialog never coloured, even though a
+ * typed value in the same field did. Root cause: sap.m.SelectDialog's own "confirm" event is not the
+ * target Input's "change" event, so _attachCommitTrigger's handler - the one thing that runs
+ * _onFieldCommitted - never fired for it. Fixed by having the value help's own confirm call
+ * _onFieldCommitted directly, so a value chosen from a dialog gets exactly the same treatment as one
+ * typed: the root form's recolouring and summary refresh, a tax number's registry trigger, the
+ * debounced auto-check - not a partial copy of any of it.
+ */
+test('choosing a value from the F4 help gets the same commit treatment as typing one', () => {
+  const openValueHelp = controller.slice(controller.indexOf('_openValueHelp: function'));
+  const confirmHandler = openValueHelp.slice(
+    openValueHelp.indexOf('confirm: function'),
+    openValueHelp.indexOf('search: function')
+  );
+  assert.match(confirmHandler, /this\._valueHelpTarget\.record\[this\._valueHelpTarget\.field\.name\] = value;/u);
+  assert.match(
+    confirmHandler,
+    /this\._onFieldCommitted\(this\._valueHelpTarget\.section, this\._valueHelpTarget\.field\);/u
+  );
+});
+
 // --- CSS --------------------------------------------------------------------------------------
 
-test('the four highlight classes exist, on semantic theme tokens', () => {
-  for (const cls of ['mdmChangedField', 'mdmAddedField', 'mdmChangedRow', 'mdmAddedRow']) {
+// No mdmChangedRow: colouring a whole row for one changed field was the bug reported 2026-08-27.
+test('the three highlight classes exist, on semantic theme tokens - no whole-row "changed" class', () => {
+  for (const cls of ['mdmChangedField', 'mdmAddedField', 'mdmAddedRow']) {
     assert.match(css, new RegExp('\\.' + cls + '\\b'), cls + ' is styled');
   }
+  assert.equal(/\.mdmChangedRow\b/u.test(css), false);
   assert.match(css, /--sapErrorBackground/u);
   assert.match(css, /--sapWarningBackground/u);
 });

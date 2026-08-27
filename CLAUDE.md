@@ -1563,23 +1563,63 @@ concepts that are not a role collection), or a BTP role collection name.
   value any more than it can drop one, so an old row has to keep working exactly
   as it did, not merely keep saving.
 
-**This does not, on its own, make a profile scoped to a specific approver role
-actually apply differently at runtime.** Every approve screen still calls
-`effectiveFieldProperties` with the literal role `'Approver'`
-(`BusinessPartnerMaintenance.controller.js`), whoever is actually approving -
-`profileMatches`'s prefix rule happily matches `'ApproverSales'` against the
-category `'Approver'`, but there is still only the one generic approve screen
-asking for it, no per-function distinction anywhere in the runtime yet. A
-profile saved against, say, `MDMLIGHT_Finance_Approver` is accepted, stored, and
-matched by category - but it applies to the SAME approve screen every other
-Approver-category profile does, until something reads the actual approver's BTP
-role membership and passes their specific role as `Role` instead of the
-hardcoded literal - the same "scope read off `req.user`" the paragraph above
-already flags as deferred. This is the same shape of gap the Workflow Agent
-Determination table shipped with and still has (**"Arthur's process ignores
-`approvers` entirely"**): the configuration surface exists ahead of the runtime
-consuming it, on purpose, rather than withheld until both halves are ready
-together.
+#### Rendering is narrowed to the caller's own specific role (closed 2026-08-27)
+
+The gap above did not stay open the same day it was written: a real customer
+case hit it within hours. Two profiles - `Approver Customer` (hides Suppliers)
+and `Approver Vendor` (hides Customers), each backed by its own BTP role
+collection with different people in it - were both configured, and **neither
+hid anything** for anyone. The reason was exactly the documented gap:
+`effectiveFieldProperties` was always called with the bare literal `'Approver'`,
+so `profileMatches`'s prefix rule matched BOTH profiles against EVERY approve
+screen regardless of who was actually looking at it, and the join
+("hidden" wins only when a profile that speaks says so, "visible" otherwise)
+landed on "nobody's opinion about Suppliers other than one profile, nobody's
+opinion about Customers other than the other" - which is visible for both,
+for everyone.
+
+- **`resolveEffectiveRole` (`change-request-service.js`) narrows `Approver`/
+  `DataSteward` to the CURRENT user's own specific BTP role before
+  `effectiveFieldProperties` resolves anything** - "Approver Customer" instead
+  of the bare category, found via `specificRoleFor(email, category)`
+  (`srv/wf/btp-agents.js`): the one of the CALLER's own `/Users` `groups` that
+  starts with the category being asked about. `Requester` is deliberately left
+  alone - `RESOLVABLE_ROLE_CATEGORIES` names only the two that are role
+  collections at all; `requesterContext` already hardcodes `Requester` for its
+  own, unrelated reason (whoever submits is the requester, not a role a client
+  could name their way out of a mandatory field with).
+- **`profileMatches`'s prefix check became bidirectional the same fix**,
+  because narrowing the *asked* role to something specific breaks the direction
+  that used to be the only one: a profile still carrying the bare legacy
+  `Approver` (or one a steward deliberately left at the category level, meant to
+  apply to every approver) needs to keep matching once the screen resolves
+  `Approver Customer` for a specific person - `"Approver".startsWith("Approver
+  Customer")` is false, so only checking the original direction would have
+  silently stopped every broad profile from applying to anyone the moment
+  resolution got precise. Checking both directions keeps `ApproverSales`
+  matching the bare category (the original case) AND the bare category matching
+  `ApproverSales` (the new one) AND two DIFFERENT specific roles apart from
+  each other - neither `Approver Customer` nor `Approver Vendor` is a prefix of
+  the other.
+- **Ambiguous resolves to null, not a guess.** `specificRoleFor` returns `null`
+  when a user's own groups carry **several** roles matching the category (as
+  well as when none do), and the caller falls back to the bare category - the
+  same "show everything rather than pick one arbitrarily" answer this screen
+  gave before any of this existed, so a person with overlapping roles is no
+  worse off than before, never silently shown a narrower screen than intended.
+- **Best-effort, the same discipline as every other BTP read in this
+  codebase**: an unreachable subaccount API, or a user resolving to no specific
+  role, falls back to the bare category CAP always used before this - not a
+  blocked render, not an error.
+- **Only the rendering path changed.** `createFieldPropertyStages` (the submit-
+  time enforcement) still runs on `requesterContext(req)`, always `'Requester'`,
+  never touched by any of this - the security-relevant half of this design was
+  already correct and stays exactly as it was.
+
+The Workflow Agent Determination table's own gap - "Arthur's process ignores
+`approvers` entirely" - is a different thing and still open: that one needs
+Arthur's process definition to change, not CAP's own code, so there was nothing
+here to close it with.
 
 #### Critical fields, entity-level only, and who to notify (2026-08-26)
 
@@ -1815,6 +1855,43 @@ not be *read*, not a payload SBPA would not *accept*.
   not "restore" it on this side alone — that is the change that broke every submit.
 - **`kind` is not lost**, only implicit: an entry carrying an `@` is a user, on either
   side of the wire.
+
+##### A role entry is resolved to real e-mails before it crosses the wire (fixed 2026-08-27)
+
+Flattening to strings was not the last surprise this boundary had. Once the approver
+picker started offering BTP role collections (see "The approver picker is sourced from
+the subaccount"), an approver cell could hold something like `Approver Customer` - and
+`workflowContext` sent that name through unresolved, on the assumption stated everywhere
+else in this table's design: *"roles live in SBPA, and a copy kept here would go stale."*
+That assumption was wrong for Arthur's process - it does not resolve BTP role collection
+membership itself, so a role name reaching it as-is names nobody it can assign a task
+to, and the request routes to an approver list of one string nobody can act on.
+
+- **`workflowContext` now expands a `role` entry into its member e-mails itself**, via
+  `emailsForRoleCollections` (`srv/wf/btp-agents.js`) - the exact lookup
+  `dataStewardEmails` already used for its own fixed `DataSteward` role template,
+  generalised to take any list of role collection names. A `user` entry (already an
+  e-mail) is kept as-is; the two are merged and de-duplicated into `approverEmails`,
+  which is what `approvers` on the wire actually is now.
+- **The split happens in `workflowContext`, not in `resolveApprovers`.** The engine
+  still returns `{ step, kind, value }` and stays offline and deterministic - resolving
+  BTP membership is a network call, and mixing it into the same function that decides
+  WHICH rows match would make an unreachable subaccount block a submit over routing,
+  the one failure mode this whole table exists to avoid. `workflowContext` is where the
+  structured list already gets flattened for the wire, so it is also where the one
+  network-dependent step belongs.
+- **Best-effort, the same as everywhere else in this codebase's BTP reads**:
+  `emailsForRoleCollections` never throws, and a role that cannot be resolved (the
+  subaccount API down, or nobody carries it) contributes nobody rather than costing the
+  submit - the same trade `dataStewardEmails`/`workflowAgents` already make.
+- **`fetchStewardEmails` in `data-stewards.js` is now a thin wrapper** around this
+  shared function, kept only so that module's own `load()` and its tests read
+  unchanged - the membership lookup itself (match a role collection name against a
+  user's own `/Users` `groups`) is one piece of code, not two copies that could drift.
+- **What still does not resolve: `processorsFor`'s own approver list**, the one behind
+  the "who has it now" strip. That reads the same `WorkflowRules` table but is a
+  rendering answer, not a wire payload SBPA has to act on, so a role name shown there
+  unresolved is not the same failure - left as it is unless asked for.
 
 **Save cannot claim what it did not do (2026-08-21).** A rule appeared to clear itself
 after being created. `hasPendingChanges` answers for **one update group**, so a create
@@ -2080,6 +2157,14 @@ Decisions behind it, each of which has a cheaper wrong version:
   does not reliably give an embedded app's own lower content room either, the
   same lesson the footer buttons already taught. The binding is unchanged, only
   its position in the view.
+  **Moved again, 2026-08-27, to right after the conversation panel** (still
+  well above the actual Object Page form, so the earlier cut-off risk does not
+  apply — that was about the literal bottom of the whole page, not about being
+  sixth among the header-area panels instead of second): typing a reply
+  immediately under the thread it answers reads as what it is, where a box
+  positioned near the top with no visible connection to any conversation did
+  not. `reworkCommentBox`/`dataStewardCommentBox` moved with it, for the same
+  reason and because all three boxes have always lived together in the markup.
 - **The full conversation, not just the latest word (2026-08-24).** `reason` and
   `rejectionComment` on the header are unchanged — both still work exactly as
   before, and every existing reader of them still reads them — but they only ever
@@ -2089,7 +2174,8 @@ Decisions behind it, each of which has a cheaper wrong version:
   `resubmitRequest` both write to it *in addition to* the legacy fields.
   `getRequestPayload` returns it as `CommentsJson`; the screen renders it as a
   collapsible `Panel` (`commentsPanel`, oldest first, `StandardListItem` per
-  message naming who said it) right below the message panel, on **every** mode
+  message naming who said it) — **last of the panels above the form** since
+  2026-08-27, see "Highlighting what changed" — on **every** mode
   that has a thread to show — approve, rework, view, draft.
 - **Rework gets its own comment box, separate from the approver's.**
   `approverCommentBox` is embedded-only (`context>/comment`, a model only
@@ -2350,30 +2436,59 @@ type.** `state.trackChanges` decides whether one is meaningful at all:
   since then - but a data steward completing their review is not a new round, it
   is the SAME round the original submit or resubmit started, and the approver
   receiving it back is meant to see the steward's own edits highlighted too.
+  **The same guarantee is what makes it work when a rejection sends the
+  request back to the REQUESTER instead** (confirmed 2026-08-27, asked for
+  explicitly): `decideRequest`'s reject branch and `claimRework` - the stopgap
+  for the missing reject callback - both only ever write `status` (and, for
+  `decideRequest`, `rejectionComment`); neither touches `baselineDataJson`. So
+  by the time the rework screen loads, the baseline is still whatever
+  `submitRequest`/`resubmitRequest` last wrote - the pre-steward data - and the
+  requester sees exactly what the steward changed, the same colours the
+  approver would have seen had the request been accepted instead. Nothing extra
+  had to be built for this; it falls out of the same one column never being
+  reset except on a genuinely fresh round.
 
-**Rows are matched by CONTENT against the baseline, not by `record.__state`** -
-also revised the same day, for the same underlying reason as the baseline
-itself. The first version read `__state` directly (`"new"` set by the Add/Edit
-dialog, `"modified"`/`"changed"` by an edit or an accepted proposal) and coloured
-the row straight off it. That flag is staged as the DB `action` column and
-**survives every reload** - so a row the ORIGINAL requester added still comes
-back `"new"` when a data steward opens the very same request, and colouring
-every row like that marks the whole record instead of what the steward is
-actually changing. `matchSectionRows(records, baselineRecords, fieldNames)` now
-matches each current row against the baseline by content: an exact match
-(every field equal) is **consumed** so two identical rows are never both
-matched to the same baseline row, and is left uncoloured (kind `""`). Whatever
-is left unmatched is either an addition or an edit of one of the remaining
-baseline rows, and `__state === "new"` is the tiebreaker for which - not the
-primary signal any more, but still correct precisely because that flag's own
-history says the row never came from editing something that already existed,
-whichever round created it. The one known limitation is the same as before:
-without a stable row key (staging has one, a cuid, but `getRequestPayload`
-strips it before it ever reaches the client), an unmatched edit claims the
-remaining baseline rows in array order. **`_renderSection` and
-`_refreshChangeSummary` both call the same function** over the same two arrays,
-so the row a table colours red or orange is exactly the row the summary panel
-lists fields for.
+**Rows are matched by CONTENT against the baseline, never by `record.__state`**
+- revised twice the same day, and the second revision is the one that stuck.
+The first version read `__state` directly (`"new"` set by the Add/Edit dialog,
+`"modified"`/`"changed"` by an edit or an accepted proposal) and coloured the
+row straight off it - wrong, because that flag is staged as the DB `action`
+column and **survives every reload**: a row the ORIGINAL requester added still
+comes back `"new"` when a data steward opens the very same request. The second
+version kept content-matching but still used `__state === "new"` as a
+**tiebreaker** for an unmatched row - also wrong, and for the identical reason:
+editing ONE field of that same original row (City, say) still failed the exact
+match, `__state` still said `"new"`, and the row was classified as an ADDITION
+against an empty baseline (`{}`) rather than a CHANGE against its real one. The
+reported symptom was exact: changing City painted the whole row and listed
+every one of its fields - Street, Country, everything - as "changed" in the
+summary, because none of them were actually being compared against anything.
+
+`matchSectionRows(records, baselineRecords, fieldNames)` now runs in two
+passes and reads `__state` **not at all**:
+
+1. **Exact matches are consumed first** - every field equal, in either order of
+   the two lists - so an untouched row is never coloured just because some
+   OTHER row in the section moved, and two identical rows are never both
+   matched to the same baseline row.
+2. **Whatever is left is paired off in array order**: a row is a CHANGE
+   against one of the still-unconsumed baseline rows for as long as any
+   remain, and only becomes an ADDITION once they run out - i.e. only once
+   this section actually ends up with more rows than the baseline had. A
+   row's own history (whether S/4 has ever seen it) plays no part any more;
+   only whether a same-shaped baseline row still exists to have been edited
+   FROM does.
+
+This is still not exact without a stable row key (staging has one, a cuid, but
+`getRequestPayload` strips it before it ever reaches the client) - an edit is
+paired with *a* remaining baseline row in array order, not necessarily the one
+a person would say it "really" came from. But undercounting additions this way
+is the safe direction: it never invents a change nobody made, which a
+`__state`-based guess already proved capable of doing twice.
+
+**`_renderSection` and `_refreshChangeSummary` both call the same function**
+over the same two arrays, so the row a table colours and the row the summary
+panel lists fields for are always the same row, matched the same way.
 
 **Root fields have no row to match, so they are diffed value by value** -
 `fieldChangeKind(baselineValue, currentValue)`: nothing when both sides agree,
@@ -2392,12 +2507,55 @@ constructed. `_createForm`/`_createFieldGrid` gained an optional trailing
 `baseline` parameter for exactly this, and `_onFieldCommitted` re-renders the
 whole root form after every commit (`change`, not `liveChange` - the field has
 already lost focus) so a freshly typed value gets its class the same way a
-freshly loaded one does. **Only the root form's own renderers pass a baseline** -
-`_renderRootSection` and `_openAdditionalFields`, both gated on `trackChanges`
-the same way the row colour is. **A section's Add/Edit dialog never gets one**:
-the row itself is coloured in the outer table instead, so a dialog never has to
-resolve which of its own fields to tint - the same "per-record, not per-field,
-inside a dialog" scope decided for `__state` itself.
+freshly loaded one does. `_renderRootSection` and `_openAdditionalFields` pass
+`state.originalRoot`, gated on `trackChanges` the same way the row colour is.
+
+**A CHANGED row colours only the cell(s) that actually differ, not the whole
+row** - reversed the same day it was first built for the same reason as the
+`__state` fix above: colouring the entire `ColumnListItem` for one changed
+field is indistinguishable, to someone looking at the table, from the bug
+where every field was wrongly reported as changed. `_renderSection` now walks
+`summaryFields` per row and calls `fieldChangeKind` against `match.baseline`
+for **that field only**, colouring just its `Text` cell. **An ADDED row is
+still tinted whole** (`mdmAddedRow`) - every one of its fields genuinely is
+new, so there is nothing selective left to compute, and the whole-row
+treatment costs nothing there. There is deliberately no `mdmChangedRow` class
+any more.
+
+**A section's Add/Edit dialog gets a baseline too now** - reversed the same
+day from "never": colouring only the outer row left nobody able to see, while
+actually editing a record, WHICH field inside the dialog differed from what it
+used to be. `_openExistingRecord` resolves the matching row through
+`_rowBaseline` - the exact same `matchSectionRows` call `_renderSection`'s own
+row colour comes from, so the dialog can never disagree with the row it was
+opened from - and `_openNewRecord` passes `{}` (every field typed into a
+brand-new row is an addition, same as the row itself once it lands in the
+table). `_createFieldGrid` already took a `baseline` parameter; `_createFieldTable`
+(the compact layout `_createForm` uses for Customer/Supplier's grouped fields,
+which sit directly above their own child tables in the same dialog) gained one
+too, colouring the field control itself since a table cell has no label
+wrapper to carry the class the way the grid's `VBox` does. One thing this does
+**not** do: track further edits live while the dialog stays open the way the
+root form does on every commit - the colouring is computed once, when the
+dialog opens, against the values as loaded.
+
+Hosted child sections (the ones a grouped dialog renders inline via
+`childSections` - Customer/Supplier's own sales-area or tax tables) needed no
+separate work: they render through `_renderSection` like any top-level
+section, so the row-level fix above already covers them.
+
+**A value picked from the F4 help never coloured either, on a root field or
+inside a dialog** (found the same day, from a live report: a data steward
+changed a root field through its value help and nothing lit up). The root
+cause is `sap.m.SelectDialog`'s own `confirm` event, which is not the target
+`Input`'s `change` event - `_attachCommitTrigger` listens for `change`, so
+`_onFieldCommitted` (the one place the root form's recolouring, the summary
+refresh, a tax number's registry trigger, and the debounced auto-check all
+live) never ran for a value chosen this way, only for one typed. `_openValueHelp`'s
+`confirm` handler now calls `this._onFieldCommitted(this._valueHelpTarget.section,
+this._valueHelpTarget.field)` directly, straight after writing the value -
+reusing the function rather than copying pieces of it, so a value-help-driven
+field ends up handled identically to a typed one, not almost.
 
 **The summary panel is a genuine three-column table** (`changeSummaryPanel`,
 `Field` / `Previous Value` / `New Value`), not `sap.m.SelectDialog`'s pseudo-

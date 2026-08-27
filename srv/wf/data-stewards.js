@@ -1,6 +1,6 @@
 'use strict';
 
-const { callApi } = require('./btp-agents');
+const { callApi, emailsForRoleCollections } = require('./btp-agents');
 
 /**
  * E-mail addresses of every BTP subaccount user holding this app's own `DataSteward` role
@@ -51,19 +51,12 @@ async function fetchDataStewardCollections() {
     .filter(Boolean);
 }
 
-/** E-mail of every subaccount user whose own `groups` name one of the given role collections. */
+/** E-mail of every subaccount user whose own `groups` name one of the given role collections - now
+ *  shared with btp-agents.js's `emailsForRoleCollections` (2026-08-27), which resolves a
+ *  `WorkflowRules.approvers` role entry the same way. Kept as a thin wrapper so this module's own
+ *  `load()`/tests read unchanged. */
 async function fetchStewardEmails(collectionNames) {
-  if (!collectionNames.length) return [];
-
-  const data = await callApi('/Users');
-  const users = Array.isArray(data) ? data : (data.resources || data.Resources || data.value || []);
-
-  return users
-    .filter((user) => (user.groups || []).some((group) => (
-      collectionNames.includes(group.value) || collectionNames.includes(group.display)
-    )))
-    .map((user) => user.emails && user.emails.length ? user.emails[0].value : null)
-    .filter(Boolean);
+  return emailsForRoleCollections(collectionNames);
 }
 
 async function load() {

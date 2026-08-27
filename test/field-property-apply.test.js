@@ -125,16 +125,22 @@ test('only active profiles whose conditions match are merged', () => {
 /**
  * Approver/DataSteward stopped being fixed values 2026-08-27 - a profile's role is now free text
  * naming a BTP role collection, matched against the screen's own category by a case-insensitive
- * prefix. A steward can scope a profile to "ApproverSales" and it still applies to the one Approve
- * screen today (there is no per-function approve screen yet - see CLAUDE.md), the same way the
- * literal "Approver" value used to.
+ * prefix, checked BOTH ways (widened the same day - see CLAUDE.md "Field property profiles"): a
+ * profile scoped to "ApproverSales" applies when the screen only resolved the bare category
+ * "Approver", and a profile still scoped to the bare "Approver" itself applies once the screen
+ * resolves a SPECIFIC role like "Approver Customer" for the person actually looking at it. Two
+ * DIFFERENT specific roles are neither a prefix of the other, so they still stay apart.
  */
-test('a role is matched by category prefix, case-insensitively, once it is not one of the fixed two', () => {
+test('a role is matched by category prefix, case-insensitively, checked both ways', () => {
   assert.equal(profileMatches({ role: 'ApproverSales' }, { role: 'Approver' }), true);
   assert.equal(profileMatches({ role: 'approversales' }, { role: 'Approver' }), true);
   assert.equal(profileMatches({ role: 'DataStewardEU' }, { role: 'DataSteward' }), true);
-  // The other way round does not hold - "Approver" is not a prefix of "ApproverSales".
-  assert.equal(profileMatches({ role: 'Approver' }, { role: 'ApproverSales' }), false);
+  // The reverse direction: a profile scoped to the bare category still applies once a more specific
+  // role is what is actually being checked - a global policy must not stop covering anyone the
+  // moment role resolution gets more precise.
+  assert.equal(profileMatches({ role: 'Approver' }, { role: 'ApproverSales' }), true);
+  // Two specific roles for the same category are still kept apart - neither is a prefix of the other.
+  assert.equal(profileMatches({ role: 'Approver Customer' }, { role: 'Approver Vendor' }), false);
   // A role for one category never matches a screen asking for a different one.
   assert.equal(profileMatches({ role: 'ApproverSales' }, { role: 'DataSteward' }), false);
 });
@@ -335,6 +341,29 @@ test('the enforcing context is the requester, never a role the client named', ()
   // The rendering answer is a separate, read-only function.
   assert.match(serviceCds, /function effectiveFieldProperties\(/u);
   assert.match(serviceJs, /this\.on\('effectiveFieldProperties'/u);
+});
+
+/**
+ * Rendering, unlike enforcement, is narrowed to the CURRENT user's own specific BTP role first
+ * (2026-08-27) - "Approver Customer" rather than the bare "Approver" - so two profiles scoped to
+ * different approver functions actually apply to different people. Never touches `Requester`:
+ * requesterContext already hardcodes that one, and it is not a role collection concept.
+ */
+test('effectiveFieldProperties narrows Approver/DataSteward to the caller\'s own specific role', () => {
+  assert.match(serviceJs, /require\('\.\/wf\/btp-agents'\)/u);
+  assert.match(serviceJs, /RESOLVABLE_ROLE_CATEGORIES = \['Approver', 'DataSteward'\]/u);
+
+  const resolver = serviceJs.slice(serviceJs.indexOf('async function resolveEffectiveRole'));
+  const resolverBody = resolver.slice(0, resolver.indexOf('\n}'));
+  assert.match(resolverBody, /if \(!RESOLVABLE_ROLE_CATEGORIES\.includes\(role\)\) return role;/u);
+  assert.match(resolverBody, /specificRoleFor\(email, role\)/u);
+  // Best-effort: an unresolvable role falls back to the literal category, never a rejected render.
+  assert.match(resolverBody, /catch \(error\) \{/u);
+  assert.match(resolverBody, /return role;/u);
+
+  const handler = serviceJs.slice(serviceJs.indexOf("this.on('effectiveFieldProperties'"));
+  const handlerBody = handler.slice(0, handler.indexOf('\n    });'));
+  assert.match(handlerBody, /resolveEffectiveRole\(req, req\.data\.Role \|\| null\)/u);
 });
 
 test('the property validations run alongside the configured ones, on every gate', () => {
