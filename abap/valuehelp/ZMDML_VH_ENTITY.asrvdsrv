@@ -63,4 +63,7 @@ define service ZMDML_VH_ENTITY {
   expose Z_I_DER_PARTNER_FUNC_PROC      as DerPartnerFunctionProcedures;
   // TKUPA -> TPAER -> TPAR. The account group is the join, and this is what the derivation reads.
   expose Z_I_DER_PARTNER_FUNC_MAND      as DerPartnerFunctionAccGrp;
+  // The vendor mirror: T077K-PARGE -> TPAER -> TPAR. A DIFFERENT link -- the customer procedure is
+  // on TKUPA, the vendor one is three columns on the account group table itself.
+  expose Z_I_DER_SUPPL_FUNC_ACCGRP      as DerSupplierFunctionAccGrp;
 }
