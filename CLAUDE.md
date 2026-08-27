@@ -134,6 +134,24 @@ Both checked-in copies got here by hand, from Julien and Arthur respectively.
 There has never been an automated path, so treat a re-import as a manual step
 someone performs, not as something the app can do for itself.
 
+**The five `Der*` entities were HAND-ADDED to both copies (2026-08-27), not imported.**
+`npm run import:valuehelp` could not be run against this landscape, so they were transcribed from
+the served `$metadata` into `ZSRVB_MDMLIGHT_VH.cds` *and* `.edmx`. The two agree, and the drift
+check (which reads the `.edmx`) is therefore quiet about them rather than nagging.
+
+Worth knowing before touching either file:
+
+- The **`checksum`** comment at the top of the `.cds` is now stale. Nothing verifies it; it exists
+  for `cds import`'s own change detection.
+- The `.edmx` is a **single minified line**, so it was edited by anchored string insertion, not by
+  appending. Verified afterwards by tag balance (53 `EntityType` / 53 `Key` / 53 self-closing
+  `EntitySet`, up from 48 each) and by byte offset — the types land before the first
+  `<Association>`, the sets inside `<EntityContainer>` before the first `<AssociationSet>`.
+- **No `Annotations` block was added** for these five. The imported copy carries
+  `Common.SAPObjectNodeType` annotations for a dozen value helps; the served metadata carries none
+  for the `Der*` types, so neither does this.
+- A real `cds import` supersedes all of it and should be preferred whenever one can be run.
+
 **The drift check earns its keep, and its output needs reading against the excludes**
 (2026-08-21). It reported six fields gone from the live service; five were already in
 the exclusion lists, and the sixth — `RecipientType` on `A_CustomerWithHoldingTax` —
@@ -399,6 +417,12 @@ category-driven composition, client-side. Two rules make it safe and honest:
 
 - **A committed name field recomposes it** (`_onFieldCommitted`, `recompose: true`),
   so it fills in as soon as Name 1 is typed rather than waiting for a post.
+- **So does a name accepted from a proposal, and so does the Additional Fields dialog**
+  (both fixed 2026-08-27). Neither fires `_onFieldCommitted` — `_applyProposals` writes
+  straight into `state.root` — so accepting a VIES-proposed "Alluvion BV" over a typed
+  "Test" left the full name reading "Test". Both now recompose, and both are **guarded on a
+  name field having actually changed**: recomposing on every Apply would overwrite S/4's own
+  derivation on a partner read from S/4, which is what the rule below exists to prevent.
 - **An existing value is otherwise left alone.** On a partner read from S/4 that
   value is S/4's own derivation, and replacing it with a composition would show
   something S/4 does not say. A staged request always arrives without one, so
@@ -677,6 +701,56 @@ enforce it.
   better without committing anyone to anything, which is the whole reason derive precedes match.
 - **`systemDerived` is replayed from `applied`, not written in the derivation loop**, so an entry
   the pipeline refused to write (a typed value already there) is not replayed either.
+
+#### SPRO derivations: nine gaps, one open mechanism (2026-08-27)
+
+The app derives the CVI account group, VIES/GLEIF addresses and the steward's own rules. **Nine
+things SAP standard fills in and this app does not** are listed with their customizing sources in
+`mdmlbpcheck/README.md` — partner functions, address language / time zone / transportation zone /
+tax jurisdiction, tax classification rows, withholding tax types, search term, and reference-customer
+defaults. Out of scope by decision: the BP, customer and vendor **numbers**, which CVI assigns at
+post time.
+
+**Partner functions need no new node** — `StagedCustomerSalesPartnerFunc` and
+`StagedSupplierPartnerFunc` already exist, are catalogued, and are on the screen. Only the
+customizing source is missing, which is true of every row in that table.
+
+**The mechanism is settled (2026-08-27), and it is the deterministic one.** Four probe rounds
+established that S/4 has no callable way to tell us what it would derive: `CL_MD_BP_MAINTAIN` is
+**final**, the only two methods that hand the payload back enriched are **protected and private**
+respectively, and all eight public methods take `i_data` as `IMPORTING`. A real `MAINTAIN` rolled
+back would harvest everything but cannot be what a Check button does — it creates the partner, and
+number assignment commits outside the LUW. So each derivation is read from its own customizing
+through a CDS view, exactly the way `cvi_account_group` reads `TBD001`. Every source table is
+confirmed to exist with data; the full write-up, including two wrong table guesses and the
+`SEOCOMPO` visibility trap that cost a round, is in `mdmlbpcheck/README.md`.
+
+**Do not copy `cvi_account_group`'s `system: true` flag onto these.** That flag says "S/4 will use
+this whatever anyone ticks", which is true of the CVI account group and of nothing else here — a
+derived language or partner function is a proposal like every other.
+
+##### Two of them are live: `srv/checks/derivation-checks.js` (2026-08-27)
+
+One stage, `sap_derivations`, reading `DerivationConfigService` with the same 60s cache
+`cvi-checks.js` uses. It runs **last** in the derivation list — the pipeline never overwrites, so a
+steward's configured rule and a VIES lookup both outrank a country default, which is the weakest
+claim on any field here. On Check and Duplicate Check only; submit still validates without deriving.
+
+- **Address language** from `T005-SPRAS`, on **every** address row. Unlike the registry lookup this
+  is not a fact about one *place* that a second address would be wrong to inherit — every address in
+  a country has that country's default language. This is the `FSBP_GENERIC/008` field.
+- **Customer tax category** from `TSTL`, and the only multi-row derivation here. It proposes the
+  ROWS; **`CustomerTaxClassification` is left empty on purpose** — that is a decision about the
+  customer, not something any customizing table knows. Only fires when the request asks to be a
+  customer, and never into a section the requester already filled.
+- **A country with several tax categories is said out loud.** The pipeline creates only the first
+  row of an empty section, so the others come back as a `field`-less statement naming all of them.
+  Covering one of five silently would read as "these are all of them", which is the answer this
+  codebase refuses everywhere.
+
+Still not built, and both for a reason rather than an oversight: **time zone**, because
+`StagedAddresses` has no column to hold one (`TTZ5S` is ready and `Z_I_DER_TIME_ZONE` is exposed);
+and **partner functions**, because nothing links an account group to a determination procedure.
 
 #### Two standard-check messages nobody could clear (fixed 2026-08-27)
 

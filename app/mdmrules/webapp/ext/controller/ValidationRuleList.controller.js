@@ -107,6 +107,7 @@ sap.ui.define([
       binding.create({
         sequence: 10,
         comparison: "eq",
+        conditionLogic: "AND",
         severity: "error",
         isActive: true
       });

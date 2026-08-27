@@ -49,6 +49,9 @@ service DuplicateConfigService {
     fields      : array of CatalogField;
     comparisons : array of Option;
     indicators  : array of Option;
+    /** AND / OR / NOR - how the two condition pairs are joined. One list for all four rule tables;
+     *  see CONDITION_LOGIC in srv/checks/value-lists.js. */
+    conditionLogics : array of Option;
     /** 'configured' or 'defaults'. The page must say which: an empty grid reads as "check is off". */
     source      : String(12);
     ruleCount   : Integer;
@@ -87,6 +90,7 @@ service DuplicateConfigService {
   type QualityRuleOptions {
     fields          : array of PayloadField;
     comparisons     : array of ComparisonOption;
+    conditionLogics : array of Option;
     severities      : array of Option;
     validationCount : Integer;
     derivationCount : Integer;
@@ -116,6 +120,7 @@ service DuplicateConfigService {
     requestTypes : array of Option;
     /** `Approve` today. A column rather than an assumption - see db/workflow-rules.cds. */
     steps        : array of Option;
+    conditionLogics : array of Option;
     /** Rules that would actually run, so the page can say when a saved row is being skipped. */
     ruleCount    : Integer;
   }

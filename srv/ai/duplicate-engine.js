@@ -2,6 +2,9 @@
 
 const { DUPLICATE_THRESHOLD, scoreFingerprint, diceSimilarity } = require('./name-match');
 const { CONDITION_FIELDS, buildCandidate, resolveField } = require('./duplicate-fields');
+const {
+  parseValueList, hasWildcard, normalisePattern, wildcardMatches, joinConditions
+} = require('../checks/value-lists');
 
 // `disqualifying` is negative evidence and never competes for strongest-per-field, so it has no
 // rank. Without it, escalating a name-only match would rate a sparse candidate above a rich one.
@@ -41,10 +44,8 @@ const CONDITION_COLUMNS = Object.freeze({
   Role: 'condRole'
 });
 
-// Two independent condition pairs, ANDed when both are filled: "Role = Vendor and Country = BE".
-// Either may be left empty, which means "any" — an empty pair never narrows the rule.
-const { parseValueList } = require('../checks/value-lists');
-
+// Two independent condition pairs, joined by `conditionLogic` when both are filled: "Role = Vendor
+// AND Country = BE". Either may be left empty, which means "any" — an empty pair never narrows.
 const CONDITION_PAIRS = Object.freeze([
   Object.freeze({ field: 'conditionField', value: 'conditionValue' }),
   Object.freeze({ field: 'conditionField2', value: 'conditionValue2' })
@@ -101,14 +102,20 @@ function holds(field, wanted, bag) {
   // An unresolvable condition field cannot be satisfied, so the rule stays out rather than
   // matching everything. Saving one is rejected up front; this is the backstop.
   if (!resolved) return false;
+  // A pattern is normalised segment by segment, or `alnumUpper` would strip the `*` out of
+  // `FLVN*` and the rule would look for a role literally called FLVN.
   const normalised = values
-    .map((value) => resolved.entry.normalise(value, {}))
+    .map((value) => (hasWildcard(value)
+      ? normalisePattern(value, (segment) => resolved.entry.normalise(segment, {}))
+      : resolved.entry.normalise(value, {})))
     .filter(Boolean);
   // Nothing left to compare: the same case a single unnormalisable value was, and it narrows
   // nothing rather than ruling the rule out.
   if (!normalised.length) return true;
   const held = bag[field] || [];
-  return normalised.some((value) => held.includes(value));
+  return normalised.some((value) => (hasWildcard(value)
+    ? held.some((entry) => wildcardMatches(value, entry))
+    : held.includes(value)));
 }
 
 /**
@@ -118,9 +125,14 @@ function holds(field, wanted, bag) {
  * change.
  */
 function conditionsMatch(rule, bag) {
-  for (const pair of CONDITION_PAIRS) {
-    if (!holds(rule[pair.field], rule[pair.value], bag)) return false;
-  }
+  // Only the pairs that actually say something take part in the join. A pair with a field and no
+  // value means "any" and would make NOR read as "neither, and also not anything", which is never.
+  const filled = CONDITION_PAIRS
+    .filter((pair) => rule[pair.field] && parseValueList(rule[pair.value]).length);
+  const results = filled.map((pair) => holds(rule[pair.field], rule[pair.value], bag));
+  if (!joinConditions(results, rule.conditionLogic)) return false;
+  // The four superseded cond* columns are always ANDed onto the result: they predate the pairs and
+  // the logic column describes the pairs, not them.
   for (const field of CONDITION_FIELDS) {
     if (!holds(field, rule[CONDITION_COLUMNS[field]], bag)) return false;
   }

@@ -43,10 +43,13 @@
         <columns>
           <Column width="10%"><Text text="CR Type" /></Column>
           <Column width="9%"><Text text="Step" /></Column>
-          <Column width="14%"><Text text="Condition 1 Field" /></Column>
-          <Column width="14%"><Text text="Condition 1 Value" /></Column>
-          <Column width="14%"><Text text="Condition 2 Field" /></Column>
-          <Column width="14%"><Text text="Condition 2 Value" /></Column>
+          <Column width="13%"><Text text="Condition 1 Field" /></Column>
+          <Column width="13%"><Text text="Condition 1 Value" /></Column>
+          <!-- Titleless on purpose: AND / OR / NOR reads as the joining word between the two
+               conditions it sits between, and a heading would only repeat what the cell says. -->
+          <Column width="5%" hAlign="Center"><Text text="" /></Column>
+          <Column width="13%"><Text text="Condition 2 Field" /></Column>
+          <Column width="13%"><Text text="Condition 2 Value" /></Column>
           <Column width="20%"><Text text="Approvers" /></Column>
           <Column width="4rem" hAlign="Center"><Text text="Active" /></Column>
         </columns>
@@ -85,6 +88,16 @@
                 placeholder="any"
                 enabled="{= !!${dc>conditionField} }"
                 change=".onCellChange" />
+              <!-- Only enabled once BOTH conditions are filled: there is nothing to join otherwise,
+                   and NOR on a single condition would silently invert it. -->
+              <ComboBox
+                width="100%"
+                selectedKey="{dc>conditionLogic}"
+                enabled="{= !!${dc>conditionField} &amp;&amp; !!${dc>conditionField2} }"
+                items="{ path: 'opt>/conditionLogics', templateShareable: false }"
+                change=".onCellChange">
+                <core:Item key="{opt>code}" text="{opt>text}" />
+              </ComboBox>
               <Input
                 width="100%"
                 value="{dc>conditionField2}"

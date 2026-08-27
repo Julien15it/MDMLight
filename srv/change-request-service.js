@@ -11,6 +11,7 @@ const { candidateFromStagedRequest, duplicateSummary } = require('./ai/duplicate
 const { runChecks, runValidations, BLOCKING } = require('./checks/pipeline');
 const { createRegistryStages } = require('./checks/registry-checks');
 const { createCviStages } = require('./checks/cvi-checks');
+const { createDerivationStages } = require('./checks/derivation-checks');
 const { createBpCheckStage } = require('./checks/bp-check');
 const { createRelationStages } = require('./checks/relation-checks');
 const { configuredStages } = require('./checks/rule-store');
@@ -793,8 +794,12 @@ class ChangeRequestService extends cds.ApplicationService {
           // A second createCviStages() call is not a second read: the 60s cache lives in the
           // module, not in the object, so this derivation and the validation above judge the same
           // configuration.
+          // The SPRO derivations go LAST, after CVI. Same reasoning that puts the configured rules
+          // first: the pipeline never overwrites, so a steward's explicit rule and a register
+          // lookup both outrank a country default. A country's address language is the weakest
+          // claim on that field of anything here.
           derivations: [...configured.derivations, ...registry.derivations,
-            ...createCviStages().derivations],
+            ...createCviStages().derivations, ...createDerivationStages().derivations],
           // Check is where a human is looking, which is the only place a proposal to rewrite
           // what someone typed makes sense. The register never proposes: it validates and derives.
           propose: propose

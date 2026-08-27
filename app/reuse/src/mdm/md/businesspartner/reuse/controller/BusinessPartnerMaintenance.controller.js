@@ -1376,7 +1376,13 @@ sap.ui.define([
             type: "Emphasized",
             visible: state.editing,
             press: function () {
+              // Only when this dialog actually changed a name. Recomposing unconditionally would
+              // replace S/4's own derivation on a partner read from S/4 - see _refreshFullName.
+              var renamed = NAME_FIELDS.some(function (field) {
+                return (field in record) && record[field] !== state.root[field];
+              });
               Object.assign(state.root, record);
+              if (renamed) this._refreshFullName(true);
               this._updatePreview(state);
               this._renderRootForm();
               this._refreshChangeSummary();
@@ -2811,6 +2817,7 @@ sap.ui.define([
 
       _applyProposals: function (accepted) {
         var applied = 0;
+        var renamed = false;
         var state = this.getView().getModel("maintenance").getData();
         accepted.forEach(function (proposal) {
           // An emptied field is a decline, not an instruction to blank what is there.
@@ -2840,6 +2847,8 @@ sap.ui.define([
           record[proposal.field] = value;
           // Or the accepted value never reaches staging.
           if (record !== state.root && !record.__state) record.__state = "changed";
+          // A name accepted here has to recompose the full name, exactly as typing it would.
+          if (record === state.root && NAME_FIELDS.indexOf(proposal.field) !== -1) renamed = true;
           applied += 1;
         });
         if (!applied) return;
@@ -2847,6 +2856,9 @@ sap.ui.define([
         // applies - the next submit has to check again.
         state.awaitingConfirmation = false;
         state.awaitingConfirmationFor = "";
+        // Before _updatePreview, so the preview and the staged payload carry the new name rather
+        // than the one the accepted proposal just replaced.
+        if (renamed) this._refreshFullName(true);
         // The findings deliberately stay: only a match may clear them, or the screen would look
         // clean on the strength of a check nobody ran.
         this._updatePreview(state);

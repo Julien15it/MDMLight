@@ -701,3 +701,71 @@ test('an existing value is only recomposed when a name was actually edited', () 
     /if \(!recompose && String\(root\.BusinessPartnerFullName \|\| ""\)\.trim\(\)\) return;/u
   );
 });
+
+// Reported 2026-08-27: typing "Test", then accepting a VIES-proposed "Alluvion BV", left the
+// read-only full name reading "Test". Accepting a proposal writes straight into state.root and
+// never fires _onFieldCommitted, which was the only thing recomposing the name.
+test('a name accepted from a proposal recomposes the full name, as typing it would', () => {
+  const controller = loadController();
+  const state = {
+    root: {
+      BusinessPartnerCategory: '2',
+      OrganizationBPName1: 'Test',
+      BusinessPartnerFullName: 'Test'
+    },
+    sections: {},
+    duplicates: [],
+    duplicatesHeader: ''
+  };
+  const model = { getData: function () { return state; }, refresh: function () {} };
+  controller._updatePreview = function () {};
+  controller._renderAll = function () {};
+  controller.getView = function () { return { getModel: function () { return model; } }; };
+
+  controller._applyProposals.call(controller, [{
+    target: 'root', index: 0, field: 'OrganizationBPName1',
+    current: 'Test', proposed: 'Alluvion BV', accepted: true
+  }]);
+
+  assert.equal(state.root.OrganizationBPName1, 'Alluvion BV');
+  assert.equal(state.root.BusinessPartnerFullName, 'Alluvion BV', 'the full name followed the name');
+});
+
+// A proposal on any other field must not touch it: on a partner read from S/4 that value is S/4's
+// own derivation, and recomposing would show something S/4 does not say.
+test('a proposal on a field that is not a name leaves the full name alone', () => {
+  const controller = loadController();
+  const state = {
+    root: {
+      BusinessPartnerCategory: '2',
+      OrganizationBPName1: 'Alluvion',
+      BusinessPartnerFullName: 'Alluvion BV (S/4 derived)',
+      SearchTerm1: 'old'
+    },
+    sections: {},
+    duplicates: [],
+    duplicatesHeader: ''
+  };
+  const model = { getData: function () { return state; }, refresh: function () {} };
+  controller._updatePreview = function () {};
+  controller._renderAll = function () {};
+  controller.getView = function () { return { getModel: function () { return model; } }; };
+
+  controller._applyProposals.call(controller, [{
+    target: 'root', index: 0, field: 'SearchTerm1',
+    current: 'old', proposed: 'ALLUVION', accepted: true
+  }]);
+
+  assert.equal(state.root.SearchTerm1, 'ALLUVION');
+  assert.equal(state.root.BusinessPartnerFullName, 'Alluvion BV (S/4 derived)');
+});
+
+test('the additional fields dialog recomposes only when it changed a name', () => {
+  // Guarded rather than unconditional: the dialog holds root fields that are not names, and
+  // recomposing on every Apply would overwrite an S/4-derived name.
+  assert.match(
+    controllerSource,
+    /var renamed = NAME_FIELDS\.some\(function \(field\) \{[\s\S]*?\(field in record\) && record\[field\] !== state\.root\[field\]/u
+  );
+  assert.match(controllerSource, /Object\.assign\(state\.root, record\);\s*\n\s*if \(renamed\) this\._refreshFullName\(true\);/u);
+});

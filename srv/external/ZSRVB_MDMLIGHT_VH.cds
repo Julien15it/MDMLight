@@ -1150,3 +1150,158 @@ entity ZSRVB_MDMLIGHT_VH.CviSyncDirections {
   IsActive : Boolean;
 };
 
+
+/* --------------------------------------------------------------------------
+ * The five Der* entities below were transcribed BY HAND from the served
+ * $metadata on 2026-08-27, because `npm run import:valuehelp` could not be
+ * run against this landscape. They were added to ZSRVB_MDMLIGHT_VH.edmx too, so
+ * the two copies agree; only the `checksum` above is now stale, and nothing
+ * verifies it. Types and annotations are verbatim from $metadata, so what is
+ * here is what the service actually serves. A real `cds import` supersedes it.
+ * -------------------------------------------------------------------------- */
+
+@cds.external : true
+@cds.persistence.skip : true
+@sap.creatable : 'false'
+@sap.updatable : 'false'
+@sap.deletable : 'false'
+@sap.content.version : '1'
+@sap.label : 'Derivation: address defaults per country'
+entity ZSRVB_MDMLIGHT_VH.DerAddressDefaults {
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Country/Region Key'
+  key Country : String(3) not null;
+  @sap.label : 'Language Key'
+  AddressLanguage : String(2);
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Standard name format'
+  NameFormat : String(2);
+  @sap.label : 'City file active'
+  @sap.quickinfo : 'Flag: City file address check'
+  CityFileActive : Boolean;
+  @sap.label : 'Print C/R Name'
+  @sap.quickinfo : 'Indicator: Print Country/Region for Addresses of Other C/R'
+  PrintCountryName : Boolean;
+  @sap.display.format : 'NonNegative'
+  @sap.label : 'Postal code'
+  @sap.quickinfo : 'Postal code length'
+  PostalCodeLength : String(2);
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Check rule for postal code'
+  @sap.quickinfo : 'Rule for the postal code field check'
+  PostalCodeCheckRule : String(1);
+  @sap.label : 'EU Member'
+  @sap.quickinfo : 'Indicator: European Union Member?'
+  IsEuCountry : Boolean;
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'ISO Code'
+  @sap.quickinfo : 'ISO Code of the Country/Region'
+  IsoCode : String(2);
+};
+
+@cds.external : true
+@cds.persistence.skip : true
+@sap.creatable : 'false'
+@sap.updatable : 'false'
+@sap.deletable : 'false'
+@sap.content.version : '1'
+@sap.label : 'Derivation: time zone per country and region'
+entity ZSRVB_MDMLIGHT_VH.DerTimeZones {
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Country/Region Key'
+  key Country : String(3) not null;
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Region'
+  @sap.quickinfo : 'Region (State, Province, County)'
+  key Region : String(3) not null;
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Time Zone'
+  key AddressTimeZone : String(6) not null;
+  @sap.label : 'Default Time Zone'
+  @sap.quickinfo : 'Indicator for Default Time Zone'
+  IsDefault : Boolean;
+};
+
+@cds.external : true
+@cds.persistence.skip : true
+@sap.creatable : 'false'
+@sap.updatable : 'false'
+@sap.deletable : 'false'
+@sap.content.version : '1'
+@sap.label : 'Derivation: valid tax categories per country'
+entity ZSRVB_MDMLIGHT_VH.DerTaxCategories {
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Tax country/region'
+  @sap.quickinfo : 'Country/Region is relevant for taxes'
+  key Country : String(3) not null;
+  @sap.display.format : 'NonNegative'
+  @sap.label : 'Tax sequence'
+  @sap.quickinfo : 'Sequence of possible taxes for each country/region'
+  key SequenceNumber : String(1) not null;
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Tax Condition Type'
+  @sap.quickinfo : 'Tax Condition Type (Sales Tax, Value-Added Tax,...)'
+  TaxCategory : String(4);
+  @sap.label : '% rate from T007'
+  @sap.quickinfo : 'Tax percentage rate from Table T007'
+  RateFromTableT007 : Boolean;
+};
+
+@cds.external : true
+@cds.persistence.skip : true
+@sap.creatable : 'false'
+@sap.updatable : 'false'
+@sap.deletable : 'false'
+@sap.content.version : '1'
+@sap.label : 'Derivation: partner functions valid per account group'
+entity ZSRVB_MDMLIGHT_VH.DerPartnerFunctions {
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Account group'
+  @sap.quickinfo : 'Customer Account Group'
+  key AccountGroup : String(4) not null;
+  key PartnerFunction : String(2) not null;
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Partner Type'
+  @sap.quickinfo : 'Type of partner number'
+  PartnerType : String(2);
+  HigherLevelFunction : String(2);
+  @sap.label : 'Unique in the master'
+  @sap.quickinfo : 'Uniqueness in the master data'
+  IsUniqueInMasterData : Boolean;
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Cust.hierarchy type'
+  @sap.quickinfo : 'Customer hierarchy type'
+  HierarchyType : String(1);
+};
+
+@cds.external : true
+@cds.persistence.skip : true
+@sap.creatable : 'false'
+@sap.updatable : 'false'
+@sap.deletable : 'false'
+@sap.content.version : '1'
+@sap.label : 'Derivation: mandatory partner functions per procedure'
+entity ZSRVB_MDMLIGHT_VH.DerPartnerFunctionProcedures {
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'PartnerDetermProced.'
+  @sap.quickinfo : 'Partner Determination Procedure'
+  key DeterminationProcedure : String(4) not null;
+  key PartnerFunction : String(2) not null;
+  @sap.label : 'Partner mandatory'
+  @sap.quickinfo : 'Partner is mandatory'
+  IsMandatory : Boolean;
+  @sap.label : 'No change possible'
+  @sap.quickinfo : 'After entry,partner can no longer be changed in the document'
+  NoChangeAllowed : Boolean;
+  @sap.label : 'Unique'
+  @sap.quickinfo : 'Partner must be unique'
+  IsUnique : Boolean;
+  @sap.display.format : 'NonNegative'
+  @sap.label : 'Sequence'
+  @sap.quickinfo : 'Sequence in which partners are determined in the sales doc.'
+  SortOrder : String(2);
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Partner Type'
+  @sap.quickinfo : 'Type of partner number'
+  PartnerType : String(2);
+};

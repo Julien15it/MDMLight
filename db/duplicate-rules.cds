@@ -27,6 +27,7 @@ entity DuplicateRules : managed {
        *  participates. */
       conditionField : String(40);
       conditionValue : String(60);
+      conditionLogic : String(3) default 'AND';
       conditionField2 : String(40);
       conditionValue2 : String(60);
 

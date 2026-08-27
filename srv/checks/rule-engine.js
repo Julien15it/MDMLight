@@ -3,7 +3,9 @@
 const {
   resolvePayloadField, sectionRows, targetFor, isEmptyValue, humanise, ROOT_TARGET
 } = require('./payload-fields');
-const { parseValueList, listMatches } = require('./value-lists');
+const {
+  parseValueList, listMatches, joinConditions, conditionLogicOf, conditionLogicError, CONDITION_LOGIC
+} = require('./value-lists');
 
 /**
  * Evaluates the configured validation and derivation tables against the request payload, through the
@@ -126,8 +128,13 @@ function conditionHolds(condition, payload, ownSection, row, model) {
   return sectionRows(payload, section).some(({ record }) => matches(record[element]));
 }
 
-function conditionsHold(conditions, payload, ownSection, row, model) {
-  return conditions.every((condition) => conditionHolds(condition, payload, ownSection, row, model));
+// `logic` joins the two pairs when both are filled; one condition is itself and no condition holds.
+// A stored row has no logic column and reads as AND, which is what `.every()` did before it existed.
+function conditionsHold(conditions, payload, ownSection, row, model, logic) {
+  return joinConditions(
+    conditions.map((condition) => conditionHolds(condition, payload, ownSection, row, model)),
+    logic
+  );
 }
 
 const label = (resolved) => `${resolved.section} ${humanise(resolved.element)}`;
@@ -138,13 +145,19 @@ const OPERATOR_TEXT = Object.freeze({
   gt: 'must be greater than', ge: 'must be at least', contains: 'must contain'
 });
 
-function describeCondition(conditions) {
+// `logic` is in the sentence because it changes what the rule means: a requester told "where A and
+// B" about an OR rule has been told something untrue about why it fired.
+function describeCondition(conditions, logic) {
   if (!conditions.length) return '';
-  return ` (rule applies where ${conditions
+  const clauses = conditions
     // Every value, not the raw stored string: a requester reading why a rule fired should see the
     // list it matched against rather than the delimiter it happens to be stored with.
-    .map((condition) => `${condition.field} = ${condition.values.join(', ')}`)
-    .join(' and ')})`;
+    .map((condition) => `${condition.field} = ${condition.values.join(', ')}`);
+  if (clauses.length === 1) return ` (rule applies where ${clauses[0]})`;
+  const key = conditionLogicOf(logic);
+  // NOR is the one that cannot be written as a join, so it is said as what it means.
+  if (key === 'NOR') return ` (rule applies where neither ${clauses[0]} nor ${clauses[1]})`;
+  return ` (rule applies where ${clauses.join(` ${CONDITION_LOGIC[key].text.toLowerCase()} `)})`;
 }
 
 // --- Validation ------------------------------------------------------------
@@ -172,7 +185,7 @@ function runValidationRule(rule, payload, model) {
   const findings = [];
 
   for (const row of sectionRows(payload, resolved.section)) {
-    if (!conditionsHold(conditions, payload, resolved.section, row, model)) continue;
+    if (!conditionsHold(conditions, payload, resolved.section, row, model, rule.conditionLogic)) continue;
     const actual = row.record[resolved.element];
     if (isEmptyValue(actual) && !checksEmptiness) continue;
 
@@ -199,8 +212,8 @@ function runValidationRule(rule, payload, model) {
       : `${OPERATOR_TEXT[trimmed(rule.comparison)] || trimmed(rule.comparison)} ${expected}`;
     const message = checksEmptiness
       ? `${label(resolved)} ${trimmed(rule.comparison) === 'notEmpty' ? 'is required' : 'must be empty'}`
-        + `${describeCondition(conditions)}.`
-      : `${label(resolved)} ${wanted}, but it is “${actual}”${describeCondition(conditions)}.`;
+        + `${describeCondition(conditions, rule.conditionLogic)}.`
+      : `${label(resolved)} ${wanted}, but it is “${actual}”${describeCondition(conditions, rule.conditionLogic)}.`;
 
     findings.push({
       severity,
@@ -229,7 +242,7 @@ function createdRowEntry(rule, resolved, conditions, spec, payload, model) {
   // An EMPTY synthetic row, not null: a condition on the rule's own section is then evaluated
   // against a row where every field is empty, so it cannot hold. That is what stops a rule
   // inventing a row out of its own emptiness, and it is why no save-time refusal is needed for it.
-  if (!conditionsHold(conditions, payload, resolved.section, { index: 0, record: {} }, model)) return [];
+  if (!conditionsHold(conditions, payload, resolved.section, { index: 0, record: {} }, model, rule.conditionLogic)) return [];
 
   const value = resolveValue(spec, payload, resolved.section, model);
   if (isEmptyValue(value)) return [];
@@ -248,7 +261,7 @@ function createdRowEntry(rule, resolved, conditions, spec, payload, model) {
     field: resolved.element,
     value,
     message: `A ${resolved.section} row was added with ${humanise(resolved.element)} `
-      + `“${value}”${describeCondition(conditions)}.`
+      + `“${value}”${describeCondition(conditions, rule.conditionLogic)}.`
   }];
 }
 
@@ -280,7 +293,7 @@ function runDerivationRule(rule, payload, model, mode = 'both') {
   if (mode === 'create') return [];
 
   for (const row of rows) {
-    if (!conditionsHold(conditions, payload, resolved.section, row, model)) continue;
+    if (!conditionsHold(conditions, payload, resolved.section, row, model, rule.conditionLogic)) continue;
     // Already filled: the pipeline would refuse to overwrite it anyway, and proposing a value for
     // a field that has one is a normalisation, which is a different stage and a different consent.
     if (!isEmptyValue(row.record[resolved.element])) continue;
@@ -298,8 +311,8 @@ function runDerivationRule(rule, payload, model, mode = 'both') {
       value,
       message: spec.kind === 'reference'
         ? `${label(resolved)} was filled in as “${value}”, copied from ${spec.reference.field}`
-          + `${describeCondition(conditions)}.`
-        : `${label(resolved)} was filled in as “${value}”${describeCondition(conditions)}.`
+          + `${describeCondition(conditions, rule.conditionLogic)}.`
+        : `${label(resolved)} was filled in as “${value}”${describeCondition(conditions, rule.conditionLogic)}.`
     });
   }
   return entries;
@@ -324,6 +337,8 @@ function conditionProblems(rule, model) {
       errors.push({ field: pair.field, message: 'A condition value needs a field.' });
     }
   }
+  const logicProblem = conditionLogicError(rule.conditionLogic);
+  if (logicProblem) errors.push({ field: 'conditionLogic', message: logicProblem });
   return errors;
 }
 
