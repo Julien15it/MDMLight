@@ -760,8 +760,8 @@ class ChangeRequestService extends cds.ApplicationService {
             : undefined,
           // Only where a human is looking and only for the whole record. A field trigger passes a
           // `scope` and must not pay for a remote round trip on every keystroke, and the submit
-          // path has its own stage list. Roles are left out of the payload so the check draws no
-          // vendor number -- see INCLUDE_ROLES in bp-check.js.
+          // path has its own stage list. Roles and relations ARE sent, so the customer and vendor
+          // tiers run and each press costs a vendor number -- see INCLUDE_ROLES in bp-check.js.
           checkStandard: standard && !scope
             ? createBpCheckStage({ requestId: req.data.ChangeRequest || null })
             : undefined,

@@ -41,7 +41,7 @@ test('only a draft row offers navigation', () => {
 });
 
 // Hiding it is courtesy, the service checks the scope. Since the Duplicate Rules button moved to
-// the MDM Rules tile, this is the last steward-gated action on the list report.
+// the MDM Configuration Panel tile, this is the last steward-gated action on the list report.
 test('the change requests button is hidden from anyone without the steward scope', () => {
   assert.equal(listActions.ChangeRequests.visible, '{perm>/isDataSteward}');
 });

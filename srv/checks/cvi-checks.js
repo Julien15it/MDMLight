@@ -443,6 +443,10 @@ function accountGroupEntries(payload, config) {
       field: target.payloadField,
       value: accountGroup,
       createsRow: true,
+      label: 'CVI customizing',
+      // Not a proposal: TBD001 decides this and it is what creates the Customers/Suppliers node,
+      // without which the customer and vendor checks never run. See `systemDerived` in pipeline.js.
+      system: true,
       message: `${target.label.replace(/^./, (first) => first.toUpperCase())} account group ${accountGroup} comes from grouping ${grouping} in the S/4 CVI customizing, which ${roles.join(', ')} needs. It is not a free choice: this is the account group CVI will use.`
     });
   }

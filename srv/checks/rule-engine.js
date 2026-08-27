@@ -244,6 +244,7 @@ function createdRowEntry(rule, resolved, conditions, spec, payload, model) {
     // where the row actually landed.
     index: 0,
     createsRow: true,
+    label: 'Derivation rule',
     field: resolved.element,
     value,
     message: `A ${resolved.section} row was added with ${humanise(resolved.element)} `
@@ -292,6 +293,7 @@ function runDerivationRule(rule, payload, model, mode = 'both') {
       target: targetFor(resolved.section),
       index: row.index,
       createRow: row.createRow || undefined,
+      label: 'Derivation rule',
       field: resolved.element,
       value,
       message: spec.kind === 'reference'

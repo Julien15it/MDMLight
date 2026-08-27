@@ -14,14 +14,15 @@
  * number (`VMD_API/043`), STCEG plausibility (`CVI_API/007`), and a grouping with external number
  * assignment (`R1/091`). None of those are derivable from this app's own tables.
  *
- * Two things this deliberately does NOT do:
+ * **Roles and relations are both sent**, so the customer/supplier checks arrive as well. That costs
+ * a vendor number per run, accepted as product behaviour on 2026-08-26 -- see `INCLUDE_ROLES`.
  *
- * - **Field properties.** This app owns them; they live in its own configuration tables and are
- *   not mirrored from SPRO, because keeping a two-way binding in step is more machinery than the
- *   app wants. The service separates SAP's field-status verdicts into `SuppressedJson`, which this
- *   module never surfaces. Measured empty in practice -- a test run does not reach that layer at
- *   all -- so this is a safety net rather than a filter that does daily work.
- * - **Roles, by default.** See `INCLUDE_ROLES` below. This is about number ranges, not coverage.
+ * The one thing this deliberately does NOT do is **field properties**. This app owns them; they
+ * live in its own configuration tables and are not mirrored from SPRO, because keeping a two-way
+ * binding in step is more machinery than the app wants. The service separates SAP's field-status
+ * verdicts into `SuppressedJson`, which this module never surfaces. Measured empty in practice -- a
+ * test run does not reach that layer at all -- so it is a safety net rather than a filter that does
+ * daily work.
  */
 
 const cds = require('@sap/cds');
@@ -50,45 +51,49 @@ const SERVICE = 'ZMDML_BPCHECK';
 const ACTION = 'BPChecks/com.sap.gateway.srvd_a2x.zmdml_bpcheck.v0001.check';
 
 /**
- * **The tier switch, and it is about number ranges.**
+ * **The tier switch. `true` since 2026-08-26, and the cost is number-range gaps.**
  *
  * CVI syncs a vendor because the BP carries a vendor role, and that one sync both produces the
- * vendor-level checks and draws a vendor number. The two are inseparable -- measured: dropping the
- * supplier node changed neither the messages nor the draw, and `ROLLBACK WORK` does not return the
- * number because number assignment commits outside the calling LUW.
+ * vendor-level checks (`VMD_API/043` EU VAT, `CVI_API/007` STCEG plausibility) and draws a vendor
+ * number. The two are inseparable, measured three ways: dropping the supplier node changed neither
+ * the messages nor the draw; sending the node *without* the role produced only
+ * `CVI_EI/039 Partner does not have a vendor role` and checked nothing; and `ROLLBACK WORK` does
+ * not return the number, because number assignment commits outside the calling LUW.
  *
- * With roles: `VMD_API/043` and `CVI_API/007` arrive, and `NRIV KREDITOR/02` advances by a buffer
- * block every run that reaches `MAINTAIN`. Without: no number is drawn from any range, and the BP
- * central-data checks still come through.
+ * So there is no configuration that gets the checks for free. `NRIV KREDITOR/02` advances by a
+ * buffer block on every run that reaches `MAINTAIN` -- measured at 5 per block, `BU_PARTNER` not
+ * drawn at all.
  *
- * `false` here because the Check button is pressed repeatedly while a form is being filled in, and
- * spending a vendor number per press is not defensible.
+ * **Decided at the product meeting on 2026-08-26: gaps are acceptable.** MDG and SAP standard
+ * behave the same way -- a few numbers jump whenever checks fire -- so this is normal for the
+ * product rather than a defect it introduces. The vendor range is 100000-199999 and was at ~100144
+ * on that date.
  *
- * **The consequence, and it is not shown to the requester:** role validity and everything specific
- * to the customer or supplier side is NOT checked, because the roles are not sent. The service
- * still says so in `CoverageJson` for whoever is debugging, but the screen deliberately does not --
- * a requester gets either nothing to fix or something actionable, not a report on what was looked
- * at. So this constant is the only place that consequence is recorded. Do not flip it without
- * deciding what a vendor number per button press costs.
- *
- * Pending a product decision on number-range gaps. The full tier belongs at submit, or better at
- * the enricher step, where it runs once per request.
+ * Worth revisiting only if a customer's auditors object to vendor numbering gaps, or if the range
+ * starts running short. The cheaper shape then is not to weaken the check but to move it: once per
+ * submit, or at the enricher step, rather than once per button press.
  */
-const INCLUDE_ROLES = false;
+const INCLUDE_ROLES = true;
 
 /**
- * Off, and measured rather than assumed. Sending the customer/supplier node WITHOUT its role was
- * the one combination that might have bought the relation-level checks for free: it draws no
- * number, but CVI gates on the role before it looks at the data and answers
- * `CVI_EI/039 Partner does not have a vendor role, you cannot create a vendor` -- so the account
- * group, company code and withholding tax data are never examined. The only thing gained is a
- * spurious complaint about a role the requester did in fact ask for.
+ * Moves with `INCLUDE_ROLES` and only with it -- the trade is binary. Sending the customer/supplier
+ * node WITHOUT its role was measured and buys nothing: CVI gates on the role before it looks at the
+ * data, answers `CVI_EI/039 Partner does not have a vendor role, you cannot create a vendor`, and
+ * examines neither the account group nor the company code nor the withholding tax.
  *
- * So the trade is binary: send the role and get the relation checks plus one vendor number, or
- * send neither. There is no middle setting, and this constant should move only together with
- * `INCLUDE_ROLES`.
+ * **Two things in ZCL_MDML_BPCHECK are marked UNCONFIRMED and are first exercised by this being
+ * true**, so a failure here is more likely than anywhere else in the module:
+ *
+ * 1. `Customers`/`Suppliers` are `many: false` in `PAYLOAD_NODES`, so a real request may send them
+ *    as objects while the ABAP types them as tables. (The parse runs regardless of these flags, so
+ *    this one was never actually gated by them.)
+ * 2. The `VMDS_EI_EXTERN` paths (`vendor-header-object_instance-lifnr`,
+ *    `vendor-central_data-central-data-ktokk`) were mirrored from `CMDS_EI_EXTERN` by symmetry,
+ *    not read from the system.
+ *
+ * See `mdmlbpcheck/README.md`.
  */
-const INCLUDE_RELATIONS = false;
+const INCLUDE_RELATIONS = true;
 
 /**
  * Warning, not error, and this is the knob -- same reasoning as `ROLE_CATEGORY_SEVERITY` in
@@ -193,9 +198,17 @@ function toFindings(messages) {
  * Headers are deliberately NOT logged: they carry the bearer token and the CSRF token.
  */
 function logRemoteFailure(error) {
-  const response = error?.response || error?.cause?.response || error?.rootCause?.response;
+  // `error.reason.response` FIRST, and that ordering is the fix: CAP wraps the remote failure and
+  // reports its own 502 on the outer error while the real status and body sit on `reason`. The
+  // first version read the outer one and printed "status 502: (no response body)" over a perfectly
+  // good `500 RAISE_SHORTDUMP` -- a log line that hid the answer it existed to show.
+  const response = error?.reason?.response
+    || error?.response
+    || error?.cause?.response
+    || error?.rootCause?.response;
+
   const status = response?.status ?? error?.status ?? error?.statusCode;
-  const body = response?.data ?? error?.cause?.message;
+  const body = response?.body ?? response?.data ?? error?.cause?.message;
 
   const detail = typeof body === 'string' ? body.slice(0, 2000)
     : body ? JSON.stringify(body).slice(0, 2000)

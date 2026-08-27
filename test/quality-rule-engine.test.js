@@ -523,3 +523,15 @@ test('the configured validations run on their own for the submit path', async ()
   assert.equal(findings.length, 1);
   assert.equal(findings[0].check, 'configured_validation');
 });
+
+test('a configured derivation is labelled in three words', async () => {
+  const rules = [{
+    field: 'General.Language', value: 'NL', sequence: 1, isActive: true
+  }];
+  const stages = createConfiguredStages({ derivations: rules, model });
+  const { applied } = await runDerivations(payload({}), stages.derivations);
+
+  assert.equal(applied.length, 1);
+  assert.equal(applied[0].label, 'Derivation rule');
+  assert.equal(applied[0].system, false);
+});

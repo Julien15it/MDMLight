@@ -53,6 +53,8 @@ function addressDerivations(addresses, rows, source) {
         createsRow,
         field,
         value: official[field],
+        // Names the source, not the action: a requester needs to know which register to argue with.
+        label: `${source} check`,
         message: `${field} was filled in as “${official[field]}” from ${source}`
           + `${createsRow ? ' (a new address)' : ''}.`
       });

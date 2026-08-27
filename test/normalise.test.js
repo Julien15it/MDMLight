@@ -4,9 +4,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
-  NORMALISABLE, SYSTEM_PROMPT, fieldsText, normalisableFields, normaliseConfig,
+  NORMALISABLE, PROPOSAL_SCHEMA, SYSTEM_PROMPT, fieldsText, normalisableFields, normaliseConfig,
   normaliseModelName, parseJson, proposeNormalisations, sanitizeProposals,
-  deterministicProposals, mergeProposals, promptInput, recordContext
+  deterministicProposals, mergeProposals, promptInput, recordContext, shortReason
 } = require('../srv/checks/normalise');
 
 const payload = (root = {}, sections = {}) => ({ root, sections });
@@ -145,7 +145,7 @@ test('one proposal per field, and a missing reason still reads as something', ()
   }, fields);
   assert.equal(proposals.length, 1);
   assert.equal(proposals[0].proposed, 'Alluvion');
-  assert.equal(proposals[0].reason, 'formatting');
+  assert.equal(proposals[0].reason, 'Formatting');
 });
 
 test('malformed model output yields no proposals rather than throwing', () => {
@@ -216,7 +216,8 @@ test('a lower-case country code is proposed without asking a model', () => {
   assert.equal(proposals.length, 1);
   assert.deepEqual(proposals[0], {
     target: 'Addresses', index: 0, field: 'Country',
-    current: 'be', proposed: 'BE', reason: 'code in capitals'
+    current: 'be', proposed: 'BE', reason: 'Uppercase code',
+    detail: 'Country is a code and is stored in capitals, so “be” is proposed as “BE”.'
   });
 });
 
@@ -337,4 +338,47 @@ test('a well-shaped proposal is kept and counted', async () => {
   } finally {
     console.log = log;
   }
+});
+
+// --- The Why column: three words, with the sentence behind the tooltip ------
+
+test('a reason longer than three words is clamped to three', () => {
+  assert.equal(shortReason('legal form capitalisation is wrong here'), 'legal form capitalisation');
+  assert.equal(shortReason('Legal form'), 'Legal form');
+  assert.equal(shortReason('   Street   type   spelled  out '), 'Street type spelled');
+  assert.equal(shortReason(undefined), '');
+});
+
+test('the prompt asks for a three-word reason and a one-or-two-sentence detail', () => {
+  assert.match(SYSTEM_PROMPT, /AT MOST THREE WORDS/u);
+  assert.match(SYSTEM_PROMPT, /ONE OR TWO short sentences/u);
+  assert.equal(PROPOSAL_SCHEMA.properties.proposals.items.required.includes('detail'), true);
+});
+
+test('a sanitized proposal carries a short reason and a full detail', () => {
+  const fields = normalisableFields(payload({ OrganizationBPName1: 'acme bvba' }));
+  const [proposal] = sanitizeProposals({
+    proposals: [{
+      target: 'root',
+      index: 0,
+      field: 'OrganizationBPName1',
+      proposed: 'Acme BVBA',
+      reason: 'legal form capitalisation and spacing',
+      detail: 'Name 1 was entered as "acme bvba". The legal form is written BVBA, so "Acme BVBA" is proposed.'
+    }]
+  }, fields);
+
+  assert.equal(proposal.reason, 'legal form capitalisation');
+  assert.match(proposal.detail, /^Name 1 was entered/u);
+});
+
+// A hover that shows nothing reads as a broken tooltip, not as "nothing more to say".
+test('a proposal with no detail still gets a sentence to hover', () => {
+  const fields = normalisableFields(payload({ OrganizationBPName1: 'acme' }));
+  const [proposal] = sanitizeProposals({
+    proposals: [{ target: 'root', index: 0, field: 'OrganizationBPName1', proposed: 'Acme', reason: 'Capitalisation' }]
+  }, fields);
+
+  assert.equal(proposal.reason, 'Capitalisation');
+  assert.match(proposal.detail, /OrganizationBPName1 is proposed as “Acme” instead of “acme”\./u);
 });
