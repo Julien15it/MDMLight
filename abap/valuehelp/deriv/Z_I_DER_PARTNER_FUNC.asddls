@@ -40,6 +40,9 @@ define view entity Z_I_DER_PARTNER_FUNC
       // higher-level SP as a second, separate row.
       cast( PartnerFunction.uparv as abap.char( 2 ) )     as HigherLevelFunction,
 
-      PartnerFunction.stein                               as PartnerCategory,
+      // STEIN's own label is "Unique in the master" / "Uniqueness in the master
+      // data" -- it is a uniqueness flag, not a category. First written as
+      // `PartnerCategory`, which was simply wrong.
+      PartnerFunction.stein                               as IsUniqueInMasterData,
       PartnerFunction.hityp                               as HierarchyType
 }

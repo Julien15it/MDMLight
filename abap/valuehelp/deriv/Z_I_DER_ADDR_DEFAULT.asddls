@@ -20,12 +20,17 @@ define view entity Z_I_DER_ADDR_DEFAULT
       // for: the name format S/4 uses for this country. Not staged today.
       Country.nmfmt as NameFormat,
 
-      // Not derivations -- the guards a derivation needs so it can say "this
-      // country has no regions" instead of deriving from nothing. XREGS, not
-      // XREGI. Region matters twice over: TTZ5S is keyed by it, so a missing
-      // region means no time zone either.
-      Country.xregs as RegionIsMandatory,
-      Country.xaddr as AddressCheckActive,
+      // Named from the columns' OWN sap:label, read off the served $metadata on
+      // 2026-08-27, not from what I hoped they meant. Both of these were first
+      // written as guards for a region derivation -- `RegionIsMandatory` and
+      // `AddressCheckActive` -- and neither column says anything of the kind:
+      //   XREGS is "City file active"        (Flag: City file address check)
+      //   XADDR is "Print C/R Name"          (print country for foreign addresses)
+      // So T005 carries NO region-mandatory flag, and the region gap still has
+      // no source. Kept under their real names because they are cheap and on the
+      // same row, not because a derivation uses them.
+      Country.xregs as CityFileActive,
+      Country.xaddr as PrintCountryName,
       Country.lnplz as PostalCodeLength,
       Country.prplz as PostalCodeCheckRule,
 

@@ -31,8 +31,11 @@ define view entity Z_I_DER_PARTNER_FUNC_PROC
       // 'X' = S/4 requires this function. The whole point of the view.
       ProcedureFunction.papfl                          as IsMandatory,
 
-      // Whether the assignment may be changed, and whether it must be unique.
-      ProcedureFunction.aendb                          as IsChangeable,
+      // **`NoChangeAllowed`, NOT `IsChangeable`.** AENDB's own label is "No
+      // change possible" -- "After entry, partner can no longer be changed in
+      // the document". The first name inverted it, which is the kind of thing
+      // that reads correctly right up to the moment it decides something.
+      ProcedureFunction.aendb                          as NoChangeAllowed,
       ProcedureFunction.parei                          as IsUnique,
       ProcedureFunction.sortf                          as SortOrder,
 

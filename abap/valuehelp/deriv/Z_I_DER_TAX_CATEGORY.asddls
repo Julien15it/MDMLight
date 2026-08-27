@@ -24,5 +24,7 @@ define view entity Z_I_DER_TAX_CATEGORY
   key Category.talnd as Country,
   key Category.lfdnr as SequenceNumber,
       Category.tatyp as TaxCategory,
-      Category.stprz as IsPercentage
+      // STPRZ's label is "% rate from T007" -- it says the rate comes from
+      // table T007, not that the category is a percentage.
+      Category.stprz as RateFromTableT007
 }
