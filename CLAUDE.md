@@ -764,9 +764,30 @@ second entry that finds the row the first one made. `runDerivations` applies eac
 as it goes, so within one stage a later entry sees an earlier entry's row. Without it the row would
 carry a tax category and no departure country — half a `KNVI` key.
 
-Still not built: **partner functions**, because nothing found so far links an account group to a
-determination procedure. `Z_I_DER_PARTNER_FUNC_PROC` carries `TPAER-PAPFL`, the mandatory flag, and
-is exposed but unconsumed for exactly that reason.
+- **Mandatory customer partner functions** from `TKUPA` → `TPAER`, added 2026-08-27 once the link was
+  found. `TKUPA`'s key is the **account group alone**; `T077D` carries no procedure and
+  `T077D-KALSM` turned out to be output determination. Only **`PartnerType` = 'KU'** rows are
+  proposed — `TPAR-NRART` is what stops a vendor function landing on a customer sales area, the same
+  class of error `accountGroupConflictFindings` reports. **`BPCustomerNumber` and `PartnerCounter`
+  are never proposed**: SAP defaults those functions to the customer itself, which on a create has
+  no number, and the counter is S/4's to assign. Needs a `CustomerSalesArea` row, because the node
+  is keyed by one; three extra entries fill that key from the row the requester already added.
+
+##### The rule about what a derivation may say (Maarten, 2026-08-27)
+
+**A requester never reads "you could have X if you filled in Y."** They fill in what they know, and
+the system completes whatever it can. So a derivation that cannot fire for want of an input derives
+nothing and **says nothing** — no strip about a missing region, no note about an absent sales area.
+A message they cannot act on and did not ask for is noise, however true it is.
+
+Two things this does **not** cover, and both still speak:
+
+- **What the derivation did but only partly.** "This country has 5 tax categories, one row is
+  proposed" reports the result, not a prerequisite. One of five read as all five is a wrong answer;
+  the region note was merely unasked-for advice.
+- **Settings that could not be read at all.** A derivation that silently did nothing is
+  indistinguishable from one that had nothing to do, which is the failure this codebase refuses
+  everywhere.
 
 #### Two standard-check messages nobody could clear (fixed 2026-08-27)
 

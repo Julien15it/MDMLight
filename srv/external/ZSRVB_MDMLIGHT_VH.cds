@@ -1305,3 +1305,33 @@ entity ZSRVB_MDMLIGHT_VH.DerPartnerFunctionProcedures {
   @sap.quickinfo : 'Type of partner number'
   PartnerType : String(2);
 };
+
+@cds.external : true
+@cds.persistence.skip : true
+@sap.creatable : 'false'
+@sap.updatable : 'false'
+@sap.deletable : 'false'
+@sap.content.version : '1'
+@sap.label : 'Derivation: partner functions per account group'
+entity ZSRVB_MDMLIGHT_VH.DerPartnerFunctionAccGrp {
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Account group'
+  @sap.quickinfo : 'Customer Account Group'
+  key AccountGroup : String(4) not null;
+  key PartnerFunction : String(2) not null;
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'PartnerDetermProced.'
+  @sap.quickinfo : 'Partner Determination Procedure'
+  DeterminationProcedure : String(4);
+  @sap.label : 'Partner mandatory'
+  @sap.quickinfo : 'Partner is mandatory'
+  IsMandatory : Boolean;
+  @sap.display.format : 'NonNegative'
+  @sap.label : 'Sequence'
+  @sap.quickinfo : 'Sequence in which partners are determined in the sales doc.'
+  SortOrder : String(2);
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Partner Type'
+  @sap.quickinfo : 'Type of partner number'
+  PartnerType : String(2);
+};

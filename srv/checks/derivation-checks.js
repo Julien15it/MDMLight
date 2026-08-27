@@ -36,15 +36,17 @@ function invalidate() {
 
 async function readConfiguration() {
   const service = await cds.connect.to(SERVICE);
-  const [countries, taxCategories, timeZones] = await Promise.all([
+  const [countries, taxCategories, timeZones, partnerFunctions] = await Promise.all([
     service.run(cds.ql.SELECT.from('DerAddressDefaults')),
     service.run(cds.ql.SELECT.from('DerTaxCategories')),
-    service.run(cds.ql.SELECT.from('DerTimeZones'))
+    service.run(cds.ql.SELECT.from('DerTimeZones')),
+    service.run(cds.ql.SELECT.from('DerPartnerFunctionAccGrp'))
   ]);
   return {
     countries: Array.isArray(countries) ? countries : [],
     taxCategories: Array.isArray(taxCategories) ? taxCategories : [],
-    timeZones: Array.isArray(timeZones) ? timeZones : []
+    timeZones: Array.isArray(timeZones) ? timeZones : [],
+    partnerFunctions: Array.isArray(partnerFunctions) ? partnerFunctions : []
   };
 }
 
@@ -107,9 +109,8 @@ function addressLanguageEntries(payload, { countries }) {
  * The address time zone, from `TTZ5S`.
  *
  * **Keyed by country AND region**, which is the whole shape of this one: `TTZ5S` assigns zones to
- * regions, not to postal codes, so an address with no region has nothing to derive. Said as a
- * statement rather than skipped silently, because "no time zone appeared" and "your address needs a
- * region first" are different answers to a requester.
+ * regions, not to postal codes, so an address with no region has nothing to derive — and nothing is
+ * said about it.
  *
  * `AddressTimeZone` is part of the key, so a country + region may carry several zones. `IsDefault`
  * is what makes this a derivation rather than a validity list: propose the row S/4 marks default,
@@ -118,18 +119,18 @@ function addressLanguageEntries(payload, { countries }) {
  */
 function timeZoneEntries(payload, { timeZones }) {
   const entries = [];
-  let missingRegion = 0;
 
   liveRows(payload, 'Addresses').forEach((row, index) => {
     const country = text(row?.Country);
     if (!country) return;
     if (text(row?.AddressTimeZone)) return;
 
+    // No region, nothing to derive, and NOTHING SAID. Maarten's rule, 2026-08-27: a requester does
+    // not need to read "you could have X if you filled in Y". They fill in what they know and the
+    // system completes what it can. Telling them otherwise is a strip they cannot act on and did
+    // not ask for.
     const region = text(row?.Region);
-    if (!region) {
-      missingRegion += 1;
-      return;
-    }
+    if (!region) return;
 
     const matches = timeZones.filter(
       (entry) => text(entry.Country) === country && text(entry.Region) === region
@@ -153,15 +154,6 @@ function timeZoneEntries(payload, { timeZones }) {
     });
   });
 
-  // Only where something could otherwise have been derived, and only once however many rows are
-  // short of a region -- one strip per address would be noise about the same missing field.
-  if (missingRegion && timeZones.length) {
-    entries.push({
-      message: `${missingRegion} address(es) have no region, so no time zone could be derived — `
-        + 'S/4 assigns time zones per region, not per postal code.'
-    });
-  }
-
   return entries;
 }
 
@@ -177,8 +169,12 @@ function timeZoneEntries(payload, { timeZones }) {
  * The pipeline creates a row only when the section is EMPTY, and only its first row, so this can
  * propose exactly one -- the lowest sequence number. A requester who has already added tax rows
  * keeps theirs untouched, and the rest of a multi-category country stays a manual add until the
- * pipeline can propose more than one row. Said out loud rather than silently dropped: see the
- * `remaining` message below.
+ * pipeline can propose more than one row.
+ *
+ * **The remaining categories ARE named**, and that is not the same thing as the prerequisite
+ * messages this file no longer emits: it reports what the derivation did and did not cover, not
+ * what the requester should go and type first. "One of five" read as "all of them" is the wrong
+ * answer; "fill in a region and you could have a time zone" is merely unasked-for advice.
  */
 function taxCategoryEntries(payload, { taxCategories }) {
   // The departure country is the partner's own address country -- the tax country of a customer is
@@ -238,6 +234,88 @@ function taxCategoryEntries(payload, { taxCategories }) {
 }
 
 /**
+ * The mandatory customer partner functions, from `TKUPA` -> `TPAER`.
+ *
+ * The chain, and every link of it was probed rather than assumed: grouping -> customer account
+ * group (`TBD001`, already derived by `cvi_account_group`) -> determination procedure (`TKUPA`,
+ * keyed by account group alone) -> the functions that procedure marks mandatory (`TPAER-PAPFL`).
+ * Measured on S4A: `0002` -> `KUNA` -> `AG` -> `AG, RE, RG, WE`.
+ *
+ * **Only `PartnerType` = 'KU' rows.** `TPAR-NRART` says which side a function belongs to, and a
+ * vendor function proposed onto a customer sales area is the same class of error
+ * `accountGroupConflictFindings` reports. Filtering here rather than trusting the procedure.
+ *
+ * **`BPCustomerNumber` and `PartnerCounter` are left empty**, decided 2026-08-27. SAP defaults these
+ * four functions to the customer itself, which on a create has no number yet; and `PartnerCounter`
+ * is S/4's to assign. So the derivation proposes the FUNCTION, and S/4 fills the rest at post time.
+ *
+ * Needs a sales area row, because `StagedCustomerSalesPartnerFunc` is keyed by one. When there is
+ * none it derives nothing **and says nothing** -- see the time zone above for why.
+ */
+function partnerFunctionEntries(payload, { partnerFunctions }) {
+  const [salesArea] = liveRows(payload, 'CustomerSalesArea');
+  if (!salesArea) return [];
+
+  const accountGroup = text(liveRows(payload, 'Customers')[0]?.CustomerAccountGroup);
+  if (!accountGroup) return [];
+
+  // Not into a section somebody has already filled: those rows are theirs.
+  if (liveRows(payload, 'CustomerSalesPartnerFunctions').length) return [];
+
+  const mandatory = partnerFunctions
+    .filter((row) => text(row.AccountGroup) === accountGroup)
+    .filter((row) => row.IsMandatory)
+    .filter((row) => text(row.PartnerType) === 'KU')
+    .sort((left, right) => text(left.SortOrder).localeCompare(text(right.SortOrder)));
+  if (!mandatory.length) return [];
+
+  // The pipeline creates only the FIRST row of an empty section, so one function is proposed and
+  // the rest are named. Same shape, and the same reasoning, as the tax categories.
+  const [first, ...remaining] = mandatory;
+  const procedure = text(first.DeterminationProcedure);
+
+  const entries = [{
+    target: 'CustomerSalesPartnerFunctions',
+    index: 0,
+    createsRow: true,
+    field: 'PartnerFunction',
+    value: text(first.PartnerFunction),
+    label: 'Mandatory function',
+    message: `Partner function ${text(first.PartnerFunction)} is mandatory for account group `
+      + `${accountGroup} under determination procedure ${procedure} in S/4. The partner number is `
+      + 'left for S/4 to assign at post time.'
+  }];
+
+  // The sales area the row belongs to, filled from the row the requester already added -- three
+  // more entries, because createsRow writes one field and these complete the key.
+  for (const [field, value] of [
+    ['SalesOrganization', text(salesArea.SalesOrganization)],
+    ['DistributionChannel', text(salesArea.DistributionChannel)],
+    ['Division', text(salesArea.Division)]
+  ]) {
+    if (!value) continue;
+    entries.push({
+      target: 'CustomerSalesPartnerFunctions',
+      index: 0,
+      field,
+      value,
+      label: 'Sales area',
+      message: `${field} ${value} is taken from the sales area on this request.`
+    });
+  }
+
+  if (remaining.length) {
+    entries.push({
+      message: `Account group ${accountGroup} has ${mandatory.length} mandatory partner functions `
+        + `under procedure ${procedure} (${mandatory.map((row) => text(row.PartnerFunction)).join(', ')}). `
+        + 'One row is proposed; add the others by hand if this customer needs them.'
+    });
+  }
+
+  return entries;
+}
+
+/**
  * One stage, not two, and the reason is the pipeline's own: every rule in a single stage sees the
  * same payload, because entries are applied only after the stage returns. These two touch different
  * sections and neither reads what the other writes, so they can share one -- unlike the configured
@@ -256,14 +334,17 @@ function createDerivationStages({ read = readConfiguration } = {}) {
           // turns a thrown derivation into an info line and carries on, but naming the lookup that
           // failed beats a bare stack message.
           return [{
-            message: `The S/4 derivation settings could not be read (${error.message}), so the `
-              + 'address language and tax categories were not derived.'
+            // The one message this file DOES emit unprompted, and it earns it: a derivation that
+            // silently did nothing is indistinguishable from one that had nothing to do.
+            message: `The S/4 derivation settings could not be read (${error.message}), so nothing `
+              + 'was derived from them.'
           }];
         }
         return [
           ...addressLanguageEntries(payload, config),
           ...timeZoneEntries(payload, config),
-          ...taxCategoryEntries(payload, config)
+          ...taxCategoryEntries(payload, config),
+          ...partnerFunctionEntries(payload, config)
         ];
       }
     }]
@@ -280,6 +361,7 @@ module.exports = {
     addressLanguageEntries,
     timeZoneEntries,
     taxCategoryEntries,
+    partnerFunctionEntries,
     liveRows
   }
 };
