@@ -22,6 +22,8 @@
 
 const cds = require('@sap/cds');
 
+const { readAllOf } = require('./config-reader');
+
 const SERVICE = 'ZSRVB_MDMLIGHT_VH';
 
 // Same 60s TTL as cvi-checks.js, rule-store.js and field-property-store.js. This is customizing: it
@@ -36,13 +38,13 @@ function invalidate() {
 
 async function readConfiguration() {
   const service = await cds.connect.to(SERVICE);
-  const [countries, taxCategories, timeZones, partnerFunctions, supplierFunctions] = await Promise.all([
-    service.run(cds.ql.SELECT.from('DerAddressDefaults')),
-    service.run(cds.ql.SELECT.from('DerTaxCategories')),
-    service.run(cds.ql.SELECT.from('DerTimeZones')),
-    service.run(cds.ql.SELECT.from('DerPartnerFunctionAccGrp')),
-    service.run(cds.ql.SELECT.from('DerSupplierFunctionAccGrp'))
-  ]);
+  // Paged, not a bare SELECT: the remote service caps a response at 100 rows, and a first page used
+  // as the whole table is what silently lost account group DEBI. See config-reader.js.
+  const [countries, taxCategories, timeZones, partnerFunctions, supplierFunctions] = await readAllOf(
+    service,
+    ['DerAddressDefaults', 'DerTaxCategories', 'DerTimeZones',
+      'DerPartnerFunctionAccGrp', 'DerSupplierFunctionAccGrp']
+  );
   return {
     countries: Array.isArray(countries) ? countries : [],
     taxCategories: Array.isArray(taxCategories) ? taxCategories : [],

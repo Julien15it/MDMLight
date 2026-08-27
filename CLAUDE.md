@@ -832,6 +832,41 @@ Two things this does **not** cover, and both still speak:
   indistinguishable from one that had nothing to do, which is the failure this codebase refuses
   everywhere.
 
+##### The customizing reads are paged, and were not (fixed 2026-08-27)
+
+**The remote value-help service caps a response at 100 rows.** `cvi-checks.js` and
+`derivation-checks.js` both read their customizing with a bare
+`service.run(cds.ql.SELECT.from(entity))` and used the answer as the whole table. Twelve reads,
+every one of them silently truncated. `srv/checks/config-reader.js` is the fix and both files now
+call `readAllOf`.
+
+How it presented, because the shape of this is worth keeping:
+
+- Tables **under** 100 rows were complete, so most checks worked. `taxCategories` (51) and
+  `supplierFunctions` (12) were always right.
+- `DerPartnerFunctionAccGrp` is keyed `(AccountGroup, PartnerFunction)` and account group `0001`
+  alone is 18 rows, so page one never reached `DEBI`. Correct customizing, a valid payload, and
+  **nothing proposed**.
+- `countries` and `timeZones` were capped too and nobody noticed, because `BE` is early
+  alphabetically.
+
+Two decisions inside `config-reader.js`:
+
+- **`skip` advances by what arrived, never by `pageSize`.** Ask for 500, get 100, start the next
+  read at 100. The server's page size is its own business and is not worth discovering.
+- **The loop ends on an EMPTY page, not a short one.** `readAllPages` in
+  `business-partner-service.js` stops on a short page, which is right when the caller sets the page
+  size and is exactly wrong here — the read that lost `DEBI` was short *because* the server capped
+  it. One extra round trip per table per cache period, against a 60s cache.
+
+Diagnosing this took three rounds of wrong guesses, all of them inference from partial data, and it
+was `[sap-derivations]` in `cf logs` that ended it in one press. The log line is in
+`derivation-checks.js#diagnose` and reports the five config **row counts** alongside every field the
+builders branch on — because a truncated read looks exactly like customizing that says nothing.
+
+Still unpaged, deliberately: `fetchWorkflowEntityRows` reads one partner's child rows, where 100 is
+not a realistic count. Everything else on that list is local Postgres, where the cap does not apply.
+
 #### Two standard-check messages nobody could clear (fixed 2026-08-27)
 
 Both reported from the live app after the customer/supplier tier went on, and both were in the
