@@ -9,7 +9,7 @@
 // Country-level only, deliberately. Time zone lives on TTZ5S keyed by country
 // AND region, so it is its own view: putting it here would multiply this one by
 // every region and make the country default ambiguous.
-define view entity Z_I_CVI_ADDR_DEFAULT
+define view entity Z_I_DER_ADDR_DEFAULT
   as select from t005 as Country
 {
   key Country.land1 as Country,
