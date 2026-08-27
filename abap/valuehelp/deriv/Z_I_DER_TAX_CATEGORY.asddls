@@ -16,11 +16,13 @@
 //
 // LFDNR is the sequence S/4 keeps them in, and it is part of the key: a country
 // with three categories has three rows, numbered.
+// The source alias is `Category`, not `TaxCategory`: a field alias that matches
+// the data source alias is at best unreadable and at worst rejected.
 define view entity Z_I_DER_TAX_CATEGORY
-  as select from tstl as TaxCategory
+  as select from tstl as Category
 {
-  key TaxCategory.talnd as Country,
-  key TaxCategory.lfdnr as SequenceNumber,
-      TaxCategory.tatyp as TaxCategory,
-      TaxCategory.stprz as IsPercentage
+  key Category.talnd as Country,
+  key Category.lfdnr as SequenceNumber,
+      Category.tatyp as TaxCategory,
+      Category.stprz as IsPercentage
 }

@@ -14,11 +14,14 @@
 //
 // TIME_ZONE depends on REGION, so a request with no region has nothing to
 // derive here. Region first, then this.
+// `AddressTimeZone`, not `TimeZone`: TIMEZONE is a CDS reserved word and the
+// view will not activate with it. Named for where the value lands -- ADRC's own
+// column is TIME_ZONE, on the address.
 define view entity Z_I_DER_TIME_ZONE
   as select from ttz5s as Assignment
 {
   key Assignment.land1    as Country,
   key Assignment.bland    as Region,
-  key Assignment.tzone    as TimeZone,
+  key Assignment.tzone    as AddressTimeZone,
       Assignment.tzonedft as IsDefault
 }
