@@ -729,6 +729,29 @@ confirmed to exist with data; the full write-up, including two wrong table guess
 this whatever anyone ticks", which is true of the CVI account group and of nothing else here — a
 derived language or partner function is a proposal like every other.
 
+##### Two of them are live: `srv/checks/derivation-checks.js` (2026-08-27)
+
+One stage, `sap_derivations`, reading `DerivationConfigService` with the same 60s cache
+`cvi-checks.js` uses. It runs **last** in the derivation list — the pipeline never overwrites, so a
+steward's configured rule and a VIES lookup both outrank a country default, which is the weakest
+claim on any field here. On Check and Duplicate Check only; submit still validates without deriving.
+
+- **Address language** from `T005-SPRAS`, on **every** address row. Unlike the registry lookup this
+  is not a fact about one *place* that a second address would be wrong to inherit — every address in
+  a country has that country's default language. This is the `FSBP_GENERIC/008` field.
+- **Customer tax category** from `TSTL`, and the only multi-row derivation here. It proposes the
+  ROWS; **`CustomerTaxClassification` is left empty on purpose** — that is a decision about the
+  customer, not something any customizing table knows. Only fires when the request asks to be a
+  customer, and never into a section the requester already filled.
+- **A country with several tax categories is said out loud.** The pipeline creates only the first
+  row of an empty section, so the others come back as a `field`-less statement naming all of them.
+  Covering one of five silently would read as "these are all of them", which is the answer this
+  codebase refuses everywhere.
+
+Still not built, and both for a reason rather than an oversight: **time zone**, because
+`StagedAddresses` has no column to hold one (`TTZ5S` is ready and `Z_I_DER_TIME_ZONE` is exposed);
+and **partner functions**, because nothing links an account group to a determination procedure.
+
 #### Two standard-check messages nobody could clear (fixed 2026-08-27)
 
 Both reported from the live app after the customer/supplier tier went on, and both were in the
