@@ -76,7 +76,14 @@
    BusinessPartnerMaintenance.controller.js computes in _refreshChangeSummary - see "Highlighting
    what changed" in CLAUDE.md. Semantic theme tokens, so both colours stay correct in dark mode
    too, with a plain fallback for a theme that does not define them. Light-red vs light-orange, as
-   asked for: a value that already existed and was edited, versus one that is new. */
+   asked for: a value that already existed and was edited, versus one that is new.
+
+   mdmChangedField/mdmAddedField sit on individual field controls - the root form's own VBox
+   wrapper, a section record dialog's Input/Select, and (2026-08-27) a single summary-table cell for
+   a row that was only partly edited. There is deliberately no mdmChangedRow: colouring a whole row
+   for one changed field was the bug reported the same day - City changing painted Street and
+   Country too. An ADDED row is still tinted whole (mdmAddedRow) because every one of its fields
+   really is new, so there is nothing selective left to compute. */
 .mdmChangedField {
   background: var(--sapErrorBackground, #ffebee);
   border-radius: 0.5rem;
@@ -85,10 +92,6 @@
 .mdmAddedField {
   background: var(--sapWarningBackground, #fff4e5);
   border-radius: 0.5rem;
-}
-
-.mdmChangedRow, .mdmChangedRow > td {
-  background-color: var(--sapErrorBackground, #ffebee) !important;
 }
 
 .mdmAddedRow, .mdmAddedRow > td {

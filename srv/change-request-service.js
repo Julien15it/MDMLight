@@ -16,6 +16,37 @@ const { createRelationStages } = require('./checks/relation-checks');
 const { configuredStages } = require('./checks/rule-store');
 const { fieldPropertyStages, resolvedProperties } = require('./checks/field-property-store');
 const { dataStewardEmails } = require('./wf/data-stewards');
+const { emailsForRoleCollections, specificRoleFor } = require('./wf/btp-agents');
+
+// Categories a screen resolves to a literal - the only ones worth narrowing to a specific BTP role.
+// `Requester` is deliberately excluded: it names who submitted, never a role collection, and
+// requesterContext hardcodes it for exactly that reason.
+const RESOLVABLE_ROLE_CATEGORIES = ['Approver', 'DataSteward'];
+
+/**
+ * Narrows the generic category a screen sends (`Approver`/`DataSteward`) into the CURRENT user's own,
+ * more specific BTP role - "Approver Customer" rather than the bare "Approver" - so two Field
+ * Property Profiles scoped to different functions actually apply to different people, instead of
+ * both always matching the one screen every approver (or every data steward) renders. See
+ * `effectiveFieldProperties` below and CLAUDE.md "Field property profiles".
+ *
+ * Best-effort, and the fallback is the literal category the screen asked for - not an error, not a
+ * blocked render: an unreachable subaccount API, a user with no specific ...-prefixed role of their
+ * own, or one with SEVERAL (ambiguous, so `specificRoleFor` already returns null for it) all resolve
+ * the same way this whole page rendered before any of this existed.
+ */
+async function resolveEffectiveRole(req, role) {
+  if (!RESOLVABLE_ROLE_CATEGORIES.includes(role)) return role;
+  try {
+    const email = requestingUserEmail(req);
+    if (!email || email === 'unknown') return role;
+    const specific = await specificRoleFor(email, role);
+    return specific || role;
+  } catch (error) {
+    console.warn(`Could not resolve a specific ${role} role for this render:`, error.message);
+    return role;
+  }
+}
 const { approversFor } = require('./checks/workflow-rule-store');
 const { currentProcessors } = require('./request-processors');
 const { withFullName, fullNameOf } = require('./partner-name');
@@ -451,6 +482,20 @@ class ChangeRequestService extends cds.ApplicationService {
         requestType: req.data.RequestType,
         payload: { root: payload.root || {}, sections: payload.sections || {} }
       });
+      // SBPA does not resolve BTP role collection membership itself - it only routes on whatever
+      // `approvers` already contains, so a `role` entry (e.g. "Approver Customer", picked from the
+      // Workflow Agent Determination cell) has to be expanded HERE into its actual member e-mails, the
+      // same lookup `dataStewardEmails` uses for its own fixed role. A `user` entry is already an
+      // e-mail and is kept as-is. Best-effort, like every other subaccount read in this function: a
+      // role that cannot be resolved contributes nobody rather than failing the submit.
+      const userApprovers = approvers
+        .filter((approver) => approver.kind === 'user')
+        .map((approver) => approver.value);
+      const roleNames = [...new Set(
+        approvers.filter((approver) => approver.kind === 'role').map((approver) => approver.value)
+      )];
+      const roleApprovers = await emailsForRoleCollections(roleNames);
+      const approverEmails = [...new Set([...userApprovers, ...roleApprovers])];
       // `criticalField` is a scalar 'X'/' ' input parameter on Arthur's side, not a list - so this
       // asks one question, not one per entity: does THIS request fill in an entity the field property
       // profiles mark critical? 'X' when at least one does, ' ' otherwise (including when nothing is
@@ -490,17 +535,18 @@ class ChangeRequestService extends cds.ApplicationService {
         // One entry per matched partner, so the approver sees what was flagged and why. Empty when
         // nothing matched, never absent - SPA can then bind it without a null check.
         bpduplicates: duplicateSummary(findings),
-        // Flattened to the values, because the deployed process declares `approvers` as an array of
-        // strings and the runtime validates against that: sending `{ step, kind, value }` fails the
-        // whole submit with "/approvers/0 The value must be of string type, but actual type is
-        // object", which is every create refused over a routing hint.
+        // Flattened to plain e-mail addresses, because the deployed process declares `approvers` as
+        // an array of strings and the runtime validates against that: sending `{ step, kind, value }`
+        // fails the whole submit with "/approvers/0 The value must be of string type, but actual type
+        // is object", which is every create refused over a routing hint.
         //
-        // So this is the boundary, not the design. resolveApprovers still returns the structured
-        // list, and `kind` is still derivable the way it is derived here - an entry carrying an `@`
-        // is a user. What is genuinely lost is `step`: two steps arrive as one list. Restoring it
-        // means declaring `approvers` as an array of objects in the process context, after which
-        // this map comes off again.
-        approvers: approvers.map((approver) => approver.value),
+        // A role entry is resolved above (userApprovers/roleApprovers/approverEmails), NOT sent as its
+        // bare name (fixed 2026-08-27): the process does not resolve BTP role collection membership
+        // itself, so a role name reaching it as-is names nobody it can assign a task to. What is
+        // genuinely lost is `step`: two steps' approvers arrive as one flat list. Restoring it means
+        // declaring `approvers` as an array of objects in the process context, after which the
+        // flattening comes off again - resolveApprovers itself still returns the structured list.
+        approvers: approverEmails,
         // 'X' when a critical entity was filled in on this request, ' ' otherwise - a scalar flag,
         // not a list, because that is what the process input expects (see the comment above).
         // Lowercase on the wire, like every other key in this context - the local variable keeps
@@ -790,9 +836,13 @@ class ChangeRequestService extends cds.ApplicationService {
      * requester's own context whatever a screen was told.
      */
     this.on('effectiveFieldProperties', async (req) => {
+      // Approver/DataSteward is narrowed to the CURRENT user's own specific BTP role first (e.g.
+      // "Approver Customer"), so a profile scoped to that specific function actually applies only to
+      // people who carry it - see resolveEffectiveRole above.
+      const role = await resolveEffectiveRole(req, req.data.Role || null);
       const resolved = await resolvedProperties({
         requestType: req.data.RequestType || null,
-        role: req.data.Role || null
+        role
       });
       return JSON.stringify(resolved);
     });

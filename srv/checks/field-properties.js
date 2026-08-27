@@ -300,18 +300,29 @@ function createFieldPropertyStages(resolved, model) {
  * True when a profile's conditions cover this request. `requestType` is exact (a closed enum, no
  * business in a prefix match). `role` is exact first - for `*`, `Requester`, and any row still
  * carrying the literal `Approver`/`DataSteward` values from before 2026-08-27 - and otherwise a
- * case-insensitive PREFIX match: a profile's `role` is now free text naming a BTP role collection
- * (see fieldPropertyOptions in duplicate-config-service.js), and "ApproverSales" or "ApproverFinance"
- * both count as an Approver-category profile the same way the literal value used to, so a steward can
- * scope a profile to a specific approver function once such roles exist, without CAP knowing their
- * names in advance.
+ * case-insensitive prefix match, checked **both ways** (2026-08-27, once `role` can itself be a
+ * SPECIFIC BTP role - see `effectiveFieldProperties` in change-request-service.js):
+ *
+ * - A profile's role is a prefix of what is being checked - "ApproverSales" or "ApproverFinance"
+ *   both count as Approver-category when the screen could only resolve the bare category, so a
+ *   steward can scope a profile to a specific function ahead of CAP ever knowing its exact name.
+ * - What is being checked is a prefix of the profile's role - a profile still carrying the bare
+ *   legacy `Approver` (or one a steward deliberately left at the category level) still applies once
+ *   the screen resolves a SPECIFIC role like "Approver Customer" for the person actually looking at
+ *   it, or a global policy would stop covering anyone the moment resolution got more precise.
+ *
+ * Two different, specific roles ("Approver Customer" vs. "Approver Vendor") are neither a prefix of
+ * the other, so this still keeps them apart - which is the entire point of resolving a specific role
+ * in the first place.
  */
 function profileMatches(profile, { requestType, role }) {
   const exact = (stored, actual) => !stored || stored === ANY || String(stored) === String(actual);
   const roleMatches = (stored, actual) => {
     if (exact(stored, actual)) return true;
     if (typeof stored !== 'string' || typeof actual !== 'string') return false;
-    return stored.toLowerCase().startsWith(actual.toLowerCase());
+    const a = stored.toLowerCase();
+    const b = actual.toLowerCase();
+    return a.startsWith(b) || b.startsWith(a);
   };
   return exact(profile?.requestType, requestType) && roleMatches(profile?.role, role);
 }

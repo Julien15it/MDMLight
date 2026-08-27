@@ -121,6 +121,67 @@ async function fetchUsers() {
     .map((value) => ({ type: 'User', value }));
 }
 
+/**
+ * E-mail of every subaccount user whose own `groups` name one of the given role collections - the
+ * lookup `data-stewards.js` uses for its fixed `DataSteward` role template, generalised to any list
+ * of collection names. This is what makes a `WorkflowRules.approvers` entry naming a role (e.g.
+ * "Approver Customer") actually reach anyone: SBPA is not told to resolve BTP role collection
+ * membership itself, only to route on whatever `approvers` already contains - see `workflowContext`
+ * in change-request-service.js and CLAUDE.md "Workflow rules". Best-effort, like every other read
+ * here: an unreachable subaccount API resolves to no members rather than costing a submit.
+ */
+async function emailsForRoleCollections(collectionNames) {
+  if (!collectionNames || !collectionNames.length) return [];
+  try {
+    const data = await callApi('/Users');
+    const users = Array.isArray(data) ? data : (data.resources || data.Resources || data.value || []);
+    return users
+      .filter((user) => (user.groups || []).some((group) => (
+        collectionNames.includes(group.value) || collectionNames.includes(group.display)
+      )))
+      .map((user) => (user.emails && user.emails.length ? user.emails[0].value : null))
+      .filter(Boolean);
+  } catch (error) {
+    console.warn('[workflow-agents] Could not resolve role collection members:', error.message);
+    return [];
+  }
+}
+
+/**
+ * The one of THIS user's own role collections (their own `/Users` `groups`) that starts with the
+ * given category, case-insensitively - "Approver Customer" for a user carrying that collection, when
+ * `category` is "Approver". This is what lets two Field Property Profiles scoped to different
+ * approver functions ("Approver Customer" vs. "Approver Vendor") actually apply to different people,
+ * instead of both always matching the one generic "Approver" every approve screen used to ask for -
+ * see `effectiveFieldProperties` in change-request-service.js and CLAUDE.md "Field property profiles".
+ *
+ * Null - the caller's cue to fall back to the bare category - when nothing matches, or when MORE than
+ * one does: several overlapping roles is a case this cannot resolve without guessing, and showing the
+ * union of every one of a user's profiles (the fallback) is the safer wrong answer than picking one.
+ * Best-effort like every other read here: an unreachable subaccount API resolves to null, never a
+ * broken render.
+ */
+async function specificRoleFor(email, category) {
+  if (!email || !category) return null;
+  try {
+    const data = await callApi('/Users');
+    const users = Array.isArray(data) ? data : (data.resources || data.Resources || data.value || []);
+    const user = users.find((candidate) => (
+      (candidate.emails || []).some((entry) => entry.value === email) || candidate.userName === email
+    ));
+    if (!user) return null;
+    const matches = [...new Set(
+      (user.groups || [])
+        .map((group) => group.value || group.display)
+        .filter((name) => typeof name === 'string' && name.toLowerCase().startsWith(category.toLowerCase()))
+    )];
+    return matches.length === 1 ? matches[0] : null;
+  } catch (error) {
+    console.warn('[workflow-agents] Could not resolve a specific role for', email, ':', error.message);
+    return null;
+  }
+}
+
 async function load() {
   const [roles, users] = await Promise.all([
     fetchRoleCollections().catch((error) => {
@@ -172,6 +233,8 @@ module.exports = {
   ROLE_COLLECTION_PREFIX,
   TTL_MS,
   workflowAgents,
+  emailsForRoleCollections,
+  specificRoleFor,
   reset,
   // Shared with data-stewards.js, which reads the same Authorization Management API through the same
   // token cache - a second module fetching its own token would be a second, redundant call to the
