@@ -1,7 +1,11 @@
 'use strict';
 
 /**
- * The encoding a multi-value cell used, kept as a READ path only.
+ * What every rule table's CONDITION cells mean, in one place: the stored multi-value encoding, the
+ * `*` wildcard, and how two conditions are joined. Shared by rule-engine.js, duplicate-engine.js
+ * and workflow-rules.js so the four MDM Configuration Panel tables cannot disagree about any of it.
+ *
+ * The rest of this comment is about the multi-value encoding, which is a READ path only.
  *
  * Multiple values per condition were built on 2026-08-21 and withdrawn the same day: no grid could
  * be made to save a token cell reliably (see "Multiple values per condition" in CLAUDE.md). Every
@@ -32,9 +36,91 @@ function formatValueList(values) {
   return parseValueList(values).join(DELIMITER);
 }
 
-/** True when any entry equals `value` under the comparison the rule tables use. */
+/**
+ * `*` in a condition value means "any characters" — `FLVN*` matches FLVN00 and FLVN01, `*01` and
+ * `FL*N01` work too (2026-08-27). Anywhere and any number of them, because a steward who types
+ * `*01` and gets a silent non-match is the failure this codebase refuses everywhere else.
+ */
+const WILDCARD = '*';
+
+const hasWildcard = (entry) => String(entry === null || entry === undefined ? '' : entry).includes(WILDCARD);
+
+// Escape the whole pattern FIRST, then turn the escaped `\*` back into `.*`. Escaping afterwards
+// would re-escape the `.` and `*` this just inserted, and the pattern would match itself literally.
+function wildcardRegExp(pattern) {
+  const escaped = trimmed(pattern)
+    .replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+    .replace(/\\\*/gu, '.*');
+  return new RegExp(`^${escaped}$`, 'iu');
+}
+
+/** Anchored and case-insensitive, matching how the rule tables' own text comparison behaves. */
+function wildcardMatches(pattern, value) {
+  return wildcardRegExp(pattern).test(trimmed(value));
+}
+
+/**
+ * A pattern normalised around its wildcards, for the duplicate engine, whose bags hold normalised
+ * values. Normalising `FLVN*` whole would strip the `*` — `alnumUpper` drops everything that is
+ * not a letter or a number — so each literal segment is normalised on its own and the wildcards
+ * are put back between them.
+ */
+function normalisePattern(pattern, normalise) {
+  return trimmed(pattern)
+    .split(WILDCARD)
+    .map((segment) => (segment ? normalise(segment) : ''))
+    .join(WILDCARD);
+}
+
+/** True when any entry equals `value` under the comparison the rule tables use, or matches it as a pattern. */
 function listMatches(values, value, compare) {
-  return parseValueList(values).some((entry) => compare(value, entry) === 0);
+  return parseValueList(values).some((entry) => (hasWildcard(entry)
+    ? wildcardMatches(entry, value)
+    : compare(value, entry) === 0));
+}
+
+/**
+ * How the two condition pairs are joined (2026-08-27). One definition for all four rule tables, so
+ * a steward reading AND on one page cannot get a different answer on another.
+ *
+ * `AND` is the default and is what every stored row means: `conditionsHold` was `.every()` before
+ * this column existed, so a null reads as AND and no row had to be migrated. It only ever applies
+ * when BOTH pairs are filled — one condition has nothing to be joined to, and NOR on a single
+ * condition would silently invert it.
+ */
+const CONDITION_LOGIC = Object.freeze({
+  AND: { text: 'AND', apply: (first, second) => first && second },
+  OR: { text: 'OR', apply: (first, second) => first || second },
+  NOR: { text: 'NOR', apply: (first, second) => !first && !second }
+});
+
+const DEFAULT_CONDITION_LOGIC = 'AND';
+
+/**
+ * Blank is fine — it means AND. Anything else unrecognised is refused at the keyboard rather than
+ * quietly read as AND: the dropdown cannot produce one, so it can only arrive from a direct call,
+ * and a rule silently joined the wrong way is worse than one that would not save.
+ */
+function conditionLogicError(raw) {
+  const key = trimmed(raw);
+  if (!key || CONDITION_LOGIC[key.toLocaleUpperCase('en-US')]) return null;
+  return `“${key}” is not a condition operator. Use one of: ${Object.keys(CONDITION_LOGIC).join(', ')}.`;
+}
+
+/** Unknown or blank falls back to AND rather than refusing: the column is additive to stored rows. */
+function conditionLogicOf(raw) {
+  const key = trimmed(raw).toLocaleUpperCase('en-US');
+  return CONDITION_LOGIC[key] ? key : DEFAULT_CONDITION_LOGIC;
+}
+
+/**
+ * `results` is one boolean per FILLED pair, in column order. Zero is "no conditions", which holds;
+ * one is itself, whatever the column says; two are joined.
+ */
+function joinConditions(results, logic) {
+  if (!results.length) return true;
+  if (results.length === 1) return results[0];
+  return CONDITION_LOGIC[conditionLogicOf(logic)].apply(results[0], results[1]);
 }
 
 const trimmed = (value) => String(value === null || value === undefined ? '' : value).trim();
@@ -43,6 +129,15 @@ const dedupe = (values) => [...new Set(values)];
 
 module.exports = {
   DELIMITER,
+  CONDITION_LOGIC,
+  DEFAULT_CONDITION_LOGIC,
+  conditionLogicOf,
+  conditionLogicError,
+  joinConditions,
+  WILDCARD,
+  hasWildcard,
+  normalisePattern,
+  wildcardMatches,
   parseValueList,
   formatValueList,
   listMatches

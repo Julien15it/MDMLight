@@ -1,7 +1,7 @@
 'use strict';
 
 const { resolveField, isIndexedField, catalogFields } = require('./duplicate-fields');
-const { parseValueList } = require('../checks/value-lists');
+const { parseValueList, conditionLogicError } = require('../checks/value-lists');
 const { COMPARISONS, INDICATORS, DEFAULT_RULES, CONDITION_PAIRS } = require('./duplicate-engine');
 const { DUPLICATE_THRESHOLD } = require('./name-match');
 
@@ -84,6 +84,9 @@ function validateRule(row = {}) {
   } else if (threshold !== null && !FUZZY_COMPARISONS.includes(comparison)) {
     warnings.push({ field: 'threshold', message: `A ${comparison || 'non-fuzzy'} comparison ignores its threshold.` });
   }
+
+  const logicProblem = conditionLogicError(row.conditionLogic);
+  if (logicProblem) errors.push({ field: 'conditionLogic', message: logicProblem });
 
   return { errors, warnings };
 }

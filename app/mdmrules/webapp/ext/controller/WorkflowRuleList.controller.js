@@ -102,6 +102,7 @@ sap.ui.define([
       binding.create({
         step: "Approve",
         approvers: "",
+        conditionLogic: "AND",
         isActive: true
       });
       this._markDirty();

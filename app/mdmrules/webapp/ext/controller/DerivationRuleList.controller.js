@@ -102,7 +102,7 @@ sap.ui.define([
       // nobody wrote, and a derivation with a default value would fill data nobody asked for.
       // A rule carries no "adds the row" answer either: the payload decides. A rule whose section
       // holds no rows proposes the row, one whose section has rows fills its gaps.
-      binding.create({ sequence: 10, isActive: true });
+      binding.create({ sequence: 10, conditionLogic: "AND", isActive: true });
       this._markDirty();
     },
 

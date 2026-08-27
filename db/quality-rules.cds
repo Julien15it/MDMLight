@@ -13,10 +13,13 @@ aspect ruleConditions {
       /** Grid order only. Rules are independent, except two derivations on one field: first wins. */
       sequence        : Integer default 10;
 
-      /** Two independent pairs; null means "any", both filled means AND. A condition on the rule's
-       *  own section is evaluated per row, so it narrows to the matching rows. */
+      /** Two independent pairs; null means "any". A condition on the rule's own section is
+       *  evaluated per row, so it narrows to the matching rows. `conditionLogic` joins them when
+       *  both are filled - AND, OR or NOR - and a null reads as AND, which is what every row
+       *  stored before 2026-08-27 means. A value may carry `*` as a wildcard. */
       conditionField  : String(60);
       conditionValue  : String(120);
+      conditionLogic  : String(3) default 'AND';
       conditionField2 : String(60);
       conditionValue2 : String(120);
 

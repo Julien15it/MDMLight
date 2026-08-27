@@ -42,6 +42,7 @@ entity WorkflowRules : managed {
        */
       conditionField  : String(60);
       conditionValues : String(400);
+      conditionLogic : String(3) default 'AND';
       conditionField2 : String(60);
       conditionValues2 : String(400);
 

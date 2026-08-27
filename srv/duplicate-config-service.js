@@ -9,6 +9,7 @@ const {
   COMPARISONS, SEVERITIES, validateValidationRule, validateDerivationRule
 } = require('./checks/rule-engine');
 const qualityRules = require('./checks/rule-store');
+const { CONDITION_LOGIC } = require('./checks/value-lists');
 const {
   ENTITY: FEATURES, SINGLETON_ID, forgetCachedSettings
 } = require('./ai/availability');
@@ -39,6 +40,10 @@ const SEVERITY_TEXT = Object.freeze({
 
 // `raw_dice` is the unsmoothed scorer kept for comparison work; offering it to a steward would be
 // a fourth choice nobody can tell apart from `fuzzy`. It still evaluates if a stored row uses it.
+// One list, three pages: the join is the same question wherever two conditions meet.
+const CONDITION_LOGIC_OPTIONS = Object.entries(CONDITION_LOGIC)
+  .map(([code, logic]) => ({ code, text: logic.text }));
+
 const OFFERED_COMPARISONS = Object.freeze(['exact', 'fuzzy', 'contains']);
 
 const COMPARISON_TEXT = Object.freeze({
@@ -122,6 +127,7 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
           code, text: WORKFLOW_REQUEST_TYPE_TEXT[code] || code
         })),
         steps: STEPS.map((code) => ({ code, text: STEP_TEXT[code] || code })),
+        conditionLogics: CONDITION_LOGIC_OPTIONS,
         // The subaccount's own role collections (MDMLIGHT* only) and users - see srv/wf/btp-agents.js
         // and CLAUDE.md "Workflow Agent Determination". Not this app's own Requester/Approver/
         // DataSteward roles: those are what the Field Property Profiles page still conditions on
@@ -143,6 +149,7 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
         })),
         comparisons: OFFERED_COMPARISONS.map((code) => ({ code, text: COMPARISON_TEXT[code] || code })),
         indicators: INDICATORS.map((code) => ({ code, text: INDICATOR_TEXT[code] || code })),
+        conditionLogics: CONDITION_LOGIC_OPTIONS,
         source: ruleStore.source(),
         ruleCount: ruleStore.rules().length
       };
@@ -170,6 +177,7 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
         comparisons: Object.entries(COMPARISONS).map(([code, comparison]) => ({
           code, text: comparison.text.trim(), needsValue: comparison.needsValue
         })),
+        conditionLogics: CONDITION_LOGIC_OPTIONS,
         severities: SEVERITIES.map((code) => ({ code, text: SEVERITY_TEXT[code] || code })),
         validationCount: await runnable(VALIDATIONS, validateValidationRule),
         derivationCount: await runnable(DERIVATIONS, validateDerivationRule)

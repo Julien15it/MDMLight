@@ -92,6 +92,7 @@ sap.ui.define([
         field: "Name",
         comparison: "fuzzy",
         indicator: "strong",
+        conditionLogic: "AND",
         isActive: true
       });
       this._markDirty();
