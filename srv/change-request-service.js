@@ -809,8 +809,8 @@ class ChangeRequestService extends cds.ApplicationService {
               aiEnabled: await aiAssistanceEnabled()
             })
             : undefined,
-          // Only where a human is looking and only for the whole record. A field trigger passes a
-          // `scope` and must not pay for a remote round trip on every keystroke, and the submit
+          // Only where a human is looking and only for the whole record. A scoped call must not
+          // pay for a remote round trip, and the submit
           // path has its own stage list. Roles and relations ARE sent, so the customer and vendor
           // tiers run and each press costs a vendor number -- see INCLUDE_ROLES in bp-check.js.
           checkStandard: standard && !scope

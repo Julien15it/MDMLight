@@ -114,7 +114,7 @@ function normaliseConfig(modelName, maxTokens) {
 }
 
 // Only populated fields — an empty one has nothing to reformat. `scope` narrows to one target, so a
-// trigger asks about the section the requester just left rather than the whole record.
+// a scoped call asks about one section rather than the whole record.
 function normalisableFields(payload = {}, scope = null) {
   const inScope = (target) => !scope || scope === target;
   const fields = [];
@@ -285,7 +285,7 @@ function mergeProposals(deterministic, modelled) {
 async function proposeNormalisations({
   payload, scope = null, aiEnabled = true, env = process.env, Client
 } = {}) {
-  // Scoped too, or a section trigger would report Country casing from a section nobody touched.
+  // Scoped too, or a root-scoped call would report Country casing from a section nobody touched.
   const deterministic = deterministicProposals(payload)
     .filter((proposal) => !scope || proposal.target === scope);
   const fields = normalisableFields(payload, scope);
