@@ -518,12 +518,12 @@ test('the duplicate dialog names each partner, not only its number', () => {
 // --- Declining a proposal ------------------------------------------------------------
 
 /**
- * Two identical dialogs from one register answer, reported 2026-08-21. The payload-keyed
- * `_lastTriggerKey` cannot prevent it: any edit anywhere makes a fresh key, and a derivation runs
- * over the whole payload whatever the check was scoped to. So a decline is remembered against the
- * PROPOSAL - see check-triggers.test.js for the trigger side.
+ * A decline is remembered against the PROPOSAL, not against the payload - the register answering
+ * something different is a new question. Written for the automatic trigger (two identical dialogs
+ * from one register answer, 2026-08-21); the trigger went on 2026-08-27 and nothing filters on the
+ * record now, so this is the audit trail of what was offered and refused. See check-triggers.test.js.
  */
-test('a proposal the requester turned down is not offered again', () => {
+test('a proposal the requester turned down is recorded as declined', () => {
   const controller = loadController();
   const derivation = { target: 'root', index: 0, field: 'OrganizationBPName1', value: 'Alluvion BV', message: 'From GLEIF.' };
   const rows = controller._proposalRows.call(controller, [derivation], []);

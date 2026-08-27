@@ -15,8 +15,8 @@ const PAYLOAD = {
   }
 };
 
-// A section trigger must ask the model about the section the requester just left, not the whole
-// record: the point of scoping is fewer tokens and no proposals for untouched sections.
+// A scoped call must ask the model about that section only, not the whole record: the point of
+// scoping is fewer tokens and no proposals for untouched sections.
 test('an unscoped call offers every populated field, a scoped one only its target', () => {
   const all = normalisableFields(PAYLOAD).map((f) => `${f.target}.${f.field}`);
   assert.ok(all.includes('root.OrganizationBPName1'));
@@ -30,23 +30,25 @@ test('an unscoped call offers every populated field, a scoped one only its targe
   assert.ok(root.every((f) => f.target === 'root'));
 });
 
-// BankDetails is a real section id but carries nothing normalisable, so a trigger there is silent.
+// BankDetails is a real section id but carries nothing normalisable, so scoping there is silent.
 test('a scope that matches nothing offers nothing rather than falling back to everything', () => {
   assert.deepEqual(normalisableFields(PAYLOAD, 'BankDetails'), []);
   assert.deepEqual(normalisableFields(PAYLOAD, 'nonsense'), []);
 });
 
 // Country/Region casing is deterministic, so it survives an AI Core outage - but it must respect
-// the scope too, or a name-section trigger would report an address field.
+// the scope too, or a root-scoped call would report an address field.
 test('the deterministic proposals are scoped as well', async () => {
   const scoped = await proposeNormalisations({ payload: PAYLOAD, scope: 'root', env: {} });
-  assert.ok(scoped.every((p) => p.target === 'root'), 'no address casing from a root trigger');
+  assert.ok(scoped.every((p) => p.target === 'root'), 'no address casing from a root-scoped call');
 
   const addresses = await proposeNormalisations({ payload: PAYLOAD, scope: 'Addresses', env: {} });
   assert.ok(addresses.some((p) => p.field === 'Country'), 'be -> BE is still proposed in scope');
 });
 
-// Propose:false is what a tax-number trigger sends: it wants the register, not an LLM call.
+// Propose and Scope outlive the trigger that used them: the duplicate check still sends
+// Propose:false (it wants the register, not an LLM call), and Scope still narrows the
+// normalisation proposals and keeps the SAP standard checks off a scoped call.
 test('the action declares Propose and Scope, and the runner threads both', () => {
   const cds = fs.readFileSync(path.join(__dirname, '..', 'srv', 'change-request-service.cds'), 'utf8');
   const checkAction = cds.slice(cds.indexOf('action checkRequest('), cds.indexOf('action duplicateCheckRequest('));
@@ -65,11 +67,11 @@ test('the action declares Propose and Scope, and the runner threads both', () =>
   assert.match(proposeCall, /scope: scope \|\| null/u);
   // Omitting Propose must keep the button's behaviour: propose everything.
   assert.match(js, /propose: req\.data\.Propose !== false/u);
-  // The duplicate check never proposes, trigger or not.
+  // The duplicate check never proposes, whoever asked.
   assert.match(js, /runRequestChecks\(req, \{ propose: false, duplicates: true \}\)/u);
 
-  // The SAP standard checks are the Check button's, and only for the whole record: a field trigger
-  // passes a scope and must not pay for a remote round trip on every commit.
+  // The SAP standard checks are the Check button's, and only for the whole record: a scoped call
+  // must not pay for a remote round trip.
   assert.match(js, /standard: true/u);
   assert.match(js, /checkStandard: standard && !scope/u);
 });
@@ -80,19 +82,43 @@ const CONTROLLER = fs.readFileSync(
   'utf8'
 );
 
-// A tax number earns a register lookup on its own. Nothing else does - everything else waits for
-// the requester to leave the scope, so one address block is one AI Core call, not four.
-test('only the tax number triggers on its own, and it never asks for a proposal', () => {
-  assert.match(CONTROLLER, /REGISTRY_TRIGGER_FIELDS = \{ BPTaxNumber: true \}/u);
-  const handler = CONTROLLER.slice(
-    CONTROLLER.indexOf('_onFieldCommitted: function'),
-    CONTROLLER.indexOf('_flushPendingScope: function')
-  );
-  assert.match(handler, /_scheduleTrigger\(\{ propose: false, scope: null \}\)/u, 'register only');
-  assert.match(handler, /section\.kind === "root" \? "root" : section\.id/u, 'scope is the section id');
+/**
+ * The automatic trigger is gone (2026-08-27, Maarten): "only trigger Derivations/Proposals after a
+ * Check button was triggered. Now it's firing a lot when a user is typing because + or add buttons
+ * trigger it as well."
+ *
+ * Every guard the trigger had worked as designed, and the feature was still wrong: opening a record
+ * dialog COMMITS the cell behind it, so "+" and "Add" fired a check nobody asked for, mid-typing,
+ * repeatedly. These tests pin the absence, because the machinery is easy to reintroduce by accident
+ * -- a `setTimeout` in the commit hook is a one-line change.
+ */
+test('nothing schedules a check, and the trigger machinery is gone', () => {
+  for (const gone of [
+    'REGISTRY_TRIGGER_FIELDS', 'TRIGGER_DELAY_MS', 'TRIGGER_IDLE_MS',
+    '_runTriggeredCheck', '_scheduleTrigger', '_flushPendingScope',
+    '_triggerInFlight', '_lastTriggerKey', '_pendingScope', '_triggerTimer', '_idleTimer'
+  ]) {
+    assert.equal(CONTROLLER.includes(gone), false, `${gone} is gone`);
+  }
 });
 
-// liveChange fires per keystroke; the trigger must hang off the committed value only.
+// The commit hook is still there - it recomposes the full name and redraws the change summary - but
+// it must not reach the server. A checkRequest from here is the bug, whatever debounce wraps it.
+test('committing a field redraws locally and calls nothing', () => {
+  const handler = CONTROLLER.slice(
+    CONTROLLER.indexOf('_onFieldCommitted: function'),
+    CONTROLLER.indexOf('_refreshFullName: function')
+  );
+  assert.ok(handler.length > 0, 'the commit hook still exists');
+  assert.match(handler, /this\._refreshFullName\(true\)/u, 'the full name is recomposed');
+  assert.match(handler, /this\._refreshChangeSummary\(\)/u, 'and the change summary redrawn');
+  assert.equal(/_executeAction/u.test(handler), false, 'no server call');
+  assert.equal(/checkRequest/u.test(handler), false, 'no check');
+  assert.equal(/setTimeout/u.test(handler), false, 'nothing debounced either');
+  assert.equal(/_offerProposals/u.test(handler), false, 'and no dialog while somebody is typing');
+});
+
+// liveChange fires per keystroke; the redraw hangs off the committed value only.
 test('the commit hook is a change handler on text inputs, not a liveChange', () => {
   assert.match(CONTROLLER, /if \(control instanceof Input\) this\._attachCommitTrigger\(/u);
   const attach = CONTROLLER.slice(
@@ -103,50 +129,28 @@ test('the commit hook is a change handler on text inputs, not a liveChange', () 
   assert.equal(/attachLiveChange/u.test(attach), false, 'never per keystroke');
 });
 
-// The requester is still typing: a trigger that popped a MessageBox or blocked the form would be
-// worse than no trigger at all.
-test('a triggered check is quiet, guarded and de-duplicated', () => {
-  const run = CONTROLLER.slice(
-    CONTROLLER.indexOf('_runTriggeredCheck: async function'),
-    CONTROLLER.indexOf('onCheck: async function')
+// Only the Check button, and only through the vetted dialog: a derivation is still never written
+// without a tick, and it is still the only place proposals reach the screen.
+test('the Check button is the only route to a proposal', () => {
+  const offers = CONTROLLER.split('this._offerProposals(').length - 1;
+  assert.equal(offers, 1, 'exactly one caller');
+  const check = CONTROLLER.slice(
+    CONTROLLER.indexOf('onCheck: async function'),
+    CONTROLLER.indexOf('onDuplicateCheck: async function')
   );
-  assert.equal(/MessageBox\.\w+\(/u.test(run), false, 'no modal from a trigger');
-  assert.equal(/state\.busy = true/u.test(run), false, 'never blocks the form');
-  assert.match(run, /if \(state\.busy \|\| this\._triggerInFlight\) return/u, 'one at a time');
-  assert.match(run, /if \(key === this\._lastTriggerKey\) return/u, 'unchanged data costs nothing');
-  assert.match(run, /Propose: options\.propose/u);
-  assert.match(run, /Scope: options\.scope \|\| null/u);
-  // Proposals go through the same vetted dialog, so nothing is written without a tick - and only
-  // when there is something left to ask and nothing already being asked.
-  assert.match(run, /if \(proposals\.length && !this\._proposalsOpen\) this\._offerProposals\(proposals\)/u);
-  assert.equal(/_applyProposals/u.test(run), false, 'a trigger never applies anything itself');
-  assert.match(run, /catch \(error\)[\s\S]{0,200}console\.warn/u, 'a failed trigger never interrupts');
+  assert.match(check, /this\._offerProposals\(proposals\)/u, 'and it is onCheck');
+  assert.equal(/_applyProposals/u.test(check), false, 'onCheck never applies anything itself');
 });
 
 /**
- * Check derived twice, reported 2026-08-19.
- *
- * The guard was one-directional: `_runTriggeredCheck` refused to start while `state.busy`, but
- * nothing stopped an already *scheduled* trigger from firing the moment the button released busy.
- * Commit a field, press Check inside TRIGGER_IDLE_MS, and the derivation ran twice - a second
- * proposals dialog for the same record.
+ * `_cancelPendingTrigger` survives the machinery it was named for. There is no timer left to cancel;
+ * what it does is empty the declined-proposal record, so pressing a check button asks again --
+ * "declining is not ticking it, and the next Check proposes it again".
  */
-test('a button press cancels the trigger that was about to fire', () => {
-  const cancel = CONTROLLER.slice(
-    CONTROLLER.indexOf('_cancelPendingTrigger: function'),
-    CONTROLLER.indexOf('_runTriggeredCheck: async function')
-  );
-  // Both timers, or the other one still fires. `_idleTimer` is the pending scope, `_triggerTimer`
-  // the debounce after it flushes.
-  assert.match(cancel, /clearTimeout\(this\._idleTimer\)/u);
-  assert.match(cancel, /clearTimeout\(this\._triggerTimer\)/u);
-  // And the scope, or the next commit in a different scope flushes this stale one.
-  assert.match(cancel, /this\._pendingScope = null/u);
-});
+test('every button that checks clears the declined proposals first', () => {
+  const reset = CONTROLLER.slice(CONTROLLER.indexOf('_cancelPendingTrigger: function'));
+  assert.match(reset.slice(0, reset.indexOf('\n      },')), /this\._declinedProposals = \{\}/u);
 
-// Every button that runs a check of its own, not just Check - Duplicate Check asks the same
-// question, and Save/Submit/Resubmit/Withdraw move the request past the point a trigger reports on.
-test('every button that checks cancels the pending trigger first', () => {
   const heads = {
     'onCheck: async function': 'Check',
     'onDuplicateCheck: async function': 'Duplicate Check',
@@ -160,68 +164,17 @@ test('every button that checks cancels the pending trigger first', () => {
     // contains the word "return", and a naive search matches that ahead of the statement.
     const head = CONTROLLER.slice(at, at + 600)
       .split('\n').filter((line) => !/^\s*\/\//u.test(line)).join('\n');
-    assert.match(head, /this\._cancelPendingTrigger\(\)/u, `${label} cancels the pending trigger`);
+    assert.match(head, /this\._cancelPendingTrigger\(\)/u, `${label} resets the declines`);
     const cancelAt = head.indexOf('_cancelPendingTrigger');
     const returnAt = head.search(/\breturn\b/u);
     if (returnAt > -1) {
-      assert.ok(cancelAt < returnAt, `${label} cancels before it can return early`);
+      assert.ok(cancelAt < returnAt, `${label} resets before it can return early`);
     }
   }
 });
 
-/**
- * Cancelling timers cannot help a trigger that is already mid-flight, and the busy check happens
- * before the await - so a button pressed *during* a trigger would still have produced two dialogs.
- * The counter is what closes that half: an explicit press is the answer the requester asked for.
- */
-test('a trigger overtaken by a button press drops its result', () => {
-  const run = CONTROLLER.slice(
-    CONTROLLER.indexOf('_runTriggeredCheck: async function'),
-    CONTROLLER.indexOf('onCheck: async function')
-  );
-  assert.match(run, /var startedUnder = this\._buttonRun \|\| 0;/u);
-  assert.match(run, /if \(startedUnder !== \(this\._buttonRun \|\| 0\)\) return;/u);
-  // Dropped before anything reaches the screen: the strips and the proposals dialog both come after.
-  const guardAt = run.indexOf('startedUnder !== ');
-  assert.ok(guardAt > -1);
-  assert.ok(guardAt < run.indexOf('state.messages = this._checkMessages'), 'before the strips');
-  assert.ok(guardAt < run.indexOf('_offerProposals'), 'before the dialog');
-  // The key is still recorded, so the wasted call is not repeated by the next identical commit.
-  assert.ok(run.indexOf('this._lastTriggerKey = key') < guardAt);
-});
-
-
-/**
- * The same derivation was offered twice, reported 2026-08-21: fill in a name, press Add on Tax
- * Numbers, and "Not Now" had to be pressed on two identical dialogs.
- *
- * Both halves of the cause are real. Committing the name schedules a `root` check; opening Add
- * commits the tax number cell, which is a registry trigger field and schedules a second check with
- * no scope at all. `Scope` narrows only the normalisation proposals - derivations always run over
- * the whole payload - so both checks derive the same thing, and `_lastTriggerKey` cannot tell them
- * apart: it is keyed on the payload, which the new row changed.
- *
- * So the trigger filters what the requester has already turned down. What a decline means is
- * exercised in submit-messages.test.js, where the dialog's own tests live.
- */
-test('a triggered check does not re-offer what was declined, or stack a second dialog', () => {
-  const run = CONTROLLER.slice(
-    CONTROLLER.indexOf('_runTriggeredCheck: async function'),
-    CONTROLLER.indexOf('onCheck: async function')
-  );
-  assert.match(run, /\.filter\(function \(proposal\) \{ return !this\._isDeclined\(proposal\); \}, this\)/u);
-  assert.match(run, /!this\._proposalsOpen/u, 'one dialog at a time');
-});
-
-/**
- * Only the automatic checks are silenced. "Declining is not ticking it, and the next Check proposes
- * it again" is the documented contract of this dialog, so every button clears the record - which is
- * exactly what `_cancelPendingTrigger` already runs for.
- */
-test('pressing a button asks again, and a fresh record forgets', () => {
-  const cancel = CONTROLLER.slice(CONTROLLER.indexOf('_cancelPendingTrigger: function'));
-  assert.match(cancel.slice(0, cancel.indexOf('\n      },')), /this\._declinedProposals = \{\}/u);
-  // A record leaving the screen takes its declines with it.
+// A record leaving the screen takes its declines with it.
+test('a fresh record forgets what was declined', () => {
   const empty = CONTROLLER.slice(CONTROLLER.indexOf('_emptyState: function'));
   assert.match(empty.slice(0, empty.indexOf('return {')), /this\._declinedProposals = \{\}/u);
 });

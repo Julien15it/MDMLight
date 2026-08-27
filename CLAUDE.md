@@ -549,6 +549,24 @@ Configured stages come first in both lists; the reasoning is with the tables.
   check name — `severityOf` exists for exactly this.
 - **Derivation**: fills empty address fields on the *first* address row from VIES
   first, then GLEIF.
+- **GLEIF is a last resort, not a second opinion** (tightened 2026-08-27, Maarten:
+  *"the quality of GLEIF data seems to be less than that of VIES"*). It is a member
+  state's own register against self-reported LEI reference data. So `enrichCandidate`
+  searches GLEIF only when **both** of these hold:
+  - **A name *and* a country are filled in.** `acceptedEntities` is what makes a
+    GLEIF hit safe, and its country filter cannot run on a record that carries no
+    country — a name alone is how a Belgian company ended up under a Dutch entity's
+    number on 2026-08-14. The country may come from the root `Country` or the first
+    address; `primaryCountry` reads both.
+  - **No VIES check came back `VALID`.** Once a member state has confirmed the VAT
+    number, GLEIF cannot improve on it. A VIES *outage* or no VAT number at all
+    leaves nothing confirmed, so the fallback does apply.
+
+  `requireCountry: false` is the one opt-out and it is opt-in only: the assistant's
+  "who is this company?" prefill (`registryEnrichment` in
+  `srv/business-partner-service.js`) has a typed name and nothing else, and its answer
+  is a suggestion in chat the requester reads, not a value proposed into a field. The
+  check pipeline never passes it — `test/registry.test.js` asserts that too.
 
 #### The CVI configuration check (2026-08-25)
 
@@ -943,107 +961,66 @@ pipeline, because the screen asks two different things:
 Both stage nothing, and `runRequestChecks` in `srv/change-request-service.js` is
 the one runner they share — the stage list is what differs, never the order.
 
-#### Automatic triggers (2026-08-17)
+#### Checks run on a button press, and only on a button press (2026-08-27)
 
-The buttons are no longer the only way in. `checkRequest` gained two optional
-parameters and the maintenance controller fires it by itself:
+**Derivations and proposals happen when the requester presses Check.** Nothing on
+the form triggers a check by itself. Maarten, 2026-08-27: *"only trigger
+Derivations/Proposals after a 'Check' button was triggered. Now it's firing a lot
+when a user is typing because '+' or 'add' buttons trigger it as well."*
 
-- **`Propose : Boolean`** — false skips the AI Core normalisation call entirely.
-  A tax number being committed wants the register, not an LLM.
-- **`Scope : String(40)`** — `'root'` or a section id, narrowing
-  `normalisableFields(payload, scope)` and the deterministic proposals to one
-  target. Omit both and the behaviour is exactly the button's.
+`_onFieldCommitted` survives and does local work only — it recomposes
+`BusinessPartnerFullName` and redraws the change summary when `trackChanges` is on.
+It makes **no server call**, and `test/check-triggers.test.js` pins that: no
+`_executeAction`, no `checkRequest`, no `setTimeout`, no `_offerProposals`. Adding a
+debounced check back here is a one-line change, which is why the absence is tested.
 
-Two things were decided rather than assumed, and both keep earlier rules intact:
+`_cancelPendingTrigger` keeps its name and has no timer left to cancel: it empties
+`_declinedProposals`, so pressing a check button asks again. Every button that runs
+a check still calls it first — Check, Duplicate Check, Save/Submit/Resubmit,
+Withdraw — before the client-side validation, so a press that fails that check has
+still superseded the earlier declines.
 
-- **A trigger still only proposes.** Maarten asked for VIES to "add the Address
-  automatically"; that would reverse the 2026-08-13 decision below, so it was
-  raised and he chose proposal-only. A triggered check routes through the same
-  `_offerProposals` dialog and `_applyProposals`, and **nothing is written to the
-  form without a tick**. `test/check-triggers.test.js` pins that a trigger never
-  calls `_applyProposals`.
-- **Normalisation fires per scope, not per field** — one call for an address
-  block, not four.
+##### Why the automatic trigger was removed
 
-"Leaving a section" is realised **without** `ObjectPageLayout.sectionChange`,
-because the `ObjectPageSection`s carry no ids to map back to a staging section.
-Instead `_onFieldCommitted` tracks a pending scope and flushes it when the next
-commit lands in a *different* scope, or after `TRIGGER_IDLE_MS`. Same call count,
-no dependency on ObjectPage internals.
+Worth keeping, because the feature looked correct the whole way down and was not.
+Between 2026-08-17 and 2026-08-21 the trigger acquired a guard for every double-dialog
+reported against it, and **every guard worked as designed**:
 
-The trigger is deliberately timid, and each guard is load-bearing: it hangs off
-`change`, never `attachLiveChange` (which fires per keystroke); it never opens a
-`MessageBox` and never sets `state.busy`, because the requester is mid-form; it
-runs one at a time and drops rather than queues; it de-duplicates on scope +
-payload so re-committing an untouched field costs nothing; and a failure is a
-`console.warn`, never an interruption — the buttons are what report properly. The
-duplicate check is **not** trigger-driven: it is pairwise and already refuses
-above a population limit.
+- Hung off `change`, never `attachLiveChange`; never a `MessageBox`, never
+  `state.busy`; one at a time, dropped rather than queued; a failure was a
+  `console.warn`.
+- `_cancelPendingTrigger` cleared `_idleTimer` and `_triggerTimer` and nulled
+  `_pendingScope`, because a *scheduled* trigger fired the moment a button released
+  busy (fixed 2026-08-19).
+- `_buttonRun` dropped the result of a trigger a button had overtaken mid-flight,
+  since the busy check happens before the await.
+- `_rememberDeclined` keyed a decline on `target|index|field|proposed` rather than
+  the payload, because `_lastTriggerKey` (`scope|propose|dataJson`) could not tell
+  two checks over a changed payload apart (fixed 2026-08-21).
 
-##### Check used to derive twice (fixed 2026-08-19)
+The premise was what was wrong: **opening a record dialog commits the cell behind
+it.** So "+" and "Add" fired checks nobody asked for, mid-typing, repeatedly — and
+no amount of de-duplication fixes a check that should never have started. The
+mechanism cost an AI Core call and a remote round trip per accidental commit.
 
-Pressing **Check** shortly after typing produced a second proposals dialog for the
-same record. The guard was **one-directional**, and that was the whole bug:
+What is left of it, and why:
 
-- `_runTriggeredCheck` refused to start while `state.busy`, and a button press sets
-  it. A trigger firing *during* a check was correctly dropped.
-- Nothing stopped an already **scheduled** trigger from firing the moment the
-  button released busy. Commit a field, press Check inside `TRIGGER_IDLE_MS`
-  (1500ms), and: Check runs → busy goes false → the idle timer fires →
-  `_flushPendingScope` → a second `checkRequest` over the same payload.
+- **`Propose : Boolean` and `Scope : String(40)` on `checkRequest` stay.** The
+  duplicate check still sends `propose: false`, and `checkStandard: standard && !scope`
+  still keeps the SAP standard checks off a scoped call. They are simply no longer
+  sent by anything automatic.
+- **`_rememberDeclined` / `_isDeclined` stay** as the record of what was offered and
+  refused. Nothing filters on it now — every dialog comes from a press, and
+  "declining is not ticking it, and the next Check proposes it again" is this
+  dialog's contract. `_emptyState` empties it too: declines belong to the record on
+  screen.
+- **Recorded in `afterClose`, not on the Not Now button** — Escape is a decline as
+  well, and after *Apply Selected* the unticked rows are declines too.
+- **One dialog at a time** (`_proposalsOpen`).
 
-`_cancelPendingTrigger()` is the fix, called by **every button that runs a check of
-its own** — Check, Duplicate Check, Save/Submit/Resubmit and Withdraw. It clears
-both timers (`_idleTimer` for the pending scope, `_triggerTimer` for the debounce
-after it flushes) and nulls `_pendingScope`, or the next commit in a different
-scope would flush the stale one. It runs **before** the client-side validation, so
-a press that fails that check has still superseded what the trigger was about to
-ask.
-
-Cancelling timers cannot help a trigger that is already **mid-flight**, and the
-busy check happens before the await — so a button pressed *during* a trigger would
-still have produced two dialogs. `_buttonRun` closes that half: the trigger records
-which press it started under and drops its result if that changed, because an
-explicit press is the answer the requester is looking at and the trigger was only
-ever a convenience. It still records `_lastTriggerKey` first, so the wasted call is
-not repeated by the next identical commit.
-
-Two things not to "simplify" here. Setting `_lastTriggerKey` from the buttons
-instead would **not** work: the key is `scope|propose|dataJson` and a triggered
-check is scoped where a button's is not, so the keys never collide. And the cancel
-belongs on all the buttons, not just Check — Duplicate Check asks the same question
-of the same record, and the submit paths move the request past the point a trigger
-reports on.
-
-##### And once more, from a payload that changed (fixed 2026-08-21)
-
-The same GLEIF derivation was offered twice: fill in a name, press **Add** on Tax Numbers, and
-"Not Now" had to be pressed on two identical dialogs. Neither guard above can catch it, and the
-reason is worth keeping:
-
-- Committing the name schedules a `root` check. Opening **Add** commits the tax number cell, which
-  is a `REGISTRY_TRIGGER_FIELDS` entry and schedules a *second* check with `scope: null`.
-- **`Scope` narrows only the normalisation proposals.** Derivations always run over the whole
-  payload, so both checks derive the same thing.
-- `_lastTriggerKey` cannot tell them apart, because it is keyed on `scope|propose|dataJson` and the
-  new row changed the payload. Every guard here was about *the check*; nothing was about *the
-  answer*.
-
-So a decline is now remembered against the **proposal**: `_rememberDeclined` records every row that
-was not applied, and a triggered check filters them out. Decisions inside that:
-
-- **Keyed on `target|index|field|proposed`**, stamped when the row is built. The register answering
-  something *different* is a new question and is asked. Stamped at build time rather than read off
-  the row later, because `proposed` is two-way bound to an editable Input — a requester who edits a
-  value and then declines must not have the decline recorded against what they typed.
-- **Only automatic checks are filtered.** "Declining is not ticking it, and the next Check proposes
-  it again" is this dialog's contract, so `_cancelPendingTrigger` — which every button already runs
-  — empties the record. `_emptyState` empties it too: declines belong to the record on screen.
-- **Recorded in `afterClose`, not on the Not Now button.** Escape closes the dialog as well, and
-  that is a decline too. After *Apply Selected* the unticked rows are declines as well; unticking
-  one is deliberate.
-- **One dialog at a time.** A trigger firing while the requester is reading one no longer stacks a
-  second on top of it, whatever it found.
+Gone entirely: `REGISTRY_TRIGGER_FIELDS`, `TRIGGER_DELAY_MS`, `TRIGGER_IDLE_MS`,
+`_runTriggeredCheck`, `_scheduleTrigger`, `_flushPendingScope`, `_triggerInFlight`,
+`_lastTriggerKey`, `_pendingScope`, `_triggerTimer`, `_idleTimer`.
 
 **Derivations no longer auto-apply.** They used to be written straight into the
 form on Check, which made them easy to miss and impossible to decline. They are

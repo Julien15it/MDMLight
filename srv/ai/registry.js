@@ -107,6 +107,7 @@ async function enrichCandidate(record = {}, {
   checkVat = checkVatNumber,
   useGleif = true,
   useVies = true,
+  requireCountry = true,
   ...options
 } = {}) {
   const [typedName = ''] = namesOf(record);
@@ -134,11 +135,24 @@ async function enrichCandidate(record = {}, {
     }
   }
 
-  // GLEIF is the fallback, not a second opinion: matching on a name alone put a Belgian company
-  // under a Dutch entity's number, and a member state's own register outranks a self-reported LEI.
+  /**
+   * GLEIF is a LAST RESORT, not a second opinion. Its data quality is visibly below VIES's -- a
+   * member state's own register against self-reported LEI reference data -- so it only runs when
+   * VIES has produced nothing to go on, and only when there is enough to identify a company with.
+   *
+   * **Name AND country are both required** (tightened 2026-08-27, Maarten). A name alone is how a
+   * Belgian company ended up under a Dutch entity's number: "Delta" matches somewhere in every
+   * jurisdiction, and `acceptedEntities` can only use the country to rule a match out if the record
+   * actually carries one. Without a country this is a guess dressed as an enrichment.
+   *
+   * `requireCountry: false` exists for the assistant's "who is this company?" prefill, which has a
+   * typed name and nothing else. That answer is a suggestion in chat the requester reads and can
+   * ignore, not a value proposed into a field - see registryEnrichment in business-partner-service.
+   */
   const confirmedByVies = facts.vies.some((check) => check.status === STATUS.VALID);
+  const identified = Boolean(typedName) && (Boolean(country) || !requireCountry);
 
-  if (useGleif && typedName && !confirmedByVies) {
+  if (useGleif && identified && !confirmedByVies) {
     const entities = await lookupName(typedName, options);
     const accepted = acceptedEntities(typedName, entities, country);
     facts.gleif = accepted;

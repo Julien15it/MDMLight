@@ -123,16 +123,6 @@ sap.ui.define([
   // One entry covers every section with that field. BusinessPartnerCategory is deliberately absent -
   // it keeps its own fixed 3-value Select.
 
-  // --- Automatic check triggers ---------------------------------------------------------------
-  // Fields worth a register lookup the moment they are committed. Everything else only marks its
-  // scope dirty; the normalisation runs once the requester moves on, not per field.
-  var REGISTRY_TRIGGER_FIELDS = { BPTaxNumber: true };
-  // Long enough not to fire mid-edit, short enough to feel automatic.
-  var TRIGGER_DELAY_MS = 700;
-  // "Left the section", realised without ObjectPage internals: either the next commit lands in a
-  // different scope, or the requester simply stops typing for this long.
-  var TRIGGER_IDLE_MS = 1500;
-
   // Root fields the Business Partner Assistant's creation suggestion is allowed to prefill. An
   // explicit allowlist rather than merging the draft's root object wholesale: the draft reaches this
   // route through a query string, which a hand-built URL can shape however it likes.
@@ -2230,9 +2220,8 @@ sap.ui.define([
         }
       },
 
-      // --- Automatic triggers -------------------------------------------------------------------
-      // The same action the Check button calls, but quiet: no MessageBox, no busy overlay, and
-      // nothing written to the form. Derivations stay proposals - see the 2026-08-13 decision.
+      // --- Committed-field bookkeeping ----------------------------------------------------------
+      // Local redraws only. Checks, derivations and proposals belong to the Check button (2026-08-27).
 
       _attachCommitTrigger: function (control, section, field) {
         control.attachChange(function () {
@@ -2256,19 +2245,14 @@ sap.ui.define([
         if (section.kind === "root" && NAME_FIELDS.indexOf(field.name) !== -1) {
           this._refreshFullName(true);
         }
-        // A tax number is worth the register on its own, and only the register: Propose false so
-        // no AI Core call rides along with it.
-        if (REGISTRY_TRIGGER_FIELDS[field.name]) {
-          this._flushPendingScope();
-          this._scheduleTrigger({ propose: false, scope: null });
-          return;
-        }
-        var scope = section.kind === "root" ? "root" : section.id;
-        // Committing in a different scope means the previous one is finished.
-        if (this._pendingScope && this._pendingScope !== scope) this._flushPendingScope();
-        this._pendingScope = scope;
-        clearTimeout(this._idleTimer);
-        this._idleTimer = setTimeout(this._flushPendingScope.bind(this), TRIGGER_IDLE_MS);
+        // **Nothing is checked, derived or proposed from here.** Committing a field recomposes the
+        // full name and redraws the change summary, and that is all.
+        //
+        // Removed 2026-08-27 (Maarten): a check used to be scheduled per committed field, debounced,
+        // and again immediately on a tax number. Every guard in it worked as designed and the
+        // feature was still wrong -- opening a record dialog COMMITS the cell behind it, so pressing
+        // "+" or "Add" fired a check nobody asked for, mid-typing, repeatedly. Derivations and
+        // proposals now happen when the requester presses Check, and only then.
       },
 
       /**
@@ -2293,88 +2277,27 @@ sap.ui.define([
         model.refresh(true);
       },
 
-      _flushPendingScope: function () {
-        clearTimeout(this._idleTimer);
-        var scope = this._pendingScope;
-        this._pendingScope = null;
-        if (scope) this._scheduleTrigger({ propose: true, scope: scope });
-      },
-
-      _scheduleTrigger: function (options) {
-        clearTimeout(this._triggerTimer);
-        this._triggerTimer = setTimeout(function () {
-          this._runTriggeredCheck(options);
-        }.bind(this), TRIGGER_DELAY_MS);
-      },
-
-      // Called by every button that runs a check. The guard was one-directional: a scheduled trigger
-      // still fired once the button released `busy`, so the derivation ran twice. `_buttonRun` covers
-      // the other half - a trigger already mid-flight drops its result when a press overtakes it.
+      /**
+       * All that survives of the automatic trigger, and it is a reset rather than a cancel.
+       *
+       * The machinery is gone (2026-08-27): a debounced check per committed field, an immediate one
+       * on a tax number, a scope tracker, an in-flight guard, a press counter to drop the result of
+       * a trigger a button overtook, and a payload-keyed cache to stop re-checking an unchanged
+       * record. Every one of those guards was added to fix a real double-dialog and every one
+       * worked -- and the feature was still wrong, because opening a record dialog COMMITS the cell
+       * behind it, so "+" and "Add" fired checks nobody asked for while somebody was still typing.
+       *
+       * What is kept: pressing a check button is the requester asking, so a proposal they turned
+       * down earlier is offered again -- "declining is not ticking it, and the next Check proposes
+       * it again". `_declinedProposals` still exists for the one dialog that can reappear within a
+       * single press, when several proposals are offered and some are unticked.
+       */
       _cancelPendingTrigger: function () {
-        clearTimeout(this._idleTimer);
-        clearTimeout(this._triggerTimer);
-        this._pendingScope = null;
-        this._buttonRun = (this._buttonRun || 0) + 1;
-        // Pressing a button is the requester asking, so a proposal they turned down earlier is
-        // offered again - "declining is not ticking it, and the next Check proposes it again".
         this._declinedProposals = {};
       },
 
-      _runTriggeredCheck: async function (options) {
-        var maintenanceModel = this.getView().getModel("maintenance");
-        var state = maintenanceModel.getData();
-        // Never compete with a button press or another trigger, and never queue - the next commit
-        // schedules the next one anyway.
-        if (state.busy || this._triggerInFlight) return;
-
-        var dataJson = this._requestDataJson(state);
-        // Re-committing a field nobody changed must cost nothing.
-        var key = (options.scope || "-") + "|" + options.propose + "|" + dataJson;
-        if (key === this._lastTriggerKey) return;
-
-        // Which button press this trigger started under. If it changes while the call is out, a
-        // button overtook us and its answer is the one the requester is looking at.
-        var startedUnder = this._buttonRun || 0;
-        this._triggerInFlight = true;
-        try {
-          var result = await this._executeAction("checkRequest", {
-            ChangeRequest: state.changeRequest || null,
-            BusinessPartner: state.businessPartner || null,
-            DataJson: dataJson,
-            Propose: options.propose,
-            Scope: options.scope || null
-          }, "cr");
-          this._lastTriggerKey = key;
-
-          // A button ran while this was out. Its result is on screen and it asked the same question
-          // of the same record, so reporting this one too is the duplicate dialog we are fixing.
-          if (startedUnder !== (this._buttonRun || 0)) return;
-
-          var validations = this._parseJsonArray(result && result.ValidationsJson);
-          var derivations = this._parseJsonArray(result && result.DerivationsJson);
-          var normalisations = this._parseJsonArray(result && result.NormalisationsJson);
-
-          // Strips, never a MessageBox: the requester is still filling the form.
-          state.messages = this._checkMessages(validations, derivations);
-          this._renderAll();
-
-          // Silence when there is nothing to offer. A dialog on every commit would be unusable, and
-          // a proposal the requester has already turned down is not something to offer again - see
-          // _rememberDeclined. Only automatic checks are filtered: a button press is them asking.
-          var proposals = this._proposalRows(derivations, normalisations)
-            .filter(function (proposal) { return !this._isDeclined(proposal); }, this);
-          if (proposals.length && !this._proposalsOpen) this._offerProposals(proposals);
-        } catch (error) {
-          // A check nobody asked for must never interrupt; the buttons still report properly.
-          console.warn("[triggers] automatic check failed:", errorMessage(error, ""));
-        } finally {
-          this._triggerInFlight = false;
-        }
-      },
-
       onCheck: async function () {
-        // Before the early return below, not after: a press that fails the client-side check has
-        // still superseded whatever the trigger was about to ask.
+        // Pressing Check is the requester asking, so a proposal declined earlier is offered again.
         this._cancelPendingTrigger();
         var maintenanceModel = this.getView().getModel("maintenance");
         var state = maintenanceModel.getData();
@@ -2712,17 +2635,10 @@ sap.ui.define([
       },
 
       /**
-       * A proposal the requester turned down is not asked again until something changes.
-       *
-       * `_lastTriggerKey` cannot do this: it is keyed on the payload, so any edit anywhere makes a
-       * fresh key and the same proposal comes back. That is what produced two identical dialogs from
-       * one register answer - committing a name schedules a `root` check, and opening Add on Tax
-       * Numbers commits its registry-trigger field and schedules a second with no scope at all.
-       * Scope narrows only the normalisation proposals, so both checks derive the same thing.
-       *
-       * Keyed on the proposal, not the payload: the register returning a DIFFERENT value is a new
-       * question and is asked. And only automatic checks are silenced - pressing Check is the
-       * requester asking, so `_cancelPendingTrigger` empties this.
+       * Records which proposals were not taken. Nothing filters on it since the automatic trigger
+       * went (2026-08-27) -- every dialog now comes from a button press, and "declining is not
+       * ticking it, and the next Check proposes it again" is the contract. Kept as the audit trail
+       * of what was offered and refused, which is what `_cancelPendingTrigger` clears per press.
        */
       _rememberDeclined: function (proposals, applied) {
         this._declinedProposals = this._declinedProposals || {};

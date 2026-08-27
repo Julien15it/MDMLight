@@ -1,5 +1,7 @@
 'use strict';
 
+const fs = require('node:fs');
+const path = require('node:path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
@@ -347,6 +349,72 @@ test('GLEIF still runs when no VAT number was given at all', async () => {
     lookupName: async () => { asked += 1; return []; }
   });
   assert.equal(asked, 1, 'nothing confirmed anything, so the fallback applies');
+});
+
+/**
+ * Maarten 2026-08-27: "GLEIF only triggers if both name + country are filled." A name alone is not
+ * an identity - "Delta" is a company in every jurisdiction - and `acceptedEntities` can only rule a
+ * wrong-country hit out when the record carries a country. Without one, the filter that makes GLEIF
+ * safe is not running, so the search does not run either.
+ */
+test('GLEIF needs a country, not just a name', async () => {
+  let asked = 0;
+  const lookupName = async () => { asked += 1; return recordsFrom({ data: [gleifRecord()] }); };
+
+  const noCountry = await enrichCandidate(
+    { Name: 'Ackermans & van Haaren' }, { useVies: false, lookupName }
+  );
+  assert.equal(asked, 0, 'no GLEIF call without a country');
+  assert.deepEqual(noCountry.facts.gleif, []);
+  assert.equal(noCountry.record.taxNumbers.length, 0, 'and nothing enriched');
+  assert.equal(noCountry.record.additionalNames.length, 0);
+
+  const noName = await enrichCandidate({ Country: 'BE' }, { useVies: false, lookupName });
+  assert.equal(asked, 0, 'nor without a name');
+  assert.deepEqual(noName.facts.gleif, []);
+
+  const both = await enrichCandidate(
+    { Name: 'Ackermans & van Haaren', Country: 'BE' }, { useVies: false, lookupName }
+  );
+  assert.equal(asked, 1, 'both filled in, so the fallback applies');
+  assert.equal(both.facts.gleif.length, 1);
+});
+
+// An address country counts: primaryCountry reads the first address when the root field is empty.
+test('the country may come from the address rather than the root field', async () => {
+  let asked = 0;
+  const enriched = await enrichCandidate(
+    { Name: 'Ackermans & van Haaren', addresses: [{ Country: 'BE', CityName: 'Antwerpen' }] },
+    { useVies: false, lookupName: async () => { asked += 1; return recordsFrom({ data: [gleifRecord()] }); } }
+  );
+  assert.equal(asked, 1);
+  assert.equal(enriched.facts.gleif.length, 1);
+});
+
+/**
+ * The one documented exception. The assistant answers "who is this company?" from a typed name and
+ * has no country to offer; its answer is a suggestion in chat, not a value proposed into a field, so
+ * it opts out explicitly rather than the gate being loosened for everybody.
+ */
+test('requireCountry:false is the assistant's opt-out, and it is opt-in only', async () => {
+  let asked = 0;
+  const lookupName = async () => { asked += 1; return recordsFrom({ data: [gleifRecord()] }); };
+  const enriched = await enrichCandidate(
+    { OrganizationBPName1: 'Ackermans & van Haaren' },
+    { useVies: false, requireCountry: false, lookupName }
+  );
+  assert.equal(asked, 1);
+  assert.equal(enriched.facts.gleif.length, 1);
+
+  const service = fs.readFileSync(path.join(__dirname, '..', 'srv', 'business-partner-service.js'), 'utf8');
+  const enrichment = service.slice(service.indexOf('async function registryEnrichment('));
+  assert.match(enrichment.slice(0, 600), /requireCountry: false/u, 'the assistant asks for it');
+
+  // Nobody else does: the check pipeline proposes into fields and keeps the gate.
+  for (const file of ['srv/checks/registry-checks.js', 'srv/checks/pipeline.js']) {
+    const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+    assert.equal(/requireCountry/u.test(source), false, `${file} does not opt out`);
+  }
 });
 
 // Maarten 2026-08-14: VIES fills gaps and validates, the model normalises. So a register address

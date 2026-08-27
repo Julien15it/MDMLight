@@ -1324,7 +1324,9 @@ function belgianEnterpriseNumber(value) {
 async function registryEnrichment(name, { lookup = enrichCandidate, checkVat = checkVatNumber } = {}) {
   let candidate;
   try {
-    candidate = await lookup({ OrganizationBPName1: name, taxNumbers: [] });
+    // requireCountry:false because a chat question carries a name and nothing else. The check
+    // pipeline keeps the country gate - it proposes into fields, this only suggests an answer.
+    candidate = await lookup({ OrganizationBPName1: name, taxNumbers: [] }, { requireCountry: false });
   } catch (error) {
     console.warn('[assistant] Registry lookup unavailable:', error.message);
     return null;
