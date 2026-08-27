@@ -399,6 +399,12 @@ category-driven composition, client-side. Two rules make it safe and honest:
 
 - **A committed name field recomposes it** (`_onFieldCommitted`, `recompose: true`),
   so it fills in as soon as Name 1 is typed rather than waiting for a post.
+- **So does a name accepted from a proposal, and so does the Additional Fields dialog**
+  (both fixed 2026-08-27). Neither fires `_onFieldCommitted` — `_applyProposals` writes
+  straight into `state.root` — so accepting a VIES-proposed "Alluvion BV" over a typed
+  "Test" left the full name reading "Test". Both now recompose, and both are **guarded on a
+  name field having actually changed**: recomposing on every Apply would overwrite S/4's own
+  derivation on a partner read from S/4, which is what the rule below exists to prevent.
 - **An existing value is otherwise left alone.** On a partner read from S/4 that
   value is S/4's own derivation, and replacing it with a composition would show
   something S/4 does not say. A staged request always arrives without one, so
