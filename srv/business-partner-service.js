@@ -5,6 +5,8 @@ const { askSapAiCore } = require('./ai/business-partner-assistant');
 const { parseIntent, useModelIntent } = require('./ai/intent');
 const { aiAssistanceEnabled } = require('./ai/availability');
 const { researchCompany } = require('./ai/company-research');
+const { enrichCandidate } = require('./ai/registry');
+const { checkVatNumber, STATUS: VIES_STATUS, VIES_COUNTRIES } = require('./ai/vies');
 const { startWorkflow } = require("./wf/processAutomation");
 const { createCache } = require('./ai/cache');
 const {
@@ -1284,29 +1286,198 @@ function resolveQuestionIntent(question, conversationHistory = [], modelIntent =
   };
 }
 
+// A country only ever proposes a language where the country has one dominant business language -
+// BE and LU are deliberately absent (Dutch/French and French/German/Luxembourgish respectively),
+// because guessing wrong there is worse than leaving the field for the requester to fill in. These
+// are SAP's own language keys, which happen to already be the ISO letters for these four.
+const COUNTRY_LANGUAGE = Object.freeze({ NL: 'NL', DE: 'DE', FR: 'FR', GB: 'EN' });
+
+// The one country/number relationship trusted enough to turn into a proposal: a Belgian enterprise
+// number IS the VAT number once prefixed with the country. GLEIF's own `registeredAt` (a
+// registration-authority id like RA000402) is not itself an SAP BPTaxType, and a bare KBO number is
+// not proof of VAT registration - VIES confirming it is what makes it safe to propose. Nothing
+// equivalent is attempted for other countries: the enterprise-number-to-VAT-number relationship, and
+// the BPTaxType key it would need, are not something this app can generalise correctly today.
+const BE_VAT_TAX_TYPE = 'BE0';
+
+/** A KBO number however GLEIF or a human wrote it, normalised to the 10 digits VIES expects. */
+function belgianEnterpriseNumber(value) {
+  const digits = String(value || '').replace(/\D+/gu, '');
+  if (digits.length === 10) return digits;
+  if (digits.length === 9) return `0${digits}`;
+  return '';
+}
+
+/**
+ * GLEIF is the only registry that searches by a bare company name - VIES cannot (it validates a
+ * number, it does not look one up). Chained here for Belgian companies specifically: GLEIF's
+ * enterprise number becomes a candidate VAT number, and VIES is the one source this app already
+ * trusts (srv/checks/registry-checks.js) to confirm it before anything is proposed as a tax number.
+ * A GLEIF hit with no Belgian confirmation still contributes name/address - structured and sourced
+ * from a company register, which is worth more than the DuckDuckGo snippet scrape it stands in for -
+ * it just never becomes a TaxNumbers row nobody has verified.
+ *
+ * Best-effort like every other lookup in this flow: a GLEIF or VIES outage costs this enrichment,
+ * never the assistant's answer.
+ */
+async function registryEnrichment(name, { lookup = enrichCandidate, checkVat = checkVatNumber } = {}) {
+  let candidate;
+  try {
+    candidate = await lookup({ OrganizationBPName1: name, taxNumbers: [] });
+  } catch (error) {
+    console.warn('[assistant] Registry lookup unavailable:', error.message);
+    return null;
+  }
+  const entity = candidate.facts?.gleif?.[0];
+  if (!entity) return null;
+  const address = candidate.record.addresses?.[0] || null;
+
+  let vies = null;
+  if (address?.Country === 'BE') {
+    const enterpriseNumber = belgianEnterpriseNumber(entity.registeredAs);
+    if (enterpriseNumber) {
+      try {
+        const check = await checkVat('BE', enterpriseNumber);
+        if (check.status === VIES_STATUS.VALID) vies = check;
+      } catch (error) {
+        console.warn('[assistant] VIES confirmation unavailable:', error.message);
+      }
+    }
+  }
+
+  return {
+    name: vies?.name || entity.legalName || '',
+    address: vies?.address || address,
+    // BPTaxNumber carries the country prefix, matching how every BE0 tax number already stored by
+    // this app is shaped (srv/checks and its tests) - VIES itself returns countryCode and the
+    // national number separately.
+    taxNumber: vies ? { BPTaxType: BE_VAT_TAX_TYPE, BPTaxNumber: `${vies.countryCode}${vies.vatNumber}` } : null,
+    source: vies ? 'VIES' : 'GLEIF'
+  };
+}
+
+// A user typing a VAT/VIES number directly is a stronger signal than any name search: ISO country
+// code, then a run of digits (VIES itself, via nationalNumber(), tolerates dots/spaces/a repeated
+// country prefix - "BE0403.200.393" and "BE 0403 200 393" both resolve). Only prefixes VIES actually
+// recognises are matched, so an unrelated two-letter-plus-digits token in ordinary prose is not read
+// as a VAT number.
+const VAT_TEXT_COUNTRIES = new Set([...VIES_COUNTRIES, 'GR']);
+const VAT_NUMBER_PATTERN = /\b([A-Za-z]{2})[\s.-]?(\d(?:[\s.-]?\d){6,13})\b/gu;
+
+function extractVatNumber(text) {
+  if (!text) return null;
+  const pattern = new RegExp(VAT_NUMBER_PATTERN.source, VAT_NUMBER_PATTERN.flags);
+  let match;
+  while ((match = pattern.exec(String(text)))) {
+    const country = match[1].toLocaleUpperCase();
+    if (!VAT_TEXT_COUNTRIES.has(country)) continue;
+    return { country, vatNumber: `${country}${match[2].replace(/\D+/gu, '')}` };
+  }
+  return null;
+}
+
+/**
+ * Calls VIES directly on a VAT number the requester typed, rather than only reaching it indirectly
+ * through a GLEIF name match (registryEnrichment above). A tax number is still only ever proposed for
+ * Belgium, same reasoning as registryEnrichment - a confirmed non-Belgian VAT number still contributes
+ * name and address. Returns the raw VIES verdict even when it is not VALID (invalid / unknown /
+ * not_applicable), so the assistant can say what it found instead of staying silent about a number the
+ * requester explicitly gave it.
+ */
+async function directVatLookup(question, checkVat = checkVatNumber) {
+  const found = extractVatNumber(question);
+  if (!found) return null;
+  try {
+    const check = await checkVat(found.country, found.vatNumber);
+    // check.vatNumber is always the national number, without the country prefix - checkVatNumber
+    // returns it that way even on an unconfirmed verdict, so build every branch off the check's own
+    // fields rather than the raw match, or a display label doubles the prefix.
+    if (check.status !== VIES_STATUS.VALID) {
+      return { status: check.status, countryCode: check.countryCode, vatNumber: check.vatNumber, reason: check.reason };
+    }
+    return {
+      status: VIES_STATUS.VALID,
+      name: check.name || '',
+      address: check.address || null,
+      countryCode: check.countryCode,
+      vatNumber: check.vatNumber,
+      taxNumber: check.countryCode === 'BE'
+        ? { BPTaxType: BE_VAT_TAX_TYPE, BPTaxNumber: `${check.countryCode}${check.vatNumber}` }
+        : null
+    };
+  } catch (error) {
+    console.warn('[assistant] Direct VAT lookup unavailable:', error.message);
+    return null;
+  }
+}
+
+// FLCU01/FLVN01 are the standard S/4 FI Customer / FI Vendor roles this app already checks against
+// (srv/checks/cvi-checks.js). Adding the role row is all the assistant needs to do: the existing
+// cvi_account_group derivation (Check / Duplicate Check only) fills the matching Customers/Suppliers
+// section from it via TBD001/TBC001, the same proposal-only path any other requester's role gets -
+// nothing here bypasses that gate or invents an account group itself.
+const ROLE_KEYWORDS = Object.freeze([
+  { role: 'FLCU01', pattern: /\b(customers?|klant(en)?|afnemers?)\b/iu },
+  { role: 'FLVN01', pattern: /\b(suppliers?|vendors?|leveranciers?)\b/iu }
+]);
+
+function detectRequestedRoles(text) {
+  if (!text) return [];
+  const source = String(text);
+  return ROLE_KEYWORDS.filter(({ pattern }) => pattern.test(source)).map(({ role }) => role);
+}
+
 function businessPartnerCreationSuggestion(
   question,
   partners = [],
   research = null,
-  resolvedCompanyName = ''
+  resolvedCompanyName = '',
+  registry = null
 ) {
-  const name = resolvedCompanyName || requestedCompanyName(question);
+  // A VIES/GLEIF hit can be the only name in reach: a requester who pastes a VAT number with no
+  // company name still gets a proposal, named from the registry that confirmed it.
+  const name = resolvedCompanyName || requestedCompanyName(question) || registry?.name || '';
   if (!name) return null;
   if (findPotentialDuplicates(name, partners).length) return null;
-  const proposedName = String(research?.source === 'Wikipedia' ? research.title : name).trim();
-  const address = research?.suggestedAddress || {};
+  // A confirmed register name outranks Wikipedia's own title, which outranks the plain requested
+  // name - each is more authoritative than the one before it about what the company is actually
+  // called.
+  const proposedName = String(
+    registry?.name || (research?.source === 'Wikipedia' ? research.title : '') || name
+  ).trim();
+  // Same ordering for the address: a register (GLEIF, or VIES once it has confirmed a number) is
+  // structured and sourced, the DuckDuckGo-backed research is a last resort.
+  const address = registry?.address || research?.suggestedAddress || {};
+  const language = COUNTRY_LANGUAGE[address.Country] || '';
+
+  const addressRow = {
+    ...(address.StreetName ? { StreetName: address.StreetName } : {}),
+    ...(address.HouseNumber ? { HouseNumber: address.HouseNumber } : {}),
+    ...(address.PostalCode ? { PostalCode: address.PostalCode } : {}),
+    ...(address.CityName ? { CityName: address.CityName } : {}),
+    ...(address.Country ? { Country: address.Country } : {})
+  };
+  const roles = detectRequestedRoles(question);
 
   return {
     SuggestedAction: 'CREATE_BUSINESS_PARTNER',
     SuggestedData: JSON.stringify({
-      BusinessPartnerCategory: '2',
-      OrganizationBPName1: proposedName.slice(0, 40),
-      SearchTerm1: name.replace(/[^\p{L}\p{N}]+/gu, ' ').trim().slice(0, 20),
-      ...(address.StreetName ? { AddressStreetName: address.StreetName } : {}),
-      ...(address.HouseNumber ? { AddressHouseNumber: address.HouseNumber } : {}),
-      ...(address.PostalCode ? { AddressPostalCode: address.PostalCode } : {}),
-      ...(address.CityName ? { AddressCityName: address.CityName } : {}),
-      ...(address.Country ? { AddressCountry: address.Country } : {})
+      root: {
+        BusinessPartnerCategory: '2',
+        OrganizationBPName1: proposedName.slice(0, 40),
+        SearchTerm1: name.replace(/[^\p{L}\p{N}]+/gu, ' ').trim().slice(0, 20),
+        ...(language ? { CorrespondenceLanguage: language } : {})
+      },
+      sections: {
+        ...(Object.keys(addressRow).length ? { Addresses: [addressRow] } : {}),
+        // Only ever the VIES-confirmed Belgian VAT number - see registryEnrichment for why nothing
+        // else is proposed here.
+        ...(registry?.taxNumber ? { TaxNumbers: [registry.taxNumber] } : {}),
+        // The Customers/Suppliers section itself is left empty on purpose: cvi_account_group only
+        // creates that row once Check runs, the same proposal-only path everything else in this
+        // pipeline follows - adding it here would bypass the requester ticking it.
+        ...(roles.length ? { BusinessPartnerRoles: roles.map((role) => ({ BusinessPartnerRole: role })) } : {})
+      }
     })
   };
 }
@@ -1543,9 +1714,40 @@ function triggerApprovalWorkflow(req, businessPartnerInput) {
   });
 }
 
-function externalResearchAnswer(name, research) {
-  if (!research) {
+function registryAnswerLine(registry) {
+  if (!registry) return [];
+  return ['', registry.taxNumber
+    ? `VIES confirms ${registry.name} — VAT number ${registry.taxNumber.BPTaxNumber}.`
+    : `GLEIF lists ${registry.name}${registry.address?.CityName ? ` in ${registry.address.CityName}` : ''} (not confirmed via VIES).`];
+}
+
+// A VALID lookup is already folded into `registry` and covered by registryAnswerLine above - this is
+// only for the three verdicts that are not: the requester typed a VAT number and deserves to be told
+// what VIES actually said about it, rather than being pointed at the public VIES checker themselves.
+function directVatAnswerLine(directVat) {
+  if (!directVat || directVat.status === VIES_STATUS.VALID) return [];
+  const label = `${directVat.countryCode}${directVat.vatNumber}`;
+  if (directVat.status === VIES_STATUS.INVALID) {
+    return ['', `VIES says VAT number ${label} is not registered.`];
+  }
+  if (directVat.status === VIES_STATUS.NOT_APPLICABLE) {
+    return ['', `VIES does not cover ${directVat.countryCode} — check that country's own register instead.`];
+  }
+  return ['', `VIES could not confirm VAT number ${label} right now${directVat.reason ? ` (${directVat.reason})` : ''}.`];
+}
+
+function externalResearchAnswer(name, research, registry = null, directVat = null) {
+  const diagnostics = [...registryAnswerLine(registry), ...directVatAnswerLine(directVat)];
+  if (!research && !diagnostics.length) {
     return `${name} is not present as a Business Partner in S/4HANA. No verified public company information could be retrieved, but you can still prepare a new Business Partner with the company name.`;
+  }
+  if (!research) {
+    return [
+      `${name} is not present as a Business Partner in S/4HANA.`,
+      ...diagnostics,
+      '',
+      'You can prepare a new Business Partner from this suggestion. Review all proposed data before saving it to S/4HANA.'
+    ].join('\n');
   }
   return [
     `${name} is not present as a Business Partner in S/4HANA.`,
@@ -1555,6 +1757,7 @@ function externalResearchAnswer(name, research) {
     ...(Array.isArray(research.sources) && research.sources.length
       ? research.sources.map((source) => `Source: ${source.title} - ${source.url}`)
       : [`Source: ${research.url}`]),
+    ...diagnostics,
     '',
     'You can prepare a new Business Partner from this suggestion. Review all proposed data before saving it to S/4HANA.'
   ].join('\n');
@@ -2086,22 +2289,37 @@ class BusinessPartnerService extends cds.ApplicationService {
           ? await assistantCache.get(`addresses:${cacheKey}`, () => readAssistantAddresses(s4, partners))
           : [];
         const duplicates = companyName ? await findIndexedDuplicates(s4, companyName, partners) : [];
+        // Independent of company-name resolution and the duplicate gate: a VAT number the requester
+        // typed is a direct question about that number, and deserves a direct answer either way.
+        const directVat = await directVatLookup(question);
         let research = null;
+        let registry = null;
         if (companyName && !duplicates.length) {
           try {
             research = await researchCompany(companyName);
           } catch (error) {
             console.warn('[assistant] Public company lookup unavailable:', error.message);
           }
+          registry = await registryEnrichment(companyName);
+        }
+        // A confirmed, directly-typed VAT number outranks a name-matched GLEIF/VIES chain - it is
+        // what the requester actually asked about, not an inference from a company name.
+        if (directVat?.status === VIES_STATUS.VALID) {
+          registry = {
+            name: directVat.name || registry?.name || '',
+            address: directVat.address || registry?.address || null,
+            taxNumber: directVat.taxNumber || registry?.taxNumber || null,
+            source: 'VIES'
+          };
         }
         const suggestion = duplicates.length
           ? null
-          : businessPartnerCreationSuggestion(question, partners, research, companyName);
+          : businessPartnerCreationSuggestion(question, partners, research, companyName, registry);
         const fallbackAnswer = duplicates.length
-          ? duplicateAnswer(companyName, duplicates)
+          ? [duplicateAnswer(companyName, duplicates), ...directVatAnswerLine(directVat)].join('\n')
           : suggestion
-            ? externalResearchAnswer(companyName, research)
-            : answerBusinessPartnerQuestion(question, partners, addresses);
+            ? externalResearchAnswer(companyName, research, registry, directVat)
+            : [answerBusinessPartnerQuestion(question, partners, addresses), ...directVatAnswerLine(directVat)].join('\n');
         const assistantResult = await askSapAiCore({
           question,
           partners,
@@ -2117,6 +2335,7 @@ class BusinessPartnerService extends cds.ApplicationService {
           })),
           conversationHistory,
           totalBusinessPartners: needsPartnerData ? partners.length : null,
+          registryFindings: { registry, directVat },
           aiEnabled
         });
         return { ...assistantResult, ...(suggestion || {}) };
@@ -2200,6 +2419,10 @@ BusinessPartnerService._internals = {
   requestedCompanyName,
   contextualCompanyName,
   businessPartnerCreationSuggestion,
+  registryEnrichment,
+  extractVatNumber,
+  detectRequestedRoles,
+  directVatLookup,
   duplicateAnswer,
   externalResearchAnswer,
   requestingUserEmail,

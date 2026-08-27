@@ -133,6 +133,14 @@ sap.ui.define([
   // different scope, or the requester simply stops typing for this long.
   var TRIGGER_IDLE_MS = 1500;
 
+  // Root fields the Business Partner Assistant's creation suggestion is allowed to prefill. An
+  // explicit allowlist rather than merging the draft's root object wholesale: the draft reaches this
+  // route through a query string, which a hand-built URL can shape however it likes.
+  var ROOT_DRAFT_FIELDS = [
+    "BusinessPartnerCategory", "BusinessPartnerGrouping", "OrganizationBPName1", "SearchTerm1",
+    "CorrespondenceLanguage"
+  ];
+
   var VALUE_HELP_FIELDS = {
     BusinessPartnerGrouping: {
       collectionPath: "BusinessPartnerGroupings", keyField: "BusinessPartnerGrouping",
@@ -577,29 +585,43 @@ sap.ui.define([
         };
       },
 
+      // A single JSON blob under `draft`, not flat query keys: the Business Partner Assistant's
+      // suggestion can carry a TaxNumbers row (from a VIES-confirmed registry lookup) alongside root
+      // fields and an Addresses row, and flat key=value pairs have no way to express a child-entity
+      // array. `ROOT_DRAFT_FIELDS` stays an explicit allowlist, same posture as the flat keys it
+      // replaces - this is server-generated data, not free text, but the create route is still a URL
+      // a query string can be hand-built against.
       _onCreateRoute: async function (event) {
         var state = this._emptyState();
         var routeArguments = event && event.getParameter("arguments") || {};
         var query = routeArguments["?query"] || {};
-        ["BusinessPartnerCategory", "BusinessPartnerGrouping", "OrganizationBPName1", "SearchTerm1"]
-          .forEach(function (field) {
-            if (query[field]) state.root[field] = query[field];
-          });
+        var draft = {};
+        if (query.draft) {
+          try {
+            draft = JSON.parse(query.draft) || {};
+          } catch (_ignored) {
+            draft = {};
+          }
+        }
+        var draftRoot = draft.root || {};
+        ROOT_DRAFT_FIELDS.forEach(function (field) {
+          if (draftRoot[field]) state.root[field] = draftRoot[field];
+        });
         this.getView().getModel("maintenance").setData(state);
+        // A name field filled in by the draft never fires _onFieldCommitted - that only happens when
+        // the requester types into the field themselves - so without this the full name stayed empty
+        // until they separately edited a name field, however complete the suggested name already was.
+        this._refreshFullName(true);
         this._metadata.forEach(function (section) {
           if (section.kind !== "root") state.sections[section.id] = [];
         });
-        var suggestedAddress = {
-          StreetName: query.AddressStreetName || "",
-          HouseNumber: query.AddressHouseNumber || "",
-          PostalCode: query.AddressPostalCode || "",
-          CityName: query.AddressCityName || "",
-          Country: query.AddressCountry || ""
-        };
-        if (Object.values(suggestedAddress).some(Boolean)) {
-          suggestedAddress.__state = "new";
-          state.sections.Addresses.push(suggestedAddress);
-        }
+        var draftSections = draft.sections || {};
+        Object.keys(draftSections).forEach(function (sectionId) {
+          if (state.sections[sectionId] === undefined) return;
+          state.sections[sectionId] = (draftSections[sectionId] || []).map(function (row) {
+            return Object.assign({}, row, { __state: "new" });
+          });
+        });
         this.getView().getModel("maintenance").refresh(true);
         this._updatePreview(state);
         // Before the first render: rendering is synchronous, and a field the profiles hide must never
@@ -2519,7 +2541,10 @@ sap.ui.define([
             field: entry.field,
             current: "",
             proposed: entry.value,
-            reason: entry.message || "found in the official register",
+            // Why is a label; the sentence behind it is the tooltip. A derivation names its own
+            // source in `label`, and `message` is already the one-sentence version.
+            reason: entry.label || "Derived value",
+            detail: entry.message || "This value was filled in from the official register.",
             accepted: true
           });
         });
@@ -2528,7 +2553,9 @@ sap.ui.define([
           // A field derived and then reformatted is one row: applying both writes it twice.
           if (existing !== undefined) {
             rows[existing].proposed = entry.proposed;
-            rows[existing].reason += " (" + entry.reason + ")";
+            // The derivation label still leads — it is why the field has a value at all — and the
+            // reformatting is said in the tooltip rather than growing the label past three words.
+            rows[existing].detail += " " + (entry.detail || entry.reason);
             return;
           }
           rows.push({
@@ -2539,6 +2566,7 @@ sap.ui.define([
             current: entry.current,
             proposed: entry.proposed,
             reason: entry.reason,
+            detail: entry.detail || entry.reason,
             accepted: true
           });
         });
@@ -2597,7 +2625,7 @@ sap.ui.define([
             new Column({ header: new Text({ text: "Change" }) }),
             new Column({ header: new Text({ text: "Current" }) }),
             new Column({ header: new Text({ text: "Proposed" }), width: "14rem" }),
-            new Column({ header: new Text({ text: "Why" }) })
+            new Column({ header: new Text({ text: "Why" }), width: "11rem" })
           ]
         });
         table.bindItems({
@@ -2609,7 +2637,9 @@ sap.ui.define([
               new Text({ text: "{change}" }),
               new Text({ text: "{current}" }),
               new Input({ value: "{proposed}" }),
-              new Text({ text: "{reason}" })
+              // The full explanation is the tooltip, so the column stays a label. `wrapping: false`
+              // is what makes hovering the only way to read it, rather than a second-best.
+              new Text({ text: "{reason}", wrapping: false, tooltip: "{detail}" })
             ]
           })
         });
@@ -2617,11 +2647,14 @@ sap.ui.define([
 
         var dialog = new Dialog({
           title: "Proposed changes",
-          contentWidth: "56rem",
+          contentWidth: "76rem",
+          contentHeight: "40rem",
           resizable: true,
+          draggable: true,
+          stretchOnPhone: true,
           content: [
             new Text({
-              text: "These values were filled in from the official register, or differ from how master data is usually written. Edit anything you want to change, untick what you do not want, and nothing else is touched.",
+              text: "These values were filled in from the official register, or differ from how master data is usually written. Edit anything you want to change, untick what you do not want, and nothing else is touched. Hover over a reason in the Why column to read it in full.",
               wrapping: true
             }).addStyleClass("sapUiSmallMargin"),
             table
@@ -2973,7 +3006,12 @@ sap.ui.define([
           // Order: the branch's own message explains the screen and leads, then what the request was
           // submitted with, then who has it now. The panel header shows the first, so the ordering is
           // what decides which one is readable while collapsed.
-          var processorStrip = processorMessage(state.processors);
+          //
+          // Not on the rework screen (2026-08-26, asked for): the rework branch above already says
+          // why the requester is looking at this screen, and "Current step: Rework - with <requester>
+          // ..." on top of that read as noise rather than new information - the requester already
+          // knows it is theirs to act on.
+          var processorStrip = reworking ? null : processorMessage(state.processors);
           state.messages = (state.messages || [])
             .concat(submittedWarnings)
             .concat(processorStrip ? [processorStrip] : []);

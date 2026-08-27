@@ -36,6 +36,71 @@ test('company research returns bounded public information and its source', async
   assert.match(urls[1], /page\/summary\/Coca-Cola/);
 });
 
+/**
+ * Fixed 2026-08-26: the Wikipedia branch used to return no `suggestedAddress` at all - the REST
+ * summary API is prose, not a structured address - so a well-known company (which always wins this
+ * branch over the public-web fallback) could never get an address suggested, even though the chat
+ * itself could describe the company in detail. A supplementary DuckDuckGo lookup fills the gap.
+ */
+test('a Wikipedia hit also gets a supplementary address from the public web', async () => {
+  const responses = [
+    { query: { search: [{ title: 'Colruyt Group' }] } },
+    {
+      title: 'Colruyt Group',
+      description: 'Belgian retail company',
+      extract: 'Colruyt Group is a Belgian retail company.',
+      content_urls: { desktop: { page: 'https://en.wikipedia.org/wiki/Colruyt_Group' } }
+    }
+  ];
+  const result = await researchCompany('Colruyt Group', {
+    fetchImpl: async (url) => {
+      if (String(url).includes('duckduckgo')) {
+        return {
+          ok: true,
+          text: async () => (
+            '<a class="result__a" href="https://colruytgroup.be">Colruyt Group</a>'
+            + '<a class="result__snippet">Visit our shop at Edingensesteenweg 196 1500 Halle.</a>'
+          )
+        };
+      }
+      return { ok: true, json: async () => responses.shift() };
+    }
+  });
+
+  assert.equal(result.source, 'Wikipedia');
+  assert.match(result.extract, /Belgian retail company/);
+  assert.deepEqual(result.suggestedAddress, {
+    StreetName: 'Edingensesteenweg',
+    HouseNumber: '196',
+    PostalCode: '1500',
+    CityName: 'Halle',
+    Country: 'BE'
+  });
+});
+
+/** A failed or empty address lookup must not cost the Wikipedia result it was enriching. */
+test('a Wikipedia hit survives an address lookup that finds or returns nothing', async () => {
+  const responses = [
+    { query: { search: [{ title: 'Example Corp' }] } },
+    {
+      title: 'Example Corp',
+      description: 'A company',
+      extract: 'Example Corp is a company.',
+      content_urls: { desktop: { page: 'https://en.wikipedia.org/wiki/Example_Corp' } }
+    }
+  ];
+  const result = await researchCompany('Example Corp', {
+    fetchImpl: async (url) => {
+      if (String(url).includes('duckduckgo')) throw new Error('DuckDuckGo unavailable');
+      return { ok: true, json: async () => responses.shift() };
+    }
+  });
+
+  assert.equal(result.source, 'Wikipedia');
+  assert.match(result.extract, /Example Corp is a company/);
+  assert.equal(result.suggestedAddress, null);
+});
+
 test('company research returns null when no public result is found', async () => {
   const result = await researchCompany('Unknown Example', {
     fetchImpl: async () => ({

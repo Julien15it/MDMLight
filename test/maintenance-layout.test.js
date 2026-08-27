@@ -148,7 +148,94 @@ test('the assistant offers a reload instead of a dead dialog when the session ex
   assert.match(assistant, /Your session expired, so the question was not sent/);
   assert.match(assistant, /window\.location\.reload\(\)/);
   // The generic path must survive: not every failure is an expired session.
-  assert.match(assistant, /transcript \+= "\\n\\nAssistant: " \+ errorMessage\(error\)/);
+  assert.match(assistant, /pushMessage\("assistant", "Assistant", errorMessage\(error\)\)/);
+});
+
+/**
+ * The chat used to be one growing TextArea with "You: "/"Assistant: " prefixes buried in plain
+ * text - asked to be clearer about who typed what (2026-08-26). A FeedListItem per turn, coloured
+ * by role through a factory (a static template cannot vary per row), replaces it.
+ */
+test('the assistant chat is a coloured list of turns, not a plain-text transcript', () => {
+  const assistant = fs.readFileSync(path.join(REUSE, 'BusinessPartnerAssistant.js'), 'utf8');
+
+  assert.match(assistant, /new List\(\{/u);
+  assert.match(assistant, /new FeedListItem\(\{/u);
+  assert.match(assistant, /factory: function \(id, context\)/u);
+  // Three distinct style classes, one per role - the colours the CSS keys off.
+  assert.match(assistant, /entry\.role === "user" \? "bpChatUser"/u);
+  assert.match(assistant, /"bpChatSystem" : "bpChatAssistant"/u);
+  // The old plain-text transcript is gone entirely, not left dormant beside the new model.
+  assert.equal(/\btranscript\b/u.test(assistant), false, 'no leftover transcript variable');
+  assert.equal(/TextArea/u.test(assistant), false, 'the conversation is no longer a TextArea');
+});
+
+test('every message goes through one pushMessage helper, so screen and colour cannot drift', () => {
+  const assistant = fs.readFileSync(path.join(REUSE, 'BusinessPartnerAssistant.js'), 'utf8');
+
+  assert.match(assistant, /function pushMessage\(role, sender, text\)/u);
+  // The intro is a system-role turn - its own colour, not counted as either side's turn.
+  assert.match(assistant, /pushMessage\(\s*"system", "Assistant"/u);
+  // The user's own question, then a transient placeholder while the call is in flight.
+  assert.match(assistant, /pushMessage\("user", "You", value\)/u);
+  assert.match(assistant, /pushMessage\("assistant", "Assistant", "Looking up live S\/4HANA data\.\.\."\)/u);
+  // The placeholder is removed once the real answer (or an error) is known, not stacked on top of it.
+  assert.match(assistant, /function popMessage\(\)/u);
+  assert.equal((assistant.match(/popMessage\(\);/gu) || []).length, 2, 'success path and error path both pop it');
+});
+
+test('the chat auto-scrolls to the newest turn, and the three roles are styled by theme tokens', () => {
+  const assistant = fs.readFileSync(path.join(REUSE, 'BusinessPartnerAssistant.js'), 'utf8');
+  assert.match(assistant, /function scrollToBottom\(\)/u);
+  assert.match(assistant, /dom\.scrollTop = dom\.scrollHeight/u);
+
+  const css = fs.readFileSync(path.join(REUSE, 'css', 'maintenance.css'), 'utf8');
+  assert.match(css, /\.bpChatUser\s*\{[\s\S]*?background-color:\s*var\(--sapInformationBackground/u);
+  assert.match(css, /\.bpChatAssistant\s*\{[\s\S]*?background-color:\s*var\(--sapSuccessBackground/u);
+  assert.match(css, /\.bpChatSystem\s*\{[\s\S]*?background-color:\s*var\(--sapWarningBackground/u);
+  // The old TextArea-specific rule is gone with the control it styled.
+  assert.equal(/bpAssistantConversation/u.test(css), false);
+});
+
+/**
+ * The create route reads the suggested draft back from a single JSON `draft` query key (2026-08-27) -
+ * a flat key=value transport cannot carry a child-entity array like a registry-confirmed TaxNumbers
+ * row, which is what forced the redesign. Root fields still come off an explicit allowlist,
+ * ROOT_DRAFT_FIELDS - CorrespondenceLanguage joined it (2026-08-26) alongside the country-inference in
+ * businessPartnerCreationSuggestion, so a suggestion that knows an unambiguous business language
+ * actually lands in the create form rather than being dropped.
+ */
+test('the create route reads the JSON draft, root fields off an allowlist and sections by id', () => {
+  const controller = fs.readFileSync(
+    path.join(REUSE, 'controller', 'BusinessPartnerMaintenance.controller.js'),
+    'utf8'
+  );
+  assert.match(
+    controller,
+    /var ROOT_DRAFT_FIELDS = \[\s*\n\s*"BusinessPartnerCategory", "BusinessPartnerGrouping", "OrganizationBPName1", "SearchTerm1",\s*\n\s*"CorrespondenceLanguage"\s*\n\s*\];/u
+  );
+  const create = controller.slice(controller.indexOf('_onCreateRoute:'), controller.indexOf('_onDisplayRoute:'));
+  assert.match(create, /draft = JSON\.parse\(query\.draft\)/u);
+  assert.match(create, /ROOT_DRAFT_FIELDS\.forEach/u);
+  assert.match(create, /draft\.sections/u);
+});
+
+/**
+ * A name field the create route fills from the AI assistant's draft never fires _onFieldCommitted -
+ * that only runs on a real edit inside the form - so BusinessPartnerFullName stayed empty until the
+ * requester separately touched a name field themselves, however complete the suggested name already
+ * was. _onCreateRoute now recomposes it itself, right after the root fields are set (2026-08-27).
+ */
+test('the create route recomposes the full name from whatever the draft filled in', () => {
+  const controller = fs.readFileSync(
+    path.join(REUSE, 'controller', 'BusinessPartnerMaintenance.controller.js'),
+    'utf8'
+  );
+  const create = controller.slice(controller.indexOf('_onCreateRoute:'), controller.indexOf('_onDisplayRoute:'));
+  const setDataIndex = create.indexOf('.setData(state);');
+  const refreshIndex = create.indexOf('this._refreshFullName(true);');
+  assert.ok(setDataIndex !== -1 && refreshIndex !== -1, 'both calls must be present in _onCreateRoute');
+  assert.ok(refreshIndex > setDataIndex, 'the model must hold the draft root fields before recomposing');
 });
 
 // The changed-field diff went with the direct write: a change request stages the whole partner so
@@ -378,4 +465,63 @@ test('company code, sales area and purchasing org live inside their role Details
   // The dialog registers a container per child so the ordinary re-render paths reach it.
   assert.match(controller, /_hostedSectionContainers/);
   assert.match(controller, /section\.childSections/);
+});
+
+/**
+ * `srv/business-partner-service.cds` excludes fields the imported metadata has but this on-premise
+ * release does not expose (`A_Customer excluding {...}`, etc. - see CLAUDE.md, "The imported models
+ * are copies, and they go stale silently"). The generator used to read the raw imported CSN only, so
+ * a field added to a CDS `excluding {}` clause stayed on the create screen until someone also
+ * hand-copied it into that section's own `excludedFields` in generate-maintenance-metadata.js - a
+ * second copy of the same fact that drifted at least once: RecipientType was excluded from
+ * A_CustomerWithHoldingTax on 2026-08-21 to fix a live 404 (CLAUDE.md), and the generator was never
+ * updated to match, so it stayed on the create screen for weeks. Fixed 2026-08-27 by deriving
+ * excludedFields from the compiled service instead of a hand-kept copy.
+ */
+test('the metadata generator derives its exclusions from the compiled CDS service, not a hand-copied list', () => {
+  const generator = fs.readFileSync(
+    path.join(__dirname, '..', 'app', 'businesspartner', 'scripts', 'generate-maintenance-metadata.js'),
+    'utf8'
+  );
+  assert.match(generator, /cds\.load\(path\.join\(projectRoot, 'srv', 'business-partner-service'\)\)/u);
+  assert.match(generator, /!\(name in serviceEntity\.elements\)/u);
+  assert.match(generator, /section\.excludedFields = \[\.\.\.new Set\(\[/u);
+
+  // The concrete bug this closed: a field a fixed CDS exclusion already drops must be gone from the
+  // generated file too, not just from the CDS-served OData response.
+  const metadata = fs.readFileSync(path.join(REUSE, 'BusinessPartnerMetadata.js'), 'utf8');
+  const section = metadata.slice(
+    metadata.indexOf('"id": "CustomerWithholdingTax"'),
+    metadata.indexOf('"id": "CustomerSalesAreaText"')
+  );
+  assert.doesNotMatch(section, /"name": "RecipientType"/u);
+});
+
+test('the generated metadata stays reproducible: re-running the generator changes nothing', () => {
+  const before = fs.readFileSync(path.join(REUSE, 'BusinessPartnerMetadata.js'), 'utf8');
+  const result = require('node:child_process').spawnSync(
+    process.execPath,
+    [path.join(__dirname, '..', 'app', 'businesspartner', 'scripts', 'generate-maintenance-metadata.js')],
+    { encoding: 'utf8' }
+  );
+  assert.equal(result.status, 0, result.stderr);
+  const after = fs.readFileSync(path.join(REUSE, 'BusinessPartnerMetadata.js'), 'utf8');
+  assert.equal(after, before);
+});
+
+// The Why column is a three-word label with the full explanation on hover, and the dialog is big
+// enough to read the table in (2026-08-27).
+test('the proposal dialog shows a short reason and hides the sentence in its tooltip', () => {
+  const controller = fs.readFileSync(
+    path.join(REUSE, 'controller', 'BusinessPartnerMaintenance.controller.js'),
+    'utf8'
+  );
+
+  assert.match(controller, /text: "\{reason\}", wrapping: false, tooltip: "\{detail\}"/);
+  // The derivation's short label leads, never its message: that is what the tooltip carries.
+  assert.match(controller, /reason: entry\.label \|\| "Derived value"/);
+  assert.match(controller, /detail: entry\.message \|\|/);
+  assert.doesNotMatch(controller, /reason: entry\.message/);
+  assert.match(controller, /contentWidth: "76rem"/);
+  assert.match(controller, /contentHeight: "40rem"/);
 });

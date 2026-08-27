@@ -1,6 +1,6 @@
 _schema-version: "3.2"
 ID: mdm-md-businesspartner-manage
-version: 1.77.0
+version: 1.81.0
 description: "Manage Business Partner (F3163) - CAP + Fiori Elements"
 parameters:
   enable-parallel-deployments: true
@@ -79,7 +79,7 @@ modules:
   # --- UI: HTML5 application deployer ------------------------------------------
   # Both apps go through ONE content module, because two content modules aimed at
   # one app-host each replace the other's content. Work Zone standard edition
-  # exposes only the FIRST crossNavigation inbound per app, so the MDM Rules tile
+  # exposes only the FIRST crossNavigation inbound per app, so the MDM Configuration Panel tile
   # has to be its own app rather than a second inbound.
   #
   # The zipping is done by tools/package-html5.js, not left to mbt: an html5-type

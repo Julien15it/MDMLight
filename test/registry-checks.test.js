@@ -262,3 +262,24 @@ test('the registry stages no longer propose anything', () => {
   assert.equal(registry.validations.length, 1);
   assert.equal(registry.derivations.length, 1);
 });
+
+test('a registry derivation is labelled by its source, in three words or fewer', () => {
+  const entries = addressDerivations([{ PostalCode: '9000', CityName: 'Gent' }], [{}], 'VIES');
+  assert.ok(entries.length);
+  for (const entry of entries) {
+    assert.strictEqual(entry.label, 'VIES check');
+    assert.ok(entry.label.split(' ').length <= 3);
+    // The tooltip: the sentence stays on `message`, which is what the dialog hovers.
+    assert.match(entry.message, /from VIES/u);
+  }
+  assert.strictEqual(
+    addressDerivations([{ PostalCode: '1000' }], [{}], 'GLEIF')[0].label, 'GLEIF check'
+  );
+});
+
+// Never labelled 'system': a register value is a proposal, so the S/4 standard checks must not see
+// it until the requester has accepted it. See systemDerived in pipeline.js.
+test('a registry derivation is never a system derivation', () => {
+  const entries = addressDerivations([{ PostalCode: '9000' }], [{}], 'VIES');
+  assert.strictEqual(entries.every((entry) => !entry.system), true);
+});

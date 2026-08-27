@@ -59,7 +59,7 @@ test('the steward scope exists and is not folded into partner maintenance', () =
   assert.equal(manager['scope-references'].includes('$XSAPPNAME.Steward'), false);
 });
 
-// Moved to the MDM Rules tile (2026-08-17): rule configuration is not a partner-list action.
+// Moved to the MDM Configuration Panel tile (2026-08-17): rule configuration is not a partner-list action.
 test('the partner list no longer carries a rules button', () => {
   const actions = bpManifest['sap.ui5'].routing.targets.BusinessPartnersList.options.settings
     .controlConfiguration['@com.sap.vocabularies.UI.v1.LineItem'].actions;

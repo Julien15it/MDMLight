@@ -3582,16 +3582,6 @@ sap.ui.define([], function () {
             "updatable": true
           },
           {
-            "name": "RecipientType",
-            "label": "Recipient Type",
-            "type": "cds.String",
-            "key": false,
-            "nullable": true,
-            "maxLength": 2,
-            "creatable": true,
-            "updatable": true
-          },
-          {
             "name": "AuthorizationGroup",
             "label": "Authorization",
             "type": "cds.String",

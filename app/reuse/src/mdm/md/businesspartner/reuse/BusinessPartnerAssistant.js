@@ -3,11 +3,15 @@ sap.ui.define([
   "sap/m/Button",
   "sap/m/Input",
   "sap/m/Text",
-  "sap/m/TextArea",
+  "sap/m/List",
+  "sap/m/FeedListItem",
   "sap/m/VBox",
   "sap/m/MessageBox",
+  "sap/ui/model/json/JSONModel",
   "sap/ui/core/routing/HashChanger"
-], function (Dialog, Button, Input, Text, TextArea, VBox, MessageBox, HashChanger) {
+], function (
+  Dialog, Button, Input, Text, List, FeedListItem, VBox, MessageBox, JSONModel, HashChanger
+) {
   "use strict";
 
   function errorMessage(error) {
@@ -87,17 +91,66 @@ sap.ui.define([
         return;
       }
 
-      var transcript = "Assistant: Ask me a free-form question about Business Partners. "
-        + "I use the configured SAP AI Core model with live S/4HANA data, check possible duplicates, "
-        + "and can prepare a reviewed creation proposal when a company is not yet present.";
-      var conversationHistory = [];
-      var conversation = new TextArea({
-        value: transcript,
-        editable: false,
-        width: "100%",
-        height: "22rem",
-        growing: false
-      }).addStyleClass("bpAssistantConversation");
+      /**
+       * One list drives what is on screen - `sender`/`role` decide the colour, a `FeedListItem`
+       * per turn instead of one growing block of plain text, so "who typed what" is legible at a
+       * glance rather than read out of "You: "/"Assistant: " prefixes buried in a wall of text.
+       * `conversationHistory` below is the separate, narrower thing the model actually reasons
+       * over - the last 10 user/assistant turns, no system intro, no error text - so widening the
+       * screen's own record here never risks widening what is sent as context.
+       */
+      var chatModel = new JSONModel({ messages: [] });
+      var messages = chatModel.getProperty("/messages");
+
+      function pushMessage(role, sender, text) {
+        messages.push({ role: role, sender: sender, text: text });
+        chatModel.setProperty("/messages", messages);
+        scrollToBottom();
+      }
+
+      // Removes the transient "Looking up..." placeholder once the real answer (or error) is in.
+      function popMessage() {
+        messages.pop();
+        chatModel.setProperty("/messages", messages);
+      }
+
+      function scrollToBottom() {
+        setTimeout(function () {
+          var dom = chatList.getDomRef();
+          if (dom) dom.scrollTop = dom.scrollHeight;
+        }, 0);
+      }
+
+      var chatList = new List({
+        showSeparators: "None",
+        noDataText: " "
+      }).addStyleClass("bpAssistantChat");
+      chatList.setModel(chatModel);
+      chatList.bindItems({
+        path: "/messages",
+        // A factory, not a static template: the style class - the colour - depends on which row
+        // this is, and a template cannot vary per item the way a factory function can.
+        factory: function (id, context) {
+          var entry = context.getObject();
+          var item = new FeedListItem({
+            sender: entry.sender,
+            text: entry.text,
+            icon: entry.role === "user" ? "sap-icon://person-placeholder" : "sap-icon://discussion-2",
+            iconDisplayShape: "Circle"
+          });
+          item.addStyleClass(entry.role === "user" ? "bpChatUser"
+            : (entry.role === "system" ? "bpChatSystem" : "bpChatAssistant"));
+          return item;
+        }
+      });
+
+      pushMessage(
+        "system", "Assistant",
+        "Ask me a free-form question about Business Partners. I use the configured SAP AI Core "
+        + "model with live S/4HANA data, check possible duplicates, and can prepare a reviewed "
+        + "creation proposal when a company is not yet present."
+      );
+
       var question = new Input({
         placeholder: "Ask a question about the available Business Partners...",
         width: "100%"
@@ -108,22 +161,25 @@ sap.ui.define([
         type: "Attention",
         visible: false,
         press: function () {
+          // A single JSON blob, not flat key=value pairs: the suggestion can carry a TaxNumbers
+          // row (from a VIES-confirmed registry lookup) alongside root fields and an Addresses row,
+          // and a flat query string has no way to express a child-entity array.
           var draft = createSuggestionButton.data("draft") || {};
-          var query = Object.keys(draft).map(function (key) {
-            return encodeURIComponent(key) + "=" + encodeURIComponent(draft[key]);
-          }).join("&");
+          var hasDraft = Object.keys(draft).length > 0;
+          var query = hasDraft ? "?draft=" + encodeURIComponent(JSON.stringify(draft)) : "";
           dialog.close();
-          HashChanger.getInstance().setHash("BusinessPartners/create" + (query ? "?" + query : ""));
+          HashChanger.getInstance().setHash("BusinessPartners/create" + query);
         }
       }).addStyleClass("sapUiSmallMarginTop");
       var dialog;
+      var conversationHistory = [];
 
       var send = async function () {
         var value = question.getValue().trim();
         if (!value) return;
 
-        transcript += "\n\nYou: " + value;
-        conversation.setValue(transcript + "\n\nAssistant: Looking up live S/4HANA data...");
+        pushMessage("user", "You", value);
+        pushMessage("assistant", "Assistant", "Looking up live S/4HANA data...");
         question.setValue("");
         question.setEnabled(false);
         dialog.setBusy(true);
@@ -135,19 +191,21 @@ sap.ui.define([
           await binding.execute("$direct");
           var context = binding.getBoundContext();
           var info = resultInfo(context && context.getObject());
-          transcript += "\n\nAssistant (" + info.provider + "): " + info.answer;
+          popMessage();
+          pushMessage("assistant", "Assistant (" + info.provider + ")", info.answer);
           conversationHistory.push(
             { role: "user", content: value },
             { role: "assistant", content: info.answer }
           );
-          conversation.setValue(transcript);
           createSuggestionButton.data("draft", info.suggestedData);
           createSuggestionButton.setVisible(info.suggestedAction === "CREATE_BUSINESS_PARTNER");
         } catch (error) {
+          popMessage();
           if (isSessionExpired(error)) {
-            transcript += "\n\nAssistant: Your session expired, so the question was not sent. "
-              + "Reload the page to sign in again.";
-            conversation.setValue(transcript);
+            pushMessage(
+              "assistant", "Assistant",
+              "Your session expired, so the question was not sent. Reload the page to sign in again."
+            );
             MessageBox.error(
               "Your session expired, so the question was not sent. Reload the page to sign in again.",
               {
@@ -159,8 +217,7 @@ sap.ui.define([
               }
             );
           } else {
-            transcript += "\n\nAssistant: " + errorMessage(error);
-            conversation.setValue(transcript);
+            pushMessage("assistant", "Assistant", errorMessage(error));
           }
         } finally {
           binding.destroy();
@@ -174,7 +231,8 @@ sap.ui.define([
       dialog = new Dialog({
         title: "Business Partner Assistant",
         icon: "sap-icon://discussion-2",
-        contentWidth: "44rem",
+        contentWidth: "60rem",
+        contentHeight: "40rem",
         resizable: true,
         draggable: true,
         stretchOnPhone: true,
@@ -184,7 +242,7 @@ sap.ui.define([
               text: "The assistant searches live S/4HANA Business Partner and address data, checks possible duplicates, and can use clearly sourced public company information to prepare a new Business Partner.",
               wrapping: true
             }).addStyleClass("sapUiSmallMarginBottom"),
-            conversation,
+            chatList,
             createSuggestionButton,
             question.addStyleClass("sapUiSmallMarginTop")
           ]

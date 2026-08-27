@@ -162,6 +162,22 @@ test('AI prompt context finds partners by address and includes sourced research'
   assert.doesNotMatch(context, /IBAN|must-never-enter/);
 });
 
+test('AI prompt context carries registryFindings, so the model sees VIES/GLEIF data itself', () => {
+  const withFindings = promptContext(
+    'BP ING aanmaken met VAT BE0403.200.393', partners, [], null, [], [], null,
+    {
+      registry: { name: 'ING BELGIUM NV', address: { CityName: 'Brussel', Country: 'BE' }, taxNumber: { BPTaxType: 'BE0', BPTaxNumber: 'BE0403200393' }, source: 'VIES' },
+      directVat: { status: 'valid', name: 'ING BELGIUM NV', countryCode: 'BE', vatNumber: '0403200393' }
+    }
+  );
+  assert.match(withFindings, /"registryFindings"/);
+  assert.match(withFindings, /ING BELGIUM NV/);
+  assert.match(withFindings, /"source":"VIES"/);
+
+  assert.match(promptContext('Hello', [], [], null, [], [], null, null), /"registryFindings":null/);
+  assert.match(promptContext('Hello', [], [], null, [], [], null, { registry: null, directVat: null }), /"registryFindings":null/);
+});
+
 test('assistant uses SAP AI Core when bound and reports its provider', async () => {
   let captured;
   class MockOrchestrationClient {

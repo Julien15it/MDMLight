@@ -11,8 +11,10 @@
 // `severity: 'error'` stops the pipeline; 'warning' and 'info' do not.
 const VALIDATIONS = [];
 
-// { name, async run(payload) -> [{ target, index, field, value, message }] }, `target` being 'root'
-// or a section id. Applied to a copy and reported back, so nothing is discovered after approval.
+// { name, async run(payload) -> [{ target, index, field, value, message, label?, system? }] },
+// `target` being 'root' or a section id. Applied to a copy and reported back, so nothing is
+// discovered after approval.
+// `label` is the three-word version of `message`; `system` means S/4 uses it whatever anyone ticks.
 const DERIVATIONS = [];
 
 const BLOCKING = 'error';
@@ -48,8 +50,26 @@ async function runValidations(payload, validations = VALIDATIONS) {
   return messages;
 }
 
+// The same write, replayed onto a second payload from an entry the pipeline already applied.
+function replay(payload, entry) {
+  if (entry.createsRow && entry.target && entry.target !== ROOT) {
+    if (!payload.sections) payload.sections = {};
+    const rows = payload.sections[entry.target] || (payload.sections[entry.target] = []);
+    if (!rows.length) {
+      rows.push({ [entry.field]: entry.value });
+      return;
+    }
+  }
+  const record = targetRecord(payload, entry);
+  if (!record || !isEmpty(record[entry.field])) return;
+  record[entry.field] = entry.value;
+}
+
+// `derived` is everything filled in (for the duplicate check); `systemDerived` is what was typed
+// plus only the `system` entries, which is what the S/4 standard checks are allowed to see.
 async function runDerivations(payload, derivations = DERIVATIONS) {
   const derived = clone(payload);
+  const systemDerived = clone(payload);
   const applied = [];
   for (const derivation of derivations) {
     let entries = [];
@@ -88,6 +108,8 @@ async function runDerivations(payload, derivations = DERIVATIONS) {
             value: entry.value,
             createsRow: true,
             severity: 'info',
+            label: entry.label || null,
+            system: Boolean(entry.system),
             message: entry.message || `A ${entry.target} row was added with ${entry.field} ${entry.value}.`
           });
           continue;
@@ -114,11 +136,17 @@ async function runDerivations(payload, derivations = DERIVATIONS) {
         field: entry.field,
         value: entry.value,
         severity: 'info',
+        label: entry.label || null,
+        system: Boolean(entry.system),
         message: entry.message || `${entry.field} was derived as ${entry.value}.`
       });
     }
   }
-  return { derived, applied };
+  // Replayed from `applied`, so an entry the pipeline refused to write is not replayed either.
+  for (const entry of applied) {
+    if (entry.system && entry.field) replay(systemDerived, entry);
+  }
+  return { derived, applied, systemDerived };
 }
 
 // `checkDuplicates` is injected, not imported: this module stays free of the S/4 connection, and the
@@ -132,13 +160,14 @@ async function runChecks(payload, { checkDuplicates, checkStandard, validations,
       derivations: [],
       normalisations: [],
       derived: payload,
+      systemDerived: payload,
       duplicates: [],
       ranDuplicateCheck: false,
       standard: []
     };
   }
 
-  const { derived, applied } = await runDerivations(payload, derivations);
+  const { derived, applied, systemDerived } = await runDerivations(payload, derivations);
 
   // Proposals, not changes. Made against the derived payload so a field just filled in can be
   // normalised in the same pass, and never applied here — the requester accepts or declines.
@@ -150,13 +179,12 @@ async function runChecks(payload, { checkDuplicates, checkStandard, validations,
     console.warn('[checks] Normalisation proposals unavailable:', error.message);
   }
 
-  // After the derivations and on the derived payload, because these checks depend on fields the
-  // derivations fill -- the account group derived from the grouping being the clear case. Sending
-  // the typed payload would surface errors the app was about to fix itself. Reported alongside the
-  // validations rather than gating: `severity` decides that, not the stage it came from.
+  // `systemDerived`, not `derived` (fixed 2026-08-27): S/4 was objecting to postal codes VIES had
+  // proposed and nobody had accepted, which is an error with no field on the screen to clear it.
+  // An accepted proposal comes back as a typed value on the next press and is checked then.
   let standard = [];
   try {
-    standard = checkStandard ? await checkStandard(derived) || [] : [];
+    standard = checkStandard ? await checkStandard(systemDerived) || [] : [];
   } catch (error) {
     // Same reasoning as the duplicate check below: "nothing objected" produced by a check that
     // never ran is the one answer this must not give.
@@ -189,6 +217,7 @@ async function runChecks(payload, { checkDuplicates, checkStandard, validations,
     validations: [...validationMessages, ...standard],
     derivations: applied,
     normalisations,
+    systemDerived,
     derived,
     duplicates,
     ranDuplicateCheck,
