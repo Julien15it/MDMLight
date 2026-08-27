@@ -1326,6 +1326,42 @@ must not read as "nothing to report"; an unreadable *profile* table resolves to
 nothing, because a read failure that hid every field or blocked every submit would
 take the maintenance screen down over a control that is not a verdict on the data.
 
+#### The approval role is also BTP-sourced now, additively (2026-08-27)
+
+The role condition's four fixed values (`*`, `Requester`, `Approver`, `DataSteward`)
+stay exactly as they were - `ROLES`/`ROLE_TEXT` in `field-properties.js` are
+untouched, and an existing profile scoped to `Approver` still works precisely as
+before. `fieldPropertyOptions()` now **appends** the subaccount's own
+`MDMLIGHT`-prefixed role collections to the same `roles` list, sourced through
+`workflowAgents()` - the identical function the Workflow Agent Determination
+picker uses (see that section), filtered to `type === 'Role'` since a field
+property profile's role condition is about a screen/actor kind, not a named
+individual, so users are left out here on purpose. No CDS shape change was needed:
+`roles` was already `array of Option`, and a BTP role collection name has no
+friendlier label to offer than itself, so `{ code, text }` are the same string.
+
+The write guard (`before CREATE/UPDATE FieldPropertyProfiles`) was widened the
+same way: a `role` outside the fixed four is checked against `workflowAgents()`
+live rather than rejected outright, so a profile can be saved against a real BTP
+role - and a typo or a deleted role collection is still refused, the same
+"looks configured and never fires" concern every other rule table in this
+codebase guards against.
+
+**This does not, on its own, make a profile scoped to a specific approver role
+actually apply differently at runtime.** Every approve screen still calls
+`effectiveFieldProperties` with the literal role `'Approver'`
+(`BusinessPartnerMaintenance.controller.js`), whoever is actually approving - there
+is no per-function approver distinction anywhere in the runtime yet, only the
+one generic approve screen. A profile saved against, say, `MDMLIGHT_Finance_Approver`
+is accepted and stored, but will never be the profile `effectiveFieldProperties`
+resolves for an approve screen until something reads the actual approver's BTP
+role membership and passes it as `Role` instead of the hardcoded literal - the
+same "scope read off `req.user`" the paragraph above already flags as deferred.
+This is the same shape of gap the Workflow Agent Determination table shipped
+with and still has (**"Arthur's process ignores `approvers` entirely"**): the
+configuration surface exists ahead of the runtime consuming it, on purpose,
+rather than withheld until both halves are ready together.
+
 #### Critical fields, entity-level only, and who to notify (2026-08-26)
 
 Three things changed together, all off the same `critical` column:
@@ -2036,6 +2072,109 @@ diverging only where the roles differ.
   and the UI hold up their end (the status, the actions, the screen, the task
   type) and wait for the process side the same way rework's did before Arthur
   wired up the rejection branch.
+
+#### Highlighting what changed (2026-08-27)
+
+A data steward enriching a request, or a requester reworking one, edits a record
+somebody else already filled in - and until now nothing on screen said which
+fields that touched. `BusinessPartnerMaintenance.controller.js` now colours a
+changed value **light red** and an added one **light orange**, and leads the
+screen with a collapsible three-column list of exactly what moved.
+
+**A baseline is required, and it is not the same baseline for every request
+type.** `state.trackChanges` decides whether one is meaningful at all:
+
+- **A plain new create has none, on purpose.** `state.trackChanges` stays `false`
+  (the `_emptyState()` default) all the way through `_onCreateRoute` - there is
+  nothing to compare a brand new record against, so "changed" would mean nothing
+  and "added" would mean everything, which is the one wrong answer this feature
+  exists to avoid giving.
+- **Editing a live Business Partner** (`_loadBusinessPartner`, `_onEditRoute`)
+  compares against the values exactly as read from S/4, a moment before the
+  requester or steward can touch them - `state.originalRoot`/`originalSections`
+  are cloned right after that read, and `state.trackChanges = editing`.
+- **A staged request** (`_loadStagedRequest` - rework, data steward review,
+  approve, view, and the requester's own not-yet-submitted draft) tracks changes
+  everywhere **except** a create-type draft reopened by its own requester:
+  `state.trackChanges = state.requestType === "change" || mode !== "edit"`. That
+  one exception is the same reasoning as the plain create route - continuing your
+  own unsubmitted work is not a round somebody else is reviewing.
+- **A create-type staged request's baseline is simply the payload as this screen
+  loaded it** - `_loadChangeBaseline` clones `state.root`/`state.sections` before
+  anything is touched this round, exactly the way `_loadBusinessPartner` already
+  did. That is "what the previous round left it as", which is precisely what a
+  steward's or a reworking requester's edits should be measured against.
+- **A change-type request is judged against S/4's OWN current values, re-read
+  live**, never against staging's own copy. Staging holds the *merged* result -
+  the partner's original fields and this round's edits sitting in the same
+  object - so cloning it would compare a record against itself. `_loadChangeBaseline`
+  calls `_fetchLiveSnapshotForDiff`, which repeats `_loadBusinessPartner`'s own
+  root-plus-sections read (reusing `_loadSection` so the two cannot drift) rather
+  than trusting anything carried over from an earlier load. Best-effort, the same
+  discipline every other live S/4 read in this codebase follows: a re-read that
+  fails leaves the as-loaded snapshot in place (a diff one round behind) rather
+  than none at all, logged with `console.warn` and never shown to the user - they
+  came here to review a record, not to hear about a comparison that could not run.
+
+**Rows already know their own answer - `record.__state`.** The Add/Edit dialog
+marks a brand new row `"new"` and an edited one `"modified"`, and
+`_applyProposals` marks an accepted proposal on an existing row `"changed"` -
+all three existed before this feature for staging's own benefit. `rowChangeKind`
+just reads it: `"new"` is an addition, anything else with a `__state` is a
+change, and a row with none was not touched this round. **Gated on
+`trackChanges`, in `_renderSection`** - `__state` gets set on every row a plain
+new create adds too, and none of that is a "change" worth marking.
+
+**Root fields have no such flag, so they are diffed value by value** -
+`fieldChangeKind(baselineValue, currentValue)`: nothing when both sides agree,
+`"added"` when the baseline was empty and this one is not, `"changed"`
+otherwise - which deliberately also covers a field that was **cleared**: undoing
+a value that was there is a change to the record, not nothing.
+`BusinessPartnerFullName` is excluded everywhere this runs, root and summary
+alike - it is S/4's own derivation (see "`BusinessPartnerFullName` is derived,
+never stored" above), never something a requester or steward typed, so a diff
+entry for it would report a change nobody made.
+
+**The colour lives on the control, not in a binding**, because the root form is
+built imperatively (`_createFieldGrid`/`_createFieldControl`), not from a model
+path - a field's background is fixed at the moment its `VBox` wrapper is
+constructed. `_createForm`/`_createFieldGrid` gained an optional trailing
+`baseline` parameter for exactly this, and `_onFieldCommitted` re-renders the
+whole root form after every commit (`change`, not `liveChange` - the field has
+already lost focus) so a freshly typed value gets its class the same way a
+freshly loaded one does. **Only the root form's own renderers pass a baseline** -
+`_renderRootSection` and `_openAdditionalFields`, both gated on `trackChanges`
+the same way the row colour is. **A section's Add/Edit dialog never gets one**:
+the row itself is coloured in the outer table instead, so a dialog never has to
+resolve which of its own fields to tint - the same "per-record, not per-field,
+inside a dialog" scope decided for `__state` itself.
+
+**The summary panel is a genuine three-column table** (`changeSummaryPanel`,
+`Field` / `Previous Value` / `New Value`), not `sap.m.SelectDialog`'s pseudo-
+columns - the same reasoning "The approver picker is sourced from the subaccount"
+above already applied to the Workflow Agent Determination F4 help. The colour
+sits on the **New Value** cell, via `ObjectStatus`'s `state` (`Warning` for an
+addition, `Error` for a change), rather than on the row - keeping the panel to
+exactly the three columns asked for while still carrying the colour. Built by
+`_refreshChangeSummary`, which is the one place root and section diffs are
+turned into `{ field, oldValue, newValue, kind }` rows; a **new** section row
+lists each of its own populated fields against `"—"` rather than trying to name
+a baseline that does not exist for it, and a **changed** row is matched against
+`originalSections` **positionally** - the one known limitation, since a row
+deleted earlier in the same session ahead of an edited one would misalign this.
+The row's own colour never has that problem, because it comes straight off
+`__state` rather than from matching anything.
+
+**The panel is collapsible and empty-hides**, the same shape every other panel
+above the form uses (`_setDuplicatePanel`, `_setCommentsPanel`): `visible` is
+bound to `changeSummary.length > 0`, and the header carries a count so a
+collapsed panel still says how much it holds.
+
+**The comment thread moved to be the last panel above the form** (asked for the
+same day): `commentsPanel` used to sit second, right after the message panel: it
+now comes after the duplicate findings and the new change summary, immediately
+before the `ObjectPageLayout` - nothing stands between the conversation and the
+Business Partner's own name any more except that conversation itself.
 
 #### The approve screen as a BPA UI5 Task Form
 

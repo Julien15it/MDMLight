@@ -47,6 +47,29 @@
   padding-top: 0.5rem;
 }
 
+/* What a data steward or a reworking requester changed this round, against the baseline
+   BusinessPartnerMaintenance.controller.js computes in _refreshChangeSummary - see "Highlighting
+   what changed" in CLAUDE.md. Semantic theme tokens, so both colours stay correct in dark mode
+   too, with a plain fallback for a theme that does not define them. Light-red vs light-orange, as
+   asked for: a value that already existed and was edited, versus one that is new. */
+.mdmChangedField {
+  background: var(--sapErrorBackground, #ffebee);
+  border-radius: 0.5rem;
+}
+
+.mdmAddedField {
+  background: var(--sapWarningBackground, #fff4e5);
+  border-radius: 0.5rem;
+}
+
+.mdmChangedRow, .mdmChangedRow > td {
+  background-color: var(--sapErrorBackground, #ffebee) !important;
+}
+
+.mdmAddedRow, .mdmAddedRow > td {
+  background-color: var(--sapWarningBackground, #fff4e5) !important;
+}
+
 @media (max-width: 600px) {
   .bpObjectPageCard {
     padding: 0.75rem 0.5rem;

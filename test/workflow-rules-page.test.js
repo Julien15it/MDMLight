@@ -228,7 +228,8 @@ test('the approver picker is served from the BTP subaccount, not the hard-coded 
 
   const agentsModule = read(ROOT, 'srv', 'wf', 'btp-agents.js');
   assert.match(agentsModule, /ROLE_COLLECTION_PREFIX = 'MDMLIGHT'/u);
-  assert.match(agentsModule, /description\.startsWith\(ROLE_COLLECTION_PREFIX\)/u);
+  // Case-insensitive on purpose (2026-08-27): an admin's "Mdmlight"/"mdmlight" must still match.
+  assert.match(agentsModule, /description\.toUpperCase\(\)\.startsWith\(ROLE_COLLECTION_PREFIX\)/u);
   assert.match(agentsModule, /type: 'Role'/u);
   assert.match(agentsModule, /type: 'User'/u);
   // Best-effort like every other BTP-platform read here: an unreachable subaccount API leaves the

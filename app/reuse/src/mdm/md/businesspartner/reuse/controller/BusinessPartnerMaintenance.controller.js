@@ -293,6 +293,33 @@ sap.ui.define([
     return String(value);
   }
 
+  function isBlank(value) {
+    return value === undefined || value === null || String(value).trim() === "";
+  }
+
+  /**
+   * "added" when the baseline had nothing and this one does, "changed" when both sides have (or had)
+   * a value and they differ - clearing a field counts as a change, not nothing, since something the
+   * requester or steward did undid a value that was there. "" (no class) when the two agree, which
+   * covers a field nobody touched this round.
+   */
+  function fieldChangeKind(baselineValue, currentValue) {
+    var was = isBlank(baselineValue);
+    var is = isBlank(currentValue);
+    if (was && is) return "";
+    if (was && !is) return "added";
+    if (String(baselineValue) === String(currentValue)) return "";
+    return "changed";
+  }
+
+  /** Row-level colour for a section record, straight off __state: "new" is this session's own
+   *  addition, "modified"/"changed" (the dialog and _applyProposals spell it differently) is an edit
+   *  to a row that already existed. A row with no __state was not touched this round. */
+  function rowChangeKind(record) {
+    if (!record || !record.__state) return "";
+    return record.__state === "new" ? "added" : "changed";
+  }
+
   function categoryText(category) {
     return ({ "1": "Person (1)", "2": "Organization (2)", "3": "Group (3)" })[category]
       || category
@@ -535,6 +562,13 @@ sap.ui.define([
           sectionWarnings: [],
           deletedRecords: {},
           originalRoot: {},
+          originalSections: {},
+          // Whether a baseline is meaningful at all - false on a plain new create, where "original"
+          // is trivially empty and every field would show as an addition. See _refreshChangeSummary.
+          trackChanges: false,
+          // The collapsible "what changed" list above the form - {field, oldValue, newValue, kind}.
+          changeSummary: [],
+          changeSummaryHeader: "",
           root: {
             BusinessPartnerCategory: "2",
             BusinessPartnerGrouping: ""
@@ -658,6 +692,11 @@ sap.ui.define([
           sections.forEach(function (result) {
             state.sections[result.id] = result.records;
           });
+          // The live values as read, before editing touches any of them - see "Highlighting what
+          // changed" in CLAUDE.md. Only meaningful while actually editing: a plain display has
+          // nothing anyone is about to change.
+          state.originalSections = clone(state.sections);
+          state.trackChanges = editing;
           state.sectionWarnings = sections
             .filter(function (result) { return Boolean(result.warning); })
             .map(function (result) { return { text: result.warning }; });
@@ -672,6 +711,7 @@ sap.ui.define([
         } finally {
           state.busy = false;
           this._updatePreview(state);
+          this._refreshChangeSummary();
           maintenanceModel.refresh(true);
           this._renderAll();
         }
@@ -924,15 +964,22 @@ sap.ui.define([
           section,
           state.root,
           state.mode === "create",
-          state.editing
+          state.editing,
+          false,
+          state.trackChanges ? state.originalRoot : null
         ).addStyleClass("bpObjectPageCard"));
       },
 
-      _createForm: function (section, record, isCreate, editing, compact) {
+      // `baseline` is the matching record from before this session's edits - passed only by the root
+      // form's own renderers (see _renderRootSection/_openAdditionalFields), so a per-field highlight
+      // never appears inside a section's Add/Edit dialog. There, the row itself is coloured in the
+      // outer table (_renderSection, from record.__state) - see "Highlighting what changed" in
+      // CLAUDE.md for why the two use different granularity.
+      _createForm: function (section, record, isCreate, editing, compact, baseline) {
         // fieldGroups renders one titled block per group, as the MDG screen splits Control Data /
         // Tax Information / Additional Data. Without them it stays the flat grid everything else uses.
         if (!section.fieldGroups || !section.fieldGroups.length) {
-          return this._createFieldGrid(section, section.fields, record, isCreate, editing, compact);
+          return this._createFieldGrid(section, section.fields, record, isCreate, editing, baseline);
         }
 
         var byName = {};
@@ -941,10 +988,11 @@ sap.ui.define([
         var blocks = section.fieldGroups.map(function (group) {
           var fields = group.fields.map(function (name) { return byName[name]; }).filter(Boolean);
           // These sit directly above child tables in the same dialog, so they use the same table control
-          // rather than a form - otherwise the fields appear to float next to bounded tables.
+          // rather than a form - otherwise the fields appear to float next to bounded tables. Never
+          // passed a baseline: this branch only ever runs for a record dialog (see _openRecordDialog).
           var body = compact
             ? this._createFieldTable(section, fields, record, isCreate, editing)
-            : this._createFieldGrid(section, fields, record, isCreate, editing, compact);
+            : this._createFieldGrid(section, fields, record, isCreate, editing, baseline);
           // A group whose every field was filtered out (all keys hidden on create, say)
           // would otherwise leave a heading with nothing under it.
           if (!body.getItems && !body.getContent().length) {
@@ -1008,8 +1056,9 @@ sap.ui.define([
       },
 
       // Label-above-field cards in a responsive grid: the layout every section uses outside the
-      // grouped Customer/Supplier blocks - see _createFieldTable.
-      _createFieldGrid: function (section, fields, record, isCreate, editing) {
+      // grouped Customer/Supplier blocks - see _createFieldTable. `baseline`, when given, is the
+      // matching record from before this session's edits - see _createForm.
+      _createFieldGrid: function (section, fields, record, isCreate, editing, baseline) {
         var shown = fields.filter(function (field) {
           // Noise on a collection, where it repeats per row; on a "single" section it is the record's
           // own ERP Customer/Vendor number and belongs on screen. Read-only either way, via _isEditable.
@@ -1022,7 +1071,7 @@ sap.ui.define([
 
         var content = shown.map(function (field) {
           var control = this._createFieldControl(section, field, record, isCreate, editing);
-          return new VBox({
+          var wrapper = new VBox({
             items: [
               new Label({
                 text: field.label + (this._isRequired(section, field, isCreate, editing) ? " *" : ""),
@@ -1031,6 +1080,11 @@ sap.ui.define([
               control
             ]
           }).addStyleClass("bpField");
+          if (baseline) {
+            var kind = fieldChangeKind(baseline[field.name], record[field.name]);
+            if (kind) wrapper.addStyleClass(kind === "added" ? "mdmAddedField" : "mdmChangedField");
+          }
+          return wrapper;
         }, this);
 
         return new Grid({
@@ -1221,7 +1275,9 @@ sap.ui.define([
           section,
           record,
           state.mode === "create",
-          state.editing
+          state.editing,
+          false,
+          state.trackChanges ? state.originalRoot : null
         ).addStyleClass("bpAdditionalFields");
         var dialog = new Dialog({
           title: "Additional Business Partner Fields",
@@ -1239,6 +1295,7 @@ sap.ui.define([
               Object.assign(state.root, record);
               this._updatePreview(state);
               this._renderRootForm();
+              this._refreshChangeSummary();
               dialog.close();
             }.bind(this)
           }),
@@ -1410,6 +1467,12 @@ sap.ui.define([
             type: "Active",
             cells: cells
           });
+          // A row this session's steward/requester added or edited is coloured directly on
+          // record.__state - see rowChangeKind. Gated on trackChanges: __state is set on every row a
+          // plain new create adds too, and none of that is a "change" worth marking - there is
+          // nothing yet to compare it against.
+          var rowKind = state.trackChanges ? rowChangeKind(record) : "";
+          if (rowKind) item.addStyleClass(rowKind === "added" ? "mdmAddedRow" : "mdmChangedRow");
           item.attachPress(this._openExistingRecord.bind(this, section, index));
           table.addItem(item);
         }, this);
@@ -1554,6 +1617,7 @@ sap.ui.define([
               state.sections[section.id] = records;
               this.getView().getModel("maintenance").refresh(true);
               this._renderSection(section);
+              this._refreshChangeSummary();
               dialog.close();
             }.bind(this)
           }),
@@ -2028,6 +2092,14 @@ sap.ui.define([
       },
 
       _onFieldCommitted: function (section, field) {
+        // A root field's colour is fixed the moment its control is built, from the value at that
+        // instant - it does not track a later edit on its own, so a commit redraws the form. Cheap
+        // enough on a blur-triggered event, and the same "recompute, then redraw" shape _applyProposals
+        // and the section dialog's Apply already follow for their own edits.
+        if (section.kind === "root" && this.getView().getModel("maintenance").getData().trackChanges) {
+          this._renderRootForm();
+          this._refreshChangeSummary();
+        }
         // S/4 derives the full name from these and will not be told it, so nothing fills the field
         // until the partner exists. Recomposed here instead, as soon as a name is typed - the same
         // composition srv/partner-name.js sends to the workflow, so the screen and the approver's
@@ -2294,6 +2366,88 @@ sap.ui.define([
           : "";
       },
 
+      /**
+       * The collapsible "what changed" list above the form - {field, oldValue, newValue, kind}, one
+       * row per field that differs from the baseline. See "Highlighting what changed" in CLAUDE.md.
+       *
+       * A no-op (empty list) when trackChanges is false: a plain new create has nothing to compare
+       * against, and everything on it would show as an addition - the one thing this panel must never
+       * say about a record nobody has touched twice.
+       *
+       * Root fields are diffed field by field against originalRoot. Section rows are read off
+       * __state, which the record dialog and _applyProposals already maintain - a new row (__state
+       * "new") lists its own populated fields against "—"; an edited row ("modified"/"changed") is
+       * matched positionally against originalSections and diffed field by field. Positional matching
+       * is the one known limitation: a row deleted earlier in the same session, ahead of an edited
+       * one, would misalign this - the row's own colour never has that problem, since it comes
+       * straight off __state rather than from matching.
+       */
+      _refreshChangeSummary: function () {
+        var state = this.getView().getModel("maintenance").getData();
+        if (!state.trackChanges) {
+          state.changeSummary = [];
+          state.changeSummaryHeader = "";
+          return;
+        }
+
+        var rows = [];
+        var root = state.root || {};
+        var originalRoot = state.originalRoot || {};
+        // The composed display name is never something anyone typed - see _refreshFullName - so a
+        // diff entry for it would report a change nobody made.
+        Object.keys(root).filter(function (name) { return name !== "BusinessPartnerFullName"; })
+          .forEach(function (fieldName) {
+            var kind = fieldChangeKind(originalRoot[fieldName], root[fieldName]);
+            if (!kind) return;
+            rows.push({
+              field: this._rootFieldLabel(fieldName),
+              oldValue: displayValue(originalRoot[fieldName]) || "—",
+              newValue: displayValue(root[fieldName]) || "—",
+              kind: kind
+            });
+          }, this);
+
+        this._metadata
+          .filter(function (section) { return section.kind !== "root"; })
+          .forEach(function (section) {
+            var records = state.sections[section.id] || [];
+            var baselineRecords = (state.originalSections || {})[section.id] || [];
+            records.forEach(function (record, index) {
+              var kind = rowChangeKind(record);
+              if (!kind) return;
+              var baseline = kind === "added" ? {} : (baselineRecords[index] || {});
+              section.fields.forEach(function (field) {
+                if (field.name === section.relationField) return;
+                var fieldKind = kind === "added"
+                  ? (isBlank(record[field.name]) ? "" : "added")
+                  : fieldChangeKind(baseline[field.name], record[field.name]);
+                if (!fieldKind) return;
+                rows.push({
+                  field: section.title + " – " + field.label,
+                  oldValue: displayValue(baseline[field.name]) || "—",
+                  newValue: displayValue(record[field.name]) || "—",
+                  kind: fieldKind
+                });
+              });
+            });
+          });
+
+        state.changeSummary = rows;
+        state.changeSummaryHeader = rows.length
+          ? rows.length + (rows.length === 1 ? " field changed" : " fields changed")
+          : "";
+      },
+
+      /** A root field's friendly label, the same catalog _renderRootSection reads (ROOT_LABELS first,
+       *  then the field's own label from the generated metadata). Falls back to the bare field name
+       *  for one the catalog does not know, rather than dropping the row from the summary. */
+      _rootFieldLabel: function (fieldName) {
+        var field = this._rootSection && this._rootSection.fields.find(function (candidate) {
+          return candidate.name === fieldName;
+        });
+        return (field && (ROOT_LABELS[fieldName] || field.label)) || fieldName;
+      },
+
       _parseJsonArray: function (text) {
         try {
           var value = JSON.parse(text || "[]");
@@ -2540,6 +2694,7 @@ sap.ui.define([
         // clean on the strength of a check nobody ran.
         this._updatePreview(state);
         this._renderAll();
+        this._refreshChangeSummary();
         MessageToast.show(applied + " field(s) updated.");
       },
 
@@ -2688,6 +2843,12 @@ sap.ui.define([
             state.requestType, mode === "approve" ? "Approver" : (reviewing ? "DataSteward" : "Requester")
           );
           state.businessPartner = (payload && payload.BusinessPartner) || "";
+          // What to compare against for the "what changed" panel and the field/row colouring - see
+          // "Highlighting what changed" in CLAUDE.md. Not meaningful on the requester's own not-yet-
+          // submitted create draft (mode "edit" with no prior round): everything would show as an
+          // addition, which says nothing anyone does not already know.
+          state.trackChanges = state.requestType === "change" || mode !== "edit";
+          if (state.trackChanges) await this._loadChangeBaseline(state, mode);
           state.rejectionComment = (payload && payload.RejectionComment) || "";
           // Cleared to null on every successful post and rewritten on every failed one (never left
           // stale across rounds the way rejectionComment can be), so it is the more trustworthy of
@@ -2821,9 +2982,76 @@ sap.ui.define([
         } finally {
           state.busy = false;
           this._updatePreview(state);
+          this._refreshChangeSummary();
           maintenanceModel.refresh(true);
           this._renderAll();
         }
+      },
+
+      /**
+       * The baseline for state.trackChanges - see "Highlighting what changed" in CLAUDE.md. A change
+       * request is compared against the BUSINESS PARTNER'S OWN CURRENT LIVE VALUES, re-read here
+       * rather than trusted from any earlier load: staging holds the merged result (original fields
+       * and this round's edits together), never a copy of what S/4 said before anyone touched it. A
+       * create request has no live partner to compare against, so its baseline is simply the payload
+       * as this screen loaded it - which is exactly "what the previous round left it as".
+       *
+       * Best-effort: a live re-read that fails (or a request with no businessPartner yet) falls back
+       * to that same as-loaded snapshot rather than leaving the screen without one - a diff that is a
+       * round behind is better than none, the same trade-off metadata-drift.js and every other
+       * best-effort BTP/S4 read in this codebase makes.
+       */
+      _loadChangeBaseline: async function (state, mode) {
+        state.originalRoot = clone(state.root);
+        state.originalSections = clone(state.sections);
+        if (state.requestType !== "change" || !state.businessPartner) return;
+        try {
+          var live = await this._fetchLiveSnapshotForDiff(state.businessPartner);
+          state.originalRoot = live.root;
+          state.originalSections = live.sections;
+        } catch (error) {
+          console.warn("[change-summary] Could not re-read the live Business Partner for comparison:", error);
+        }
+      },
+
+      /** The live root and section records for a Business Partner, in the same shape state.root /
+       *  state.sections use - reused by _loadChangeBaseline so a change request's diff is judged
+       *  against what S/4 says now, not against staging's own merged copy. */
+      _fetchLiveSnapshotForDiff: async function (businessPartner) {
+        var model = this._serviceModel();
+        if (!model) throw new Error("The business partner service is not bound to this screen.");
+        var rootBinding = model.bindContext(
+          "/BusinessPartners('" + escapeODataKey(businessPartner) + "')"
+        );
+        var root = clone(await rootBinding.getBoundContext().requestObject());
+        rootBinding.destroy();
+
+        var relationValues = {
+          BusinessPartner: businessPartner,
+          Customer: root.Customer || null,
+          Supplier: root.Supplier || null
+        };
+        var sections = {};
+        await Promise.all(
+          this._metadata
+            .filter(function (section) { return section.kind !== "root"; })
+            .map(async function (section) {
+              var relationValue = relationValues[section.relationField];
+              if (relationValue === null || relationValue === undefined) {
+                sections[section.id] = [];
+                return;
+              }
+              try {
+                var result = await this._loadSection(relationValue, section);
+                sections[section.id] = result.records;
+              } catch (error) {
+                // One section that cannot be re-read live must not cost the whole comparison - it
+                // simply offers no baseline, so nothing in it is coloured, rather than a broken screen.
+                sections[section.id] = [];
+              }
+            }.bind(this))
+        );
+        return { root: root, sections: sections };
       },
 
       // Moves a sent-back request out of inApproval, and reports the status it settled on. A failure

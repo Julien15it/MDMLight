@@ -194,6 +194,26 @@ test('the conditions are checked on the way in', () => {
   assert.match(guard, /!ROLES\.includes\(role\)/u);
 });
 
+/**
+ * The approval role is additionally sourced from the BTP subaccount, the same way the Workflow
+ * Agent Determination picker is (2026-08-27) - Requester/DataSteward/`*` stay exactly the hard-coded
+ * four they always were.
+ */
+test('a profile can also be scoped to a BTP role, not only the fixed four', () => {
+  assert.match(serviceJs, /require\('\.\/wf\/btp-agents'\)/u);
+  const guard = serviceJs.slice(serviceJs.indexOf("'FieldPropertyProfiles'"));
+  const guardBody = guard.slice(0, guard.indexOf('\n    });'));
+  assert.match(guardBody, /!ROLES\.includes\(role\)/u);
+  assert.match(guardBody, /workflowAgents\(\)/u);
+  assert.match(guardBody, /agent\.type === 'Role' && agent\.value === role/u);
+
+  const options = serviceJs.slice(serviceJs.indexOf("this.on('fieldPropertyOptions'"));
+  const optionsBody = options.slice(0, options.indexOf('\n    }));') + 6);
+  assert.match(optionsBody, /ROLES\.map/u);
+  assert.match(optionsBody, /workflowAgents\(\)/u);
+  assert.match(optionsBody, /agent\.type === 'Role'/u);
+});
+
 // --- The page --------------------------------------------------------------------------
 
 test('the profile list is the conditions, and the properties are behind Modify', () => {
