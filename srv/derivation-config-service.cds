@@ -48,6 +48,14 @@ service DerivationConfigService @(path: '/service/derivationconfig') {
    *  (`TPAER-PAPFL`) is the half worth proposing unasked. */
   @readonly entity PartnerFunctionsByAccountGroup as projection on VH.DerPartnerFunctionAccGrp;
 
+  /** The VENDOR mirror, and it hangs off a different table: `T077K-PARGE` → `TPAER` → `TPAR`.
+   *  The customer procedure lives on `TKUPA`; the vendor one is three columns on the account group
+   *  table itself, one per level — and the served `sap:quickinfo` confirms which is which:
+   *  `PurchasingOrgProcedure` is the purchasing-organisation level, `SecondLevelProcedure` the
+   *  sub-range, `ThirdLevelProcedure` the plant. **Only the first is joined**; MDM Light stages a
+   *  purchasing-organisation row and nothing below it. */
+  @readonly entity SupplierFunctionsByAccountGroup as projection on VH.DerSupplierFunctionAccGrp;
+
   /** The same mandatory flag keyed by determination procedure rather than by account group.
    *  **Exposed and not consumed** — `PartnerFunctionsByAccountGroup` above supersedes it for the
    *  derivation. Kept for the same reason the inbound CVI direction rows are: leaving half a table

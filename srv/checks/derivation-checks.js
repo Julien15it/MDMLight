@@ -36,17 +36,19 @@ function invalidate() {
 
 async function readConfiguration() {
   const service = await cds.connect.to(SERVICE);
-  const [countries, taxCategories, timeZones, partnerFunctions] = await Promise.all([
+  const [countries, taxCategories, timeZones, partnerFunctions, supplierFunctions] = await Promise.all([
     service.run(cds.ql.SELECT.from('DerAddressDefaults')),
     service.run(cds.ql.SELECT.from('DerTaxCategories')),
     service.run(cds.ql.SELECT.from('DerTimeZones')),
-    service.run(cds.ql.SELECT.from('DerPartnerFunctionAccGrp'))
+    service.run(cds.ql.SELECT.from('DerPartnerFunctionAccGrp')),
+    service.run(cds.ql.SELECT.from('DerSupplierFunctionAccGrp'))
   ]);
   return {
     countries: Array.isArray(countries) ? countries : [],
     taxCategories: Array.isArray(taxCategories) ? taxCategories : [],
     timeZones: Array.isArray(timeZones) ? timeZones : [],
-    partnerFunctions: Array.isArray(partnerFunctions) ? partnerFunctions : []
+    partnerFunctions: Array.isArray(partnerFunctions) ? partnerFunctions : [],
+    supplierFunctions: Array.isArray(supplierFunctions) ? supplierFunctions : []
   };
 }
 
@@ -316,6 +318,76 @@ function partnerFunctionEntries(payload, { partnerFunctions }) {
 }
 
 /**
+ * The mandatory SUPPLIER partner functions, from `T077K-PARGE` -> `TPAER`.
+ *
+ * **A different link from the customer side, and that asymmetry is real.** The customer procedure
+ * lives on `TKUPA`; the vendor one is three columns on the account group table itself, one per
+ * level -- `PARGE` purchasing organisation, `PARGT` sub-range, `PARGW` plant, confirmed from the
+ * served `sap:quickinfo` rather than inferred from the names. Only `PARGE` is joined, because MDM
+ * Light stages a purchasing-organisation row and nothing below it.
+ *
+ * Everything else mirrors the customer stage: only `PartnerType` = 'LI', only mandatory functions,
+ * the partner number and counter left for S/4, silent when the purchasing-org row is absent.
+ */
+function supplierFunctionEntries(payload, { supplierFunctions }) {
+  const [purchasingOrg] = liveRows(payload, 'SupplierPurchasingOrg');
+  if (!purchasingOrg) return [];
+
+  const organisation = text(purchasingOrg.PurchasingOrganization);
+  if (!organisation) return [];
+
+  const accountGroup = text(liveRows(payload, 'Suppliers')[0]?.SupplierAccountGroup);
+  if (!accountGroup) return [];
+
+  if (liveRows(payload, 'SupplierPartnerFunctions').length) return [];
+
+  const mandatory = supplierFunctions
+    .filter((row) => text(row.AccountGroup) === accountGroup)
+    .filter((row) => row.IsMandatory)
+    // 'LI' here where the customer stage wants 'KU'. Procedure AG carries both, so without this a
+    // customer function would land on a purchasing organisation.
+    .filter((row) => text(row.PartnerType) === 'LI')
+    .sort((left, right) => text(left.SortOrder).localeCompare(text(right.SortOrder)));
+  if (!mandatory.length) return [];
+
+  const [first, ...remaining] = mandatory;
+  const procedure = text(first.PurchasingOrgProcedure);
+
+  const entries = [{
+    target: 'SupplierPartnerFunctions',
+    index: 0,
+    createsRow: true,
+    field: 'PartnerFunction',
+    value: text(first.PartnerFunction),
+    label: 'Mandatory function',
+    message: `Partner function ${text(first.PartnerFunction)} is mandatory for supplier account `
+      + `group ${accountGroup} under partner schema ${procedure} in S/4. The partner number is left `
+      + 'for S/4 to assign at post time.'
+  }, {
+    target: 'SupplierPartnerFunctions',
+    index: 0,
+    field: 'PurchasingOrganization',
+    value: organisation,
+    label: 'Purchasing org',
+    message: `Purchasing organization ${organisation} is taken from the purchasing row on this `
+      + 'request.'
+  }];
+
+  // SupplierSubrange and Plant are deliberately NOT filled: they are the lower two levels, each
+  // with its own partner schema, and a purchasing-organisation row leaves them blank.
+  if (remaining.length) {
+    entries.push({
+      message: `Supplier account group ${accountGroup} has ${mandatory.length} mandatory partner `
+        + `functions under schema ${procedure} `
+        + `(${mandatory.map((row) => text(row.PartnerFunction)).join(', ')}). One row is proposed; `
+        + 'add the others by hand if this supplier needs them.'
+    });
+  }
+
+  return entries;
+}
+
+/**
  * One stage, not two, and the reason is the pipeline's own: every rule in a single stage sees the
  * same payload, because entries are applied only after the stage returns. These two touch different
  * sections and neither reads what the other writes, so they can share one -- unlike the configured
@@ -344,7 +416,8 @@ function createDerivationStages({ read = readConfiguration } = {}) {
           ...addressLanguageEntries(payload, config),
           ...timeZoneEntries(payload, config),
           ...taxCategoryEntries(payload, config),
-          ...partnerFunctionEntries(payload, config)
+          ...partnerFunctionEntries(payload, config),
+          ...supplierFunctionEntries(payload, config)
         ];
       }
     }]
@@ -362,6 +435,7 @@ module.exports = {
     timeZoneEntries,
     taxCategoryEntries,
     partnerFunctionEntries,
+    supplierFunctionEntries,
     liveRows
   }
 };

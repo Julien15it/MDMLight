@@ -1335,3 +1335,41 @@ entity ZSRVB_MDMLIGHT_VH.DerPartnerFunctionAccGrp {
   @sap.quickinfo : 'Type of partner number'
   PartnerType : String(2);
 };
+
+@cds.external : true
+@cds.persistence.skip : true
+@sap.creatable : 'false'
+@sap.updatable : 'false'
+@sap.deletable : 'false'
+@sap.content.version : '1'
+@sap.label : 'Derivation: supplier partner functions per account group'
+entity ZSRVB_MDMLIGHT_VH.DerSupplierFunctionAccGrp {
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Account group'
+  @sap.quickinfo : 'Vendor account group'
+  key AccountGroup : String(4) not null;
+  key PartnerFunction : String(2) not null;
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Part. schema'
+  @sap.quickinfo : 'Partner schema: purchasing organization level'
+  PurchasingOrgProcedure : String(4);
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Part. schema'
+  @sap.quickinfo : 'Partner schema, sub-range'
+  SecondLevelProcedure : String(4);
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Part. schema'
+  @sap.quickinfo : 'Partner schema: plant level'
+  ThirdLevelProcedure : String(4);
+  @sap.label : 'Partner mandatory'
+  @sap.quickinfo : 'Partner is mandatory'
+  IsMandatory : Boolean;
+  @sap.display.format : 'NonNegative'
+  @sap.label : 'Sequence'
+  @sap.quickinfo : 'Sequence in which partners are determined in the sales doc.'
+  SortOrder : String(2);
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Partner Type'
+  @sap.quickinfo : 'Type of partner number'
+  PartnerType : String(2);
+};

@@ -9,7 +9,8 @@ const DERIVATION_CONFIG_ENTITIES = Object.freeze([
   'TaxCategories',
   'PartnerFunctions',
   'PartnerFunctionProcedures',
-  'PartnerFunctionsByAccountGroup'
+  'PartnerFunctionsByAccountGroup',
+  'SupplierFunctionsByAccountGroup'
 ]);
 
 // The remote sets behind them, for the metadata drift check — the projections are renamed, and the
@@ -20,7 +21,8 @@ const DERIVATION_REMOTE_SETS = Object.freeze([
   'DerTaxCategories',
   'DerPartnerFunctions',
   'DerPartnerFunctionProcedures',
-  'DerPartnerFunctionAccGrp'
+  'DerPartnerFunctionAccGrp',
+  'DerSupplierFunctionAccGrp'
 ]);
 
 /**

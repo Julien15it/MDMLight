@@ -773,6 +773,21 @@ carry a tax category and no departure country — half a `KNVI` key.
   no number, and the counter is S/4's to assign. Needs a `CustomerSalesArea` row, because the node
   is keyed by one; three extra entries fill that key from the row the requester already added.
 
+- **Mandatory SUPPLIER partner functions** from `T077K-PARGE` → `TPAER`, added 2026-08-27 after
+  Maarten spotted that only the customer side was wired. **The vendor link is a different table**:
+  the customer procedure lives on `TKUPA`, the vendor one is three columns on the account group table
+  itself, one per level — `PARGE` purchasing organisation, `PARGT` sub-range, `PARGW` plant,
+  confirmed from the served `sap:quickinfo` rather than inferred. **Only `PARGE` is joined**, because
+  the app stages a purchasing-organisation row and nothing below it; `SupplierSubrange` and `Plant`
+  are therefore never filled. Mirrors the customer stage otherwise, with the guard inverted:
+  `PartnerType = 'LI'`, because procedure `AG` carries `LF` (vendor) and schema `0001` carries `AG`
+  (customer), so each side would otherwise propose the other's functions.
+
+Which derivations are customer-only, and why it is not an oversight: **tax categories** — `KNVI` has
+no vendor counterpart, vendors carry no tax classification node. **Withholding tax** is symmetric in
+being absent from both: `T059P` has no mandatory flag, so there is nothing to propose unasked on
+either side. Address language and time zone are BP-level and have no customer/vendor split at all.
+
 ##### The rule about what a derivation may say (Maarten, 2026-08-27)
 
 **A requester never reads "you could have X if you filled in Y."** They fill in what they know, and
