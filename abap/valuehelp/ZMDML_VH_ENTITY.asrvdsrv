@@ -58,9 +58,12 @@ define service ZMDML_VH_ENTITY {
   expose Z_I_DER_TAX_CATEGORY           as DerTaxCategories;
   expose Z_I_DER_PARTNER_FUNC           as DerPartnerFunctions;
   // Keyed by determination procedure, so not joinable on its own. Superseded for the derivation by
-  // DerPartnerFunctionsMandatory below, which carries the TKUPA link; kept exposed because it is
+  // DerPartnerFunctionAccGrp below, which carries the TKUPA link; kept exposed because it is
   // the raw procedure table and the next person should not re-derive where it lives.
   expose Z_I_DER_PARTNER_FUNC_PROC      as DerPartnerFunctionProcedures;
   // TKUPA -> TPAER -> TPAR. The account group is the join, and this is what the derivation reads.
-  expose Z_I_DER_PARTNER_FUNC_MAND      as DerPartnerFunctionsMandatory;
+  expose Z_I_DER_PARTNER_FUNC_MAND      as DerPartnerFunctionAccGrp;
+  // The vendor mirror: T077K-PARGE -> TPAER -> TPAR. A DIFFERENT link -- the customer procedure is
+  // on TKUPA, the vendor one is three columns on the account group table itself.
+  expose Z_I_DER_SUPPL_FUNC_ACCGRP      as DerSupplierFunctionAccGrp;
 }

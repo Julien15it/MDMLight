@@ -41,10 +41,24 @@ service DerivationConfigService @(path: '/service/derivationconfig') {
    *  which functions are mandatory. */
   @readonly entity PartnerFunctions   as projection on VH.DerPartnerFunctions;
 
-  /** The mandatory flag (`TPAER-PAPFL`) — the only thing worth proposing unasked. **Exposed and
-   *  not consumed**: it is keyed by determination procedure and nothing found so far links a
-   *  procedure to an account group, so it cannot be joined to `PartnerFunctions`. Kept exposed for
-   *  the same reason the inbound CVI direction rows are — leaving half a table behind is how the
-   *  next person re-derives where it lives. */
+  /** `TKUPA` → `TPAER` → `TPAR`, joined on the **account group** — the link four probe rounds
+   *  looked for. `T077D` carries no procedure at all, `T077D-KALSM` turned out to be output
+   *  determination, and only 3 of 25 account groups share a name with a procedure, so joining on
+   *  equality was never safe. **This is the one the derivation reads**, and `IsMandatory`
+   *  (`TPAER-PAPFL`) is the half worth proposing unasked. */
+  @readonly entity PartnerFunctionsByAccountGroup as projection on VH.DerPartnerFunctionAccGrp;
+
+  /** The VENDOR mirror, and it hangs off a different table: `T077K-PARGE` → `TPAER` → `TPAR`.
+   *  The customer procedure lives on `TKUPA`; the vendor one is three columns on the account group
+   *  table itself, one per level — and the served `sap:quickinfo` confirms which is which:
+   *  `PurchasingOrgProcedure` is the purchasing-organisation level, `SecondLevelProcedure` the
+   *  sub-range, `ThirdLevelProcedure` the plant. **Only the first is joined**; MDM Light stages a
+   *  purchasing-organisation row and nothing below it. */
+  @readonly entity SupplierFunctionsByAccountGroup as projection on VH.DerSupplierFunctionAccGrp;
+
+  /** The same mandatory flag keyed by determination procedure rather than by account group.
+   *  **Exposed and not consumed** — `PartnerFunctionsByAccountGroup` above supersedes it for the
+   *  derivation. Kept for the same reason the inbound CVI direction rows are: leaving half a table
+   *  behind is how the next person re-derives where it lives. */
   @readonly entity PartnerFunctionProcedures as projection on VH.DerPartnerFunctionProcedures;
 }

@@ -8,7 +8,10 @@ const path = require('node:path');
 const { createDerivationStages, invalidate, _internals } = require('../srv/checks/derivation-checks');
 const { runDerivations } = require('../srv/checks/pipeline');
 
-const { addressLanguageEntries, timeZoneEntries, taxCategoryEntries } = _internals;
+const {
+  addressLanguageEntries, timeZoneEntries, taxCategoryEntries,
+  partnerFunctionEntries, supplierFunctionEntries
+} = _internals;
 
 // T005 and TSTL as the service serves them. Column names are the view aliases, read from the live
 // $metadata on 2026-08-27 rather than guessed -- see mdmlbpcheck/README.md.
@@ -32,6 +35,25 @@ const CONFIG = Object.freeze({
     // Two zones and NEITHER marked default: a customizing gap, not a coin toss.
     { Country: 'DE', Region: 'BY', AddressTimeZone: 'CET', IsDefault: false },
     { Country: 'DE', Region: 'BY', AddressTimeZone: 'UTC', IsDefault: false }
+  ],
+  // TKUPA -> TPAER -> TPAR as the view serves it. KUNA -> AG -> AG/RE/RG/WE is the real S4A chain.
+  partnerFunctions: [
+    { AccountGroup: 'KUNA', PartnerFunction: 'AG', DeterminationProcedure: 'AG', IsMandatory: true, SortOrder: '01', PartnerType: 'KU' },
+    { AccountGroup: 'KUNA', PartnerFunction: 'RE', DeterminationProcedure: 'AG', IsMandatory: true, SortOrder: '02', PartnerType: 'KU' },
+    // Not mandatory: a value help, not a derivation.
+    { AccountGroup: 'KUNA', PartnerFunction: 'SB', DeterminationProcedure: 'AG', IsMandatory: false, SortOrder: '03', PartnerType: 'KU' },
+    // A VENDOR function under the same procedure. NRART is what keeps it off a customer sales area.
+    { AccountGroup: 'KUNA', PartnerFunction: 'LF', DeterminationProcedure: 'AG', IsMandatory: true, SortOrder: '04', PartnerType: 'LI' },
+    { AccountGroup: 'DEBI', PartnerFunction: 'AG', DeterminationProcedure: 'AG', IsMandatory: true, SortOrder: '01', PartnerType: 'KU' }
+  ],
+  // The VENDOR side: T077K-PARGE -> TPAER -> TPAR. A different link, so its own fixture.
+  supplierFunctions: [
+    { AccountGroup: 'LIEF', PartnerFunction: 'LF', PurchasingOrgProcedure: '0001', IsMandatory: true, SortOrder: '01', PartnerType: 'LI' },
+    { AccountGroup: 'LIEF', PartnerFunction: 'RS', PurchasingOrgProcedure: '0001', IsMandatory: true, SortOrder: '02', PartnerType: 'LI' },
+    // Not mandatory.
+    { AccountGroup: 'LIEF', PartnerFunction: 'BA', PurchasingOrgProcedure: '0001', IsMandatory: false, SortOrder: '03', PartnerType: 'LI' },
+    // A CUSTOMER function under the same schema -- the mirror of the LF-on-a-customer case.
+    { AccountGroup: 'LIEF', PartnerFunction: 'AG', PurchasingOrgProcedure: '0001', IsMandatory: true, SortOrder: '04', PartnerType: 'KU' }
   ]
 });
 
@@ -136,17 +158,14 @@ test('several zones and none marked default derives nothing', () => {
   assert.deepEqual(entries.filter((entry) => entry.field), []);
 });
 
-// "No time zone appeared" and "your address needs a region first" are different answers.
-test('an address with no region says so rather than deriving nothing silently', () => {
+// Maarten's rule, 2026-08-27: a requester never reads "you could have X if you filled in Y". They
+// fill in what they know and the system completes what it can.
+test('an address with no region derives nothing AND says nothing', () => {
   const entries = timeZoneEntries(
     payload({}, { Addresses: [{ Country: 'BE' }, { Country: 'US' }] }),
     CONFIG
   );
-
-  assert.equal(entries.length, 1, 'one statement, however many rows are short of a region');
-  assert.equal(entries[0].field, undefined);
-  assert.match(entries[0].message, /2 address\(es\) have no region/u);
-  assert.match(entries[0].message, /per region, not per postal code/u);
+  assert.deepEqual(entries, [], 'no proposal and no strip about the missing region');
 });
 
 test('a typed time zone, an unknown region and a missing country all derive nothing', () => {
@@ -239,6 +258,166 @@ test('nothing is proposed without a customer, a country, or into rows somebody a
     taxCategoryEntries(payload({}, { Addresses: [{ Country: 'DE' }], Customers: [{}] }), CONFIG),
     []
   );
+});
+
+// --- Partner functions -----------------------------------------------------
+
+const customerWithSalesArea = {
+  Customers: [{ CustomerAccountGroup: 'KUNA' }],
+  CustomerSalesArea: [{ SalesOrganization: '1710', DistributionChannel: '10', Division: '00' }]
+};
+
+test('the mandatory partner function is proposed with its sales area', () => {
+  const entries = partnerFunctionEntries(payload({}, customerWithSalesArea), CONFIG);
+
+  const [first] = entries;
+  assert.equal(first.target, 'CustomerSalesPartnerFunctions');
+  assert.equal(first.field, 'PartnerFunction');
+  assert.equal(first.value, 'AG', 'the lowest SortOrder mandatory function');
+  assert.equal(first.createsRow, true);
+  assert.equal(first.label, 'Mandatory function');
+  assert.match(first.message, /left for S\/4 to assign at post time/u);
+
+  // The sales area completes the key, from the row the requester already added.
+  const byField = new Map(entries.filter((entry) => entry.field).map((e) => [e.field, e.value]));
+  assert.equal(byField.get('SalesOrganization'), '1710');
+  assert.equal(byField.get('DistributionChannel'), '10');
+  assert.equal(byField.get('Division'), '00');
+});
+
+// Decided 2026-08-27: SAP defaults these to the customer itself, which on a create has no number,
+// and PartnerCounter is S/4's to assign.
+test('neither the partner number nor the counter is ever proposed', () => {
+  const fields = partnerFunctionEntries(payload({}, customerWithSalesArea), CONFIG)
+    .filter((entry) => entry.field)
+    .map((entry) => entry.field);
+
+  assert.equal(fields.includes('BPCustomerNumber'), false);
+  assert.equal(fields.includes('PartnerCounter'), false);
+});
+
+// NRART is the guard. A vendor function on a customer sales area is the same class of error
+// accountGroupConflictFindings reports.
+test('a vendor function under the same procedure is never proposed onto a customer', () => {
+  const entries = partnerFunctionEntries(payload({}, customerWithSalesArea), CONFIG);
+  const proposed = entries.filter((entry) => entry.field === 'PartnerFunction').map((e) => e.value);
+
+  assert.equal(proposed.includes('LF'), false, 'LF is PartnerType LI, a vendor function');
+});
+
+test('a non-mandatory function is a value help, not a derivation', () => {
+  const entries = partnerFunctionEntries(payload({}, customerWithSalesArea), CONFIG);
+  const named = entries.map((entry) => entry.message).join(' ');
+
+  assert.equal(/\bSB\b/u.test(named), false, 'SB is not mandatory, so it is never mentioned');
+  // AG and RE are, so the statement names both.
+  assert.match(named, /AG, RE/u);
+});
+
+// The rule again: no sales area, no derivation, and no strip telling them to add one.
+test('no sales area, no account group and an already-filled section all stay silent', () => {
+  const cases = [
+    { Customers: [{ CustomerAccountGroup: 'KUNA' }] },
+    { CustomerSalesArea: [{ SalesOrganization: '1710' }] },
+    { ...customerWithSalesArea, Customers: [{}] },
+    { ...customerWithSalesArea, CustomerSalesPartnerFunctions: [{ PartnerFunction: 'AG' }] },
+    // An account group TKUPA has no procedure for.
+    { ...customerWithSalesArea, Customers: [{ CustomerAccountGroup: 'VVD' }] }
+  ];
+  for (const sections of cases) {
+    assert.deepEqual(
+      partnerFunctionEntries(payload({}, sections), CONFIG),
+      [],
+      JSON.stringify(sections)
+    );
+  }
+});
+
+test('the created row carries the function and the whole sales area key', async () => {
+  const { derived } = await runDerivations(payload({}, customerWithSalesArea), stages());
+
+  assert.deepEqual(derived.sections.CustomerSalesPartnerFunctions, [{
+    PartnerFunction: 'AG',
+    SalesOrganization: '1710',
+    DistributionChannel: '10',
+    Division: '00'
+  }]);
+});
+
+// --- Supplier partner functions --------------------------------------------
+
+const supplierWithPurchasingOrg = {
+  Suppliers: [{ SupplierAccountGroup: 'LIEF' }],
+  SupplierPurchasingOrg: [{ PurchasingOrganization: '1710' }]
+};
+
+test('the mandatory supplier function is proposed with its purchasing organisation', () => {
+  const entries = supplierFunctionEntries(payload({}, supplierWithPurchasingOrg), CONFIG);
+
+  const [first] = entries;
+  assert.equal(first.target, 'SupplierPartnerFunctions');
+  assert.equal(first.field, 'PartnerFunction');
+  assert.equal(first.value, 'LF', 'the lowest SortOrder mandatory vendor function');
+  assert.equal(first.createsRow, true);
+  assert.match(first.message, /partner schema 0001/u);
+
+  const byField = new Map(entries.filter((entry) => entry.field).map((e) => [e.field, e.value]));
+  assert.equal(byField.get('PurchasingOrganization'), '1710');
+});
+
+// The mirror of the customer guard: procedure 0001 carries AG (a customer function) too.
+test('a customer function under the same schema is never proposed onto a supplier', () => {
+  const proposed = supplierFunctionEntries(payload({}, supplierWithPurchasingOrg), CONFIG)
+    .filter((entry) => entry.field === 'PartnerFunction')
+    .map((entry) => entry.value);
+
+  assert.equal(proposed.includes('AG'), false, 'AG is PartnerType KU, a customer function');
+});
+
+// The lower two levels each have their own partner schema; a purchasing-org row leaves them blank.
+test('the subrange and plant are never filled by the purchasing-org derivation', () => {
+  const fields = supplierFunctionEntries(payload({}, supplierWithPurchasingOrg), CONFIG)
+    .filter((entry) => entry.field)
+    .map((entry) => entry.field);
+
+  assert.equal(fields.includes('SupplierSubrange'), false);
+  assert.equal(fields.includes('Plant'), false);
+  assert.equal(fields.includes('PartnerCounter'), false);
+  assert.equal(fields.includes('ReferenceSupplier'), false);
+});
+
+test('no purchasing org, no account group and an already-filled section all stay silent', () => {
+  const cases = [
+    { Suppliers: [{ SupplierAccountGroup: 'LIEF' }] },
+    { SupplierPurchasingOrg: [{ PurchasingOrganization: '1710' }] },
+    { ...supplierWithPurchasingOrg, Suppliers: [{}] },
+    { ...supplierWithPurchasingOrg, SupplierPartnerFunctions: [{ PartnerFunction: 'LF' }] },
+    { ...supplierWithPurchasingOrg, Suppliers: [{ SupplierAccountGroup: 'ZZZZ' }] }
+  ];
+  for (const sections of cases) {
+    assert.deepEqual(
+      supplierFunctionEntries(payload({}, sections), CONFIG),
+      [],
+      JSON.stringify(sections)
+    );
+  }
+});
+
+// Both sides fire on one request, into their own sections, without crossing over.
+test('a request that is both a customer and a supplier derives both, separately', async () => {
+  const request = payload({}, {
+    ...customerWithSalesArea,
+    Suppliers: [{ SupplierAccountGroup: 'LIEF' }],
+    SupplierPurchasingOrg: [{ PurchasingOrganization: '1710' }]
+  });
+  const { derived } = await runDerivations(request, stages());
+
+  assert.deepEqual(derived.sections.CustomerSalesPartnerFunctions, [{
+    PartnerFunction: 'AG', SalesOrganization: '1710', DistributionChannel: '10', Division: '00'
+  }]);
+  assert.deepEqual(derived.sections.SupplierPartnerFunctions, [{
+    PartnerFunction: 'LF', PurchasingOrganization: '1710'
+  }]);
 });
 
 // --- Through the pipeline --------------------------------------------------
