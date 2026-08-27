@@ -116,9 +116,18 @@ test('the page size is comfortably above every customizing table, and the cap fa
  * role categories, so a truncated read there is a wrong verdict on a check that blocks a submit.
  */
 test('no check reads its customizing with a bare unpaged SELECT any more', () => {
-  for (const file of ['cvi-checks.js', 'derivation-checks.js']) {
+  // Matched across newlines: derivation-checks.js wraps its entity list, and pinning the call onto
+  // one line made a reformat read as a reintroduced bug.
+  const expected = {
+    'cvi-checks.js': ['CviBusinessPartnerRoles', 'CviSyncDirections'],
+    'derivation-checks.js': ['DerPartnerFunctionAccGrp', 'DerSupplierFunctionAccGrp']
+  };
+  for (const [file, entities] of Object.entries(expected)) {
     const source = fs.readFileSync(path.join(__dirname, '..', 'srv', 'checks', file), 'utf8');
-    assert.match(source, /readAllOf\(service, \[/u, `${file} pages its reads`);
+    assert.match(source, /await readAllOf\(\s*service,/u, `${file} pages its reads`);
+    for (const entity of entities) {
+      assert.ok(source.includes(`'${entity}'`), `${file} still reads ${entity}`);
+    }
     assert.equal(
       /service\.run\(cds\.ql\.SELECT\.from\(/u.test(source), false,
       `${file} has no unpaged remote read left`
