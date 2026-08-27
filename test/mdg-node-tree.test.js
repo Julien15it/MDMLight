@@ -127,3 +127,26 @@ test('a missing parent key is refused before the request leaves', () => {
     "/A_CustomerCompany(Customer='O''Brien',CompanyCode='1000')/to_CustomerDunning"
   );
 });
+
+// FSBP_GENERIC/008 (2026-08-27). ADDR1_DATA-LANGU is required by S/4 and had no staged column, so
+// the ABAP mapper sent a blank with the X-flag set - an instruction to clear it.
+test('a staged address can hold the address language S/4 requires', async () => {
+  const cds = require('@sap/cds');
+  const model = cds.linked(await cds.load(path.join(__dirname, '..', 'db')));
+  const elements = model.definitions['mdmlight.staging.StagedAddresses'].elements;
+
+  assert.ok(elements.Language, 'StagedAddresses must hold ADDR1_DATA-LANGU');
+  assert.equal(elements.Language.length, 2);
+
+  // Not the same field as the root's CorrespondenceLanguage, which is BP-level and person-only on
+  // an organisation (R11/336). Filling that one can never satisfy an address-level LANGU.
+  const general = model.definitions['mdmlight.staging.StagedGeneral'].elements;
+  assert.ok(general.CorrespondenceLanguage, 'the BP-level language is a different column');
+});
+
+test('the address screen section offers the language, so a requester can fill it', () => {
+  const addresses = screenSections().find((section) => section.id === 'Addresses');
+  assert.ok(addresses.fields.some((field) => field.name === 'Language'));
+  // Left off the summary row: a two-letter code earns no column beside the street.
+  assert.equal((addresses.summaryFields || []).includes('Language'), false);
+});

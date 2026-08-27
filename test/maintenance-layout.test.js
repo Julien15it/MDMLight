@@ -525,3 +525,37 @@ test('the proposal dialog shows a short reason and hides the sentence in its too
   assert.match(controller, /contentWidth: "76rem"/);
   assert.match(controller, /contentHeight: "40rem"/);
 });
+
+/**
+ * Reported directly (2026-08-27): "Supplier and Customer no longer take over the standard address
+ * from the BP - isn't that normally the case with CVI?" It never carried over as a value because
+ * A_Customer/A_Supplier expose no address field to carry it into - real CVI shares the BP's own
+ * address rather than duplicating it onto the Customer/Supplier master. Nothing to stage or post;
+ * this is a read-only reminder on the Customers/Suppliers section of what will be shared.
+ */
+test('Customers and Suppliers show a read-only reminder that they share the BP\'s own address', () => {
+  const controller = fs.readFileSync(
+    path.join(REUSE, 'controller', 'BusinessPartnerMaintenance.controller.js'),
+    'utf8'
+  );
+
+  assert.match(controller, /function addressPreview\(address\)/u);
+  const renderSection = controller.slice(
+    controller.indexOf('_renderSection: function'),
+    controller.indexOf('_openNewRecord: function')
+  );
+  assert.match(renderSection, /section\.id === "Customers" \|\| section\.id === "Suppliers"/u);
+  assert.match(renderSection, /Shares the Business Partner's own address/u);
+  // Nothing is staged for it - the metadata has no address field on either entity to write one into.
+  const metadata = fs.readFileSync(path.join(REUSE, 'BusinessPartnerMetadata.js'), 'utf8');
+  const customers = metadata.slice(
+    metadata.indexOf('"id": "Customers"'),
+    metadata.indexOf('"id": "CustomerCompany"')
+  );
+  const suppliers = metadata.slice(
+    metadata.indexOf('"id": "Suppliers"'),
+    metadata.indexOf('"id": "SupplierCompany"')
+  );
+  assert.doesNotMatch(customers, /"name": "AddressID"/u);
+  assert.doesNotMatch(suppliers, /"name": "AddressID"/u);
+});

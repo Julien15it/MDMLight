@@ -374,6 +374,21 @@ test('hidden is not rendered, read-only is not editable, mandatory is starred', 
   assert.match(requiredBody, /if \(property === "optional"\) return false/u);
 });
 
+/**
+ * The Add/Edit record dialog (_createFieldGrid/_createFieldTable) already dropped a hidden field via
+ * _isHiddenField; the section's own summary table did not, because _summaryFields just mapped
+ * section.summaryFields straight to field objects with no filter. Reported directly (2026-08-27,
+ * screenshot): a field hidden by a profile disappeared from the Add Addresses popup but stayed as a
+ * table column, the opposite of "hidden drops the field from both layouts entirely".
+ */
+test('a hidden field also disappears from the section\'s own summary table, not only the record dialog', () => {
+  const renderSection = controller.slice(
+    controller.indexOf('_renderSection: function'),
+    controller.indexOf('_openNewRecord: function')
+  );
+  assert.match(renderSection, /_summaryFields\(section\)\.filter\(function \(field\) \{\s*\n\s*return !this\._isHiddenField\(section, field\);/u);
+});
+
 /** An emptied container under a live heading reads as a load failure, not as a hidden section. */
 test('a hidden entity hides its whole Object Page section', () => {
   assert.match(controller, /_setSectionVisible: function/u);

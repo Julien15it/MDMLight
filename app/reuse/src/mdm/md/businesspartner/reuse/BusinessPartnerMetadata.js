@@ -761,6 +761,16 @@ sap.ui.define([], function () {
             "updatable": true
           },
           {
+            "name": "Language",
+            "label": "Language Key",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
             "name": "POBox",
             "label": "PO Box",
             "type": "cds.String",
