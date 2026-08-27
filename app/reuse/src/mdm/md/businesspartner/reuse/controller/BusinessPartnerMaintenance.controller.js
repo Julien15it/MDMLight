@@ -133,6 +133,14 @@ sap.ui.define([
   // different scope, or the requester simply stops typing for this long.
   var TRIGGER_IDLE_MS = 1500;
 
+  // Root fields the Business Partner Assistant's creation suggestion is allowed to prefill. An
+  // explicit allowlist rather than merging the draft's root object wholesale: the draft reaches this
+  // route through a query string, which a hand-built URL can shape however it likes.
+  var ROOT_DRAFT_FIELDS = [
+    "BusinessPartnerCategory", "BusinessPartnerGrouping", "OrganizationBPName1", "SearchTerm1",
+    "CorrespondenceLanguage"
+  ];
+
   var VALUE_HELP_FIELDS = {
     BusinessPartnerGrouping: {
       collectionPath: "BusinessPartnerGroupings", keyField: "BusinessPartnerGrouping",
@@ -543,29 +551,43 @@ sap.ui.define([
         };
       },
 
+      // A single JSON blob under `draft`, not flat query keys: the Business Partner Assistant's
+      // suggestion can carry a TaxNumbers row (from a VIES-confirmed registry lookup) alongside root
+      // fields and an Addresses row, and flat key=value pairs have no way to express a child-entity
+      // array. `ROOT_DRAFT_FIELDS` stays an explicit allowlist, same posture as the flat keys it
+      // replaces - this is server-generated data, not free text, but the create route is still a URL
+      // a query string can be hand-built against.
       _onCreateRoute: async function (event) {
         var state = this._emptyState();
         var routeArguments = event && event.getParameter("arguments") || {};
         var query = routeArguments["?query"] || {};
-        ["BusinessPartnerCategory", "BusinessPartnerGrouping", "OrganizationBPName1", "SearchTerm1"]
-          .forEach(function (field) {
-            if (query[field]) state.root[field] = query[field];
-          });
+        var draft = {};
+        if (query.draft) {
+          try {
+            draft = JSON.parse(query.draft) || {};
+          } catch (_ignored) {
+            draft = {};
+          }
+        }
+        var draftRoot = draft.root || {};
+        ROOT_DRAFT_FIELDS.forEach(function (field) {
+          if (draftRoot[field]) state.root[field] = draftRoot[field];
+        });
         this.getView().getModel("maintenance").setData(state);
+        // A name field filled in by the draft never fires _onFieldCommitted - that only happens when
+        // the requester types into the field themselves - so without this the full name stayed empty
+        // until they separately edited a name field, however complete the suggested name already was.
+        this._refreshFullName(true);
         this._metadata.forEach(function (section) {
           if (section.kind !== "root") state.sections[section.id] = [];
         });
-        var suggestedAddress = {
-          StreetName: query.AddressStreetName || "",
-          HouseNumber: query.AddressHouseNumber || "",
-          PostalCode: query.AddressPostalCode || "",
-          CityName: query.AddressCityName || "",
-          Country: query.AddressCountry || ""
-        };
-        if (Object.values(suggestedAddress).some(Boolean)) {
-          suggestedAddress.__state = "new";
-          state.sections.Addresses.push(suggestedAddress);
-        }
+        var draftSections = draft.sections || {};
+        Object.keys(draftSections).forEach(function (sectionId) {
+          if (state.sections[sectionId] === undefined) return;
+          state.sections[sectionId] = (draftSections[sectionId] || []).map(function (row) {
+            return Object.assign({}, row, { __state: "new" });
+          });
+        });
         this.getView().getModel("maintenance").refresh(true);
         this._updatePreview(state);
         // Before the first render: rendering is synchronous, and a field the profiles hide must never
@@ -2812,7 +2834,12 @@ sap.ui.define([
           // Order: the branch's own message explains the screen and leads, then what the request was
           // submitted with, then who has it now. The panel header shows the first, so the ordering is
           // what decides which one is readable while collapsed.
-          var processorStrip = processorMessage(state.processors);
+          //
+          // Not on the rework screen (2026-08-26, asked for): the rework branch above already says
+          // why the requester is looking at this screen, and "Current step: Rework - with <requester>
+          // ..." on top of that read as noise rather than new information - the requester already
+          // knows it is theirs to act on.
+          var processorStrip = reworking ? null : processorMessage(state.processors);
           state.messages = (state.messages || [])
             .concat(submittedWarnings)
             .concat(processorStrip ? [processorStrip] : []);

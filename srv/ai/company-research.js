@@ -117,10 +117,14 @@ function suggestedAddressFromResults(results = []) {
   return null;
 }
 
-async function researchCompanyOnPublicWeb(name, options = {}) {
+async function publicWebSearch(name, options) {
   const searchUrl = new URL(PUBLIC_SEARCH_API);
   searchUrl.search = new URLSearchParams({ q: `${name} company address` }).toString();
-  const results = parsePublicSearchResults(await fetchText(searchUrl, options));
+  return parsePublicSearchResults(await fetchText(searchUrl, options));
+}
+
+async function researchCompanyOnPublicWeb(name, options = {}) {
+  const results = await publicWebSearch(name, options);
   if (!results.length) return null;
   const extract = results.slice(0, 3).map((result) => (
     `${result.title}${result.snippet ? ` - ${result.snippet}` : ''}`
@@ -134,6 +138,23 @@ async function researchCompanyOnPublicWeb(name, options = {}) {
     sources: results.slice(0, 3).map(({ title, url }) => ({ title, url })),
     suggestedAddress: suggestedAddressFromResults(results)
   };
+}
+
+/**
+ * A supplementary address lookup for the Wikipedia branch, which has no structured address of its
+ * own - the REST summary API is a prose extract, nothing more. Same DuckDuckGo snippet search the
+ * public-web fallback already runs, as its own call: Wikipedia winning the company description does
+ * not mean an address was ever looked for, and Wikipedia is the branch a well-known company always
+ * takes, so without this a whole class of companies could never get an address suggested at all.
+ * Best-effort like every other lookup in this module - a failure here must not cost the Wikipedia
+ * result it was only ever meant to enrich.
+ */
+async function addressFromPublicWeb(name, options) {
+  try {
+    return suggestedAddressFromResults(await publicWebSearch(name, options));
+  } catch {
+    return null;
+  }
 }
 
 async function researchCompany(name, options = {}) {
@@ -169,7 +190,9 @@ async function researchCompany(name, options = {}) {
       extract: extract.slice(0, MAX_EXTRACT_LENGTH),
       url: summary?.content_urls?.desktop?.page
         || `https://en.wikipedia.org/wiki/${encodeURIComponent(result.title.replaceAll(' ', '_'))}`,
-      source: 'Wikipedia'
+      source: 'Wikipedia',
+      // See addressFromPublicWeb - Wikipedia's own summary carries no structured address.
+      suggestedAddress: await addressFromPublicWeb(companyName, options)
     };
   } catch {
     return researchCompanyOnPublicWeb(companyName, options);
@@ -185,5 +208,6 @@ module.exports = {
   publicResultUrl,
   suggestedAddressFromResults,
   researchCompanyOnPublicWeb,
+  addressFromPublicWeb,
   researchCompany
 };
