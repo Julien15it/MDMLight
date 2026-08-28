@@ -185,14 +185,16 @@ test('a typed time zone, an unknown region and a missing country all derive noth
 
 // --- Tax categories --------------------------------------------------------
 
-test('a customer request proposes the tax category valid for its country', () => {
-  const entries = taxCategoryEntries(
-    payload({}, { Addresses: [{ Country: 'BE' }], Customers: [{ CustomerAccountGroup: 'KUNA' }] }),
-    CONFIG
-  );
+// A_CustomerSalesAreaTax posts UNDER a sales area, so every tax row needs that key too.
+const taxSections = (country = 'BE') => ({
+  Addresses: [{ Country: country }],
+  Customers: [{ CustomerAccountGroup: 'KUNA' }],
+  CustomerSalesArea: [{ SalesOrganization: '1710', DistributionChannel: '10', Division: '00' }]
+});
 
-  // TWO entries for one row: createsRow writes one field, so a second fills the row it made.
-  assert.equal(entries.length, 2);
+test('a customer request proposes the tax category valid for its country', () => {
+  const entries = taxCategoryEntries(payload({}, taxSections()), CONFIG);
+
   assert.equal(entries[0].target, 'CustomerTaxIndicators');
   assert.equal(entries[0].field, 'CustomerTaxCategory');
   assert.equal(entries[0].value, 'MWST');
@@ -204,46 +206,59 @@ test('a customer request proposes the tax category valid for its country', () =>
   assert.equal(entries[1].createsRow, undefined, 'the row exists by the time this one applies');
 });
 
-// Half a KNVI key would be worse than no row at all.
-test('the created tax row carries both the category and the departure country', async () => {
-  const request = payload({}, {
-    Addresses: [{ Country: 'BE' }],
-    Customers: [{ CustomerAccountGroup: 'KUNA' }]
-  });
-  const { derived } = await runDerivations(request, stages());
+/**
+ * **Reported from the app 2026-08-28**: Check passed and the APPROVAL failed with "enter required
+ * field(s) Customer, SalesOrganization, DistributionChannel, Division, ...". The row staged with
+ * only the category and the country; `A_CustomerSalesAreaTax` posts under a sales area and
+ * `requiredCreateFields` demands the whole key, which the check pipeline never evaluates.
+ */
+test('the created tax row carries the sales-area key it posts under', async () => {
+  const { derived } = await runDerivations(payload({}, taxSections()), stages());
 
-  assert.deepEqual(derived.sections.CustomerTaxIndicators, [
-    { CustomerTaxCategory: 'MWST', DepartureCountry: 'BE' }
-  ]);
+  assert.deepEqual(derived.sections.CustomerTaxIndicators, [{
+    CustomerTaxCategory: 'MWST',
+    DepartureCountry: 'BE',
+    SalesOrganization: '1710',
+    DistributionChannel: '10',
+    Division: '00'
+  }]);
+});
+
+// Nothing to key the row against, so nothing is proposed -- and nothing is said about it.
+test('no sales area means no tax row at all', () => {
+  assert.deepEqual(
+    taxCategoryEntries(payload({}, {
+      Addresses: [{ Country: 'BE' }],
+      Customers: [{ CustomerAccountGroup: 'KUNA' }]
+    }), CONFIG),
+    []
+  );
 });
 
 // A silent partial answer would read as "these are all of them", which is the answer this codebase
 // refuses everywhere else.
 test('a country with several categories says how many, rather than covering one silently', () => {
-  const entries = taxCategoryEntries(
-    payload({}, { Addresses: [{ Country: 'US' }], Customers: [{}] }),
-    CONFIG
-  );
+  const entries = taxCategoryEntries(payload({}, taxSections('US')), CONFIG);
 
-  // Three entries: the proposed category, the DepartureCountry that always rides along with it
-  // (without it the row would carry a tax category and no departure country, half a KNVI key), and
-  // the ambiguity statement - a silent partial answer would read as "these are all of them".
-  assert.equal(entries.length, 3);
   assert.equal(entries[0].value, 'UTXJ', 'the lowest sequence number is the one proposed');
   assert.equal(entries[1].field, 'DepartureCountry');
   assert.equal(entries[1].value, 'US');
-  // The third entry carries no field: a statement, not a value, so it renders as a strip.
-  assert.equal(entries[2].field, undefined);
-  assert.match(entries[2].message, /2 tax categories/u);
-  assert.match(entries[2].message, /UTXJ, UTX2/u);
+  // A statement, not a value: no field, so it renders as a strip. Last, after the key fields.
+  const statement = entries.filter((entry) => !entry.field);
+  assert.equal(statement.length, 1);
+  assert.match(statement[0].message, /2 tax categories/u);
+  assert.match(statement[0].message, /UTXJ, UTX2/u);
 });
 
 test('nothing is proposed without a customer, a country, or into rows somebody added', () => {
-  const country = { Addresses: [{ Country: 'BE' }] };
+  const area = {
+    CustomerSalesArea: [{ SalesOrganization: '1710', DistributionChannel: '10', Division: '00' }]
+  };
+  const country = { Addresses: [{ Country: 'BE' }], ...area };
   // Not a customer request at all.
   assert.deepEqual(taxCategoryEntries(payload({}, country), CONFIG), []);
   // No address, so no departure country.
-  assert.deepEqual(taxCategoryEntries(payload({}, { Customers: [{}] }), CONFIG), []);
+  assert.deepEqual(taxCategoryEntries(payload({}, { Customers: [{}], ...area }), CONFIG), []);
   // The requester already filled the section in; those rows are theirs.
   assert.deepEqual(
     taxCategoryEntries(payload({}, {
@@ -255,7 +270,7 @@ test('nothing is proposed without a customer, a country, or into rows somebody a
   );
   // A country with no tax categories at all.
   assert.deepEqual(
-    taxCategoryEntries(payload({}, { Addresses: [{ Country: 'DE' }], Customers: [{}] }), CONFIG),
+    taxCategoryEntries(payload({}, { Addresses: [{ Country: 'DE' }], Customers: [{}], ...area }), CONFIG),
     []
   );
 });
