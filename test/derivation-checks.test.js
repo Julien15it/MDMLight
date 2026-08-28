@@ -315,11 +315,8 @@ test('a non-mandatory function is a value help, not a derivation', () => {
   assert.equal(/\bSB\b/u.test(named), false, 'and it is never mentioned either');
 });
 
-/**
- * **ALL of them (2026-08-28).** It proposed the first and named the rest in a statement, because
- * `createsRow` could only invent a row into an empty section. `rowKey` lifted that, so every
- * mandatory function of the procedure is its own proposal -- and the statement is gone with it.
- */
+// ALL of them since 2026-08-28: it proposed the first and named the rest, because createsRow could
+// only invent a row into an empty section. A rowKey lifted that.
 test('every mandatory function is proposed, each as its own keyed row', () => {
   const entries = partnerFunctionEntries(payload({}, customerWithSalesArea), CONFIG);
 
@@ -360,11 +357,7 @@ test('no sales area and no account group stay silent', () => {
   }
 });
 
-/**
- * A filled section used to stop the whole derivation -- "those rows are theirs". It only ever had
- * to stop it for the rows that ARE theirs: the key is per function, so what is missing is still
- * missing whether or not somebody has started the section.
- */
+// A filled section only ever had to stop the rows that ARE theirs: the key is per function.
 test('a function the requester typed is left alone, and the rest are still proposed', async () => {
   const sections = {
     ...customerWithSalesArea,

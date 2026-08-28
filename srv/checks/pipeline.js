@@ -33,21 +33,11 @@ function targetRecord(payload, entry) {
   return rows[entry.index || 0] || null;
 }
 
-/**
- * Does this row already hold what a keyed entry would create?
- *
- * **A blank on the existing row counts as a match**, because the entry's own key fields are what
- * would fill it: a requester who typed partner function `AG` and left the sales area empty has the
- * row this derivation was about to add, not a different one. So it is filled, never duplicated.
- *
- * **An entirely empty row matches nothing** (`anyFilled`), or a section holding one blank row would
- * swallow every proposal that ever looked at it.
- */
+// A blank on either side is skipped, so the row a requester part-filled is completed, not
+// duplicated; an all-blank row (`anyFilled` false) matches nothing.
 function rowMatchesKey(row, rowKey) {
   let anyFilled = false;
   for (const [field, value] of Object.entries(rowKey || {})) {
-    // A blank in the KEY is not a key either -- it would fail against a row that has that level and
-    // the section would end up holding a second copy of every row.
     if (isEmpty(value)) continue;
     const current = row?.[field];
     if (isEmpty(current)) continue;
@@ -57,20 +47,17 @@ function rowMatchesKey(row, rowKey) {
   return anyFilled;
 }
 
-// A row the request is asking to delete holds nothing, so it can neither be filled nor be the
-// reason a proposal is withheld. Matches `liveRows` in the derivation stages.
+// A row on its way out holds nothing. Matches `liveRows` in the derivation stages.
 const isDeleted = (row) => String(row?.action || 'C').trim().toUpperCase() === 'D';
 
-// The row a keyed entry belongs to, found by its key rather than by position. Every entry of one
-// derived row carries the same `rowKey`, so the entries that complete a key find the row the
-// `createsRow` entry made without anybody counting indices.
+// By key, not by position: every entry of one derived row carries the same `rowKey`.
 function findKeyedRow(payload, entry) {
   const rows = payload.sections?.[entry.target];
   if (!Array.isArray(rows)) return null;
   return rows.find((row) => !isDeleted(row) && rowMatchesKey(row, entry.rowKey)) || null;
 }
 
-// Where a keyed entry's row actually landed, so the proposal the requester ticks names the same row.
+// Where the row actually landed, so the proposal the requester ticks names the same row.
 function indexOfRecord(payload, entry, record) {
   const rows = payload.sections?.[entry.target];
   if (!Array.isArray(rows)) return entry.index || 0;
@@ -108,12 +95,10 @@ function replay(payload, entry) {
       rows.push({ [entry.field]: entry.value });
       return;
     }
-    // A keyed row already present is not a write; an unkeyed one falls through and fills the gaps
-    // of the first row, exactly as before.
+    // A keyed row already present is not a write; an unkeyed one falls through and fills.
     if (keyed) return;
   }
-  // By key, not by position: this payload holds only the `system` entries, so a row's index here is
-  // not the index it had in `derived`.
+  // By key: this payload holds only the `system` entries, so indices differ from `derived`.
   const record = keyed ? findKeyedRow(payload, entry) : targetRecord(payload, entry);
   if (!record || !isEmpty(record[entry.field])) return;
   record[entry.field] = entry.value;
@@ -146,16 +131,8 @@ async function runDerivations(payload, derivations = DERIVATIONS) {
         applied.push({ check: derivation.name, severity: 'info', message: entry.message });
         continue;
       }
-      // The one case where a row *is* invented, and only because the derivation asked for it.
-      //
-      // **Without a `rowKey` the section has to be EMPTY.** Appending beside rows somebody added
-      // deliberately would put a registered seat onto their second address — "fill in the city"
-      // says nothing about which address it belongs to, so there is no safe row to add.
-      //
-      // **With one, the key is what makes appending safe** (2026-08-28). The derivation has named
-      // the row it is missing, so a row already carrying that key is left alone and a row carrying
-      // a different one is not touched. This is what lets a stage derive all four mandatory
-      // partner functions, and derive the missing three beside an `AG` the requester typed.
+      // A `rowKey` names the missing row, which is what makes appending beside existing rows safe;
+      // without one the section must still be EMPTY. See CLAUDE.md.
       const keyed = Boolean(entry.rowKey) && entry.target && entry.target !== ROOT;
       if (entry.createsRow && entry.target && entry.target !== ROOT) {
         const rows = derived.sections[entry.target] || (derived.sections[entry.target] = []);
@@ -177,8 +154,7 @@ async function runDerivations(payload, derivations = DERIVATIONS) {
           });
           continue;
         }
-        // A keyed row that is already there is not a proposal at all — nothing to report and
-        // nothing to write. An unkeyed one falls through and fills the first row's gaps, as before.
+        // A keyed row already there is not a proposal; an unkeyed one falls through and fills.
         if (keyed) continue;
       }
       const record = keyed ? findKeyedRow(derived, entry) : targetRecord(derived, entry);
@@ -198,8 +174,7 @@ async function runDerivations(payload, derivations = DERIVATIONS) {
       applied.push({
         check: derivation.name,
         target: entry.target || ROOT,
-        // Where the row actually is, not where the derivation counted it: a keyed entry finds its
-        // row by key, and the proposal the requester ticks has to name the same one.
+        // Where the row actually is, so the proposal the requester ticks names the same one.
         index: keyed ? indexOfRecord(derived, entry, record) : (entry.index || 0),
         field: entry.field,
         value: entry.value,

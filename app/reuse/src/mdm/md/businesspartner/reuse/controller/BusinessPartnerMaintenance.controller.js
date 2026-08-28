@@ -2586,46 +2586,30 @@ sap.ui.define([
         return messages;
       },
 
-      /**
-       * One dialog line from one derivation entry, plus the entries that only complete its row.
-       *
-       * A line that CARRIES key fields is named by its SECTION ("Customer Partner Functions"),
-       * because the row is what is being accepted and the field name alone reads as a field
-       * somebody has to fill. Every other line is named by its own field, as it always was --
-       * including a row-adding one with no key, which is the registry's address proposal.
-       *
-       * `subtext` is the key the extras carry, drawn under the name so the requester can see which
-       * sales area the row is for without hovering - asked for 2026-08-28. Hovering the Why column
-       * still gives the whole sentence.
-       */
+      // One dialog line from one entry, plus the entries that only complete its row. See CLAUDE.md.
       _derivationRow: function (entry, change, extras) {
         var values = extras.map(function (extra) { return extra.value; }).filter(Boolean);
         var subtext = values.length
           ? ((extras[0].label ? extras[0].label + " " : "") + values.join(" / "))
           : "";
         return {
-          // Said differently because it is a different thing to accept: not a value in a row the
-          // requester built, but a row they did not.
           change: change,
           target: entry.target || "root",
           index: entry.index || 0,
           createsRow: Boolean(entry.createsRow),
           field: entry.field,
-          // `extras` is the grouping signal: only a keyed row ever carries any, so only a keyed row
-          // is named by its section. A row-adding entry with no key keeps its own field name.
+          // Only a keyed row carries extras, so only a keyed row is named by its section.
           fieldLabel: extras.length
             ? (this._sectionTitle(entry.target) || entry.field)
             : entry.field,
           subtext: subtext,
-          // Written with the row when it is accepted, never offered separately: they are the row's
-          // key, not a question of their own.
+          // The row's key: written with it when accepted, never offered separately.
           extras: extras.map(function (extra) {
             return { field: extra.field, value: extra.value };
           }),
           current: "",
           proposed: entry.value,
-          // Why is a label; the sentence behind it is the tooltip. A derivation names its own
-          // source in `label`, and `message` is already the one-sentence version.
+          // Why is a label; the sentence behind it is the tooltip.
           reason: entry.label || "Derived value",
           detail: entry.message || "This value was filled in from the official register.",
           accepted: true
@@ -2640,16 +2624,7 @@ sap.ui.define([
 
       // One list for both stages: to the requester they are one question. The Change column keeps
       // them apart - a derivation fills an empty field, a normalisation rewrites a filled one.
-      //
-      // **A whole derived ROW is ONE line** (2026-08-28). A created row takes several entries -
-      // `createsRow` writes one field and the rest complete its key - so four mandatory partner
-      // functions would arrive as sixteen lines, twelve of them reading back the sales area the
-      // requester had just typed in themselves. They are grouped into the row they describe: the
-      // lead entry's value is what is proposed, the key fields are subtext under the section name,
-      // and the sentence explaining both is the tooltip.
-      //
-      // **Grouped on target + index**, which the pipeline resolves per row, so entries of one row
-      // always share it and entries of two rows never do.
+      // A KEYED derived row is one line, grouped on target + index. See CLAUDE.md.
       _proposalRows: function (derivations, normalisations) {
         var rows = [];
         var seen = {};
@@ -2667,22 +2642,13 @@ sap.ui.define([
           byGroup[id].push(entry);
         });
         groups.forEach(function (entries) {
-          // **Grouped ONLY where the derivation supplied a `rowKey`**, and that is the whole
-          // boundary (corrected 2026-08-28, reported the same day). A key says the other entries
-          // IDENTIFY the row rather than describe it -- a partner function's sales area is not a
-          // value anybody edits, it is which row this is. Everywhere else the entries are
-          // independent data and stay one line each.
-          //
-          // The first version grouped on `createsRow` alone, which broke the registry's address
-          // proposal: with no address row yet, `registry-checks.js` marks EVERY address entry
-          // `createsRow`, so Street/Postal Code/City/Country collapsed into one line with only
-          // Street editable. Four values a requester may want to edit or decline separately.
+          // A `rowKey`, not `createsRow`: the registry marks every address entry `createsRow`, and
+          // grouping on that collapsed five editable address fields into one line.
           var lead = entries.filter(function (entry) {
             return entry.createsRow && entry.rowKey;
           })[0];
           if (!lead) {
-            // Either nothing was invented here, or it was invented without a key. Each entry is its
-            // own question, named by its own field and separately editable - exactly as before.
+            // No key, so each entry is its own question, named by its own field - as before.
             entries.forEach(function (entry) {
               seen[keyOf(entry)] = rows.length;
               rows.push(this._derivationRow(
@@ -2733,11 +2699,7 @@ sap.ui.define([
         rows.forEach(function (row) {
           row.key = row.target + "|" + row.index + "|" + row.field + "|" + row.proposed;
         });
-        // What the grouping was handed and what it produced, per press. Same reasoning as
-        // `[sap-derivations]` server-side: whether a line groups depends on `createsRow` and
-        // `rowKey` TOGETHER, and a compacted line looks identical whether the grouping is wrong or
-        // the browser is running a cached bundle from before the fix. Its ABSENCE from the console
-        // answers the second, which no amount of reading the screen can.
+        // What the grouping was handed and produced, per press: its absence means a cached bundle.
         try {
           console.log("[proposals] " + JSON.stringify({
             lines: rows.length,
@@ -2804,9 +2766,7 @@ sap.ui.define([
           template: new ColumnListItem({
             selected: "{accepted}",
             cells: [
-              // Two lines, because a whole derived row is one entry: the section it lands in, and
-              // under it the key it lands under. The subtext hides itself when there is none, so a
-              // plain filled-in field looks exactly as it did.
+              // Two lines: the section it lands in, and the key it lands under (blank when none).
               new VBox({
                 items: [
                   new Text({ text: "{fieldLabel}" }),
@@ -2879,16 +2839,11 @@ sap.ui.define([
           // one. Marked "new" rather than "changed", or postToS4 would replay it as an
           // update to a row S/4 does not have.
           //
-          // **The whole row lands at once** (2026-08-28): the lead value plus the `extras` that key
-          // it. They used to be separate ticks resolved by index, which broke as soon as a
-          // derivation could propose more than one row - declining the second row shifted the
-          // third's key fields onto it.
+          // The whole row lands at once: the lead value plus the `extras` that key it.
           if (proposal.createsRow && proposal.target && proposal.target !== "root") {
             var rows = state.sections[proposal.target] || (state.sections[proposal.target] = []);
-            // Idempotent on the row's whole key, not on the lead value alone: partner function AG
-            // under a second sales area is a different row, and refusing it because an AG exists
-            // somewhere else would silently drop a legitimate proposal. A blank on the existing row
-            // counts as a match - the same rule `rowMatchesKey` applies server-side.
+            // Idempotent on the whole key: AG under a second sales area is a different row. A
+            // blank on the existing row counts as a match, as `rowMatchesKey` does server-side.
             var duplicate = rows.some(function (existing) {
               if (String(existing[proposal.field] || "").trim() !== value) return false;
               return (proposal.extras || []).every(function (extra) {
@@ -2920,8 +2875,7 @@ sap.ui.define([
           if (record === state.root && NAME_FIELDS.indexOf(proposal.field) !== -1) renamed = true;
           applied += 1;
         });
-        // Returned, because the caller has to know whether the payload actually moved: the standard
-        // checks are only worth asking again if it did.
+        // Returned: the caller re-runs the standard checks only if the payload actually moved.
         if (!applied) return 0;
         // The payload changed, so a duplicate confirmation taken against the old one no longer
         // applies - the next submit has to check again.
@@ -2939,32 +2893,8 @@ sap.ui.define([
         return applied;
       },
 
-      /**
-       * S/4's own findings, once the proposals dialog has been answered (2026-08-28).
-       *
-       * **Why they wait at all.** `checkStandard` runs on `systemDerived` -- what was typed, plus
-       * only the entries a derivation marked `system` -- so a City the derivations are *offering*
-       * to fill is not in the payload S/4 sees, and S/4 correctly reports it as missing. Shown
-       * beside a dialog that is proposing exactly that value, it reads as "you are missing data"
-       * when the data is right there waiting to be ticked.
-       *
-       * **Filtering the messages instead is not possible.** `bp-check.js` flattens every S/4
-       * message to `{ severity, message }`, with the class and number formatted into the text and
-       * S/4's own `field` deliberately discarded -- `MAINTAIN` anchors nothing to a field or a row.
-       * So there is no way to know which finding a proposal would have cleared, and a curated
-       * message-to-field map would fail silently on everything not in it.
-       *
-       * So the answer is WHEN, not WHICH:
-       *
-       * - **Nothing accepted** (Not Now, Escape, everything unticked, or every value edited back to
-       *   what it already was): the payload is unchanged, so the findings held back are exactly
-       *   right. They go up as they are. **No second round trip, and no second vendor number** --
-       *   `i_test_run` draws one per run, see `bp-check.js`.
-       * - **Something accepted**: what S/4 was told is now out of date, so it is asked again. That
-       *   costs one extra round trip and one number, on the press where a fresh answer is wanted
-       *   anyway. Suppressing findings locally could never have produced this: accepting a value
-       *   can make a NEW message appear as easily as clear an old one.
-       */
+      // S/4's findings, once the dialog is answered: nothing accepted shows what was held (no second
+      // vendor number), something accepted re-runs. Why not filtering them: CLAUDE.md.
       _resolveStandardChecks: function (standard, rerun) {
         if (rerun) return this._rerunStandardChecks();
         var held = standard || [];
@@ -2972,19 +2902,14 @@ sap.ui.define([
         var maintenanceModel = this.getView().getModel("maintenance");
         var state = maintenanceModel.getData();
         state.messages = (state.messages || []).concat(this._validationMessages(held));
+        // `refresh` too: _renderAll never touches the model, and afterClose has no finally to do it.
         this._renderAll();
+        maintenanceModel.refresh(true);
         return Promise.resolve();
       },
 
-      /**
-       * The same check again, on the payload the accepted proposals produced, for its messages only.
-       *
-       * `Propose: false` -- there is no second dialog to open. The derivations still run (the
-       * pipeline has no way not to) and the ones that were declined are re-reported; their
-       * field-less statements are shown again, which is idempotent, and their proposals are
-       * deliberately dropped rather than offered a second time inside one press. Pressing Check
-       * again is how a requester asks for those, which is this dialog's contract.
-       */
+      // The same check on the accepted payload, for its messages only. `Propose: false`: declined
+      // proposals are not re-offered inside one press - pressing Check again is how those are asked.
       _rerunStandardChecks: async function () {
         var maintenanceModel = this.getView().getModel("maintenance");
         var state = maintenanceModel.getData();

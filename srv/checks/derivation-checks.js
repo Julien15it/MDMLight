@@ -256,15 +256,8 @@ function taxCategoryEntries(payload, { taxCategories }) {
  * Needs a sales area row, because `StagedCustomerSalesPartnerFunc` is keyed by one. When there is
  * none it derives nothing **and says nothing** -- see the time zone above for why.
  *
- * **All of the mandatory functions, not the first one (2026-08-28).** It proposed one row and named
- * the rest in a statement -- "add the others by hand" -- because `createsRow` could only invent a
- * row into an EMPTY section. A `rowKey` lifts that (see `rowMatchesKey` in `pipeline.js`), so the
- * four functions of procedure `AG` arrive as four proposals. The statement is gone with it: it
- * existed to cover what the pipeline could not do, not to tell a requester anything.
- *
- * **It also fills the gaps beside what somebody typed.** A requester who entered `AG` themselves
- * gets `RE`, `RG` and `WE` proposed and their own row left alone -- the key is per function, so a
- * partly-filled section is no longer a reason to say nothing at all.
+ * **All of them since 2026-08-28**, keyed per function, and beside what a requester typed. See
+ * CLAUDE.md.
  */
 function partnerFunctionEntries(payload, { partnerFunctions }) {
   const [salesArea] = liveRows(payload, 'CustomerSalesArea');
@@ -282,8 +275,7 @@ function partnerFunctionEntries(payload, { partnerFunctions }) {
 
   // The sales area every proposed row belongs to, from the row the requester already added. Part of
   // each row's key, so a function typed against a DIFFERENT sales area is not mistaken for this one.
-  // Only the levels the requester actually filled in. A blank in a key is not a key: it would fail
-  // to match a row that HAS that level and the section would collect a second copy of every row.
+  // Only the levels actually filled in: a blank in a key would match no row that has that level.
   const area = Object.fromEntries([
     ['SalesOrganization', text(salesArea.SalesOrganization)],
     ['DistributionChannel', text(salesArea.DistributionChannel)],
@@ -296,8 +288,7 @@ function partnerFunctionEntries(payload, { partnerFunctions }) {
     const partnerFunction = text(row.PartnerFunction);
     if (!partnerFunction) continue;
     const procedure = text(row.DeterminationProcedure);
-    // Every entry of one row carries the same key, so the three that complete the sales area find
-    // the row the first one made without counting indices. `index` is the pipeline's to resolve.
+    // Every entry of one row carries the same key, so the pipeline resolves the index.
     const rowKey = { PartnerFunction: partnerFunction, ...area };
 
     entries.push({
@@ -361,7 +352,7 @@ function supplierFunctionEntries(payload, { supplierFunctions }) {
     .sort((left, right) => text(left.SortOrder).localeCompare(text(right.SortOrder)));
   if (!mandatory.length) return [];
 
-  // All of them, keyed per function -- the customer stage's own change (2026-08-28), same reasoning.
+  // All of them, keyed per function -- the customer stage's own change (2026-08-28).
   // SupplierSubrange and Plant are deliberately NOT filled: they are the lower two levels, each
   // with its own partner schema, and a purchasing-organisation row leaves them blank.
   const entries = [];

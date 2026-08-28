@@ -1,16 +1,7 @@
 'use strict';
 
-/**
- * The proposals dialog, 2026-08-28. Two changes, reported from the running app:
- *
- * 1. **A whole derived ROW is one line.** A created row takes several entries -- `createsRow`
- *    writes one field and the rest complete its key -- so the four mandatory partner functions
- *    would have arrived as sixteen lines, twelve of them reading the sales area back to the
- *    requester who had just typed it in. Maarten: *"to an enduser it looks like it's filling in
- *    what I just entered."*
- * 2. **S/4's own findings wait for the dialog.** They run on `systemDerived`, so a City the
- *    derivations are offering to fill is reported as missing at the same moment it is proposed.
- */
+// The proposals dialog, 2026-08-28: a keyed derived row is one line, and S/4's own findings wait
+// until the dialog is answered. Reasoning in CLAUDE.md.
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -40,14 +31,7 @@ function loadController() {
   return members;
 }
 
-/**
- * Across the `vm` boundary, so `deepStrictEqual` can compare by VALUE.
- *
- * `runInNewContext` gives the sandbox its own realm, so an object or array the controller builds
- * has that realm's `Object.prototype` -- and `node:assert/strict` compares prototypes, so an
- * otherwise identical result fails with "same structure but not reference-equal". Nothing is wrong
- * with the value; it is the wrong realm. Round-tripping it rebuilds it in this one.
- */
+// Rebuilt in this realm: the vm sandbox has its own Object.prototype, which deepStrictEqual rejects.
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
 const SECTIONS = [
@@ -137,15 +121,7 @@ test('a plain filled-in field looks exactly as it did', () => {
   assert.deepEqual(plain(rows[0].extras), []);
 });
 
-/**
- * **The regression this boundary exists to prevent**, reported 2026-08-28 the same day grouping
- * shipped: *"I can't choose or edit anything in the address popup anymore?"*
- *
- * `registry-checks.js` marks EVERY address entry `createsRow` when there is no address row yet, so
- * grouping on that flag alone collapsed Street/Postal Code/City/Country into one line with only
- * Street editable. They are four independent values a requester may want to edit or decline
- * separately -- not a key. Only a `rowKey` says "these entries identify the row".
- */
+// The regression this boundary prevents: grouping on `createsRow` alone compacted the whole address.
 test('the registry address proposal stays one line per field, each editable', () => {
   const addressEntries = [
     ['StreetName', 'Koedreef'], ['StreetPrefixName', '2'],
@@ -214,10 +190,7 @@ test('accepting a row writes the lead value and every key field with it', () => 
   }]);
 });
 
-/**
- * Idempotent on the whole key, not on the lead value: AG under a second sales area is a different
- * row, and refusing it because an AG exists somewhere else would silently drop a real proposal.
- */
+// Idempotent on the whole key: AG under a second sales area is a different row, not a duplicate.
 test('a row already carrying the key is not added twice, and a different key is', () => {
   const rows = [{ PartnerFunction: 'AG', SalesOrganization: '1710', DistributionChannel: '10', Division: '00' }];
   const state = { root: {}, sections: { CustomerSalesPartnerFunctions: rows } };
@@ -247,24 +220,26 @@ test('a row already carrying the key is not added twice, and a different key is'
 
 // --- The standard checks wait for the dialog --------------------------------
 
+// `refreshed` is COUNTED, not stubbed away - swallowing it is why this passed while the app broke.
 function standardContext() {
   const state = { messages: [] };
   const controller = loadController();
   const ctx = Object.assign(Object.create(controller), {
-    getView: () => ({ getModel: () => ({ getData: () => state, refresh() {} }) }),
-    _renderAll() {},
+    getView: () => ({
+      getModel: () => ({ getData: () => state, refresh() { ctx.refreshed += 1; } })
+    }),
+    _renderAll() { ctx.rendered += 1; },
     _rerunStandardChecks() { ctx.reran = true; return Promise.resolve(); },
-    reran: false
+    reran: false,
+    refreshed: 0,
+    rendered: 0
   });
   return { ctx, state };
 }
 
 const CITY_REQUIRED = { severity: 'warning', message: 'City is required. [CVI_API/007]' };
 
-/**
- * Nothing was accepted, so the payload is unchanged and the findings held back are exactly right.
- * **No second round trip, and no second vendor number** -- `i_test_run` draws one per run.
- */
+// Nothing accepted, so the payload is unchanged - no second round trip, no second vendor number.
 test('declining every proposal shows the held findings without asking S/4 again', async () => {
   const { ctx, state } = standardContext();
   await ctx._resolveStandardChecks([CITY_REQUIRED], false);
@@ -273,6 +248,25 @@ test('declining every proposal shows the held findings without asking S/4 again'
   assert.equal(state.messages.length, 1);
   assert.match(state.messages[0].text, /City is required/u);
   assert.equal(state.messages[0].type, 'Warning');
+});
+
+// Reported from the app: on Not Now nothing appeared until the NEXT press published it.
+test('the held findings are published to the model, not just written into state', async () => {
+  const { ctx } = standardContext();
+  await ctx._resolveStandardChecks([CITY_REQUIRED], false);
+
+  assert.equal(ctx.refreshed, 1, 'writing state.messages is only half of showing a message');
+  assert.equal(ctx.rendered, 1);
+});
+
+// Nothing held means nothing to publish, so it must not redraw the screen for no reason either.
+test('an empty held set touches neither the model nor the screen', async () => {
+  const { ctx } = standardContext();
+  await ctx._resolveStandardChecks([], false);
+
+  assert.equal(ctx.refreshed, 0);
+  assert.equal(ctx.rendered, 0);
+  assert.equal(ctx.reran, false);
 });
 
 // Something was accepted, so what S/4 was told is out of date. Suppressing the stale findings
