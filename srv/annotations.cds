@@ -757,11 +757,13 @@ annotate service.BusinessPartnerSearchResults with {
     ]
   };
   // RequestedByUsers is BTP-sourced (srv/wf/btp-agents.js's workflowAgents()), not S/4 data - see
-  // business-partner-service.cds where it is declared.
+  // business-partner-service.cds where it is declared. RequestedBy_Text stands in for a display
+  // name fetchUsers() has none of; both carry the same e-mail address.
   RequestedBy @Common.ValueList: {
     CollectionPath: 'RequestedByUsers',
     Parameters: [
-      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: RequestedBy, ValueListProperty: 'Email' }
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: RequestedBy, ValueListProperty: 'RequestedBy' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'RequestedBy_Text' }
     ]
   };
 };

@@ -2480,7 +2480,8 @@ class BusinessPartnerService extends cds.ApplicationService {
     // offering nothing rather than failing the list report's filter bar.
     this.on('READ', 'RequestedByUsers', async () => {
       const agents = await workflowAgents();
-      return agents.filter((agent) => agent.type === 'User').map((agent) => ({ Email: agent.value }));
+      return agents.filter((agent) => agent.type === 'User')
+        .map((agent) => ({ RequestedBy: agent.value, RequestedBy_Text: agent.value }));
     });
 
     this.on(['READ', 'CREATE', 'UPDATE'], '*', (req) => s4.run(req.query));
