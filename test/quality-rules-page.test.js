@@ -159,9 +159,11 @@ test('saving a rule invalidates the rules the pipeline is holding', () => {
  * assignment - so the offline complaints are the ones a requester reads first.
  */
 test('the configured stages join the registry stages, configured first', () => {
+  // node_required joined the offline group on 2026-08-28, before the cached and remote stages: it
+  // reads MAINTENANCE_ENTITIES and the payload and nothing else, so it is the cheapest of the lot.
   assert.match(
     changeRequestJs,
-    /validations: \[\.\.\.properties\.validations, \.\.\.configured\.validations,\s*\.\.\.createCviStages\(\)\.validations, \.\.\.registry\.validations,\s*\.\.\.relationStages\([^)]*\)\.validations\]/u
+    /validations: \[\.\.\.properties\.validations, \.\.\.configured\.validations, \.\.\.nodeRequiredStages\.validations,\s*\.\.\.createCviStages\(\)\.validations, \.\.\.registry\.validations,\s*\.\.\.relationStages\([^)]*\)\.validations\]/u
   );
   assert.match(
     changeRequestJs,

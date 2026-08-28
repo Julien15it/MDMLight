@@ -176,7 +176,9 @@ test('resubmit runs the same gates as a first submit', () => {
     serviceJs.indexOf("this.on('withdrawRequest'")
   );
   assert.match(resubmit, /runValidations\(/u);
-  assert.match(resubmit, /configured\.validations,\s*\.\.\.createCviStages\(\)\.validations, \.\.\.registry\.validations/u);
+  // node_required sits with the offline stages from 2026-08-28, between configured and the cached
+  // CVI read - see quality-rules-page.test.js for why the order is what it is.
+  assert.match(resubmit, /configured\.validations, \.\.\.nodeRequiredStages\.validations,\s*\.\.\.createCviStages\(\)\.validations, \.\.\.registry\.validations/u);
   assert.match(resubmit, /recordDuplicateFindings\(/u);
   assert.match(resubmit, /!req\.data\.Confirm/u);
   // Derivations still do not run on a submit path - a derivation changes the data.

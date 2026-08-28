@@ -109,11 +109,13 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
 
   // BTP-sourced, not S/4 or ZSRVB_MDMLIGHT_VH: every subaccount user, the same workflowAgents()
   // read the Workflow Agent Determination approver picker already uses (srv/wf/btp-agents.js),
-  // filtered to its 'User' entries. No description field - fetchUsers() returns the e-mail alone,
-  // the same address this app's own notifications and SBPA already use, with no separate display
-  // name to show beside it (the same limitation IdentificationTypes has, for a different reason).
+  // filtered to its 'User' entries. fetchUsers() has no separate display name to offer, but the
+  // field is kept as RequestedBy/RequestedBy_Text (matching the deployed schema - cds-deploy cannot
+  // drop a column any more than a table) rather than a bare Email key, so both stay populated with
+  // the same e-mail address the field is filtered by.
   @readonly entity RequestedByUsers {
-    key Email : String(120);
+    key RequestedBy      : String(120);
+        RequestedBy_Text : String(120);
   }
 
   // Value-help lookups sourced from the custom S/4 value-help service

@@ -543,6 +543,28 @@ function sanitizeEntityPayload(data, entity, { isCreate, excluded = new Set() } 
   );
 }
 
+/**
+ * The exposed entity behind a maintenance section, by section id OR by the S/4 name it is exposed
+ * under. 18 of the 31 nodes are projected as `A_CustomerDunning` rather than `CustomerDunning`, so
+ * a lookup by section id alone found nothing for them -- and `scalarElements(undefined)` is `[]`,
+ * which makes `sanitizeEntityPayload` return an EMPTY payload. A create then reported every
+ * required field as missing (the CustomerTaxIndicators activation failure of 2026-08-28) and a
+ * delete built its `where` from no keys at all.
+ *
+ * Throws rather than returning undefined: an unresolvable section is a wiring bug, and every caller
+ * here was silently producing nonsense from it.
+ */
+function maintenanceEntity(service, section, configuration) {
+  const entity = service.entities[section] || service.entities[configuration?.remote];
+  if (!entity) {
+    throw Object.assign(
+      new Error(`${section}: no exposed entity for this section (looked for ${section} and ${configuration?.remote}).`),
+      { statusCode: 500 }
+    );
+  }
+  return entity;
+}
+
 function sanitizeEntityKeys(data, entity) {
   const keys = scalarElements(entity).filter(([, element]) => element.key);
   const sanitized = Object.fromEntries(
@@ -2156,7 +2178,7 @@ class BusinessPartnerService extends cds.ApplicationService {
         req.reject(error.statusCode || 400, error.message);
       }
 
-      const entity = this.entities[req.data.Entity];
+      const entity = maintenanceEntity(this, req.data.Entity, configuration);
       const excludedFields = new Set(
         isCreate
           ? configuration.excludedCreateFields || []
@@ -2216,7 +2238,7 @@ class BusinessPartnerService extends cds.ApplicationService {
       try {
         keys = sanitizeEntityKeys(
           parseJsonObject(req.data.KeyJson, 'KeyJson'),
-          this.entities[req.data.Entity]
+          maintenanceEntity(this, req.data.Entity, configuration)
         );
       } catch (error) {
         req.reject(error.statusCode || 400, error.message, 'KeyJson');
@@ -2509,6 +2531,7 @@ BusinessPartnerService._internals = {
   taxTypeLanguageRank,
   oneRowPerTaxType,
   createBusinessPartnerAddress,
+  maintenanceEntity,
   sanitizeEntityKeys,
   sanitizeEntityPayload,
   validateMaintenanceCreate,

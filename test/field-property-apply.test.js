@@ -369,7 +369,7 @@ test('effectiveFieldProperties narrows Approver/DataSteward to the caller\'s own
 test('the property validations run alongside the configured ones, on every gate', () => {
   assert.equal(
     (serviceJs.match(
-      /\[\.\.\.properties\.validations, \.\.\.configured\.validations,\s*\.\.\.createCviStages\(\)\.validations, \.\.\.registry\.validations,\s*\.\.\.relationStages\([^)]*\)\.validations\]/gu
+      /\[\.\.\.properties\.validations, \.\.\.configured\.validations, \.\.\.nodeRequiredStages\.validations,\s*\.\.\.createCviStages\(\)\.validations, \.\.\.registry\.validations,\s*\.\.\.relationStages\([^)]*\)\.validations\]/gu
     ) || []).length,
     4,
     'check/duplicate-check, submit, resubmit and a data steward completing review'

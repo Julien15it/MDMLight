@@ -5,7 +5,8 @@ const {
   startWorkflow, triggerApprovalDecision, triggerRequesterCallback, triggerPostResult
 } = require('./wf/processAutomation');
 const {
-  buildWorkflowInputFromRows, businessPartnerNavigationPath, normalizeRemoteResult
+  buildWorkflowInputFromRows, businessPartnerNavigationPath, normalizeRemoteResult,
+  MAINTENANCE_ENTITIES
 } = require('./business-partner-service')._internals;
 const { candidateFromStagedRequest, duplicateSummary } = require('./ai/duplicate-check');
 const { runChecks, runValidations, BLOCKING } = require('./checks/pipeline');
@@ -14,6 +15,7 @@ const { createCviStages } = require('./checks/cvi-checks');
 const { createDerivationStages } = require('./checks/derivation-checks');
 const { createBpCheckStage } = require('./checks/bp-check');
 const { createRelationStages } = require('./checks/relation-checks');
+const { createNodeRequiredStages } = require('./checks/node-required');
 const { configuredStages } = require('./checks/rule-store');
 const { fieldPropertyStages, resolvedProperties } = require('./checks/field-property-store');
 const { dataStewardEmails } = require('./wf/data-stewards');
@@ -104,6 +106,14 @@ const RELATION_FIELDS = Object.freeze({
  * act on instead of an error, and the only ones whose create addresses A_BusinessPartner.
  */
 const ROLE_NODES = new Set(['Customers', 'Suppliers']);
+
+// The app's own post-time required fields, checked before a submit rather than during it. Built
+// once: the three inputs are all module constants, so there is nothing per-request to resolve.
+const nodeRequiredStages = createNodeRequiredStages({
+  entities: MAINTENANCE_ENTITIES,
+  relationFields: RELATION_FIELDS,
+  roleNodes: ROLE_NODES
+});
 
 /** Navigation off A_BusinessPartner used to resolve each relation field's real
  *  number - see resolveRelationNumber. */
@@ -786,7 +796,7 @@ class ChangeRequestService extends cds.ApplicationService {
           // CVI before the registry: its configuration is cached for 60s, so it is effectively
           // offline after the first read, and a role this partner's category cannot carry is worth
           // saying before spending a VIES call on an address that will never synchronise anyway.
-          validations: [...properties.validations, ...configured.validations,
+          validations: [...properties.validations, ...configured.validations, ...nodeRequiredStages.validations,
             ...createCviStages().validations, ...registry.validations,
             ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations],
           // The CVI derivation last: an explicit rule and a registry lookup should both win over
@@ -895,7 +905,7 @@ class ChangeRequestService extends cds.ApplicationService {
       const properties = await fieldPropertyStages(requesterContext(req));
       const validations = await runValidations(
         { root: data.root || {}, sections: data.sections || {} },
-        [...properties.validations, ...configured.validations,
+        [...properties.validations, ...configured.validations, ...nodeRequiredStages.validations,
         ...createCviStages().validations, ...registry.validations,
         ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations]
       );
@@ -998,7 +1008,7 @@ class ChangeRequestService extends cds.ApplicationService {
       const properties = await fieldPropertyStages(requesterContext(req));
       const validations = await runValidations(
         { root: data.root || {}, sections: data.sections || {} },
-        [...properties.validations, ...configured.validations,
+        [...properties.validations, ...configured.validations, ...nodeRequiredStages.validations,
         ...createCviStages().validations, ...registry.validations,
         ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations]
       );
@@ -1243,7 +1253,7 @@ class ChangeRequestService extends cds.ApplicationService {
       const properties = await fieldPropertyStages(requesterContext(req));
       const validations = await runValidations(
         { root: data.root || {}, sections: data.sections || {} },
-        [...properties.validations, ...configured.validations,
+        [...properties.validations, ...configured.validations, ...nodeRequiredStages.validations,
         ...createCviStages().validations, ...registry.validations,
         ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations]
       );

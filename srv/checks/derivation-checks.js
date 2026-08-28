@@ -190,6 +190,12 @@ function taxCategoryEntries(payload, { taxCategories }) {
   // Only a request that asks to BE a customer has tax classifications to propose.
   if (!liveRows(payload, 'Customers').length) return [];
 
+  // A_CustomerSalesAreaTax posts UNDER a sales area, so a row without that key is refused at post
+  // time -- "enter required field(s) ... SalesOrganization" on an approved request, 2026-08-28.
+  // No sales area, nothing that can be keyed, and nothing said: Maarten's rule.
+  const [salesArea] = liveRows(payload, 'CustomerSalesArea');
+  if (!salesArea) return [];
+
   const forCountry = taxCategories
     .filter((row) => text(row.Country) === country)
     .sort((left, right) => text(left.SequenceNumber).localeCompare(text(right.SequenceNumber)));
@@ -222,6 +228,26 @@ function taxCategoryEntries(payload, { taxCategories }) {
     message: `Departure country ${country} is taken from the partner's own address — the tax `
       + 'country of a customer is where they are.'
   }];
+
+  // The sales area the row posts under. Without these three the row stages fine and is refused at
+  // post time, which is the one failure a Check cannot see: the pipeline never evaluates
+  // requiredCreateFields, only postToS4 does.
+  for (const [field, value] of [
+    ['SalesOrganization', text(salesArea.SalesOrganization)],
+    ['DistributionChannel', text(salesArea.DistributionChannel)],
+    ['Division', text(salesArea.Division)]
+  ]) {
+    if (!value) continue;
+    entries.push({
+      target: 'CustomerTaxIndicators',
+      index: 0,
+      field,
+      value,
+      label: 'Sales area',
+      message: `${field} ${value} is taken from the sales area on this request — the tax `
+        + 'classification posts under it.'
+    });
+  }
 
   // A country with several categories: the pipeline can only create the FIRST row of an empty
   // section, so the others are named rather than dropped. A derivation that silently covered two
