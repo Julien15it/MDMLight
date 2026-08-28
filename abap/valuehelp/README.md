@@ -236,6 +236,51 @@ guessing the wrong literal would filter the list to nothing.
 
 `AddressDependentTaxTypes` stays exposed and projected; nothing points at it.
 
+### Organisational and pricing value helps (added 2026-08-28)
+
+Ten more sets, for the org-unit and pricing fields on the Customer/Supplier nodes.
+**None of them needed a Z view**: the released SAP views already existed and were
+simply never exposed, which is not the same thing as "not available". The earlier
+conclusion that S/4 offered no F4 for these came from reading the *imported* EDMX —
+the copy in `srv/external` is evidence of what was imported, never of what the system
+has. These were found by searching the system itself over ADT.
+
+| Field | View | Package |
+|---|---|---|
+| `CompanyCode` | `I_CompanyCode` | FINS_FIS_FICO |
+| `PurchasingOrganization` | `I_PurchasingOrganization` | VDM_MM_GF |
+| `SalesOrganization` | `I_SalesOrganization` | VDM_SD_MD_ORG |
+| `DistributionChannel` | `I_DistributionChannel` | VDM_SD_MD_ORG |
+| `Division` | `I_Division` | VDM_SD_MD_ORG |
+| `SalesDistrict` | `I_SalesDistrictVH` | VDM_SD_MD_ORG |
+| `CustomerPriceGroup` | `I_CustomerPriceGroup` + `…Text` | VDM_SD_MD_MM |
+| `Currency` | `I_Currency` | SFIB |
+| `CustomerPricingProcedure` | `C_CustPriceProcedureTextVHTemp` | VDM_MD_BP |
+
+`TaxNumberType` needed nothing at all — it is the already-exposed `TaxTypes`
+(`I_BusPartTaxTypeText`).
+
+Three things about that last row, because it is the odd one out:
+
+- **It is a `#CONSUMPTION` view, the only one in this service.** Everything else here
+  is a `#BASIC` I-view. Exposing a C-view is what C-views are for, so it is not a
+  clean-core problem, but it is an exception to this folder's own rule and should be
+  read as one. It has no input parameters and `authorizationCheck: #NOT_REQUIRED`, so
+  it exposes without a Z projection.
+- **`Language` is in its key**, so the set arrives once per installed language —
+  exactly the `TaxTypes` problem solved by `oneRowPerTaxType` (see above). Reuse that
+  collapse, including its **prefix** language match: `TVKDT` on S4A stores the SAP key
+  (`D`/`E`), not the ISO code.
+- **The name ends in `VHTemp`** — SAP's own naming, not ours. That "Temp" is a hint
+  from SAP about SAP, so check this one first after a release upgrade.
+
+How they were found, because the method is the reusable part: `SearchObject` on the
+field name for the `I_*` candidate, then `FindReferences` on the **check table** when
+the name guess misses. `CustomerPricingProcedure` had no `I_*` view under any name
+guessed; `FindReferences` on `TVKDT` produced `C_CustPriceProcedureTextVHTemp` in one
+call. Guessing view names cost four rounds on the ABAP side earlier; asking the check
+table who reads it costs one.
+
 ### Fields with no released value-help view
 
 | Field | Check table | Note |

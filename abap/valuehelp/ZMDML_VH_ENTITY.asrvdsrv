@@ -66,4 +66,14 @@ define service ZMDML_VH_ENTITY {
   // The vendor mirror: T077K-PARGE -> TPAER -> TPAR. A DIFFERENT link -- the customer procedure is
   // on TKUPA, the vendor one is three columns on the account group table itself.
   expose Z_I_DER_SUPPL_FUNC_ACCGRP      as DerSupplierFunctionAccGrp;
+  expose I_CompanyCode                  as CompanyCodes;
+  expose I_PurchasingOrganization       as PurchasingOrganizations;
+  expose I_SalesOrganization            as SalesOrganizations;
+  expose I_DistributionChannel          as DistributionChannels;
+  expose I_Division                     as Divisions;
+  expose I_SalesDistrictVH              as SalesDistricts;
+  expose I_CustomerPriceGroup           as CustomerPriceGroups;
+  expose I_CustomerPriceGroupText       as CustomerPriceGroupTexts;
+  expose I_Currency                     as Currencies;
+  expose C_CustPriceProcedureTextVHTemp as CustomerPricingProcedures;
 }
