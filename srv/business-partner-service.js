@@ -146,7 +146,19 @@ const VALUE_HELP_ENTITIES = Object.freeze([
   'BusinessPartnerRoleCodes',
   // KNVI-TATYP, via the same hand-transcribed Der* set sap_derivations reads
   // (srv/checks/derivation-checks.js) for the tax-category derivation.
-  'CustomerTaxCategories'
+  'CustomerTaxCategories',
+  // Org-unit and pricing value helps (abap/valuehelp/README.md, 2026-08-28) - released SAP views
+  // (I_CompanyCode, I_PurchasingOrganization, ...) that simply were not exposed on this service
+  // until now. CustomerPricingProcedures has its own READ handler below, same reason TaxTypes does.
+  'CompanyCodes',
+  'PurchasingOrganizations',
+  'SalesOrganizations',
+  'DistributionChannels',
+  'Divisions',
+  'SalesDistricts',
+  'CustomerPriceGroups',
+  'Currencies',
+  'CustomerPricingProcedures'
 ]);
 
 const MAINTENANCE_ENTITIES = Object.freeze({
@@ -636,13 +648,16 @@ function taxTypeLanguageRank(language, wanted) {
   return 2;
 }
 
-function oneRowPerTaxType(rows, locale) {
+// codeField defaults to BPTaxType (TaxTypes' own key) - CustomerPricingProcedures reuses this same
+// collapse with 'CustomerPricingProcedure' instead, for the identical reason: Language is part of
+// the key, so the value-help set arrives once per installed language.
+function oneRowPerTaxType(rows, locale, codeField = 'BPTaxType') {
   // A $count comes back as a number, not a list — leave it alone.
   if (!Array.isArray(rows)) return rows;
   const wanted = String(locale || 'en').slice(0, 2).toUpperCase();
   const best = new Map();
   for (const row of rows) {
-    const code = row?.BPTaxType;
+    const code = row?.[codeField];
     if (!code) continue;
     const current = best.get(code);
     const better = !current
@@ -650,7 +665,7 @@ function oneRowPerTaxType(rows, locale) {
     if (better) best.set(code, row);
   }
   return [...best.values()]
-    .sort((left, right) => String(left.BPTaxType).localeCompare(String(right.BPTaxType)));
+    .sort((left, right) => String(left[codeField]).localeCompare(String(right[codeField])));
 }
 
 function addDefaultAddressUsage(payload, hasExistingAddress) {
@@ -2405,8 +2420,9 @@ class BusinessPartnerService extends cds.ApplicationService {
     // Value-help entities backed by ZSRVB_MDMLIGHT_VH — read from there
     // instead of being forwarded to S4 by the catch-all handler below.
     for (const entity of VALUE_HELP_ENTITIES) {
-      // TaxTypes has its own handler below: it is the one list keyed by language.
-      if (entity === 'TaxTypes') continue;
+      // TaxTypes and CustomerPricingProcedures have their own handler below: both are keyed by
+      // language, so the set arrives once per installed language.
+      if (entity === 'TaxTypes' || entity === 'CustomerPricingProcedures') continue;
       this.on('READ', entity, (req) => valueHelp.run(req.query));
     }
 
@@ -2415,6 +2431,13 @@ class BusinessPartnerService extends cds.ApplicationService {
     this.on('READ', 'TaxTypes', async (req) => {
       if (req.query?.SELECT?.limit) delete req.query.SELECT.limit;
       return oneRowPerTaxType(await valueHelp.run(req.query), req.locale);
+    });
+
+    // C_CustPriceProcedureTextVHTemp, the one #CONSUMPTION view in this service - Language is part
+    // of its key too, so the same collapse TaxTypes needs applies here (abap/valuehelp/README.md).
+    this.on('READ', 'CustomerPricingProcedures', async (req) => {
+      if (req.query?.SELECT?.limit) delete req.query.SELECT.limit;
+      return oneRowPerTaxType(await valueHelp.run(req.query), req.locale, 'CustomerPricingProcedure');
     });
 
     // Genuinely local, not a VALUE_HELP_ENTITIES entry: these two are this app's own staged enums

@@ -75,10 +75,15 @@ test('every consumer points BPTaxType at the full catalogue', () => {
   assert.match(controller, /BPTaxType: \{\s*collectionPath: "TaxTypes", keyField: "BPTaxType",\s*descriptionField: "TaxTypeName"/u);
 });
 
-test('the language-keyed list gets its own handler instead of the passthrough loop', () => {
+/**
+ * CustomerPricingProcedures (C_CustPriceProcedureTextVHTemp) joined TaxTypes as a second
+ * language-keyed list (abap/valuehelp/README.md, 2026-08-28) - same collapse, same reason.
+ */
+test('the language-keyed lists get their own handler instead of the passthrough loop', () => {
   const service = read('srv', 'business-partner-service.js');
-  assert.match(service, /if \(entity === 'TaxTypes'\) continue;/u);
+  assert.match(service, /if \(entity === 'TaxTypes' \|\| entity === 'CustomerPricingProcedures'\) continue;/u);
   assert.match(service, /this\.on\('READ', 'TaxTypes'[\s\S]{0,240}oneRowPerTaxType/u);
+  assert.match(service, /this\.on\('READ', 'CustomerPricingProcedures'[\s\S]{0,300}oneRowPerTaxType\([\s\S]{0,120}'CustomerPricingProcedure'\)/u);
   // Paging has to go, or the page shrinks after deduplication.
   assert.match(service, /delete req\.query\.SELECT\.limit/u);
 });
@@ -100,4 +105,67 @@ test('the address number is not asked for on create', () => {
     'app', 'businesspartner', '..', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse', 'controller', 'BusinessPartnerMaintenance.controller.js'
   );
   assert.match(controller, /isCreate && field\.key && field\.creatable === false/u);
+});
+
+/**
+ * CustomerPricingProcedures (C_CustPriceProcedureTextVHTemp) needed the identical language-key
+ * collapse TaxTypes already had, just keyed on a different field name - generalised with a third,
+ * optional codeField parameter (default 'BPTaxType') rather than a second copy of the function.
+ */
+test('oneRowPerTaxType collapses by an arbitrary code field, not only BPTaxType', () => {
+  const procRow = (language, code, name) => ({ Language: language, CustomerPricingProcedure: code, CustomerPricingProcedureText: name });
+  const rows = oneRowPerTaxType([
+    procRow('D', '01', 'Standard'),
+    procRow('E', '01', 'Standard'),
+    procRow('E', '02', 'Alternative')
+  ], 'en', 'CustomerPricingProcedure');
+  assert.deepEqual(rows.map((entry) => entry.CustomerPricingProcedure), ['01', '02']);
+  assert.equal(rows[0].CustomerPricingProcedureText, 'Standard');
+
+  // Existing callers pass no third argument - BPTaxType stays the default.
+  assert.equal(oneRowPerTaxType([row('EN', 'BE0', 'VAT number')], 'en')[0].BPTaxType, 'BE0');
+});
+
+/**
+ * Ten released SAP views (I_CompanyCode, I_PurchasingOrganization, ...) activated on the service
+ * and never exposed until now (abap/valuehelp/README.md, 2026-08-28) - none needed a Z projection.
+ * Reported directly, after the field was made mandatory on Customer Sales Area with no way to look
+ * up a valid value.
+ */
+test('the org-unit and pricing fields on Customer/Supplier all get real search help', () => {
+  const serviceCds = read('srv', 'business-partner-service.cds');
+  const annotations = read('srv', 'annotations.cds');
+  const controller = read(
+    'app', 'businesspartner', '..', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse', 'controller', 'BusinessPartnerMaintenance.controller.js'
+  );
+
+  const wired = [
+    ['CompanyCodes', 'VH.CompanyCodes'],
+    ['PurchasingOrganizations', 'VH.PurchasingOrganizations'],
+    ['SalesOrganizations', 'VH.SalesOrganizations'],
+    ['DistributionChannels', 'VH.DistributionChannels'],
+    ['Divisions', 'VH.Divisions'],
+    ['SalesDistricts', 'VH.SalesDistricts'],
+    ['CustomerPriceGroups', 'VH.CustomerPriceGroups'],
+    ['Currencies', 'VH.Currencies'],
+    ['CustomerPricingProcedures', 'VH.CustomerPricingProcedures']
+  ];
+  for (const [local, remote] of wired) {
+    assert.match(serviceCds, new RegExp(`entity ${local}\\s+as projection on ${remote.replace('.', '\\.')}`), `${local} is not projected`);
+    assert.ok(VALUE_HELP_ENTITIES.includes(local), `${local} is missing from VALUE_HELP_ENTITIES`);
+  }
+
+  for (const field of [
+    'TaxNumberType', 'CompanyCode', 'SalesOrganization', 'DistributionChannel', 'Division',
+    'SalesDistrict', 'CustomerPriceGroup', 'CustomerPricingProcedure', 'Currency',
+    'PurchasingOrganization', 'PurchaseOrderCurrency'
+  ]) {
+    assert.match(annotations, new RegExp(`${field} @Common\\.ValueList`), `${field} has no @Common.ValueList annotation`);
+    assert.match(controller, new RegExp(`${field}: \\{\\s*\\n\\s*collectionPath:`), `${field} is missing from VALUE_HELP_FIELDS`);
+  }
+
+  // PurchaseOrderCurrency (Supplier Purchasing Org) shares the same Currencies collection as
+  // CustomerSalesArea's own Currency field - one currency catalogue, two field names, so it needs
+  // no READ handler of its own beyond the generic Currencies passthrough.
+  assert.match(controller, /PurchaseOrderCurrency: \{\s*\n\s*collectionPath: "Currencies"/u);
 });

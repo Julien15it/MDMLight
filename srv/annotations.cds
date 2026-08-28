@@ -371,6 +371,14 @@ annotate service.Customers with {
       { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'CustomerClassification_Text' }
     ]
   };
+  // Needed nothing new (abap/valuehelp/README.md) - the already-exposed TaxTypes set.
+  TaxNumberType @Common.ValueList: {
+    CollectionPath: 'TaxTypes',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: TaxNumberType, ValueListProperty: 'BPTaxType' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'TaxTypeName' }
+    ]
+  };
 };
 
 annotate service.Suppliers with @(
@@ -394,6 +402,13 @@ annotate service.Suppliers with {
       { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'SupplierAccountGroup_Text' }
     ]
   };
+  TaxNumberType @Common.ValueList: {
+    CollectionPath: 'TaxTypes',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: TaxNumberType, ValueListProperty: 'BPTaxType' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'TaxTypeName' }
+    ]
+  };
 };
 
 // KNVI-TATYP - country-scoped (CustomerTaxCategories is keyed by Country + SequenceNumber, and
@@ -404,6 +419,100 @@ annotate service.CustomerTaxGrouping with {
     CollectionPath: 'CustomerTaxCategories',
     Parameters: [
       { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: CustomerTaxGroupingCode, ValueListProperty: 'TaxCategory' }
+    ]
+  };
+};
+
+// Org-unit and pricing value helps (abap/valuehelp/README.md, 2026-08-28) - released SAP views
+// activated on the service; see srv/business-partner-service.cds for which.
+annotate service.CustomerCompany with {
+  CompanyCode @Common.ValueList: {
+    CollectionPath: 'CompanyCodes',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: CompanyCode, ValueListProperty: 'CompanyCode' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'CompanyCodeName' }
+    ]
+  };
+};
+
+annotate service.SupplierCompany with {
+  CompanyCode @Common.ValueList: {
+    CollectionPath: 'CompanyCodes',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: CompanyCode, ValueListProperty: 'CompanyCode' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'CompanyCodeName' }
+    ]
+  };
+};
+
+annotate service.CustomerSalesArea with {
+  SalesOrganization @Common.ValueList: {
+    CollectionPath: 'SalesOrganizations',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: SalesOrganization, ValueListProperty: 'SalesOrganization' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'SalesOrganization_Text' }
+    ]
+  };
+  DistributionChannel @Common.ValueList: {
+    CollectionPath: 'DistributionChannels',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: DistributionChannel, ValueListProperty: 'DistributionChannel' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'DistributionChannel_Text' }
+    ]
+  };
+  Division @Common.ValueList: {
+    CollectionPath: 'Divisions',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: Division, ValueListProperty: 'Division' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Division_Text' }
+    ]
+  };
+  // KNVV-BZIRK - joined the mandatory fields this section requires 2026-08-28.
+  SalesDistrict @Common.ValueList: {
+    CollectionPath: 'SalesDistricts',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: SalesDistrict, ValueListProperty: 'SalesDistrict' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'SalesDistrict_Text' }
+    ]
+  };
+  CustomerPriceGroup @Common.ValueList: {
+    CollectionPath: 'CustomerPriceGroups',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: CustomerPriceGroup, ValueListProperty: 'CustomerPriceGroup' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'CustomerPriceGroup_Text' }
+    ]
+  };
+  // C_CustPriceProcedureTextVHTemp - Language is part of its own key, collapsed server-side the same
+  // way TaxTypes is (oneRowPerTaxType), so this collection already carries one row per procedure.
+  CustomerPricingProcedure @Common.ValueList: {
+    CollectionPath: 'CustomerPricingProcedures',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: CustomerPricingProcedure, ValueListProperty: 'CustomerPricingProcedure' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'CustomerPricingProcedureText' }
+    ]
+  };
+  Currency @Common.ValueList: {
+    CollectionPath: 'Currencies',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: Currency, ValueListProperty: 'Currency' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Currency_Text' }
+    ]
+  };
+};
+
+annotate service.SupplierPurchasingOrg with {
+  PurchasingOrganization @Common.ValueList: {
+    CollectionPath: 'PurchasingOrganizations',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: PurchasingOrganization, ValueListProperty: 'PurchasingOrganization' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'PurchasingOrganizationName' }
+    ]
+  };
+  PurchaseOrderCurrency @Common.ValueList: {
+    CollectionPath: 'Currencies',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: PurchaseOrderCurrency, ValueListProperty: 'Currency' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Currency_Text' }
     ]
   };
 };

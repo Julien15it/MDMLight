@@ -140,6 +140,20 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
   // already does. Keyed by Country + SequenceNumber, so the value help lists every country's rows;
   // there is no per-row country on CustomerTaxGrouping to filter it by.
   @readonly entity CustomerTaxCategories     as projection on VH.DerTaxCategories;
+  // Org-unit and pricing value helps for the Customer/Supplier nodes (abap/valuehelp/README.md,
+  // 2026-08-28) - released SAP views (I_CompanyCode, I_PurchasingOrganization, ...) activated on
+  // this service; none needed a Z projection. CustomerPricingProcedures is the one #CONSUMPTION view
+  // here (C_CustPriceProcedureTextVHTemp) and carries Language in its key like TaxTypes does - its
+  // READ handler applies the same oneRowPerTaxType collapse.
+  @readonly entity CompanyCodes              as projection on VH.CompanyCodes;
+  @readonly entity PurchasingOrganizations   as projection on VH.PurchasingOrganizations;
+  @readonly entity SalesOrganizations        as projection on VH.SalesOrganizations;
+  @readonly entity DistributionChannels      as projection on VH.DistributionChannels;
+  @readonly entity Divisions                 as projection on VH.Divisions;
+  @readonly entity SalesDistricts            as projection on VH.SalesDistricts;
+  @readonly entity CustomerPriceGroups       as projection on VH.CustomerPriceGroups;
+  @readonly entity Currencies                as projection on VH.Currencies;
+  @readonly entity CustomerPricingProcedures as projection on VH.CustomerPricingProcedures;
   // Renamed to avoid clashing with the existing BusinessPartnerRoles child
   // entity below (S4.A_BusinessPartnerRole) — this one is the code/text list.
   @readonly entity BusinessPartnerRoleCodes  as projection on VH.BusinessPartnerRoles;

@@ -216,6 +216,56 @@ sap.ui.define([
     CustomerTaxGroupingCode: {
       collectionPath: "CustomerTaxCategories", keyField: "TaxCategory",
       descriptionField: "Country", title: "Select Tax Category"
+    },
+    // Org-unit and pricing value helps (abap/valuehelp/README.md, 2026-08-28) - released SAP views
+    // activated on the service; none of these needed a Z view.
+    TaxNumberType: {
+      collectionPath: "TaxTypes", keyField: "BPTaxType",
+      descriptionField: "TaxTypeName", title: "Select Tax Type"
+    },
+    CompanyCode: {
+      collectionPath: "CompanyCodes", keyField: "CompanyCode",
+      descriptionField: "CompanyCodeName", title: "Select Company Code"
+    },
+    SalesOrganization: {
+      collectionPath: "SalesOrganizations", keyField: "SalesOrganization",
+      descriptionField: "SalesOrganization_Text", title: "Select Sales Organization"
+    },
+    DistributionChannel: {
+      collectionPath: "DistributionChannels", keyField: "DistributionChannel",
+      descriptionField: "DistributionChannel_Text", title: "Select Distribution Channel"
+    },
+    Division: {
+      collectionPath: "Divisions", keyField: "Division",
+      descriptionField: "Division_Text", title: "Select Division"
+    },
+    SalesDistrict: {
+      collectionPath: "SalesDistricts", keyField: "SalesDistrict",
+      descriptionField: "SalesDistrict_Text", title: "Select Sales District"
+    },
+    CustomerPriceGroup: {
+      collectionPath: "CustomerPriceGroups", keyField: "CustomerPriceGroup",
+      descriptionField: "CustomerPriceGroup_Text", title: "Select Customer Price Group"
+    },
+    // C_CustPriceProcedureTextVHTemp, collapsed server-side to one row per procedure the same way
+    // TaxTypes is (Language is part of its own key too).
+    CustomerPricingProcedure: {
+      collectionPath: "CustomerPricingProcedures", keyField: "CustomerPricingProcedure",
+      descriptionField: "CustomerPricingProcedureText", title: "Select Pricing Procedure"
+    },
+    Currency: {
+      collectionPath: "Currencies", keyField: "Currency",
+      descriptionField: "Currency_Text", title: "Select Currency"
+    },
+    PurchasingOrganization: {
+      collectionPath: "PurchasingOrganizations", keyField: "PurchasingOrganization",
+      descriptionField: "PurchasingOrganizationName", title: "Select Purchasing Organization"
+    },
+    // Same Currencies collection as Currency above - the Supplier Purchasing Org node names its own
+    // field differently (KNVV vs EKPV underneath it, PurchaseOrderCurrency vs Currency on the wire).
+    PurchaseOrderCurrency: {
+      collectionPath: "Currencies", keyField: "Currency",
+      descriptionField: "Currency_Text", title: "Select Currency"
     }
   };
 
