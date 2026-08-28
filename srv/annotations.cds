@@ -381,6 +381,32 @@ annotate service.Customers with {
   };
 };
 
+// A_CustomerType.IndustryCode1-5 (Additional Data) are Edm.String(10), the same length and domain
+// as A_BusinessPartnerType.Industry, already wired to IndustryCodes above - reused rather than
+// treated as five separate lookups.
+annotate service.Customers with {
+  IndustryCode1 @Common.ValueList: { CollectionPath: 'IndustryCodes', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: IndustryCode1, ValueListProperty: 'BusinessPartnerIndustryCode' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'BusinessPartnerIndustryCode_Text' }
+  ] };
+  IndustryCode2 @Common.ValueList: { CollectionPath: 'IndustryCodes', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: IndustryCode2, ValueListProperty: 'BusinessPartnerIndustryCode' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'BusinessPartnerIndustryCode_Text' }
+  ] };
+  IndustryCode3 @Common.ValueList: { CollectionPath: 'IndustryCodes', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: IndustryCode3, ValueListProperty: 'BusinessPartnerIndustryCode' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'BusinessPartnerIndustryCode_Text' }
+  ] };
+  IndustryCode4 @Common.ValueList: { CollectionPath: 'IndustryCodes', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: IndustryCode4, ValueListProperty: 'BusinessPartnerIndustryCode' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'BusinessPartnerIndustryCode_Text' }
+  ] };
+  IndustryCode5 @Common.ValueList: { CollectionPath: 'IndustryCodes', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: IndustryCode5, ValueListProperty: 'BusinessPartnerIndustryCode' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'BusinessPartnerIndustryCode_Text' }
+  ] };
+};
+
 annotate service.Suppliers with @(
   UI.FieldGroup #Supplier: {
     Data: [
@@ -515,6 +541,130 @@ annotate service.SupplierPurchasingOrg with {
       { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Currency_Text' }
     ]
   };
+};
+
+// The same field, the same value help, on the text/dunning/withholding-tax children of the sections
+// already annotated above - no new VH entity needed, these were simply never carried over to the
+// sibling nodes that repeat the same key. VALUE_HELP_FIELDS on the maintenance screen already covers
+// every one of these by field name alone (it does not key off section), so this is CDS-side
+// consistency for other OData consumers rather than a change to what the app itself renders.
+annotate service.A_CustomerText with {
+  Language @Common.ValueList: { CollectionPath: 'Languages', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: Language, ValueListProperty: 'Language' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Language_Text' }
+  ] };
+};
+annotate service.A_SupplierText with {
+  Language @Common.ValueList: { CollectionPath: 'Languages', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: Language, ValueListProperty: 'Language' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Language_Text' }
+  ] };
+};
+annotate service.A_CustomerCompanyText with {
+  Language @Common.ValueList: { CollectionPath: 'Languages', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: Language, ValueListProperty: 'Language' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Language_Text' }
+  ] };
+  CompanyCode @Common.ValueList: { CollectionPath: 'CompanyCodes', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: CompanyCode, ValueListProperty: 'CompanyCode' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'CompanyCodeName' }
+  ] };
+};
+annotate service.A_SupplierCompanyText with {
+  Language @Common.ValueList: { CollectionPath: 'Languages', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: Language, ValueListProperty: 'Language' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Language_Text' }
+  ] };
+  CompanyCode @Common.ValueList: { CollectionPath: 'CompanyCodes', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: CompanyCode, ValueListProperty: 'CompanyCode' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'CompanyCodeName' }
+  ] };
+};
+annotate service.A_CustomerDunning with {
+  CompanyCode @Common.ValueList: { CollectionPath: 'CompanyCodes', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: CompanyCode, ValueListProperty: 'CompanyCode' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'CompanyCodeName' }
+  ] };
+};
+annotate service.A_SupplierDunning with {
+  CompanyCode @Common.ValueList: { CollectionPath: 'CompanyCodes', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: CompanyCode, ValueListProperty: 'CompanyCode' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'CompanyCodeName' }
+  ] };
+};
+annotate service.A_CustomerWithHoldingTax with {
+  CompanyCode @Common.ValueList: { CollectionPath: 'CompanyCodes', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: CompanyCode, ValueListProperty: 'CompanyCode' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'CompanyCodeName' }
+  ] };
+};
+annotate service.A_SupplierWithHoldingTax with {
+  CompanyCode @Common.ValueList: { CollectionPath: 'CompanyCodes', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: CompanyCode, ValueListProperty: 'CompanyCode' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'CompanyCodeName' }
+  ] };
+};
+annotate service.A_CustomerSalesAreaText with {
+  Language @Common.ValueList: { CollectionPath: 'Languages', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: Language, ValueListProperty: 'Language' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Language_Text' }
+  ] };
+  SalesOrganization @Common.ValueList: { CollectionPath: 'SalesOrganizations', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: SalesOrganization, ValueListProperty: 'SalesOrganization' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'SalesOrganization_Text' }
+  ] };
+  DistributionChannel @Common.ValueList: { CollectionPath: 'DistributionChannels', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: DistributionChannel, ValueListProperty: 'DistributionChannel' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'DistributionChannel_Text' }
+  ] };
+  Division @Common.ValueList: { CollectionPath: 'Divisions', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: Division, ValueListProperty: 'Division' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Division_Text' }
+  ] };
+};
+annotate service.A_CustSalesPartnerFunc with {
+  SalesOrganization @Common.ValueList: { CollectionPath: 'SalesOrganizations', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: SalesOrganization, ValueListProperty: 'SalesOrganization' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'SalesOrganization_Text' }
+  ] };
+  DistributionChannel @Common.ValueList: { CollectionPath: 'DistributionChannels', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: DistributionChannel, ValueListProperty: 'DistributionChannel' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'DistributionChannel_Text' }
+  ] };
+  Division @Common.ValueList: { CollectionPath: 'Divisions', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: Division, ValueListProperty: 'Division' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Division_Text' }
+  ] };
+};
+annotate service.A_CustSlsAreaAddrDepdntInfo with {
+  SalesOrganization @Common.ValueList: { CollectionPath: 'SalesOrganizations', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: SalesOrganization, ValueListProperty: 'SalesOrganization' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'SalesOrganization_Text' }
+  ] };
+  DistributionChannel @Common.ValueList: { CollectionPath: 'DistributionChannels', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: DistributionChannel, ValueListProperty: 'DistributionChannel' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'DistributionChannel_Text' }
+  ] };
+  Division @Common.ValueList: { CollectionPath: 'Divisions', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: Division, ValueListProperty: 'Division' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Division_Text' }
+  ] };
+};
+annotate service.A_SupplierPartnerFunc with {
+  PurchasingOrganization @Common.ValueList: { CollectionPath: 'PurchasingOrganizations', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: PurchasingOrganization, ValueListProperty: 'PurchasingOrganization' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'PurchasingOrganizationName' }
+  ] };
+};
+annotate service.A_SupplierPurchasingOrgText with {
+  Language @Common.ValueList: { CollectionPath: 'Languages', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: Language, ValueListProperty: 'Language' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Language_Text' }
+  ] };
+  PurchasingOrganization @Common.ValueList: { CollectionPath: 'PurchasingOrganizations', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: PurchasingOrganization, ValueListProperty: 'PurchasingOrganization' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'PurchasingOrganizationName' }
+  ] };
 };
 
 // The merged search list. Deliberately the same columns as BusinessPartners plus one status column:

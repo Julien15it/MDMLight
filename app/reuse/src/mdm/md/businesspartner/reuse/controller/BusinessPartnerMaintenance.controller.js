@@ -266,6 +266,28 @@ sap.ui.define([
     PurchaseOrderCurrency: {
       collectionPath: "Currencies", keyField: "Currency",
       descriptionField: "Currency_Text", title: "Select Currency"
+    },
+    // A_CustomerType.IndustryCode1-5 (Additional Data) are the same length and domain as
+    // BusinessPartners.Industry above - one shared catalogue, five slots.
+    IndustryCode1: {
+      collectionPath: "IndustryCodes", keyField: "BusinessPartnerIndustryCode",
+      descriptionField: "BusinessPartnerIndustryCode_Text", title: "Select Industry Code"
+    },
+    IndustryCode2: {
+      collectionPath: "IndustryCodes", keyField: "BusinessPartnerIndustryCode",
+      descriptionField: "BusinessPartnerIndustryCode_Text", title: "Select Industry Code"
+    },
+    IndustryCode3: {
+      collectionPath: "IndustryCodes", keyField: "BusinessPartnerIndustryCode",
+      descriptionField: "BusinessPartnerIndustryCode_Text", title: "Select Industry Code"
+    },
+    IndustryCode4: {
+      collectionPath: "IndustryCodes", keyField: "BusinessPartnerIndustryCode",
+      descriptionField: "BusinessPartnerIndustryCode_Text", title: "Select Industry Code"
+    },
+    IndustryCode5: {
+      collectionPath: "IndustryCodes", keyField: "BusinessPartnerIndustryCode",
+      descriptionField: "BusinessPartnerIndustryCode_Text", title: "Select Industry Code"
     }
   };
 

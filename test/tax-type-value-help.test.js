@@ -169,3 +169,47 @@ test('the org-unit and pricing fields on Customer/Supplier all get real search h
   // no READ handler of its own beyond the generic Currencies passthrough.
   assert.match(controller, /PurchaseOrderCurrency: \{\s*\n\s*collectionPath: "Currencies"/u);
 });
+
+/**
+ * Reported directly (2026-08-28): Additional Data's five industry-code slots had no search help.
+ * A_CustomerType.IndustryCode1-5 are Edm.String(10), the same length and domain as
+ * A_BusinessPartnerType.Industry (already wired to IndustryCodes) - one shared catalogue, not five.
+ */
+test('IndustryCode1-5 share the same Industry Codes catalogue as the root Industry field', () => {
+  const annotations = read('srv', 'annotations.cds');
+  const controller = read(
+    'app', 'businesspartner', '..', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse', 'controller', 'BusinessPartnerMaintenance.controller.js'
+  );
+  for (let index = 1; index <= 5; index += 1) {
+    const field = `IndustryCode${index}`;
+    assert.match(annotations, new RegExp(`${field} @Common\\.ValueList: \\{ CollectionPath: 'IndustryCodes'`), `${field} annotation missing`);
+    assert.match(controller, new RegExp(`${field}: \\{\\s*\\n\\s*collectionPath: "IndustryCodes", keyField: "BusinessPartnerIndustryCode"`), `${field} missing from VALUE_HELP_FIELDS`);
+  }
+});
+
+/**
+ * Language/CompanyCode/SalesOrganization/DistributionChannel/Division/PurchasingOrganization also
+ * appear on several Text/Dunning/WithholdingTax/PartnerFunc child sections of Customer and Supplier.
+ * VALUE_HELP_FIELDS matches by field name alone, not by section, so these already got F4 help the
+ * moment the field itself was wired anywhere - this only extends the CDS @Common.ValueList side for
+ * consistency with other OData consumers, and pins that no section was missed.
+ */
+test('the same field, the same value help, on every child section that repeats it', () => {
+  const annotations = read('srv', 'annotations.cds');
+  const withLanguage = ['A_CustomerText', 'A_SupplierText', 'A_CustomerCompanyText', 'A_SupplierCompanyText', 'A_CustomerSalesAreaText', 'A_SupplierPurchasingOrgText'];
+  for (const entity of withLanguage) {
+    assert.match(annotations, new RegExp(`annotate service\\.${entity} with \\{\\s*\\n\\s*Language @Common\\.ValueList`), `${entity} is missing the Language value help`);
+  }
+  const withCompanyCode = ['A_CustomerCompanyText', 'A_SupplierCompanyText', 'A_CustomerDunning', 'A_SupplierDunning', 'A_CustomerWithHoldingTax', 'A_SupplierWithHoldingTax'];
+  for (const entity of withCompanyCode) {
+    assert.match(annotations, new RegExp(`annotate service\\.${entity} with \\{[\\s\\S]{0,600}CompanyCode @Common\\.ValueList`), `${entity} is missing the CompanyCode value help`);
+  }
+  const withSalesArea = ['A_CustomerSalesAreaText', 'A_CustSalesPartnerFunc', 'A_CustSlsAreaAddrDepdntInfo'];
+  for (const entity of withSalesArea) {
+    assert.match(annotations, new RegExp(`annotate service\\.${entity} with \\{[\\s\\S]{0,600}SalesOrganization @Common\\.ValueList[\\s\\S]{0,300}DistributionChannel @Common\\.ValueList[\\s\\S]{0,300}Division @Common\\.ValueList`), `${entity} is missing a sales-area value help`);
+  }
+  const withPurchasingOrg = ['A_SupplierPartnerFunc', 'A_SupplierPurchasingOrgText'];
+  for (const entity of withPurchasingOrg) {
+    assert.match(annotations, new RegExp(`annotate service\\.${entity} with \\{[\\s\\S]{0,600}PurchasingOrganization @Common\\.ValueList`), `${entity} is missing the PurchasingOrganization value help`);
+  }
+});
