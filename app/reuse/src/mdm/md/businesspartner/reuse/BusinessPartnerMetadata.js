@@ -1999,7 +1999,11 @@ sap.ui.define([], function () {
         "requiredCreateFields": [
           "SalesOrganization",
           "DistributionChannel",
-          "Division"
+          "Division",
+          "SalesDistrict",
+          "CustomerPricingProcedure",
+          "CustomerPriceGroup",
+          "Currency"
         ],
         "fields": [
           {
@@ -2119,6 +2123,16 @@ sap.ui.define([], function () {
             "key": false,
             "nullable": true,
             "maxLength": 2,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "SalesDistrict",
+            "label": "Sales District",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 6,
             "creatable": true,
             "updatable": true
           },

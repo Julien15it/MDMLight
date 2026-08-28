@@ -544,6 +544,38 @@ test('the metadata generator derives its exclusions from the compiled CDS servic
   assert.doesNotMatch(section, /"name": "RecipientType"/u);
 });
 
+/**
+ * Reported directly, with a screenshot of the S/4 standard-check warnings (CVI_API/3, FSBP_GENERIC/8):
+ * a Customer Sales Area row saved fine on screen with Sales District, Cust. Pricing Procedure,
+ * Customer Price Group and Currency all empty, and only failed once posted to S/4, which refuses a
+ * KNVV row missing any of them. SalesDistrict had already been added to the section's own fields
+ * (2026-08-28) but none of the four had been added to requiredCreateFields, so the record dialog's
+ * own "Apply" validation (_sectionRecordErrors) never caught the gap before that S/4 round trip.
+ */
+test('a Customer Sales Area row cannot be saved without the four fields S/4 itself requires', () => {
+  const generator = fs.readFileSync(
+    path.join(__dirname, '..', 'app', 'businesspartner', 'scripts', 'generate-maintenance-metadata.js'),
+    'utf8'
+  );
+  const salesArea = generator.slice(
+    generator.indexOf("id: 'CustomerSalesArea'"),
+    generator.indexOf("id: 'CustomerTaxGrouping'")
+  );
+  assert.match(
+    salesArea,
+    /requiredCreateFields: \[\s*\n\s*'SalesOrganization', 'DistributionChannel', 'Division',\s*\n\s*'SalesDistrict', 'CustomerPricingProcedure', 'CustomerPriceGroup', 'Currency'\s*\n\s*\]/u
+  );
+
+  const metadata = fs.readFileSync(path.join(REUSE, 'BusinessPartnerMetadata.js'), 'utf8');
+  const section = metadata.slice(
+    metadata.indexOf('"id": "CustomerSalesArea"'),
+    metadata.indexOf('"id": "CustomerTaxGrouping"')
+  );
+  for (const field of ['SalesOrganization', 'DistributionChannel', 'Division', 'SalesDistrict', 'CustomerPricingProcedure', 'CustomerPriceGroup', 'Currency']) {
+    assert.match(section, new RegExp(`"requiredCreateFields": \\[[\\s\\S]*?"${field}"[\\s\\S]*?\\]`), `${field} missing from requiredCreateFields`);
+  }
+});
+
 test('the generated metadata stays reproducible: re-running the generator changes nothing', () => {
   const before = fs.readFileSync(path.join(REUSE, 'BusinessPartnerMetadata.js'), 'utf8');
   const result = require('node:child_process').spawnSync(

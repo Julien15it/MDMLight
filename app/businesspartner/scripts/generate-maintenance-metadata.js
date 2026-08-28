@@ -273,7 +273,15 @@ const sections = [
     summaryFields: [
       'SalesOrganization', 'DistributionChannel', 'Division', 'CreditControlArea', 'Currency', 'CustomerPaymentTerms'
     ],
-    requiredCreateFields: ['SalesOrganization', 'DistributionChannel', 'Division']
+    // The other three joined SalesDistrict here (2026-08-28): S/4's own standard checks
+    // (CVI_API/3, FSBP_GENERIC/8) refuse a sales area row missing any of the four - reported
+    // live, after the row had already been saved on screen with nothing to say they were
+    // needed. Required here too, so the record dialog blocks before that S/4 round trip
+    // rather than after it.
+    requiredCreateFields: [
+      'SalesOrganization', 'DistributionChannel', 'Division',
+      'SalesDistrict', 'CustomerPricingProcedure', 'CustomerPriceGroup', 'Currency'
+    ]
   },
   {
     // The MDG screen's "ERP Customer: Tax Categories" block, field for field.

@@ -446,3 +446,25 @@ annotate service.BusinessPartnerSearchResults with @(
     { Value: RecordStatus, Label: 'Status', Criticality: RecordStatusCriticality }
   ]
 );
+
+// This is its own entity (@cds.persistence.skip, merged in srv/search-results.js), not a
+// projection on BusinessPartners - so the value-help annotations that already exist on
+// BusinessPartners.BusinessPartnerCategory/.BusinessPartnerGrouping are not inherited here, and
+// the list report's filter bar (and its "Adapt Filters" dialog) had no F4 help on either field.
+// Reported directly - the CDS value-help views already exist, this is only the missing annotation.
+annotate service.BusinessPartnerSearchResults with {
+  BusinessPartnerCategory @Common.ValueList: {
+    CollectionPath: 'BusinessPartnerCategories',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: BusinessPartnerCategory, ValueListProperty: 'BusinessPartnerCategory' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'BusinessPartnerCategory_Text' }
+    ]
+  };
+  BusinessPartnerGrouping @Common.ValueList: {
+    CollectionPath: 'BusinessPartnerGroupings',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: BusinessPartnerGrouping, ValueListProperty: 'BusinessPartnerGrouping' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'BusinessPartnerGrouping_Text' }
+    ]
+  };
+};
