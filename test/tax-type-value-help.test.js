@@ -196,19 +196,19 @@ test('IndustryCode1-5 share the same Industry Codes catalogue as the root Indust
  */
 test('the same field, the same value help, on every child section that repeats it', () => {
   const annotations = read('srv', 'annotations.cds');
-  const withLanguage = ['CustomerText', 'SupplierText', 'CustomerCompanyText', 'SupplierCompanyText', 'CustomerSalesAreaText', 'SupplierPurchasingOrgText'];
+  const withLanguage = ['A_CustomerText', 'A_SupplierText', 'A_CustomerCompanyText', 'A_SupplierCompanyText', 'A_CustomerSalesAreaText', 'A_SupplierPurchasingOrgText'];
   for (const entity of withLanguage) {
     assert.match(annotations, new RegExp(`annotate service\\.${entity} with \\{\\s*\\n\\s*Language @Common\\.ValueList`), `${entity} is missing the Language value help`);
   }
-  const withCompanyCode = ['CustomerCompanyText', 'SupplierCompanyText', 'CustomerDunning', 'SupplierDunning', 'CustomerWithholdingTax', 'SupplierWithholdingTax'];
+  const withCompanyCode = ['A_CustomerCompanyText', 'A_SupplierCompanyText', 'A_CustomerDunning', 'A_SupplierDunning', 'A_CustomerWithHoldingTax', 'A_SupplierWithHoldingTax'];
   for (const entity of withCompanyCode) {
     assert.match(annotations, new RegExp(`annotate service\\.${entity} with \\{[\\s\\S]{0,600}CompanyCode @Common\\.ValueList`), `${entity} is missing the CompanyCode value help`);
   }
-  const withSalesArea = ['CustomerSalesAreaText', 'CustomerSalesPartnerFunctions', 'CustomerSalesAreaAddressInfo'];
+  const withSalesArea = ['A_CustomerSalesAreaText', 'A_CustSalesPartnerFunc', 'A_CustSlsAreaAddrDepdntInfo'];
   for (const entity of withSalesArea) {
     assert.match(annotations, new RegExp(`annotate service\\.${entity} with \\{[\\s\\S]{0,600}SalesOrganization @Common\\.ValueList[\\s\\S]{0,300}DistributionChannel @Common\\.ValueList[\\s\\S]{0,300}Division @Common\\.ValueList`), `${entity} is missing a sales-area value help`);
   }
-  const withPurchasingOrg = ['SupplierPartnerFunctions', 'SupplierPurchasingOrgText'];
+  const withPurchasingOrg = ['A_SupplierPartnerFunc', 'A_SupplierPurchasingOrgText'];
   for (const entity of withPurchasingOrg) {
     assert.match(annotations, new RegExp(`annotate service\\.${entity} with \\{[\\s\\S]{0,600}PurchasingOrganization @Common\\.ValueList`), `${entity} is missing the PurchasingOrganization value help`);
   }

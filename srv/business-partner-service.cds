@@ -323,39 +323,39 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
   @readonly entity A_BusinessPartnerIsBank               as projection on S4.A_BusinessPartnerIsBank;
   @readonly entity A_BusinessPartnerRating               as projection on S4.A_BusinessPartnerRating;
   @readonly entity A_BusPartAddrDepdntTaxNmbr            as projection on S4.A_BusPartAddrDepdntTaxNmbr;
-  @readonly entity CustomerAddressExtIdentifier         as projection on S4.A_CustAddrDepdntExtIdentifier;
-  @readonly entity CustomerAddressInfo           as projection on S4.A_CustAddrDepdntInformation;
+  @readonly entity A_CustAddrDepdntExtIdentifier         as projection on S4.A_CustAddrDepdntExtIdentifier;
+  @readonly entity A_CustAddrDepdntInformation           as projection on S4.A_CustAddrDepdntInformation;
   @readonly entity A_CustomerCompany                     as projection on S4.A_CustomerCompany;
-  @readonly entity CustomerCompanyText                 as projection on S4.A_CustomerCompanyText;
-  @readonly entity CustomerDunning                     as projection on S4.A_CustomerDunning;
+  @readonly entity A_CustomerCompanyText                 as projection on S4.A_CustomerCompanyText;
+  @readonly entity A_CustomerDunning                     as projection on S4.A_CustomerDunning;
   // `RecipientType` went the way of the four fields excluded above: the startup drift check
   // reported it gone from the live A_CustomerWithHoldingTax on 2026-08-21, and asking for a field
   // the service no longer exposes answers 404 "Resource not found for the segment" - which fails
   // the WHOLE Customer Withholding Tax read, so the section renders empty for a customer that has
   // withholding tax data. This is a maintained section (MAINTENANCE_ENTITIES.CustomerWithholdingTax,
   // read through to_WithHoldingTax), not one of the read-only catalogue entities nothing touches.
-  @readonly entity CustomerWithholdingTax              as projection on S4.A_CustomerWithHoldingTax excluding {
+  @readonly entity A_CustomerWithHoldingTax              as projection on S4.A_CustomerWithHoldingTax excluding {
     RecipientType
   };
   @readonly entity A_CustomerSalesArea                   as projection on S4.A_CustomerSalesArea excluding {
     CustomerStatisticsGroup
   };
-  @readonly entity CustomerSalesPartnerFunctions                as projection on S4.A_CustSalesPartnerFunc;
-  @readonly entity CustomerTaxIndicators                as projection on S4.A_CustomerSalesAreaTax;
+  @readonly entity A_CustSalesPartnerFunc                as projection on S4.A_CustSalesPartnerFunc;
+  @readonly entity A_CustomerSalesAreaTax                as projection on S4.A_CustomerSalesAreaTax;
   @readonly entity A_CustSlsAreaAddrDepdntTaxInfo        as projection on S4.A_CustSlsAreaAddrDepdntTaxInfo;
-  @readonly entity CustomerSalesAreaText               as projection on S4.A_CustomerSalesAreaText;
-  @readonly entity CustomerSalesAreaAddressInfo           as projection on S4.A_CustSlsAreaAddrDepdntInfo;
+  @readonly entity A_CustomerSalesAreaText               as projection on S4.A_CustomerSalesAreaText;
+  @readonly entity A_CustSlsAreaAddrDepdntInfo           as projection on S4.A_CustSlsAreaAddrDepdntInfo;
   @readonly entity A_CustomerTaxGrouping                 as projection on S4.A_CustomerTaxGrouping;
-  @readonly entity CustomerText                        as projection on S4.A_CustomerText;
-  @readonly entity CustomerUnloadingPoint              as projection on S4.A_CustomerUnloadingPoint;
-  @readonly entity CustomerUnloadingPointAddressInfo           as projection on S4.A_CustUnldgPtAddrDepdntInfo;
+  @readonly entity A_CustomerText                        as projection on S4.A_CustomerText;
+  @readonly entity A_CustomerUnloadingPoint              as projection on S4.A_CustomerUnloadingPoint;
+  @readonly entity A_CustUnldgPtAddrDepdntInfo           as projection on S4.A_CustUnldgPtAddrDepdntInfo;
   @readonly entity A_BusinessPartnerPaymentCard          as projection on S4.A_BusinessPartnerPaymentCard;
   @readonly entity A_SupplierCompany                     as projection on S4.A_SupplierCompany;
-  @readonly entity SupplierCompanyText                 as projection on S4.A_SupplierCompanyText;
-  @readonly entity SupplierDunning                     as projection on S4.A_SupplierDunning;
-  @readonly entity SupplierWithholdingTax              as projection on S4.A_SupplierWithHoldingTax;
+  @readonly entity A_SupplierCompanyText                 as projection on S4.A_SupplierCompanyText;
+  @readonly entity A_SupplierDunning                     as projection on S4.A_SupplierDunning;
+  @readonly entity A_SupplierWithHoldingTax              as projection on S4.A_SupplierWithHoldingTax;
   @readonly entity A_SupplierPurchasingOrg               as projection on S4.A_SupplierPurchasingOrg;
-  @readonly entity SupplierPartnerFunctions                 as projection on S4.A_SupplierPartnerFunc;
-  @readonly entity SupplierPurchasingOrgText           as projection on S4.A_SupplierPurchasingOrgText;
-  @readonly entity SupplierText                        as projection on S4.A_SupplierText;
+  @readonly entity A_SupplierPartnerFunc                 as projection on S4.A_SupplierPartnerFunc;
+  @readonly entity A_SupplierPurchasingOrgText           as projection on S4.A_SupplierPurchasingOrgText;
+  @readonly entity A_SupplierText                        as projection on S4.A_SupplierText;
 }
