@@ -756,4 +756,12 @@ annotate service.BusinessPartnerSearchResults with {
       { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'ChangeRequestStatus_Text' }
     ]
   };
+  // RequestedByUsers is BTP-sourced (srv/wf/btp-agents.js's workflowAgents()), not S/4 data - see
+  // business-partner-service.cds where it is declared.
+  RequestedBy @Common.ValueList: {
+    CollectionPath: 'RequestedByUsers',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: RequestedBy, ValueListProperty: 'Email' }
+    ]
+  };
 };

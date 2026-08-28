@@ -67,10 +67,12 @@ test('every collectionPath the maintenance UI asks for is an exposed entity', ()
 });
 
 // Local value lists have no S/4 or ZSRVB_MDMLIGHT_VH data behind them at all - db/staging.cds's own
-// enums, served by a hand-written READ handler in business-partner-service.js instead of `valueHelp`.
-// Named explicitly here, rather than folded into VALUE_HELP_ENTITIES, which the other two tests in
-// this file use to assert a *projection on VH.* exists — one that would never exist for these two.
-const LOCAL_VALUE_LISTS = Object.freeze(['ChangeRequestTypeValues', 'ChangeRequestStatusValues']);
+// enums (ChangeRequestTypeValues/ChangeRequestStatusValues) or BTP subaccount users
+// (RequestedByUsers, via srv/wf/btp-agents.js), each served by a hand-written READ handler in
+// business-partner-service.js instead of `valueHelp`. Named explicitly here, rather than folded
+// into VALUE_HELP_ENTITIES, which the other two tests in this file use to assert a
+// *projection on VH.* exists — one that would never exist for any of these three.
+const LOCAL_VALUE_LISTS = Object.freeze(['ChangeRequestTypeValues', 'ChangeRequestStatusValues', 'RequestedByUsers']);
 
 test('every @Common.ValueList points at an exposed entity', () => {
   const paths = [...annotations.matchAll(/CollectionPath:\s*'(\w+)'/gu)].map(([, name]) => name);

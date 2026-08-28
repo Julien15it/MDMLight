@@ -8,6 +8,7 @@ const { researchCompany } = require('./ai/company-research');
 const { enrichCandidate } = require('./ai/registry');
 const { checkVatNumber, STATUS: VIES_STATUS, VIES_COUNTRIES } = require('./ai/vies');
 const { startWorkflow } = require("./wf/processAutomation");
+const { workflowAgents } = require('./wf/btp-agents');
 const { createCache } = require('./ai/cache');
 const {
   VERDICT_LABELS, activeRules, refreshRules, stagedEntries, checkAgainstPartners,
@@ -2450,6 +2451,15 @@ class BusinessPartnerService extends cds.ApplicationService {
     this.on('READ', 'ChangeRequestStatusValues', () => Object.entries(STATUS_LABELS).map(
       ([ChangeRequestStatus, ChangeRequestStatus_Text]) => ({ ChangeRequestStatus, ChangeRequestStatus_Text })
     ));
+
+    // BTP-sourced, not S/4 or ZSRVB_MDMLIGHT_VH: the same workflowAgents() the Workflow Agent
+    // Determination approver picker already reads, filtered to its 'User' entries. Best-effort like
+    // every other BTP read in this codebase: an unreachable subaccount API leaves the picker
+    // offering nothing rather than failing the list report's filter bar.
+    this.on('READ', 'RequestedByUsers', async () => {
+      const agents = await workflowAgents();
+      return agents.filter((agent) => agent.type === 'User').map((agent) => ({ Email: agent.value }));
+    });
 
     this.on(['READ', 'CREATE', 'UPDATE'], '*', (req) => s4.run(req.query));
 

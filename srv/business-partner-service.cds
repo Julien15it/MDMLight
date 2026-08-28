@@ -107,6 +107,15 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
         ChangeRequestStatus_Text : String(30);
   }
 
+  // BTP-sourced, not S/4 or ZSRVB_MDMLIGHT_VH: every subaccount user, the same workflowAgents()
+  // read the Workflow Agent Determination approver picker already uses (srv/wf/btp-agents.js),
+  // filtered to its 'User' entries. No description field - fetchUsers() returns the e-mail alone,
+  // the same address this app's own notifications and SBPA already use, with no separate display
+  // name to show beside it (the same limitation IdentificationTypes has, for a different reason).
+  @readonly entity RequestedByUsers {
+    key Email : String(120);
+  }
+
   // Value-help lookups sourced from the custom S/4 value-help service
   // ZSRVB_MDMLIGHT_VH — API_BUSINESS_PARTNER itself exposes none of these.
   // Referenced from srv/annotations.cds via @Common.ValueList and, in the
