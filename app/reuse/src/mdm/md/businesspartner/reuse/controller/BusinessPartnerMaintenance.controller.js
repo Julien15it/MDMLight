@@ -2733,6 +2733,22 @@ sap.ui.define([
         rows.forEach(function (row) {
           row.key = row.target + "|" + row.index + "|" + row.field + "|" + row.proposed;
         });
+        // What the grouping was handed and what it produced, per press. Same reasoning as
+        // `[sap-derivations]` server-side: whether a line groups depends on `createsRow` and
+        // `rowKey` TOGETHER, and a compacted line looks identical whether the grouping is wrong or
+        // the browser is running a cached bundle from before the fix. Its ABSENCE from the console
+        // answers the second, which no amount of reading the screen can.
+        try {
+          console.log("[proposals] " + JSON.stringify({
+            lines: rows.length,
+            entries: derivations.map(function (entry) {
+              return [entry.target, entry.index, entry.field,
+                entry.createsRow ? "C" : "-", entry.rowKey ? "K" : "-"].join(":");
+            })
+          }));
+        } catch (loggingError) {
+          // A diagnostic must never be the thing that breaks the dialog.
+        }
         return rows;
       },
 
