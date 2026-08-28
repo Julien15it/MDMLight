@@ -548,29 +548,19 @@ annotate service.SupplierPurchasingOrg with {
 // sibling nodes that repeat the same key. VALUE_HELP_FIELDS on the maintenance screen already covers
 // every one of these by field name alone (it does not key off section), so this is CDS-side
 // consistency for other OData consumers rather than a change to what the app itself renders.
-annotate service.A_CustomerText with {
+annotate service.CustomerText with {
   Language @Common.ValueList: { CollectionPath: 'Languages', Parameters: [
     { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: Language, ValueListProperty: 'Language' },
     { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Language_Text' }
   ] };
 };
-annotate service.A_SupplierText with {
+annotate service.SupplierText with {
   Language @Common.ValueList: { CollectionPath: 'Languages', Parameters: [
     { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: Language, ValueListProperty: 'Language' },
     { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Language_Text' }
   ] };
 };
-annotate service.A_CustomerCompanyText with {
-  Language @Common.ValueList: { CollectionPath: 'Languages', Parameters: [
-    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: Language, ValueListProperty: 'Language' },
-    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Language_Text' }
-  ] };
-  CompanyCode @Common.ValueList: { CollectionPath: 'CompanyCodes', Parameters: [
-    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: CompanyCode, ValueListProperty: 'CompanyCode' },
-    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'CompanyCodeName' }
-  ] };
-};
-annotate service.A_SupplierCompanyText with {
+annotate service.CustomerCompanyText with {
   Language @Common.ValueList: { CollectionPath: 'Languages', Parameters: [
     { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: Language, ValueListProperty: 'Language' },
     { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Language_Text' }
@@ -580,31 +570,41 @@ annotate service.A_SupplierCompanyText with {
     { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'CompanyCodeName' }
   ] };
 };
-annotate service.A_CustomerDunning with {
+annotate service.SupplierCompanyText with {
+  Language @Common.ValueList: { CollectionPath: 'Languages', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: Language, ValueListProperty: 'Language' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Language_Text' }
+  ] };
   CompanyCode @Common.ValueList: { CollectionPath: 'CompanyCodes', Parameters: [
     { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: CompanyCode, ValueListProperty: 'CompanyCode' },
     { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'CompanyCodeName' }
   ] };
 };
-annotate service.A_SupplierDunning with {
+annotate service.CustomerDunning with {
   CompanyCode @Common.ValueList: { CollectionPath: 'CompanyCodes', Parameters: [
     { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: CompanyCode, ValueListProperty: 'CompanyCode' },
     { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'CompanyCodeName' }
   ] };
 };
-annotate service.A_CustomerWithHoldingTax with {
+annotate service.SupplierDunning with {
   CompanyCode @Common.ValueList: { CollectionPath: 'CompanyCodes', Parameters: [
     { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: CompanyCode, ValueListProperty: 'CompanyCode' },
     { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'CompanyCodeName' }
   ] };
 };
-annotate service.A_SupplierWithHoldingTax with {
+annotate service.CustomerWithholdingTax with {
   CompanyCode @Common.ValueList: { CollectionPath: 'CompanyCodes', Parameters: [
     { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: CompanyCode, ValueListProperty: 'CompanyCode' },
     { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'CompanyCodeName' }
   ] };
 };
-annotate service.A_CustomerSalesAreaText with {
+annotate service.SupplierWithholdingTax with {
+  CompanyCode @Common.ValueList: { CollectionPath: 'CompanyCodes', Parameters: [
+    { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: CompanyCode, ValueListProperty: 'CompanyCode' },
+    { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'CompanyCodeName' }
+  ] };
+};
+annotate service.CustomerSalesAreaText with {
   Language @Common.ValueList: { CollectionPath: 'Languages', Parameters: [
     { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: Language, ValueListProperty: 'Language' },
     { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Language_Text' }
@@ -622,7 +622,7 @@ annotate service.A_CustomerSalesAreaText with {
     { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Division_Text' }
   ] };
 };
-annotate service.A_CustSalesPartnerFunc with {
+annotate service.CustomerSalesPartnerFunctions with {
   SalesOrganization @Common.ValueList: { CollectionPath: 'SalesOrganizations', Parameters: [
     { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: SalesOrganization, ValueListProperty: 'SalesOrganization' },
     { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'SalesOrganization_Text' }
@@ -636,7 +636,7 @@ annotate service.A_CustSalesPartnerFunc with {
     { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Division_Text' }
   ] };
 };
-annotate service.A_CustSlsAreaAddrDepdntInfo with {
+annotate service.CustomerSalesAreaAddressInfo with {
   SalesOrganization @Common.ValueList: { CollectionPath: 'SalesOrganizations', Parameters: [
     { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: SalesOrganization, ValueListProperty: 'SalesOrganization' },
     { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'SalesOrganization_Text' }
@@ -650,13 +650,13 @@ annotate service.A_CustSlsAreaAddrDepdntInfo with {
     { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Division_Text' }
   ] };
 };
-annotate service.A_SupplierPartnerFunc with {
+annotate service.SupplierPartnerFunctions with {
   PurchasingOrganization @Common.ValueList: { CollectionPath: 'PurchasingOrganizations', Parameters: [
     { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: PurchasingOrganization, ValueListProperty: 'PurchasingOrganization' },
     { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'PurchasingOrganizationName' }
   ] };
 };
-annotate service.A_SupplierPurchasingOrgText with {
+annotate service.SupplierPurchasingOrgText with {
   Language @Common.ValueList: { CollectionPath: 'Languages', Parameters: [
     { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: Language, ValueListProperty: 'Language' },
     { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'Language_Text' }

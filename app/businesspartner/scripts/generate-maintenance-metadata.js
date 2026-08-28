@@ -311,7 +311,7 @@ const sections = [
     // businessPartnerNavigationPath addresses that through parentKeyFields.
     id: 'CustomerTaxIndicators',
     title: 'Customer Tax Indicators',
-    entitySet: 'A_CustomerSalesAreaTax',
+    entitySet: 'CustomerTaxIndicators',
     remoteEntity: 'A_CustomerSalesAreaTax',
     relationField: 'Customer',
     typeName: 'A_CustomerSalesAreaTaxType',
@@ -441,7 +441,7 @@ const sections = [
   {
     id: 'CustomerText',
     title: 'Customer Texts',
-    entitySet: 'A_CustomerText',
+    entitySet: 'CustomerText',
     remoteEntity: 'A_CustomerText',
     relationField: 'Customer',
     typeName: 'A_CustomerTextType',
@@ -454,7 +454,7 @@ const sections = [
   {
     id: 'CustomerAddressExtIdentifier',
     title: 'Customer Address External Identifiers',
-    entitySet: 'A_CustAddrDepdntExtIdentifier',
+    entitySet: 'CustomerAddressExtIdentifier',
     remoteEntity: 'A_CustAddrDepdntExtIdentifier',
     relationField: 'Customer',
     typeName: 'A_CustAddrDepdntExtIdentifierType',
@@ -467,7 +467,7 @@ const sections = [
   {
     id: 'CustomerAddressInfo',
     title: 'Customer Address-Dependent Information',
-    entitySet: 'A_CustAddrDepdntInformation',
+    entitySet: 'CustomerAddressInfo',
     remoteEntity: 'A_CustAddrDepdntInformation',
     relationField: 'Customer',
     typeName: 'A_CustAddrDepdntInformationType',
@@ -483,7 +483,7 @@ const sections = [
   {
     id: 'CustomerCompanyText',
     title: 'Customer Company Code Texts',
-    entitySet: 'A_CustomerCompanyText',
+    entitySet: 'CustomerCompanyText',
     remoteEntity: 'A_CustomerCompanyText',
     relationField: 'Customer',
     typeName: 'A_CustomerCompanyTextType',
@@ -496,7 +496,7 @@ const sections = [
   {
     id: 'CustomerDunning',
     title: 'Customer Dunning',
-    entitySet: 'A_CustomerDunning',
+    entitySet: 'CustomerDunning',
     remoteEntity: 'A_CustomerDunning',
     relationField: 'Customer',
     typeName: 'A_CustomerDunningType',
@@ -515,7 +515,7 @@ const sections = [
   {
     id: 'CustomerWithholdingTax',
     title: 'Customer Withholding Tax',
-    entitySet: 'A_CustomerWithHoldingTax',
+    entitySet: 'CustomerWithholdingTax',
     remoteEntity: 'A_CustomerWithHoldingTax',
     relationField: 'Customer',
     typeName: 'A_CustomerWithHoldingTaxType',
@@ -536,7 +536,7 @@ const sections = [
   {
     id: 'CustomerSalesAreaText',
     title: 'Customer Sales Area Texts',
-    entitySet: 'A_CustomerSalesAreaText',
+    entitySet: 'CustomerSalesAreaText',
     remoteEntity: 'A_CustomerSalesAreaText',
     relationField: 'Customer',
     typeName: 'A_CustomerSalesAreaTextType',
@@ -556,7 +556,7 @@ const sections = [
   {
     id: 'CustomerSalesPartnerFunctions',
     title: 'Customer Partner Functions',
-    entitySet: 'A_CustSalesPartnerFunc',
+    entitySet: 'CustomerSalesPartnerFunctions',
     remoteEntity: 'A_CustSalesPartnerFunc',
     relationField: 'Customer',
     typeName: 'A_CustSalesPartnerFuncType',
@@ -579,7 +579,7 @@ const sections = [
   {
     id: 'CustomerSalesAreaAddressInfo',
     title: 'Customer Sales Area Address-Dependent Information',
-    entitySet: 'A_CustSlsAreaAddrDepdntInfo',
+    entitySet: 'CustomerSalesAreaAddressInfo',
     remoteEntity: 'A_CustSlsAreaAddrDepdntInfo',
     relationField: 'Customer',
     typeName: 'A_CustSlsAreaAddrDepdntInfoType',
@@ -600,7 +600,7 @@ const sections = [
   {
     id: 'CustomerUnloadingPoint',
     title: 'Customer Unloading Points',
-    entitySet: 'A_CustomerUnloadingPoint',
+    entitySet: 'CustomerUnloadingPoint',
     remoteEntity: 'A_CustomerUnloadingPoint',
     relationField: 'Customer',
     typeName: 'A_CustomerUnloadingPointType',
@@ -646,7 +646,7 @@ const sections = [
   {
     id: 'CustomerUnloadingPointAddressInfo',
     title: 'Customer Unloading Point Address-Dependent Information',
-    entitySet: 'A_CustUnldgPtAddrDepdntInfo',
+    entitySet: 'CustomerUnloadingPointAddressInfo',
     remoteEntity: 'A_CustUnldgPtAddrDepdntInfo',
     relationField: 'Customer',
     typeName: 'A_CustUnldgPtAddrDepdntInfoType',
@@ -692,7 +692,7 @@ const sections = [
   {
     id: 'SupplierText',
     title: 'Supplier Texts',
-    entitySet: 'A_SupplierText',
+    entitySet: 'SupplierText',
     remoteEntity: 'A_SupplierText',
     relationField: 'Supplier',
     typeName: 'A_SupplierTextType',
@@ -705,7 +705,7 @@ const sections = [
   {
     id: 'SupplierCompanyText',
     title: 'Supplier Company Code Texts',
-    entitySet: 'A_SupplierCompanyText',
+    entitySet: 'SupplierCompanyText',
     remoteEntity: 'A_SupplierCompanyText',
     relationField: 'Supplier',
     typeName: 'A_SupplierCompanyTextType',
@@ -718,7 +718,7 @@ const sections = [
   {
     id: 'SupplierDunning',
     title: 'Supplier Dunning',
-    entitySet: 'A_SupplierDunning',
+    entitySet: 'SupplierDunning',
     remoteEntity: 'A_SupplierDunning',
     relationField: 'Supplier',
     typeName: 'A_SupplierDunningType',
@@ -737,7 +737,7 @@ const sections = [
   {
     id: 'SupplierWithholdingTax',
     title: 'Supplier Withholding Tax',
-    entitySet: 'A_SupplierWithHoldingTax',
+    entitySet: 'SupplierWithholdingTax',
     remoteEntity: 'A_SupplierWithHoldingTax',
     relationField: 'Supplier',
     typeName: 'A_SupplierWithHoldingTaxType',
@@ -758,7 +758,7 @@ const sections = [
   {
     id: 'SupplierPurchasingOrgText',
     title: 'Supplier Purchasing Organization Texts',
-    entitySet: 'A_SupplierPurchasingOrgText',
+    entitySet: 'SupplierPurchasingOrgText',
     remoteEntity: 'A_SupplierPurchasingOrgText',
     relationField: 'Supplier',
     typeName: 'A_SupplierPurchasingOrgTextType',
@@ -771,7 +771,7 @@ const sections = [
   {
     id: 'SupplierPartnerFunctions',
     title: 'Supplier Partner Functions',
-    entitySet: 'A_SupplierPartnerFunc',
+    entitySet: 'SupplierPartnerFunctions',
     remoteEntity: 'A_SupplierPartnerFunc',
     relationField: 'Supplier',
     typeName: 'A_SupplierPartnerFuncType',

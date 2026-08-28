@@ -58,8 +58,8 @@ test('facade excludes fields missing in the target S/4 release', async () => {
   // Same story, found the same way - the startup drift check named it on 2026-08-21 while the
   // other five it reported were already excluded. Withholding Tax is a maintained section, so a
   // failing read there is a section that renders empty on the approve screen.
-  const withholding = model.definitions['BusinessPartnerService.A_CustomerWithHoldingTax'];
-  assert.ok(withholding, 'A_CustomerWithHoldingTax is not exposed');
+  const withholding = model.definitions['BusinessPartnerService.CustomerWithholdingTax'];
+  assert.ok(withholding, 'CustomerWithholdingTax is not exposed');
   assert.equal(
     withholding.elements.RecipientType,
     undefined,
