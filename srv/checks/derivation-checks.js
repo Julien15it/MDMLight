@@ -255,6 +255,16 @@ function taxCategoryEntries(payload, { taxCategories }) {
  *
  * Needs a sales area row, because `StagedCustomerSalesPartnerFunc` is keyed by one. When there is
  * none it derives nothing **and says nothing** -- see the time zone above for why.
+ *
+ * **All of the mandatory functions, not the first one (2026-08-28).** It proposed one row and named
+ * the rest in a statement -- "add the others by hand" -- because `createsRow` could only invent a
+ * row into an EMPTY section. A `rowKey` lifts that (see `rowMatchesKey` in `pipeline.js`), so the
+ * four functions of procedure `AG` arrive as four proposals. The statement is gone with it: it
+ * existed to cover what the pipeline could not do, not to tell a requester anything.
+ *
+ * **It also fills the gaps beside what somebody typed.** A requester who entered `AG` themselves
+ * gets `RE`, `RG` and `WE` proposed and their own row left alone -- the key is per function, so a
+ * partly-filled section is no longer a reason to say nothing at all.
  */
 function partnerFunctionEntries(payload, { partnerFunctions }) {
   const [salesArea] = liveRows(payload, 'CustomerSalesArea');
@@ -263,9 +273,6 @@ function partnerFunctionEntries(payload, { partnerFunctions }) {
   const accountGroup = text(liveRows(payload, 'Customers')[0]?.CustomerAccountGroup);
   if (!accountGroup) return [];
 
-  // Not into a section somebody has already filled: those rows are theirs.
-  if (liveRows(payload, 'CustomerSalesPartnerFunctions').length) return [];
-
   const mandatory = partnerFunctions
     .filter((row) => text(row.AccountGroup) === accountGroup)
     .filter((row) => row.IsMandatory)
@@ -273,47 +280,51 @@ function partnerFunctionEntries(payload, { partnerFunctions }) {
     .sort((left, right) => text(left.SortOrder).localeCompare(text(right.SortOrder)));
   if (!mandatory.length) return [];
 
-  // The pipeline creates only the FIRST row of an empty section, so one function is proposed and
-  // the rest are named. Same shape, and the same reasoning, as the tax categories.
-  const [first, ...remaining] = mandatory;
-  const procedure = text(first.DeterminationProcedure);
-
-  const entries = [{
-    target: 'CustomerSalesPartnerFunctions',
-    index: 0,
-    createsRow: true,
-    field: 'PartnerFunction',
-    value: text(first.PartnerFunction),
-    label: 'Mandatory function',
-    message: `Partner function ${text(first.PartnerFunction)} is mandatory for account group `
-      + `${accountGroup} under determination procedure ${procedure} in S/4. The partner number is `
-      + 'left for S/4 to assign at post time.'
-  }];
-
-  // The sales area the row belongs to, filled from the row the requester already added -- three
-  // more entries, because createsRow writes one field and these complete the key.
-  for (const [field, value] of [
+  // The sales area every proposed row belongs to, from the row the requester already added. Part of
+  // each row's key, so a function typed against a DIFFERENT sales area is not mistaken for this one.
+  // Only the levels the requester actually filled in. A blank in a key is not a key: it would fail
+  // to match a row that HAS that level and the section would collect a second copy of every row.
+  const area = Object.fromEntries([
     ['SalesOrganization', text(salesArea.SalesOrganization)],
     ['DistributionChannel', text(salesArea.DistributionChannel)],
     ['Division', text(salesArea.Division)]
-  ]) {
-    if (!value) continue;
+  ].filter(([, value]) => value));
+  const areaLabel = Object.values(area).join(' / ');
+
+  const entries = [];
+  for (const row of mandatory) {
+    const partnerFunction = text(row.PartnerFunction);
+    if (!partnerFunction) continue;
+    const procedure = text(row.DeterminationProcedure);
+    // Every entry of one row carries the same key, so the three that complete the sales area find
+    // the row the first one made without counting indices. `index` is the pipeline's to resolve.
+    const rowKey = { PartnerFunction: partnerFunction, ...area };
+
     entries.push({
       target: 'CustomerSalesPartnerFunctions',
-      index: 0,
-      field,
-      value,
-      label: 'Sales area',
-      message: `${field} ${value} is taken from the sales area on this request.`
+      createsRow: true,
+      rowKey,
+      field: 'PartnerFunction',
+      value: partnerFunction,
+      label: 'Mandatory function',
+      message: `Partner function ${partnerFunction} is mandatory for account group ${accountGroup} `
+        + `under determination procedure ${procedure} in S/4.`
+        + (areaLabel ? ` The row is for sales area ${areaLabel}, taken from the sales area on this `
+          + 'request.' : '')
+        + ' The partner number is left for S/4 to assign at post time.'
     });
-  }
 
-  if (remaining.length) {
-    entries.push({
-      message: `Account group ${accountGroup} has ${mandatory.length} mandatory partner functions `
-        + `under procedure ${procedure} (${mandatory.map((row) => text(row.PartnerFunction)).join(', ')}). `
-        + 'One row is proposed; add the others by hand if this customer needs them.'
-    });
+    // createsRow writes exactly one field, so these complete the key.
+    for (const [field, value] of Object.entries(area)) {
+      entries.push({
+        target: 'CustomerSalesPartnerFunctions',
+        rowKey,
+        field,
+        value,
+        label: 'Sales area',
+        message: `${field} ${value} is taken from the sales area on this request.`
+      });
+    }
   }
 
   return entries;
@@ -341,8 +352,6 @@ function supplierFunctionEntries(payload, { supplierFunctions }) {
   const accountGroup = text(liveRows(payload, 'Suppliers')[0]?.SupplierAccountGroup);
   if (!accountGroup) return [];
 
-  if (liveRows(payload, 'SupplierPartnerFunctions').length) return [];
-
   const mandatory = supplierFunctions
     .filter((row) => text(row.AccountGroup) === accountGroup)
     .filter((row) => row.IsMandatory)
@@ -352,37 +361,35 @@ function supplierFunctionEntries(payload, { supplierFunctions }) {
     .sort((left, right) => text(left.SortOrder).localeCompare(text(right.SortOrder)));
   if (!mandatory.length) return [];
 
-  const [first, ...remaining] = mandatory;
-  const procedure = text(first.PurchasingOrgProcedure);
-
-  const entries = [{
-    target: 'SupplierPartnerFunctions',
-    index: 0,
-    createsRow: true,
-    field: 'PartnerFunction',
-    value: text(first.PartnerFunction),
-    label: 'Mandatory function',
-    message: `Partner function ${text(first.PartnerFunction)} is mandatory for supplier account `
-      + `group ${accountGroup} under partner schema ${procedure} in S/4. The partner number is left `
-      + 'for S/4 to assign at post time.'
-  }, {
-    target: 'SupplierPartnerFunctions',
-    index: 0,
-    field: 'PurchasingOrganization',
-    value: organisation,
-    label: 'Purchasing org',
-    message: `Purchasing organization ${organisation} is taken from the purchasing row on this `
-      + 'request.'
-  }];
-
+  // All of them, keyed per function -- the customer stage's own change (2026-08-28), same reasoning.
   // SupplierSubrange and Plant are deliberately NOT filled: they are the lower two levels, each
   // with its own partner schema, and a purchasing-organisation row leaves them blank.
-  if (remaining.length) {
+  const entries = [];
+  for (const row of mandatory) {
+    const partnerFunction = text(row.PartnerFunction);
+    if (!partnerFunction) continue;
+    const procedure = text(row.PurchasingOrgProcedure);
+    const rowKey = { PartnerFunction: partnerFunction, PurchasingOrganization: organisation };
+
     entries.push({
-      message: `Supplier account group ${accountGroup} has ${mandatory.length} mandatory partner `
-        + `functions under schema ${procedure} `
-        + `(${mandatory.map((row) => text(row.PartnerFunction)).join(', ')}). One row is proposed; `
-        + 'add the others by hand if this supplier needs them.'
+      target: 'SupplierPartnerFunctions',
+      createsRow: true,
+      rowKey,
+      field: 'PartnerFunction',
+      value: partnerFunction,
+      label: 'Mandatory function',
+      message: `Partner function ${partnerFunction} is mandatory for supplier account group `
+        + `${accountGroup} under partner schema ${procedure} in S/4. The row is for purchasing `
+        + `organization ${organisation}, taken from the purchasing row on this request. The partner `
+        + 'number is left for S/4 to assign at post time.'
+    }, {
+      target: 'SupplierPartnerFunctions',
+      rowKey,
+      field: 'PurchasingOrganization',
+      value: organisation,
+      label: 'Purchasing org',
+      message: `Purchasing organization ${organisation} is taken from the purchasing row on this `
+        + 'request.'
     });
   }
 

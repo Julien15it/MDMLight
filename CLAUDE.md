@@ -728,7 +728,48 @@ enforce it.
 - **The duplicate check still reads `derived`.** A value nobody accepted yet makes the comparison
   better without committing anyone to anything, which is the whole reason derive precedes match.
 - **`systemDerived` is replayed from `applied`, not written in the derivation loop**, so an entry
-  the pipeline refused to write (a typed value already there) is not replayed either.
+  the pipeline refused to write (a typed value already there) is not replayed either. A keyed entry
+  is replayed **by key**, not by index: this payload holds only the `system` entries, so a row's
+  position in it is not the position it had in `derived`.
+
+##### And they are not SHOWN until the proposals are answered (2026-08-28)
+
+The half `systemDerived` could not solve, reported from the live app: *"if City for example is
+proposed... the S4 check already triggers warning users that it's required... now user gets the idea
+that they're missing info, while the derivations already filled it in for them."* Correct on both
+sides — S/4 genuinely does not have the City, because nobody has accepted it yet — and reading, to a
+requester, as a contradiction between a strip and the dialog on top of it.
+
+**Filtering the stale findings out is not possible, and that is a property of the mapper.**
+`bp-check.js` flattens every S/4 message to `{ severity, message }`, formatting the class and number
+**into the text** and deliberately discarding S/4's own `field` — `MAINTAIN`'s
+`BAPIRETM → BAPIRETI → BAPIRETC` anchors nothing to a field or a row anyway. So "was this message
+about City?" can only be answered by a regex over prose or a hand-maintained `(class, number) →
+field` map, which fails silently on everything not in it with no safe direction to fail. Worse,
+removal is only half of it: an accepted value can make a **new** message appear (a filled city
+brings a region/postal-code plausibility check; an accepted VAT number changes `VMD_API/043`), so a
+removal-only reconciliation would hand back a cleaner list than S/4 would actually give — the
+all-clear-from-a-check-nobody-ran this codebase refuses everywhere.
+
+So the answer is **when**, not **which**. `checkRequest` returns `StandardJson` **separately** from
+`ValidationsJson` (filtered by object identity out of `result.validations`, so it cannot drift from
+what `runChecks` merged), and `_resolveStandardChecks` decides on the way out of the dialog:
+
+- **Nothing to propose** → they were never held; they go up on the first press, one round trip, as
+  before.
+- **Nothing accepted** (Not Now, Escape, everything unticked, every value edited back to what it
+  already was) → the payload is unchanged, so the held findings are exactly right. Shown as they
+  are: **no second round trip, and no second vendor number.** A requester who declines the city
+  *does* then see "City is required", which is the correct answer to what they just decided.
+- **Something accepted** → what S/4 was told is out of date, so `_rerunStandardChecks` asks again
+  with `Propose: false`. One extra round trip and one extra `NRIV KREDITOR/02` draw, on the press
+  where a fresh answer is wanted anyway (gaps settled as acceptable 2026-08-26).
+
+`_applyProposals` **returns the number of fields it changed** for exactly this, and the count is
+what `afterClose` reads — not whether Apply Selected was pressed. The re-run replaces the message
+set rather than merging: it is a real check of the new payload, and its declined proposals are
+dropped rather than offered a second time inside one press, because pressing Check again is how a
+requester asks for those. A re-run that fails says so as a warning, never as silence.
 
 #### SPRO derivations: nine gaps, one open mechanism (2026-08-27)
 
@@ -810,6 +851,41 @@ carry a tax category and no departure country — half a `KNVI` key.
   are therefore never filled. Mirrors the customer stage otherwise, with the guard inverted:
   `PartnerType = 'LI'`, because procedure `AG` carries `LF` (vendor) and schema `0001` carries `AG`
   (customer), so each side would otherwise propose the other's functions.
+
+###### All of the mandatory functions, and beside what somebody typed (2026-08-28)
+
+Reported from the live app the day after the paging fix landed: `AG` derived, and *"I think there
+are 4 mandatory?"* Both stages proposed the FIRST mandatory function and named the rest in a
+`field`-less statement — not a decision, a workaround: `createsRow` could only invent a row into a
+**completely empty** section, so one row was all the pipeline could carry.
+
+**`rowKey` is what lifted it.** An entry may now name the row it belongs to, and `rowMatchesKey`
+(`pipeline.js`) decides whether that row is already there. So `createsRow` may append **beside**
+rows somebody added deliberately, because the key says which row this is — the guard that used to
+be "the section is empty" is now "no row already carries this key". An entry **without** a key keeps
+the old rule exactly, and that asymmetry is the design: *"fill in the city"* says nothing about
+which address it belongs to, so there is no safe row for it to add.
+
+- **Every entry of one row carries the same key**, which is how the three that complete a sales
+  area find the row the `createsRow` entry made. Nothing counts indices any more — the previous
+  version relied on the section being empty so that index 0 was the row just added, which stops
+  being true the moment a second row can be proposed.
+- **The reported `index` is where the row actually landed** (`indexOfRecord`), because the dialog
+  groups on it — see "A whole derived row is one line" below.
+- **A blank level is not a key.** The sales area contributes only the levels the requester filled
+  in; a blank compared against a row that HAS that level fails, and the section would then collect
+  a second copy of every row. Guarded in the derivation *and* in `rowMatchesKey`.
+- **A blank on the EXISTING row counts as a match**, because the entry's own key fields are what
+  would fill it: a requester who typed `AG` and left the sales area empty has the row this
+  derivation was about to add, so it is completed rather than duplicated. A row the request is
+  deleting (`action: 'D'`) holds nothing and matches nothing, mirroring `liveRows`.
+- **A partly-filled section is no longer a reason to say nothing.** `if (liveRows(...).length)
+  return []` is gone from both stages: a requester who entered `AG` themselves gets `RE`, `RG` and
+  `WE` proposed and their own row left alone.
+- **The statement went with it.** "One row is proposed; add the others by hand" existed to cover
+  what the pipeline could not do. The tax-category one **stays** — that is a genuine "one of five"
+  report about a decision no customizing table can make (`CustomerTaxClassification`), not a
+  workaround. Multi-row is now available to it if it is ever wanted.
 
 Which derivations are customer-only, and why it is not an oversight: **tax categories** — `KNVI` has
 no vendor counterpart, vendors carry no tax classification node. **Withholding tax** is symmetric in
@@ -904,6 +980,34 @@ stated sentence rather than `''` — an empty tooltip reads as a broken one.
 A field that was derived and then reformatted is still one row: the derivation's label leads (it
 is why the field has a value at all) and the reformatting is appended to the **tooltip**, rather
 than growing the label past three words.
+
+#### A whole derived ROW is one line (2026-08-28)
+
+Reported from the live app: *"I just entered Sales org, dist ch, division, and then the derivation
+triggers for the partner function (which also has a Sales org, dist ch, div field) so to an enduser
+it looks like it's filling in what I just entered."* A created row takes several entries —
+`createsRow` writes one field and the rest complete its key — so with four mandatory partner
+functions the dialog would have shown **sixteen** lines, twelve of them reading the sales area back
+to the person who had just typed it.
+
+`_proposalRows` groups derivation entries on **target + index** — which the pipeline resolves per
+row, so entries of one row always share it and entries of two rows never do — and a group
+containing a `createsRow` entry collapses to one line built by `_derivationRow`:
+
+- **The Field column names the SECTION** ("Customer Partner Functions"), not the field, because the
+  row is what is being accepted; a field name alone reads as a field somebody still has to fill.
+  A plain filled-in field is still named by itself, so nothing about those lines changed.
+- **`subtext` under it carries the key** — "Sales area 1710 / 10 / 00" — visible without hovering,
+  asked for directly. The Why column's tooltip still holds the whole sentence, which now says which
+  sales area the row is for as well.
+- **The row is accepted or declined WHOLE.** Only the lead is tickable and only its value is
+  editable; the key fields travel with it as `extras` and `_applyProposals` writes them together.
+  They were separate ticks resolved by index before, which breaks as soon as more than one row can
+  be proposed: declining the second row shifted the third's key fields onto it.
+- **Idempotence moved to the whole key.** `_applyProposals` used to refuse a row whose lead value
+  already existed; `AG` under a second sales area is a different row, so it now compares every key
+  field, with a blank on the existing row counting as a match — the same rule `rowMatchesKey`
+  applies server-side.
 
 #### A derivation may create the row it needs (changed 2026-08-20)
 

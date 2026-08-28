@@ -135,6 +135,10 @@ service ChangeRequestService @(path: '/service/changerequest') {
     /** False when a validation blocked; nothing after validation ran. */
     Valid             : Boolean;
     ValidationsJson   : LargeString;
+    /** S/4's own standard and SPRO findings, SEPARATE from ValidationsJson on this
+     *  action only, so the screen can hold them back until the proposals below have
+     *  been accepted or declined - a proposed city must not be reported as missing. */
+    StandardJson      : LargeString;
     /** Values the derivations would fill into empty fields. Proposals only. */
     DerivationsJson   : LargeString;
     /** AI-proposed reformatting of fields that already have a value. Proposals

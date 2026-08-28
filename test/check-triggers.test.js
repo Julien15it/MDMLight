@@ -138,7 +138,9 @@ test('the Check button is the only route to a proposal', () => {
     CONTROLLER.indexOf('onCheck: async function'),
     CONTROLLER.indexOf('onDuplicateCheck: async function')
   );
-  assert.match(check, /this\._offerProposals\(proposals\)/u, 'and it is onCheck');
+  // The second argument is the standard findings the dialog holds back for the duration -- see
+  // _resolveStandardChecks. Still one caller, still the Check button.
+  assert.match(check, /this\._offerProposals\(proposals, standard\)/u, 'and it is onCheck');
   assert.equal(/_applyProposals/u.test(check), false, 'onCheck never applies anything itself');
 });
 

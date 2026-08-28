@@ -11,10 +11,12 @@
 // `severity: 'error'` stops the pipeline; 'warning' and 'info' do not.
 const VALIDATIONS = [];
 
-// { name, async run(payload) -> [{ target, index, field, value, message, label?, system? }] },
+// { name, async run(payload) -> [{ target, index, field, value, message, label?, system?, rowKey? }] },
 // `target` being 'root' or a section id. Applied to a copy and reported back, so nothing is
 // discovered after approval.
 // `label` is the three-word version of `message`; `system` means S/4 uses it whatever anyone ticks.
+// `rowKey` names the row an entry belongs to — see `rowMatchesKey` — and is what lets one stage
+// derive SEVERAL rows into a section that is not empty. Every entry of one row carries the same key.
 const DERIVATIONS = [];
 
 const BLOCKING = 'error';
@@ -29,6 +31,51 @@ function targetRecord(payload, entry) {
   const rows = payload.sections?.[entry.target];
   if (!Array.isArray(rows)) return null;
   return rows[entry.index || 0] || null;
+}
+
+/**
+ * Does this row already hold what a keyed entry would create?
+ *
+ * **A blank on the existing row counts as a match**, because the entry's own key fields are what
+ * would fill it: a requester who typed partner function `AG` and left the sales area empty has the
+ * row this derivation was about to add, not a different one. So it is filled, never duplicated.
+ *
+ * **An entirely empty row matches nothing** (`anyFilled`), or a section holding one blank row would
+ * swallow every proposal that ever looked at it.
+ */
+function rowMatchesKey(row, rowKey) {
+  let anyFilled = false;
+  for (const [field, value] of Object.entries(rowKey || {})) {
+    // A blank in the KEY is not a key either -- it would fail against a row that has that level and
+    // the section would end up holding a second copy of every row.
+    if (isEmpty(value)) continue;
+    const current = row?.[field];
+    if (isEmpty(current)) continue;
+    anyFilled = true;
+    if (String(current).trim() !== String(value).trim()) return false;
+  }
+  return anyFilled;
+}
+
+// A row the request is asking to delete holds nothing, so it can neither be filled nor be the
+// reason a proposal is withheld. Matches `liveRows` in the derivation stages.
+const isDeleted = (row) => String(row?.action || 'C').trim().toUpperCase() === 'D';
+
+// The row a keyed entry belongs to, found by its key rather than by position. Every entry of one
+// derived row carries the same `rowKey`, so the entries that complete a key find the row the
+// `createsRow` entry made without anybody counting indices.
+function findKeyedRow(payload, entry) {
+  const rows = payload.sections?.[entry.target];
+  if (!Array.isArray(rows)) return null;
+  return rows.find((row) => !isDeleted(row) && rowMatchesKey(row, entry.rowKey)) || null;
+}
+
+// Where a keyed entry's row actually landed, so the proposal the requester ticks names the same row.
+function indexOfRecord(payload, entry, record) {
+  const rows = payload.sections?.[entry.target];
+  if (!Array.isArray(rows)) return entry.index || 0;
+  const at = rows.indexOf(record);
+  return at === -1 ? (entry.index || 0) : at;
 }
 
 async function runValidations(payload, validations = VALIDATIONS) {
@@ -52,15 +99,22 @@ async function runValidations(payload, validations = VALIDATIONS) {
 
 // The same write, replayed onto a second payload from an entry the pipeline already applied.
 function replay(payload, entry) {
+  const keyed = Boolean(entry.rowKey) && entry.target && entry.target !== ROOT;
   if (entry.createsRow && entry.target && entry.target !== ROOT) {
     if (!payload.sections) payload.sections = {};
     const rows = payload.sections[entry.target] || (payload.sections[entry.target] = []);
-    if (!rows.length) {
+    const appendable = keyed ? !findKeyedRow(payload, entry) : !rows.length;
+    if (appendable) {
       rows.push({ [entry.field]: entry.value });
       return;
     }
+    // A keyed row already present is not a write; an unkeyed one falls through and fills the gaps
+    // of the first row, exactly as before.
+    if (keyed) return;
   }
-  const record = targetRecord(payload, entry);
+  // By key, not by position: this payload holds only the `system` entries, so a row's index here is
+  // not the index it had in `derived`.
+  const record = keyed ? findKeyedRow(payload, entry) : targetRecord(payload, entry);
   if (!record || !isEmpty(record[entry.field])) return;
   record[entry.field] = entry.value;
 }
@@ -92,13 +146,21 @@ async function runDerivations(payload, derivations = DERIVATIONS) {
         applied.push({ check: derivation.name, severity: 'info', message: entry.message });
         continue;
       }
-      // The one case where a row *is* invented, and only because the derivation asked for it. The
-      // section has to be EMPTY: appending beside rows somebody added deliberately would put a
-      // registered seat onto their second address, so everything else is still reported and never
-      // written somewhere it was not meant to be.
+      // The one case where a row *is* invented, and only because the derivation asked for it.
+      //
+      // **Without a `rowKey` the section has to be EMPTY.** Appending beside rows somebody added
+      // deliberately would put a registered seat onto their second address — "fill in the city"
+      // says nothing about which address it belongs to, so there is no safe row to add.
+      //
+      // **With one, the key is what makes appending safe** (2026-08-28). The derivation has named
+      // the row it is missing, so a row already carrying that key is left alone and a row carrying
+      // a different one is not touched. This is what lets a stage derive all four mandatory
+      // partner functions, and derive the missing three beside an `AG` the requester typed.
+      const keyed = Boolean(entry.rowKey) && entry.target && entry.target !== ROOT;
       if (entry.createsRow && entry.target && entry.target !== ROOT) {
         const rows = derived.sections[entry.target] || (derived.sections[entry.target] = []);
-        if (!rows.length) {
+        const appendable = keyed ? !findKeyedRow(derived, entry) : !rows.length;
+        if (appendable) {
           rows.push({ [entry.field]: entry.value });
           applied.push({
             check: derivation.name,
@@ -107,6 +169,7 @@ async function runDerivations(payload, derivations = DERIVATIONS) {
             field: entry.field,
             value: entry.value,
             createsRow: true,
+            rowKey: entry.rowKey || null,
             severity: 'info',
             label: entry.label || null,
             system: Boolean(entry.system),
@@ -114,8 +177,11 @@ async function runDerivations(payload, derivations = DERIVATIONS) {
           });
           continue;
         }
+        // A keyed row that is already there is not a proposal at all — nothing to report and
+        // nothing to write. An unkeyed one falls through and fills the first row's gaps, as before.
+        if (keyed) continue;
       }
-      const record = targetRecord(derived, entry);
+      const record = keyed ? findKeyedRow(derived, entry) : targetRecord(derived, entry);
       // A missing row is never invented, but the value is still reported without a `field`: a registry
       // answer nobody is told about is the same as not having looked it up.
       if (!record) {
@@ -132,9 +198,12 @@ async function runDerivations(payload, derivations = DERIVATIONS) {
       applied.push({
         check: derivation.name,
         target: entry.target || ROOT,
-        index: entry.index || 0,
+        // Where the row actually is, not where the derivation counted it: a keyed entry finds its
+        // row by key, and the proposal the requester ticks has to name the same one.
+        index: keyed ? indexOfRecord(derived, entry, record) : (entry.index || 0),
         field: entry.field,
         value: entry.value,
+        rowKey: entry.rowKey || null,
         severity: 'info',
         label: entry.label || null,
         system: Boolean(entry.system),
@@ -232,5 +301,6 @@ module.exports = {
   ROOT,
   runValidations,
   runDerivations,
-  runChecks
+  runChecks,
+  rowMatchesKey
 };
