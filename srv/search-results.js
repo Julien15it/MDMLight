@@ -252,6 +252,28 @@ function matchesWhere(record, where, onUnsupported = () => {}) {
 }
 
 /**
+ * Every field a WHERE clause names, walking `ref`/`xpr`/`list`/`func` the same way `valueOf` reads
+ * them. Used to tell whether a filter can be forwarded to S/4 as-is: a field this list computes
+ * (RecordStatus, ChangeRequestStatus, ...) is one S/4 has never heard of, and forwarding it would
+ * fail the whole remote read rather than merely fail to match.
+ */
+function collectFields(node, into) {
+  if (node === null || node === undefined) return;
+  if (Array.isArray(node)) { node.forEach((item) => collectFields(item, into)); return; }
+  if (typeof node !== 'object') return;
+  if (node.ref) { into.add(node.ref[node.ref.length - 1]); return; }
+  if (node.xpr) { collectFields(node.xpr, into); return; }
+  if (node.list) { collectFields(node.list, into); return; }
+  if (node.func) { collectFields(node.args, into); }
+}
+
+function referencedFields(where) {
+  const fields = new Set();
+  collectFields(where, fields);
+  return fields;
+}
+
+/**
  * Every search term must hit at least one searchable field - the same rule the remote read applies,
  * so the two halves of the list agree on what a two-word search means.
  */
@@ -295,6 +317,22 @@ function remoteOrderBy(orderBy = []) {
   });
 }
 
+/**
+ * Filters and pages the WHOLE merged list in memory - the path taken when a filter names a field
+ * S/4 has never heard of (see `referencedFields`), so forwarding it to the remote read would fail
+ * outright rather than merely fail to match. `pending`/`partnerRows` are already-built entries
+ * (`{ row, searchable }`); the match runs against `entry.row`, which carries every field this
+ * entity exposes - unlike `searchable`, which exists only for `matchesTerms`'s free-text search and
+ * does not carry the computed change-request columns at all.
+ */
+function mergeLocalPage({ pending = [], partnerRows = [], where, skip = 0, top, onUnsupported }) {
+  const merged = [...pending, ...partnerRows]
+    .filter((entry) => matchesWhere(entry.row, where, onUnsupported))
+    .sort(byRequestedAtDesc);
+  const rows = (top === undefined ? merged : merged.slice(skip, skip + top)).map((entry) => entry.row);
+  return { rows, count: merged.length };
+}
+
 module.exports = {
   IN_PROGRESS_REQUEST_STATUSES,
   PARTNER_FIELDS,
@@ -307,7 +345,9 @@ module.exports = {
   partnerEntry,
   matchesWhere,
   matchesTerms,
+  referencedFields,
   pageSplit,
   byRequestedAtDesc,
-  remoteOrderBy
+  remoteOrderBy,
+  mergeLocalPage
 };

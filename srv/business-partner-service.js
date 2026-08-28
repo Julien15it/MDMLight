@@ -20,7 +20,8 @@ const { createMcpToolCaller } = require('./ai/mcp-client');
 const { checkMetadataDrift } = require('./metadata-drift');
 const {
   IN_PROGRESS_REQUEST_STATUSES, PARTNER_FIELDS, pendingCreateEntry, partnerEntry,
-  matchesWhere, matchesTerms, pageSplit, byRequestedAtDesc, remoteOrderBy
+  matchesWhere, matchesTerms, referencedFields, pageSplit, byRequestedAtDesc, remoteOrderBy,
+  mergeLocalPage
 } = require('./search-results');
 const { executeHttpRequest } = require('@sap-cloud-sdk/http-client');
 
@@ -1898,9 +1899,56 @@ class BusinessPartnerService extends cds.ApplicationService {
         }
       }
 
-      const pending = requests
+      const pendingAll = requests
         .filter((request) => request.requestType === 'create')
-        .map((request) => pendingCreateEntry({ request, general: generalByRequest.get(request.ID) }))
+        .map((request) => pendingCreateEntry({ request, general: generalByRequest.get(request.ID) }));
+
+      // A filter naming a change-request field (RecordStatus, ChangeRequestStatus, RequestedBy, ...)
+      // is naming something only this list computes - S/4 has never heard of it, and forwarding it
+      // would fail the whole remote read rather than merely fail to match. So a filter shaped this
+      // way is evaluated against the full, locally-merged row instead: `entry.row` already carries
+      // every field this entity exposes, staged or remote, which `matchesWhere` was reading
+      // `entry.searchable` for before this - a narrower object built only for free-text search.
+      const localFields = [...referencedFields(select.where)]
+        .filter((field) => !PARTNER_FIELDS.includes(field));
+
+      if (localFields.length) {
+        console.warn(
+          `[search] A filter on change-request field(s) ${localFields.join(', ')} required a full `
+          + 'read of the partner population - S/4 cannot filter on them itself.'
+        );
+
+        const pending = pendingAll.filter(
+          (entry) => matchesTerms(entry.searchable, terms, SEARCHABLE_FIELDS)
+        );
+        const partners = await readPartnerPage({
+          search: select.search,
+          orderBy: select.orderBy,
+          skip: 0,
+          top: undefined,
+          count: false
+        });
+        const partnerEntries = partners.rows.map((partner) => partnerEntry(
+          partner, requestByPartner.get(String(partner.BusinessPartner))
+        ));
+
+        const local = mergeLocalPage({
+          pending, partnerRows: partnerEntries, where: select.where, skip, top, onUnsupported: report
+        });
+
+        if (unsupported) {
+          console.warn(
+            '[search] A filter the staged rows cannot evaluate was kept rather than applied:',
+            JSON.stringify(unsupported)
+          );
+        }
+
+        const rows = local.rows;
+        if (select.count) rows.$count = local.count;
+        return rows;
+      }
+
+      const pending = pendingAll
         .filter((entry) => matchesWhere(entry.searchable, select.where, report)
           && matchesTerms(entry.searchable, terms, SEARCHABLE_FIELDS))
         .sort(byRequestedAtDesc);

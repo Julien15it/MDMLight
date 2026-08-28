@@ -1249,7 +1249,6 @@ sap.ui.define([], function () {
         "typeName": "A_CustomerType",
         "kind": "single",
         "creatable": true,
-        "deletable": false,
         "childSections": [
           "CustomerText",
           "CustomerAddressExtIdentifier",
@@ -2379,7 +2378,6 @@ sap.ui.define([], function () {
         "typeName": "A_SupplierType",
         "kind": "single",
         "creatable": true,
-        "deletable": false,
         "childSections": [
           "SupplierText",
           "SupplierCompany",

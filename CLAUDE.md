@@ -192,6 +192,41 @@ opposite drift. Re-run `npm run generate:metadata` after any change to
 `business-partner-service.cds`'s `excluding {}` clauses, same as always — the fix
 is that a forgotten run no longer leaves a genuinely-excluded field showing.
 
+**Customer Data and Supplier Data became deletable in the generated metadata too
+(2026-08-28, reported: "bij supplier data en customer data is dit niet
+mogelijk").** Every other maintainable section was deletable already; these two
+were still add-only because `generate-maintenance-metadata.js` hand-set
+`deletable: false` on both, copying the reasoning from
+`MAINTENANCE_ENTITIES.Customers`/`.Suppliers` on the server (see "Full-screen
+maintenance" above) — a reasoning that does not actually apply here:
+
+- **The two `deletable` flags are unrelated code**, despite the same name and the
+  same section id. `MAINTENANCE_ENTITIES` gates `deleteBusinessPartnerEntity`'s
+  live OData `DELETE` against S/4, which is real and stays refused — S/4 has no
+  such verb for a customer/vendor master record. The generated metadata's
+  `deletable` gates only whether **this shared, staged maintenance screen** draws
+  a Delete button for the section; nothing auto-derives one from the other.
+- **Deleting the row here never reaches that server call at all**, for either
+  request type, because of a gap in `writeStagedNodes` (`srv/change-request-service.js`):
+  `Customers`/`Suppliers` are `!config.many` (`kind: "single"`, one row at most),
+  and that branch has **no `deleted[section]` handling whatsoever** — unlike the
+  collection branch, which stages an explicit `action: 'D'` row that `postToS4`
+  later turns into a real `deleteBusinessPartnerEntity` call. So removing the row
+  on screen just means nothing is (re)inserted into `StagedCustomer`/
+  `StagedSupplier` at save/submit: a **create** stages no customer/supplier data
+  at all (the section was never posted to S/4 in the first place), and a
+  **change** over a partner that already has one simply leaves S/4's live record
+  untouched — the request carries no instruction about it either way. Neither
+  case is a delete this app forwards anywhere; the button only lets someone take
+  back data they added (or reviewed and decided not to touch) on this screen.
+  Fixing this gap to genuinely stage a deletion for an *existing* Customer/Supplier
+  would run straight into the server-side 405 at post time, which is exactly why
+  it has not been touched.
+- **The fix is therefore two one-line removals** — `deletable: false` deleted
+  from the `Customers` and `Suppliers` entries in
+  `generate-maintenance-metadata.js` — followed by `npm run generate:metadata`.
+  `MAINTENANCE_ENTITIES` on the server is untouched and must stay that way.
+
 ### Change request staging (approve-then-create)
 
 The whole point of the staging layer: **nothing reaches S/4 until it is
@@ -293,10 +328,17 @@ Consequences worth knowing before changing this:
   "every property is a candidate" fallback, so a column left out of that list
   cannot be added as a filter no matter how visible it already is in the table.
   `BusinessPartnerFullName` and `SearchTerm1` were LineItem columns without a
-  matching `SelectionFields` entry until then. `RecordStatus` is the one column
-  deliberately still absent: it is computed and filtered/sorted in memory, same
-  reasoning as the bullet above, and a filter on it would only ever reach the
-  S/4 half of the merged list.
+  matching `SelectionFields` entry until then.
+- **The change-request columns became filterable too (2026-08-28, asked for)** -
+  `RecordStatus`, `IsChangeRequest`, `ChangeRequestType`, `ChangeRequestStatus`,
+  `RequestedBy`, `RequestedAt` are all in `UI.SelectionFields` and out of
+  `NonFilterableProperties` now. S/4 has never heard of any of them, so the READ
+  handler cannot forward such a filter as-is the way it does for
+  `BusinessPartnerCategory` or `SearchTerm1` - see "Filtering on the
+  change-request columns" below for how it evaluates one locally instead.
+  `ChangeRequest` (a raw UUID) stays off `SelectionFields` on purpose, the same
+  reasoning that keeps `ResultKey`/`RecordStatusCriticality` off it: a field that
+  means nothing as a typed value is not worth offering as a filter candidate.
 - Sorting on a field S/4 *can* sort still leaves the staged rows on top —
   `remoteOrderBy` drops what S/4 has never heard of, `ResultKey` included.
 - The **object page and the maintenance screens still read `BusinessPartners`**,
@@ -325,11 +367,44 @@ Consequences worth knowing before changing this:
   deferring: restricting `getRequestPayload` to steward-or-requester today would
   **break every approval**, because an approver is neither.
 
+#### Filtering on the change-request columns (2026-08-28)
+
+Asked for directly: a requester wants to filter the list by status ("show me my drafts", "what is
+in approval"), and status is exactly the one column S/4 has never heard of. Forwarding such a
+filter to the remote read the way `BusinessPartnerCategory` already is would fail the whole read -
+S/4 would answer "property not found", not "no matches".
+
+- **`referencedFields` (`srv/search-results.js`) walks a WHERE clause the same way `valueOf` reads
+  it** (`ref`/`xpr`/`list`/`func`) and returns every field it names. The READ handler compares that
+  set against `PARTNER_FIELDS` - the fixed column list S/4 actually understands - and any field
+  outside it flips the read into a different branch entirely.
+- **That branch fetches the full matching partner population and filters everything in memory**,
+  the same trade-off already made for a read with no `$top`: `mergeLocalPage` merges the pending
+  entries and the fetched partners, runs `matchesWhere` against **`entry.row`** (not
+  `entry.searchable`, which was built only for `matchesTerms`'s free-text search and never carried
+  the computed change-request fields at all), sorts by `byRequestedAtDesc`, and pages the result
+  locally - so the `$count` this branch returns is exact, unlike the remote path's own string-`$count`
+  workaround.
+- **A `console.warn` names the field(s) that forced it**, the same discipline the "no `$top`"
+  warning already follows: an expensive read must never happen silently.
+- **`$orderBy` is untouched by any of this** - sorting on a change-request column is still refused
+  (`NonSortableProperties` keeps all of them, `RecordStatus` included), for the same reason as
+  before: the staged half is sorted in memory, so sorting on one would silently sort one half only.
+  Only *filtering* was widened.
+- **`FilterRestrictions.NonFilterableProperties` now holds only `ResultKey` and
+  `RecordStatusCriticality`** - a synthetic key nobody types and a bare colouring int, neither of
+  which means anything as a value to filter *by*. Every other change-request column moved out, and
+  into `UI.SelectionFields` (see above) so "Adapt Filters" actually offers it.
+- **A mixed filter (a remote field AND a change-request field) still works correctly**, because
+  the local branch does not try to split the WHERE clause and forward half of it - it evaluates the
+  *whole* clause against the *whole* merged population once fetched. Splitting would be the
+  performance optimisation; correctness came first.
+
 ### The request screen's message area (2026-08-24)
 
 **The strips live in a collapsible `Panel`** (`maintenanceMessagePanel`), like the
-duplicate findings below them. A submit reports several at once and the processors
-strip added one more; information-only noise must not push the form off screen.
+duplicate findings below them. A submit reports several at once; information-only
+noise must not push the form off screen.
 
 - The **header carries the leading message**, elided to one line, with `(+N more)`
   for the rest — so a collapsed panel still says what it holds. The strips are
@@ -507,9 +582,16 @@ The rest is deliberate:
   this screen; "Current step: Rework - with &lt;requester&gt; ... Sent back to the
   requester, who resubmits it or withdraws it." on top of that read as noise, not
   new information — the requester already knows the request is theirs to act on.
-  `var processorStrip = reworking ? null : processorMessage(state.processors);`
-  in `_loadStagedRequest`. Every other mode still gets it, including data steward
-  review, where naming who holds it is the strip's whole job.
+
+**Removed from the screen entirely on 2026-08-28** ("haal de infomessage uit de
+app waar de melding current step zegt wie approved, dit is niet meer nodig" - not
+needed any more). `processorMessage`, `parseProcessors` and `state.processors`
+are gone from `BusinessPartnerMaintenance.controller.js`, and `_loadStagedRequest`
+no longer appends anything after `submittedWarnings`. **Only the client-side
+reading of it went** - `srv/request-processors.js`, `ProcessorsJson` on
+`getRequestPayload`, and every rule above about how the step and the approvers are
+resolved are all untouched, so this stays available to build a different surface
+on later without re-deriving any of it.
 
 ### The check pipeline — `srv/checks/pipeline.js`
 
@@ -2065,6 +2147,13 @@ Key handler groups in `init()`:
   flow for addresses, roles, tax numbers, bank details, identifications,
   industries, customer/supplier data — adding a new maintainable child entity
   means adding one entry to `MAINTENANCE_ENTITIES`, not new handler code.
+  `Customers`/`Suppliers` are `deletable: false` here **on purpose and
+  permanently** — `deleteBusinessPartnerEntity` rejects with 405 rather than
+  issue a plain OData `DELETE` against `A_Customer`/`A_Supplier`, which S/4 does
+  not support: a customer is retired via its own `DeletionIndicator` field, not
+  a delete verb. Do not flip this flag to fix a delete-button complaint — see
+  the staged maintenance screen's own `deletable` (`generate-maintenance-metadata.js`)
+  for the correct place that actually changed, below.
 - **Search** — `applyBusinessPartnerSearch` rewrites Fiori's OData `$search`
   into an `or`-chain of `contains()` filters over `SEARCHABLE_FIELDS`, because
   the remote OData V2 service has no native free-text search.
@@ -2574,6 +2663,37 @@ paired with *a* remaining baseline row in array order, not necessarily the one
 a person would say it "really" came from. But undercounting additions this way
 is the safe direction: it never invents a change nobody made, which a
 `__state`-based guess already proved capable of doing twice.
+
+**A DELETED row - reported 2026-08-28, "als er een lijn verwijderd is kan je dit
+niet meer zien met kleurencode, maar moet dit bovenaan wel vermeld worden".**
+Whatever is still unconsumed in `remaining` once every current row has been
+matched or paired off is a baseline row nothing corresponds to any more - a row
+somebody deleted. It used to be dropped on the floor at the end of the function;
+it now rides along as `results.deleted`, a property on the returned array rather
+than a second return value, so every existing caller that reads the result as a
+plain per-record array keeps working unchanged and only `_refreshChangeSummary`
+reads it.
+
+- **There is no row left in the table to colour**, which is exactly the
+  complaint: a deletion is invisible by construction once the record is gone.
+  The change summary panel is therefore the only place left that can still say
+  so, and it does - one line per POPULATED field of the deleted row (mirroring
+  how an ADDED row lists every field it populated, just with the value sides
+  read the other way: old value shown, new value `"(removed)"`, `kind:
+  "removed"`). A deleted row that was never actually filled in (added, then
+  removed again without ever being edited) still gets one summary line, "Row
+  removed", so the deletion itself is not lost even though it has no field
+  worth naming.
+- **The header counts removals separately from field changes** - "3 fields
+  changed, 1 row removed" rather than folding a removed row's several fields
+  into one combined number, which would overstate how many edits actually
+  happened. This is what makes the removal visible "at the top" (asked for)
+  even with the panel collapsed, the same way every other panel's header
+  already summarises what it holds without being opened.
+- `ObjectStatus`'s existing two-way ternary (`added` → Warning, else → Error)
+  needed no view change: `"removed"` already falls into the `else` branch, and
+  the `newValue` text itself says `"(removed)"`, so it reads as a distinct kind
+  even sharing Error's colour with `"changed"`.
 
 **`_renderSection` and `_refreshChangeSummary` both call the same function**
 over the same two arrays, so the row a table colours and the row the summary

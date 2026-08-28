@@ -406,22 +406,33 @@ annotate service.BusinessPartnerSearchResults with @(
     Description   : { Value: RecordStatus }
   },
 
-  // Every LineItem column below that S/4 can actually filter on is listed here too, so "Adapt
-  // Filters" can offer it - in OData V4 Fiori Elements the filter bar (and its Adapt Filters
-  // dialog) is built from SelectionFields alone, unlike V2's "every property is a candidate"
-  // behaviour, so a column left out of this list is simply never offerable as a filter, however
-  // visible it already is in the table. RecordStatus is the one LineItem column deliberately
-  // NOT here: it is computed and filtered/sorted in memory (see FilterRestrictions on
-  // BusinessPartnerSearchResults), and a filter on it would only ever apply to the S/4 half of
-  // the merged list - the same reasoning that keeps it out of NonFilterableProperties' opposite,
-  // sortable, list.
+  // Every LineItem column that can be filtered on is listed here too, so "Adapt Filters" can offer
+  // it - in OData V4 Fiori Elements the filter bar (and its Adapt Filters dialog) is built from
+  // SelectionFields alone, unlike V2's "every property is a candidate" behaviour, so a column left
+  // out of this list is simply never offerable as a filter, however visible it already is in the
+  // table.
+  //
+  // The change-request columns (RecordStatus, IsChangeRequest, ChangeRequestType,
+  // ChangeRequestStatus, RequestedBy, RequestedAt) are filterable too now (2026-08-28, asked for):
+  // the READ handler evaluates a filter naming one of them against the full merged row rather than
+  // forwarding it to S/4, which has never heard of them - see `referencedFields` in
+  // search-results.js and its use in the READ handler. `ChangeRequest` (a raw UUID, not something a
+  // person types) stays off this list on purpose, the same reasoning that keeps ResultKey and
+  // RecordStatusCriticality off it - a field that means nothing as a typed value is not worth
+  // offering as a filter candidate even though it can technically be filtered on.
   UI.SelectionFields: [
     BusinessPartner,
     BusinessPartnerFullName,
     BusinessPartnerCategory,
     BusinessPartnerGrouping,
     SearchTerm1,
-    BusinessPartnerIsBlocked
+    BusinessPartnerIsBlocked,
+    RecordStatus,
+    IsChangeRequest,
+    ChangeRequestType,
+    ChangeRequestStatus,
+    RequestedBy,
+    RequestedAt
   ],
 
   UI.LineItem: [

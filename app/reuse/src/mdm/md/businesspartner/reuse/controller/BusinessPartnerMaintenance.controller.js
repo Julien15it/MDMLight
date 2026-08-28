@@ -353,6 +353,13 @@ sap.ui.define([
         ? { kind: "changed", baseline: remaining.shift() }
         : { kind: "added", baseline: {} };
     });
+    // Whatever is still unconsumed once every current row has been matched or paired off is a
+    // baseline row nothing here corresponds to any more - a row somebody deleted. There is no
+    // current record to colour for it (see "a line that was deleted" in CLAUDE.md), so it rides
+    // along as a property on the returned array rather than changing this function's shape: every
+    // existing caller that treats the result as a plain array of per-record matches keeps working
+    // unchanged, and only _refreshChangeSummary reads `.deleted`.
+    results.deleted = remaining;
     return results;
   }
 
@@ -360,39 +367,6 @@ sap.ui.define([
     return ({ "1": "Person (1)", "2": "Organization (2)", "3": "Group (3)" })[category]
       || category
       || "";
-  }
-
-  /**
-   * `ProcessorsJson` from getRequestPayload, or an empty answer. Unparseable is treated as absent:
-   * a screen must open whatever the workflow rule table did.
-   */
-  function parseProcessors(json) {
-    if (!json) return null;
-    try {
-      var parsed = JSON.parse(json);
-      return parsed && typeof parsed === "object" ? parsed : null;
-    } catch (error) {
-      return null;
-    }
-  }
-
-  /**
-   * The strip at the top of a request: which step it is on and who is holding it. For a request in
-   * approval the names come from the WorkflowRules table - what CAP SENT the workflow, which is not
-   * the same as who the workflow gave the task to, so the note says "as sent to the workflow" rather
-   * than claiming to know. See srv/request-processors.js.
-   */
-  function processorMessage(processors) {
-    if (!processors || !processors.step) return null;
-    var names = (processors.processors || []).map(function (entry) {
-      return entry.role && entry.role !== "approver" ? entry.value + " (" + entry.role + ")" : entry.value;
-    });
-    return {
-      type: "Information",
-      text: "Current step: " + processors.step
-        + (names.length ? " - with " + names.join(", ") : "")
-        + (processors.note ? ". " + processors.note : "")
-    };
   }
 
   /** Everything below Warning; an Information-only set is what the panel may start collapsed on. */
@@ -2479,6 +2453,7 @@ sap.ui.define([
             });
           }, this);
 
+        var removedRows = 0;
         this._metadata
           .filter(function (section) { return section.kind !== "root"; })
           .forEach(function (section) {
@@ -2505,12 +2480,53 @@ sap.ui.define([
                 });
               });
             });
+            // A DELETED row has no current record left to colour in the table at all (see "a line
+            // that was deleted" in CLAUDE.md) - this panel is the only place left that can still say
+            // so, which is the whole reason `matchSectionRows` carries the leftover baseline rows
+            // rather than dropping them.
+            (matches.deleted || []).forEach(function (baseline) {
+              removedRows += 1;
+              var any = false;
+              section.fields.forEach(function (field) {
+                if (field.name === section.relationField) return;
+                if (isBlank(baseline[field.name])) return;
+                any = true;
+                rows.push({
+                  field: section.title + " – " + field.label,
+                  oldValue: displayValue(baseline[field.name]) || "—",
+                  newValue: "(removed)",
+                  kind: "removed"
+                });
+              });
+              // A deleted row that was never actually filled in (added, then removed again without
+              // ever being edited) still counted toward removedRows above - it just has no field of
+              // its own worth a line here.
+              if (!any) {
+                rows.push({
+                  field: section.title + " – Row removed",
+                  oldValue: "—",
+                  newValue: "(removed)",
+                  kind: "removed"
+                });
+              }
+            });
           });
 
         state.changeSummary = rows;
-        state.changeSummaryHeader = rows.length
-          ? rows.length + (rows.length === 1 ? " field changed" : " fields changed")
-          : "";
+        // Deliberately two separate counts, not one combined total: "3 fields changed" reads as
+        // three edits, and folding a removed ROW's several fields into that same number would
+        // overstate how many things actually happened. Mentioning the removal count here - in the
+        // panel's own (collapsed) header - is what makes a deletion visible again once there is no
+        // row left in the table to colour for it.
+        var changedCount = rows.length - rows.filter(function (row) { return row.kind === "removed"; }).length;
+        var headerParts = [];
+        if (changedCount) {
+          headerParts.push(changedCount + (changedCount === 1 ? " field changed" : " fields changed"));
+        }
+        if (removedRows) {
+          headerParts.push(removedRows + (removedRows === 1 ? " row removed" : " rows removed"));
+        }
+        state.changeSummaryHeader = headerParts.join(", ");
       },
 
       /** A root field's friendly label, the same catalog _renderRootSection reads (ROOT_LABELS first,
@@ -2902,7 +2918,6 @@ sap.ui.define([
 
           state.requestType = (payload && payload.RequestType) || "";
           state.requestStatus = (payload && payload.Status) || "";
-          state.processors = parseProcessors(payload && payload.ProcessorsJson);
           // What the requester was warned about, into the same collapsible panel the create screen
           // uses. Written at submit and, until 2026-08-24, never read back - so an approver opening
           // the task saw nothing, which is indistinguishable from "no duplicate was found".
@@ -3050,23 +3065,11 @@ sap.ui.define([
             state.modeText = state.requestStatus;
           }
 
-          // Who has it now. Added after the branches above so none of them can overwrite it, and
-          // added LAST: every message a branch sets explains the screen the requester is looking at -
-          // why a rework link offers nothing, why a request is read-only, what a rejection said - and
-          // the panel header shows the leading message, so putting this first would collapse the
-          // explanation behind "Current step: ...". It leads on its own when nothing else spoke.
-          // Order: the branch's own message explains the screen and leads, then what the request was
-          // submitted with, then who has it now. The panel header shows the first, so the ordering is
-          // what decides which one is readable while collapsed.
-          //
-          // Not on the rework screen (2026-08-26, asked for): the rework branch above already says
-          // why the requester is looking at this screen, and "Current step: Rework - with <requester>
-          // ..." on top of that read as noise rather than new information - the requester already
-          // knows it is theirs to act on.
-          var processorStrip = reworking ? null : processorMessage(state.processors);
-          state.messages = (state.messages || [])
-            .concat(submittedWarnings)
-            .concat(processorStrip ? [processorStrip] : []);
+          // The "Current step: ... - with <approver>" strip that used to be appended here (who has
+          // it now) was removed 2026-08-28, asked for: not needed any more. See CLAUDE.md, "Who has
+          // it now" - the server-side ProcessorsJson/processorsFor plumbing is untouched, only this
+          // screen stopped reading it into a message.
+          state.messages = (state.messages || []).concat(submittedWarnings);
         } catch (error) {
           MessageBox.error(errorMessage(error, "The change request could not be loaded."));
         } finally {

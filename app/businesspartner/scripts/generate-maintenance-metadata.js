@@ -131,7 +131,15 @@ const sections = [
     typeName: 'A_CustomerType',
     kind: 'single',
     creatable: true,
-    deletable: false,
+    // Deletable here (2026-08-28, asked for), unlike MAINTENANCE_ENTITIES.Customers on the server -
+    // that flag guards deleteBusinessPartnerEntity's raw OData DELETE against a LIVE A_Customer
+    // record, which S/4 does not support (a customer is retired via DeletionIndicator, not a plain
+    // DELETE - see the Blocks and Status field group below). This screen never reaches that call for
+    // this node: writeStagedNodes' singular-node branch (Customer/Supplier are `!config.many`) has no
+    // `deleted[section]` handling at all, so removing the row here just means nothing is (re)inserted
+    // into StagedCustomer - a create stages no customer data, and a change simply leaves the live
+    // record untouched, exactly as if it had never been added to this request. Nothing here ever
+    // becomes an S/4 delete, so the server-side guard is not being bypassed.
     // Rendered inside this section's Details dialog instead of as Object Page blocks of
     // their own - one block per role on the page, everything else behind Details, as the
     // standard MDG ERP Customer screen does it.
@@ -320,7 +328,8 @@ const sections = [
     typeName: 'A_SupplierType',
     kind: 'single',
     creatable: true,
-    deletable: false,
+    // Deletable here - see the identical comment on the Customers section above; the same
+    // writeStagedNodes gap (no `deleted[section]` handling for a `!config.many` node) applies.
     // See the Customers section above.
     childSections: [
       'SupplierText', 'SupplierCompany', 'SupplierCompanyText', 'SupplierDunning',

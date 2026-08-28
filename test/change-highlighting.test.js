@@ -116,6 +116,29 @@ test('an untouched row exactly matching its baseline is not coloured at all', ()
   assert.equal(match.kind, '');
 });
 
+/**
+ * A baseline row nothing current corresponds to any more is a DELETED row - there is no colour to
+ * give a row that is not there (see "a line that was deleted" in CLAUDE.md), so it rides along on
+ * the returned array as `.deleted` instead of being silently dropped, for _refreshChangeSummary to
+ * report. Attached as a property, not a second return value, so every existing caller that reads
+ * this as a plain per-record array is untouched.
+ */
+test('matchSectionRows carries an unconsumed baseline row as .deleted, not silently', () => {
+  const matchSectionRows = extractMatchSectionRows(controller);
+  const kept = { StreetName: 'Main St', CityName: 'Ghent', Country: 'BE' };
+  const removed = { StreetName: 'Other St', CityName: 'Bruges', Country: 'BE' };
+  const matches = matchSectionRows([kept], [kept, removed], ['StreetName', 'CityName', 'Country']);
+  assert.equal(matches.length, 1, 'the deleted row is not a fourth entry paired against nothing');
+  assert.equal(matches[0].kind, '', 'the row that is still there is untouched');
+  assert.deepEqual(matches.deleted, [removed]);
+});
+
+test('nothing deleted leaves .deleted empty, never undefined', () => {
+  const matchSectionRows = extractMatchSectionRows(controller);
+  const matches = matchSectionRows([], [], []);
+  assert.deepEqual(matches.deleted, []);
+});
+
 // --- Scoped to where a baseline is meaningful ----------------------------------------------
 
 /**
@@ -274,6 +297,28 @@ test('_refreshChangeSummary is a no-op when nothing is being tracked, and matche
   assert.match(body, /BusinessPartnerFullName/u);
   // The same matching function _renderSection colours the row on.
   assert.match(body, /matchSectionRows\(records, baselineRecords, fieldNames\)/u);
+});
+
+/**
+ * A deleted row has no cell left to colour in the table, so this panel is the only place left that
+ * can still say a row disappeared (asked for 2026-08-28: "als er een lijn verwijderd is kan je dit
+ * niet meer zien met kleurencode, maar moet dit bovenaan wel vermeld worden"). One summary line per
+ * POPULATED field of the deleted row, mirroring how an added row lists every field it populated -
+ * just with the value sides read the other way round.
+ */
+test('_refreshChangeSummary reports a deleted row per populated field, and counts it separately', () => {
+  const fn = controller.slice(controller.indexOf('_refreshChangeSummary: function'));
+  const body = fn.slice(0, fn.indexOf('_rootFieldLabel: function'));
+  assert.match(body, /\(matches\.deleted \|\| \[\]\)\.forEach/u);
+  assert.match(body, /newValue: "\(removed\)"/u);
+  assert.match(body, /kind: "removed"/u);
+  // A row that was added and then removed again without ever being filled in still counts, even
+  // though it has no field of its own worth a line.
+  assert.match(body, /field: section\.title \+ " – Row removed"/u);
+  // Two separate counts in the header, not one combined total - folding a removed row's several
+  // fields into "N fields changed" would overstate how many edits actually happened.
+  assert.match(body, /rows\.filter\(function \(row\) \{ return row\.kind === "removed"; \}\)/u);
+  assert.match(body, /" row removed" : " rows removed"/u);
 });
 
 test('the panel is a plain three-column table, coloured on the New Value cell, not the row', () => {

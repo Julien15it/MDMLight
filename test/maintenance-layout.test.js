@@ -329,6 +329,53 @@ test('date pickers write back a full datetime, not a bare date, and roles stay d
   assert.doesNotMatch(rolesSectionMatch[0], /"deletable": false/);
 });
 
+/**
+ * Customers/Suppliers were the two sections still add-only, reported 2026-08-28. They stay `false`
+ * server-side (MAINTENANCE_ENTITIES) for the LIVE full-screen maintenance flow - S/4 has no plain
+ * DELETE for A_Customer/A_Supplier, a customer is retired via DeletionIndicator instead - but the
+ * staged screen this test reads never reaches that call for these two `kind: "single"` nodes:
+ * writeStagedNodes' singular-node branch (srv/change-request-service.js) has no `deleted[section]`
+ * handling at all, so removing the row here only means nothing is (re)inserted into StagedCustomer/
+ * StagedSupplier - a create simply stages no customer/supplier data, and a change leaves the live
+ * record untouched. Nothing about this fix bypasses the server-side guard.
+ */
+test('Customer Data and Supplier Data are deletable too, not just add-only', () => {
+  const metadata = fs.readFileSync(
+    path.join(REUSE, 'BusinessPartnerMetadata.js'),
+    'utf8'
+  );
+  for (const id of ['Customers', 'Suppliers']) {
+    const match = metadata.match(new RegExp(`"id": "${id}"[\\s\\S]*?\\n {6}\\}`, 'u'));
+    assert.ok(match, `${id} section not found in generated metadata`);
+    assert.doesNotMatch(match[0], /"deletable": false/);
+  }
+
+  // The generator's own source is what a rebuild would reproduce - pinned too, so a future
+  // regeneration cannot silently reintroduce `deletable: false` there.
+  const generator = fs.readFileSync(
+    path.join(
+      __dirname, '..', 'app', 'businesspartner', 'scripts', 'generate-maintenance-metadata.js'
+    ),
+    'utf8'
+  );
+  for (const id of ['Customers', 'Suppliers']) {
+    const section = generator.slice(
+      generator.indexOf(`id: '${id}',`), generator.indexOf('childSections:', generator.indexOf(`id: '${id}',`))
+    );
+    assert.doesNotMatch(section, /deletable: false/);
+  }
+
+  // The server-side, LIVE-maintenance guard is deliberately unchanged: S/4 rejects a plain DELETE
+  // against these two entities, so MAINTENANCE_ENTITIES must keep refusing it there.
+  const serviceJs = fs.readFileSync(
+    path.join(__dirname, '..', 'srv', 'business-partner-service.js'), 'utf8'
+  );
+  const { MAINTENANCE_ENTITIES } = require('../srv/business-partner-service')._internals;
+  assert.equal(MAINTENANCE_ENTITIES.Customers.deletable, false);
+  assert.equal(MAINTENANCE_ENTITIES.Suppliers.deletable, false);
+  assert.match(serviceJs, /if \(!configuration\.deletable\) \{/u);
+});
+
 test('application component initializes list actions with the main OData model', () => {
   const component = fs.readFileSync(path.join(webapp, 'Component.js'), 'utf8');
   assert.match(component, /CustomActions\.setEnvironment\(this\.getModel\(\), null\)/);

@@ -13,6 +13,8 @@ const {
   partnerEntry,
   matchesWhere,
   matchesTerms,
+  referencedFields,
+  mergeLocalPage,
   pageSplit,
   byRequestedAtDesc,
   remoteOrderBy,
@@ -143,6 +145,31 @@ test('contains is case insensitive and undoes the quote the remote serializer do
   assert.equal(matchesWhere(row, [contains('LastName', 'Harra')]), false);
 });
 
+/**
+ * Used to tell a filter S/4 understands from one naming a change-request field it never heard of -
+ * see the READ handler's local-filtering branch. Has to walk the same shapes `valueOf` reads.
+ */
+test('referencedFields walks ref, xpr, list and func the way valueOf does', () => {
+  assert.deepEqual(
+    [...referencedFields([{ ref: ['BusinessPartnerCategory'] }, '=', { val: '2' }])],
+    ['BusinessPartnerCategory']
+  );
+  assert.deepEqual(
+    [...referencedFields([
+      { xpr: [{ ref: ['RecordStatus'] }, '=', { val: 'Active' }] },
+      'and',
+      contains('SearchTerm1', 'x')
+    ])].sort(),
+    ['RecordStatus', 'SearchTerm1']
+  );
+  assert.deepEqual(
+    [...referencedFields([{ ref: ['ChangeRequestStatus'] }, 'in', { list: [{ val: 'draft' }] }])],
+    ['ChangeRequestStatus']
+  );
+  assert.deepEqual([...referencedFields(undefined)], []);
+  assert.deepEqual([...referencedFields([])], []);
+});
+
 test('a boolean filter reads the staged value rather than its string', () => {
   assert.equal(matchesWhere({ BusinessPartnerIsBlocked: false }, [
     { ref: ['BusinessPartnerIsBlocked'] }, '=', { val: false }
@@ -244,6 +271,58 @@ test('only the fields S/4 can sort on are passed to it', () => {
   assert.deepEqual(remoteOrderBy(), []);
 });
 
+/**
+ * The path taken when a filter names a change-request field (see `referencedFields` above): the
+ * whole merged list is filtered and paged in memory instead of leaving S/4 to page it, because
+ * S/4 cannot filter on these fields at all.
+ */
+test('mergeLocalPage filters against entry.row, not entry.searchable', () => {
+  const pending = [{
+    row: { ResultKey: 'CR:1', RecordStatus: 'Create in approval', RequestedAt: '2026-08-27T00:00:00Z' },
+    // Deliberately lacks RecordStatus - the point of the fix: matching runs against `row`.
+    searchable: { BusinessPartnerFullName: 'Pending Co' }
+  }];
+  const partnerRows = [
+    { row: { ResultKey: 'BP:1', RecordStatus: 'Active', RequestedAt: null }, searchable: {} },
+    { row: { ResultKey: 'BP:2', RecordStatus: 'Change in approval', RequestedAt: '2026-08-20T00:00:00Z' }, searchable: {} }
+  ];
+  const where = [{ ref: ['RecordStatus'] }, '=', { val: 'Active' }];
+
+  const active = mergeLocalPage({ pending, partnerRows, where });
+  assert.deepEqual(active.rows.map((row) => row.ResultKey), ['BP:1']);
+  assert.equal(active.count, 1);
+});
+
+test('mergeLocalPage sorts newest-requested first, across pending and marked partners alike', () => {
+  const pending = [{ row: { ResultKey: 'CR:1', RequestedAt: '2026-08-01T00:00:00Z' } }];
+  const partnerRows = [
+    { row: { ResultKey: 'BP:1', RequestedAt: null } },
+    { row: { ResultKey: 'BP:2', RequestedAt: '2026-08-24T00:00:00Z' } }
+  ];
+  const merged = mergeLocalPage({ pending, partnerRows, where: undefined });
+  assert.deepEqual(merged.rows.map((row) => row.ResultKey), ['BP:2', 'CR:1', 'BP:1']);
+});
+
+test('mergeLocalPage pages the filtered result, and counts it exactly', () => {
+  const partnerRows = [1, 2, 3, 4, 5].map((n) => ({ row: { ResultKey: `BP:${n}`, RequestedAt: null } }));
+  const paged = mergeLocalPage({ partnerRows, where: undefined, skip: 2, top: 2 });
+  assert.deepEqual(paged.rows.map((row) => row.ResultKey), ['BP:3', 'BP:4']);
+  assert.equal(paged.count, 5);
+
+  const unpaged = mergeLocalPage({ partnerRows, where: undefined });
+  assert.equal(unpaged.rows.length, 5);
+  assert.equal(unpaged.count, 5);
+});
+
+test('mergeLocalPage keeps a row an unsupported expression could not evaluate, and reports it', () => {
+  const partnerRows = [{ row: { ResultKey: 'BP:1' } }];
+  let reported = null;
+  const weird = { func: 'unknownFunc', args: [] };
+  const merged = mergeLocalPage({ partnerRows, where: [weird], onUnsupported: (expr) => { reported = expr; } });
+  assert.deepEqual(merged.rows.map((row) => row.ResultKey), ['BP:1']);
+  assert.equal(reported, weird);
+});
+
 // --- Wiring ---------------------------------------------------------------------------------
 
 const root = (...segments) => fs.readFileSync(path.join(__dirname, '..', ...segments), 'utf8');
@@ -271,9 +350,8 @@ test('the status column is coloured by its criticality', () => {
  * In OData V4 Fiori Elements the filter bar - and its "Adapt Filters" dialog - is built from
  * SelectionFields alone, unlike V2's "every property is a candidate" behaviour: a LineItem column
  * left out of SelectionFields is simply never offerable as a filter, however visible it already
- * is in the table (asked for 2026-08-27). Every column shown in the table's own Settings dialog
- * must therefore also be a SelectionFields entry, except the one that genuinely cannot be: a
- * computed column the merged list only filters in memory.
+ * is in the table (asked for 2026-08-27, widened to the change-request columns 2026-08-28). Every
+ * column shown in the table's own Settings dialog must therefore also be a SelectionFields entry.
  */
 test('every filterable table column is also offered by Adapt Filters', () => {
   const annotations = root('srv', 'annotations.cds');
@@ -285,27 +363,40 @@ test('every filterable table column is also offered by Adapt Filters', () => {
   const lineItemFields = [...block.matchAll(/\{ Value: (\w+),/gu)].map((match) => match[1]);
   assert.ok(lineItemFields.length > 0, 'the LineItem columns could not be parsed');
   for (const field of lineItemFields) {
-    if (field === 'RecordStatus') {
-      // The one deliberate exception: computed, and non-filterable for the reason pinned below.
-      assert.equal(selectionFields.includes(field), false, 'RecordStatus cannot be filtered on');
-      continue;
-    }
     assert.ok(selectionFields.includes(field), `${field} is a column but not offered as a filter`);
   }
 });
 
-// Sorting or filtering on a computed column would silently apply to one half of the list only.
-test('the computed columns are neither filterable nor sortable', () => {
+/**
+ * The change-request columns became filterable 2026-08-28 (asked for): a filter naming one is
+ * evaluated locally against the full merged row rather than forwarded to S/4 - see
+ * `referencedFields` and its use in the BusinessPartnerSearchResults READ handler. Only ResultKey
+ * (a synthetic "BP:4711"/"CR:<uuid>" key) and RecordStatusCriticality (a bare colouring int) stay
+ * non-filterable: neither means anything as a value to filter BY. Sorting stays disallowed for
+ * every one of them - the staged half is sorted in memory, so sorting on any of these would
+ * silently sort one half of the list only.
+ */
+test('the change-request columns are filterable but not sortable; two technical fields are neither', () => {
   const service = root('srv', 'business-partner-service.cds');
   const restrictions = service.slice(service.indexOf('entity BusinessPartnerSearchResults') - 2000);
   for (const capability of ['NonFilterableProperties', 'NonSortableProperties']) {
     assert.ok(restrictions.includes(capability), `${capability} is missing`);
   }
-  for (const field of ['RecordStatus', 'IsChangeRequest', 'ChangeRequestStatus']) {
-    assert.ok(
-      restrictions.split('NonFilterableProperties')[1].includes(field),
-      `${field} is still filterable`
-    );
+  const nonFilterable = restrictions.split('NonFilterableProperties')[1].split('NonSortableProperties')[0];
+  // Bounded to the NonSortableProperties list itself, not "to end of file": unbounded would make
+  // every positive assertion below trivially true against the entity's own field declarations.
+  const nonSortable = restrictions.split('NonSortableProperties')[1].split('] }')[0];
+  // Word-bounded: a plain `.includes('RecordStatus')` is also a hit inside
+  // `RecordStatusCriticality`, the exact collision that made this assertion pass for the wrong
+  // reason the first time it was written.
+  const names = (text, field) => new RegExp(`\\b${field}\\b`, 'u').test(text);
+  for (const field of ['RecordStatus', 'IsChangeRequest', 'ChangeRequestType', 'ChangeRequestStatus', 'RequestedBy', 'RequestedAt']) {
+    assert.equal(names(nonFilterable, field), false, `${field} should be filterable now`);
+    assert.ok(names(nonSortable, field), `${field} must stay non-sortable`);
+  }
+  for (const field of ['ResultKey', 'RecordStatusCriticality']) {
+    assert.ok(names(nonFilterable, field), `${field} must stay non-filterable`);
+    assert.ok(names(nonSortable, field), `${field} must stay non-sortable`);
   }
 });
 

@@ -126,26 +126,21 @@ test('the approvers are only resolved while a request is in approval', () => {
   assert.match(service, /if \(header\.status === 'inApproval'\) \{\s*try \{\s*approvers = await approversFor/u);
 });
 
-// It goes last. Every message a mode branch sets explains the screen - why a rework link offers
-// nothing, why a request is read-only, what a rejection said - and the panel header shows the
-// LEADING message, so leading with the step would collapse the explanation out of sight.
-test('the strip goes last, so a message explaining the screen still leads', () => {
+/**
+ * The "Current step: ... - with <approver>" strip was removed from the maintenance screen
+ * altogether on 2026-08-28 (asked for: "haal de infomessage uit de app... dit is niet meer
+ * nodig"). Only the CLIENT-SIDE reading of it went - `ProcessorsJson`/`processorsFor` on the
+ * server are untouched (see the tests above), so this stays available to build a different
+ * surface on later; nothing in the maintenance screen reads it into a message any more.
+ */
+test('the processor strip is gone from the maintenance screen', () => {
   const controller = root(
     'app', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse',
     'controller', 'BusinessPartnerMaintenance.controller.js'
   );
-  // Suppressed on the rework screen (2026-08-26): the rework branch already explains why the
-  // requester is looking at this screen, and "Current step: Rework - with <requester> ..." read as
-  // noise on top of that rather than new information.
-  assert.match(controller, /var processorStrip = reworking \? null : processorMessage\(state\.processors\);/u);
-  // Widened 2026-08-24 to fold in the submitted-validations findings too, but the processor strip
-  // is still the LAST thing concatenated - the property this test exists to pin.
-  assert.match(
-    controller,
-    /state\.messages = \(state\.messages \|\| \[\]\)[\s\S]{0,80}\.concat\(processorStrip \? \[processorStrip\] : \[\]\);/u
-  );
-  // Never prepended: that is the version that hid the "nothing to rework" note behind the step.
-  assert.equal(/\[processorStrip\]\.concat/u.test(controller), false);
+  for (const gone of ['processorMessage', 'processorStrip', 'state.processors', 'parseProcessors']) {
+    assert.equal(controller.includes(gone), false, `${gone} should no longer appear`);
+  }
 });
 
 // --- The findings an approver judges on ---------------------------------------------------------
@@ -183,6 +178,6 @@ test('the submitted warnings are appended after the branches, not before', () =>
   assert.match(controller, /var submittedWarnings = this\._validationMessages\(/u);
   assert.match(
     controller,
-    /state\.messages = \(state\.messages \|\| \[\]\)\s*\.concat\(submittedWarnings\)\s*\.concat\(processorStrip \? \[processorStrip\] : \[\]\);/u
+    /state\.messages = \(state\.messages \|\| \[\]\)\.concat\(submittedWarnings\);/u
   );
 });

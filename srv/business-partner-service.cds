@@ -49,11 +49,15 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
     InsertRestrictions: { Insertable: false },
     UpdateRestrictions: { Updatable: false },
     DeleteRestrictions: { Deletable: false },
-    // The staged half of the list is filtered and sorted in memory, so only the fields S/4 itself
-    // can filter on are offered. Sorting on a computed column would silently sort one half only.
+    // The change-request columns ARE filterable now (2026-08-28, asked for): the READ handler
+    // evaluates a filter naming one of them against the full, locally-merged row rather than
+    // forwarding it to S/4, which has never heard of them. Only ResultKey (a synthetic "BP:4711" /
+    // "CR:<uuid>" key, not something a person types) and RecordStatusCriticality (a bare colouring
+    // int) stay off - neither means anything as a value to filter BY. Sorting stays disallowed for
+    // all of them: the staged half is sorted in memory, so sorting on any of these would silently
+    // sort one half of the list only.
     FilterRestrictions: { NonFilterableProperties: [
-      ResultKey, RecordStatus, RecordStatusCriticality, IsChangeRequest,
-      ChangeRequest, ChangeRequestType, ChangeRequestStatus, RequestedBy, RequestedAt
+      ResultKey, RecordStatusCriticality
     ] },
     SortRestrictions: { NonSortableProperties: [
       ResultKey, RecordStatus, RecordStatusCriticality, IsChangeRequest,
