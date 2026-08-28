@@ -208,6 +208,14 @@ sap.ui.define([
     BusinessPartnerRole: {
       collectionPath: "BusinessPartnerRoleCodes", keyField: "BusinessPartnerRole",
       descriptionField: "BusinessPartnerRole_Text", title: "Select Role"
+    },
+    // KNVI-TATYP. Country-scoped server-side (CustomerTaxCategories is keyed by Country +
+    // SequenceNumber and CustomerTaxGrouping carries no country of its own), so this dialog lists
+    // every country's rows rather than just the customer's - Country shown as a column so a
+    // requester can tell them apart while searching.
+    CustomerTaxGroupingCode: {
+      collectionPath: "CustomerTaxCategories", keyField: "TaxCategory",
+      descriptionField: "Country", title: "Select Tax Category"
     }
   };
 

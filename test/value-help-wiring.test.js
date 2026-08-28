@@ -66,14 +66,32 @@ test('every collectionPath the maintenance UI asks for is an exposed entity', ()
   }
 });
 
+// Local value lists have no S/4 or ZSRVB_MDMLIGHT_VH data behind them at all - db/staging.cds's own
+// enums, served by a hand-written READ handler in business-partner-service.js instead of `valueHelp`.
+// Named explicitly here, rather than folded into VALUE_HELP_ENTITIES, which the other two tests in
+// this file use to assert a *projection on VH.* exists — one that would never exist for these two.
+const LOCAL_VALUE_LISTS = Object.freeze(['ChangeRequestTypeValues', 'ChangeRequestStatusValues']);
+
 test('every @Common.ValueList points at an exposed entity', () => {
   const paths = [...annotations.matchAll(/CollectionPath:\s*'(\w+)'/gu)].map(([, name]) => name);
   assert.ok(paths.length > 0, 'the value-list annotations are gone');
   for (const collectionPath of new Set(paths)) {
     assert.ok(
-      VALUE_HELP_ENTITIES.includes(collectionPath),
+      VALUE_HELP_ENTITIES.includes(collectionPath) || LOCAL_VALUE_LISTS.includes(collectionPath),
       `${collectionPath} is annotated but not exposed by the service`
     );
+  }
+});
+
+test('a local value list has its own READ handler, not the valueHelp passthrough', () => {
+  const service = read('srv', 'business-partner-service.js');
+  for (const entity of LOCAL_VALUE_LISTS) {
+    assert.match(
+      service,
+      new RegExp(`this\\.on\\('READ', '${entity}',`),
+      `${entity} has no dedicated READ handler`
+    );
+    assert.ok(!VALUE_HELP_ENTITIES.includes(entity), `${entity} should not also be a remote value-help entity`);
   }
 });
 

@@ -396,6 +396,18 @@ annotate service.Suppliers with {
   };
 };
 
+// KNVI-TATYP - country-scoped (CustomerTaxCategories is keyed by Country + SequenceNumber, and
+// CustomerTaxGrouping carries no country of its own to filter the dialog by), so this lists every
+// country's rows rather than just the customer's own.
+annotate service.CustomerTaxGrouping with {
+  CustomerTaxGroupingCode @Common.ValueList: {
+    CollectionPath: 'CustomerTaxCategories',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: CustomerTaxGroupingCode, ValueListProperty: 'TaxCategory' }
+    ]
+  };
+};
+
 // The merged search list. Deliberately the same columns as BusinessPartners plus one status column:
 // the point is that a pending create reads as a partner, so nobody requests it a second time.
 annotate service.BusinessPartnerSearchResults with @(
@@ -465,6 +477,24 @@ annotate service.BusinessPartnerSearchResults with {
     Parameters: [
       { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: BusinessPartnerGrouping, ValueListProperty: 'BusinessPartnerGrouping' },
       { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'BusinessPartnerGrouping_Text' }
+    ]
+  };
+  // ChangeRequestTypeValues/ChangeRequestStatusValues are local, not S/4 or ZSRVB_MDMLIGHT_VH data -
+  // see business-partner-service.cds where they are declared. RecordStatus itself stays without a
+  // value list: it is these two labels composed into prose ("Create in approval"), not a value
+  // either list holds on its own - filter on ChangeRequestType/ChangeRequestStatus instead.
+  ChangeRequestType @Common.ValueList: {
+    CollectionPath: 'ChangeRequestTypeValues',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: ChangeRequestType, ValueListProperty: 'ChangeRequestType' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'ChangeRequestType_Text' }
+    ]
+  };
+  ChangeRequestStatus @Common.ValueList: {
+    CollectionPath: 'ChangeRequestStatusValues',
+    Parameters: [
+      { $Type: 'Common.ValueListParameterInOut', LocalDataProperty: ChangeRequestStatus, ValueListProperty: 'ChangeRequestStatus' },
+      { $Type: 'Common.ValueListParameterDisplayOnly', ValueListProperty: 'ChangeRequestStatus_Text' }
     ]
   };
 };

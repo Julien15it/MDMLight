@@ -91,6 +91,22 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
 
   }
 
+  // Filter value help for the two columns above - genuinely local, unlike every other value-help
+  // entity in this file: ChangeRequestType/ChangeRequestStatus are this app's own staged enums
+  // (db/staging.cds), not S/4 or ZSRVB_MDMLIGHT_VH data, so there is nothing to project from. The
+  // READ handler in srv/business-partner-service.js answers both from the same label tables
+  // statusOf() already uses (srv/search-results.js), so a label can never drift between the list
+  // and its own filter dialog. RecordStatus itself stays free-text: it is those two labels
+  // concatenated into prose ("Create in approval"), not a value from either list on its own.
+  @readonly entity ChangeRequestTypeValues {
+    key ChangeRequestType      : String(10);
+        ChangeRequestType_Text : String(20);
+  }
+  @readonly entity ChangeRequestStatusValues {
+    key ChangeRequestStatus      : String(20);
+        ChangeRequestStatus_Text : String(30);
+  }
+
   // Value-help lookups sourced from the custom S/4 value-help service
   // ZSRVB_MDMLIGHT_VH — API_BUSINESS_PARTNER itself exposes none of these.
   // Referenced from srv/annotations.cds via @Common.ValueList and, in the
@@ -117,6 +133,13 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
   @readonly entity CustomerAccountGroups     as projection on VH.CustomerAccountGroups;
   @readonly entity CustomerClassifications   as projection on VH.CustomerClassifications;
   @readonly entity SupplierAccountGroups     as projection on VH.SupplierAccountGroups;
+  // Backs CustomerTaxGrouping.CustomerTaxGroupingCode (KNVI-TATYP). Same view the
+  // cvi_account_group-style sap_derivations stage already reads for the tax-category derivation
+  // (DerivationConfigService.TaxCategories, srv/checks/derivation-checks.js) - exposed a second time
+  // here because that service has no OData model bound to the maintenance screen, while this one
+  // already does. Keyed by Country + SequenceNumber, so the value help lists every country's rows;
+  // there is no per-row country on CustomerTaxGrouping to filter it by.
+  @readonly entity CustomerTaxCategories     as projection on VH.DerTaxCategories;
   // Renamed to avoid clashing with the existing BusinessPartnerRoles child
   // entity below (S4.A_BusinessPartnerRole) — this one is the code/text list.
   @readonly entity BusinessPartnerRoleCodes  as projection on VH.BusinessPartnerRoles;

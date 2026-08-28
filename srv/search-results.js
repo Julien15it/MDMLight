@@ -335,6 +335,8 @@ function mergeLocalPage({ pending = [], partnerRows = [], where, skip = 0, top, 
 
 module.exports = {
   IN_PROGRESS_REQUEST_STATUSES,
+  REQUEST_TYPE_LABELS,
+  STATUS_LABELS,
   PARTNER_FIELDS,
   SORTABLE_FIELDS,
   CRITICALITY,

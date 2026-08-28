@@ -19,9 +19,9 @@ const { createCapReaders, createMcpPartnerReader } = require('./ai/partner-reade
 const { createMcpToolCaller } = require('./ai/mcp-client');
 const { checkMetadataDrift } = require('./metadata-drift');
 const {
-  IN_PROGRESS_REQUEST_STATUSES, PARTNER_FIELDS, pendingCreateEntry, partnerEntry,
-  matchesWhere, matchesTerms, referencedFields, pageSplit, byRequestedAtDesc, remoteOrderBy,
-  mergeLocalPage
+  IN_PROGRESS_REQUEST_STATUSES, REQUEST_TYPE_LABELS, STATUS_LABELS, PARTNER_FIELDS,
+  pendingCreateEntry, partnerEntry, matchesWhere, matchesTerms, referencedFields, pageSplit,
+  byRequestedAtDesc, remoteOrderBy, mergeLocalPage
 } = require('./search-results');
 const { executeHttpRequest } = require('@sap-cloud-sdk/http-client');
 
@@ -143,7 +143,10 @@ const VALUE_HELP_ENTITIES = Object.freeze([
   'CustomerAccountGroups',
   'CustomerClassifications',
   'SupplierAccountGroups',
-  'BusinessPartnerRoleCodes'
+  'BusinessPartnerRoleCodes',
+  // KNVI-TATYP, via the same hand-transcribed Der* set sap_derivations reads
+  // (srv/checks/derivation-checks.js) for the tax-category derivation.
+  'CustomerTaxCategories'
 ]);
 
 const MAINTENANCE_ENTITIES = Object.freeze({
@@ -2413,6 +2416,17 @@ class BusinessPartnerService extends cds.ApplicationService {
       if (req.query?.SELECT?.limit) delete req.query.SELECT.limit;
       return oneRowPerTaxType(await valueHelp.run(req.query), req.locale);
     });
+
+    // Genuinely local, not a VALUE_HELP_ENTITIES entry: these two are this app's own staged enums
+    // (db/staging.cds), never S/4 or ZSRVB_MDMLIGHT_VH data, so there is nothing to forward to
+    // valueHelp. Built from the exact label tables statusOf() uses, so this dialog and the merged
+    // list can never disagree about what a status or a type reads as.
+    this.on('READ', 'ChangeRequestTypeValues', () => Object.entries(REQUEST_TYPE_LABELS).map(
+      ([ChangeRequestType, ChangeRequestType_Text]) => ({ ChangeRequestType, ChangeRequestType_Text })
+    ));
+    this.on('READ', 'ChangeRequestStatusValues', () => Object.entries(STATUS_LABELS).map(
+      ([ChangeRequestStatus, ChangeRequestStatus_Text]) => ({ ChangeRequestStatus, ChangeRequestStatus_Text })
+    ));
 
     this.on(['READ', 'CREATE', 'UPDATE'], '*', (req) => s4.run(req.query));
 
