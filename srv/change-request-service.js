@@ -796,10 +796,9 @@ class ChangeRequestService extends cds.ApplicationService {
           // CVI before the registry: its configuration is cached for 60s, so it is effectively
           // offline after the first read, and a role this partner's category cannot carry is worth
           // saying before spending a VIES call on an address that will never synchronise anyway.
-          validations: [...properties.validations, ...configured.validations,
+          validations: [...properties.validations, ...configured.validations, ...nodeRequiredStages.validations,
             ...createCviStages().validations, ...registry.validations,
-            ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations,
-            ...nodeRequiredStages.validations],
+            ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations],
           // The CVI derivation last: an explicit rule and a registry lookup should both win over
           // it, and the pipeline never overwrites what an earlier derivation already wrote.
           // A second createCviStages() call is not a second read: the 60s cache lives in the
@@ -906,10 +905,9 @@ class ChangeRequestService extends cds.ApplicationService {
       const properties = await fieldPropertyStages(requesterContext(req));
       const validations = await runValidations(
         { root: data.root || {}, sections: data.sections || {} },
-        [...properties.validations, ...configured.validations,
+        [...properties.validations, ...configured.validations, ...nodeRequiredStages.validations,
         ...createCviStages().validations, ...registry.validations,
-        ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations,
-            ...nodeRequiredStages.validations]
+        ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations]
       );
       if (validations.some((message) => message.severity === BLOCKING)) {
         return {
@@ -1010,10 +1008,9 @@ class ChangeRequestService extends cds.ApplicationService {
       const properties = await fieldPropertyStages(requesterContext(req));
       const validations = await runValidations(
         { root: data.root || {}, sections: data.sections || {} },
-        [...properties.validations, ...configured.validations,
+        [...properties.validations, ...configured.validations, ...nodeRequiredStages.validations,
         ...createCviStages().validations, ...registry.validations,
-        ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations,
-            ...nodeRequiredStages.validations]
+        ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations]
       );
       if (validations.some((message) => message.severity === BLOCKING)) {
         return {
@@ -1256,10 +1253,9 @@ class ChangeRequestService extends cds.ApplicationService {
       const properties = await fieldPropertyStages(requesterContext(req));
       const validations = await runValidations(
         { root: data.root || {}, sections: data.sections || {} },
-        [...properties.validations, ...configured.validations,
+        [...properties.validations, ...configured.validations, ...nodeRequiredStages.validations,
         ...createCviStages().validations, ...registry.validations,
-        ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations,
-            ...nodeRequiredStages.validations]
+        ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations]
       );
       if (validations.some((message) => message.severity === BLOCKING)) {
         return {
