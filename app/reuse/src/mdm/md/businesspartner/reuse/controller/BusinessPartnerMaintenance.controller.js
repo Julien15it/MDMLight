@@ -2294,8 +2294,19 @@ sap.ui.define([
           var validations = this._parseJsonArray(result && result.ValidationsJson);
           var derivations = this._parseJsonArray(result && result.DerivationsJson);
           var normalisations = this._parseJsonArray(result && result.NormalisationsJson);
+          // S/4's own findings arrive apart from the validations so they can wait for the
+          // proposals - see _resolveStandardChecks.
+          var standard = this._parseJsonArray(result && result.StandardJson);
 
-          state.messages = this._checkMessages(validations, derivations);
+          var proposals = result && result.Valid === false
+            ? []
+            : this._proposalRows(derivations, normalisations);
+
+          // Held back only while there is a dialog to hold them for. With nothing to propose they
+          // are the answer, so they go up with everything else and cost no second round trip.
+          state.messages = this._checkMessages(
+            validations, derivations, proposals.length ? [] : standard
+          );
           this._renderAll();
 
           if (!result || result.Valid === false) {
@@ -2306,9 +2317,8 @@ sap.ui.define([
             return;
           }
 
-          var proposals = this._proposalRows(derivations, normalisations);
           if (proposals.length) {
-            this._offerProposals(proposals);
+            this._offerProposals(proposals, standard);
             return;
           }
           MessageToast.show("Checked: nothing to propose.");
@@ -2560,8 +2570,10 @@ sap.ui.define([
         });
       },
 
-      _checkMessages: function (validations, derivations) {
-        var messages = this._validationMessages(validations);
+      // `standard` is separate only because of WHEN it is shown, never because of how: to a
+      // requester an S/4 finding is a validation, which is why they land in one list here.
+      _checkMessages: function (validations, derivations, standard) {
+        var messages = this._validationMessages((validations || []).concat(standard || []));
         // A derivation carrying no field is a statement, not a value — there is nothing to tick,
         // so it is said here instead of in the proposals dialog.
         derivations.filter(function (entry) { return !entry.field && entry.message; })
@@ -2590,33 +2602,85 @@ sap.ui.define([
         return messages;
       },
 
+      // One dialog line from one entry, plus the entries that only complete its row. See CLAUDE.md.
+      _derivationRow: function (entry, change, extras) {
+        var values = extras.map(function (extra) { return extra.value; }).filter(Boolean);
+        var subtext = values.length
+          ? ((extras[0].label ? extras[0].label + " " : "") + values.join(" / "))
+          : "";
+        return {
+          change: change,
+          target: entry.target || "root",
+          index: entry.index || 0,
+          createsRow: Boolean(entry.createsRow),
+          field: entry.field,
+          // Only a keyed row carries extras, so only a keyed row is named by its section.
+          fieldLabel: extras.length
+            ? (this._sectionTitle(entry.target) || entry.field)
+            : entry.field,
+          subtext: subtext,
+          // The row's key: written with it when accepted, never offered separately.
+          extras: extras.map(function (extra) {
+            return { field: extra.field, value: extra.value };
+          }),
+          current: "",
+          proposed: entry.value,
+          // Why is a label; the sentence behind it is the tooltip.
+          reason: entry.label || "Derived value",
+          detail: entry.message || "This value was filled in from the official register.",
+          accepted: true
+        };
+      },
+
+      /** A section's own title, for naming a whole derived row rather than one of its fields. */
+      _sectionTitle: function (id) {
+        var match = (this._metadata || []).filter(function (section) { return section.id === id; });
+        return match.length ? match[0].title : "";
+      },
+
       // One list for both stages: to the requester they are one question. The Change column keeps
       // them apart - a derivation fills an empty field, a normalisation rewrites a filled one.
+      // A KEYED derived row is one line, grouped on target + index. See CLAUDE.md.
       _proposalRows: function (derivations, normalisations) {
         var rows = [];
         var seen = {};
         var keyOf = function (entry) {
           return (entry.target || "root") + "|" + (entry.index || 0) + "|" + entry.field;
         };
+        var groups = [];
+        var byGroup = {};
         derivations.filter(function (entry) { return entry.field; }).forEach(function (entry) {
-          seen[keyOf(entry)] = rows.length;
-          rows.push({
-            // Said differently because it is a different thing to accept: not a value in a row
-            // the requester built, but a row they did not.
-            change: entry.createsRow ? "Row added" : "Filled in",
-            target: entry.target || "root",
-            index: entry.index || 0,
-            createsRow: Boolean(entry.createsRow),
-            field: entry.field,
-            current: "",
-            proposed: entry.value,
-            // Why is a label; the sentence behind it is the tooltip. A derivation names its own
-            // source in `label`, and `message` is already the one-sentence version.
-            reason: entry.label || "Derived value",
-            detail: entry.message || "This value was filled in from the official register.",
-            accepted: true
-          });
+          var id = (entry.target || "root") + "|" + (entry.index || 0);
+          if (!byGroup[id]) {
+            byGroup[id] = [];
+            groups.push(byGroup[id]);
+          }
+          byGroup[id].push(entry);
         });
+        groups.forEach(function (entries) {
+          // A `rowKey`, not `createsRow`: the registry marks every address entry `createsRow`, and
+          // grouping on that collapsed five editable address fields into one line.
+          var lead = entries.filter(function (entry) {
+            return entry.createsRow && entry.rowKey;
+          })[0];
+          if (!lead) {
+            // No key, so each entry is its own question, named by its own field - as before.
+            entries.forEach(function (entry) {
+              seen[keyOf(entry)] = rows.length;
+              rows.push(this._derivationRow(
+                entry, entry.createsRow ? "Row added" : "Filled in", []
+              ));
+            }, this);
+            return;
+          }
+          // The row is accepted or declined whole: accepting a partner function without the sales
+          // area that keys it would stage half a key. So only the lead is tickable, and the key
+          // fields travel with it in `extras`.
+          seen[keyOf(lead)] = rows.length;
+          rows.push(this._derivationRow(lead, "Row added", entries.filter(function (entry) {
+            return entry !== lead;
+          })));
+        }, this);
         normalisations.forEach(function (entry) {
           var existing = seen[keyOf(entry)];
           // A field derived and then reformatted is one row: applying both writes it twice.
@@ -2631,7 +2695,11 @@ sap.ui.define([
             change: "Reformatted",
             target: entry.target || "root",
             index: entry.index || 0,
+            createsRow: false,
             field: entry.field,
+            fieldLabel: entry.field,
+            subtext: "",
+            extras: [],
             current: entry.current,
             proposed: entry.proposed,
             reason: entry.reason,
@@ -2647,6 +2715,18 @@ sap.ui.define([
         rows.forEach(function (row) {
           row.key = row.target + "|" + row.index + "|" + row.field + "|" + row.proposed;
         });
+        // What the grouping was handed and produced, per press: its absence means a cached bundle.
+        try {
+          console.log("[proposals] " + JSON.stringify({
+            lines: rows.length,
+            entries: derivations.map(function (entry) {
+              return [entry.target, entry.index, entry.field,
+                entry.createsRow ? "C" : "-", entry.rowKey ? "K" : "-"].join(":");
+            })
+          }));
+        } catch (loggingError) {
+          // A diagnostic must never be the thing that breaks the dialog.
+        }
         return rows;
       },
 
@@ -2671,11 +2751,18 @@ sap.ui.define([
 
       // Proposals, never changes: declining is not ticking it, and the next Check proposes it again.
       // Proposed is an Input because the model can be right that "st" needs resolving and wrong how.
-      _offerProposals: function (proposals) {
+      //
+      // `standard` is S/4's own findings, held back until this dialog is answered - see
+      // _resolveStandardChecks for why, and for what happens on each way out.
+      _offerProposals: function (proposals, standard) {
         var model = new JSONModel({ proposals: proposals });
         // Whether Apply Selected was pressed, read in afterClose: every other way out of this dialog
         // - Not Now, Escape - declines everything in it.
         var applied = false;
+        // How many fields it actually changed. Ticking nothing, or editing every value back to what
+        // it already was, leaves the payload untouched - which is what decides whether the standard
+        // checks have to be asked again.
+        var changed = 0;
         // One dialog at a time. A trigger firing while the requester is reading this one must not
         // stack a second on top of it, whatever it found.
         this._proposalsOpen = true;
@@ -2695,7 +2782,14 @@ sap.ui.define([
           template: new ColumnListItem({
             selected: "{accepted}",
             cells: [
-              new Text({ text: "{field}" }),
+              // Two lines: the section it lands in, and the key it lands under (blank when none).
+              new VBox({
+                items: [
+                  new Text({ text: "{fieldLabel}" }),
+                  new Text({ text: "{subtext}", visible: "{= !!${subtext} }" })
+                    .addStyleClass("mdmProposalSubtext")
+                ]
+              }),
               new Text({ text: "{change}" }),
               new Text({ text: "{current}" }),
               new Input({ value: "{proposed}" }),
@@ -2728,7 +2822,7 @@ sap.ui.define([
               // Read back from the model, not from the row: the value may have been edited, and
               // `accepted` is two-way bound to the checkbox.
               applied = true;
-              this._applyProposals(model.getProperty("/proposals").filter(function (proposal) {
+              changed = this._applyProposals(model.getProperty("/proposals").filter(function (proposal) {
                 return proposal.accepted;
               }));
               dialog.close();
@@ -2741,6 +2835,7 @@ sap.ui.define([
             this._rememberDeclined(model.getProperty("/proposals"), applied);
             this._proposalsOpen = false;
             dialog.destroy();
+            this._resolveStandardChecks(standard, changed > 0);
           }.bind(this)
         });
         this.getView().addDependent(dialog);
@@ -2759,14 +2854,27 @@ sap.ui.define([
           // A row-adding proposal has no record to find yet - accepting it is what creates
           // one. Marked "new" rather than "changed", or postToS4 would replay it as an
           // update to a row S/4 does not have.
+          //
+          // The whole row lands at once: the lead value plus the `extras` that key it.
           if (proposal.createsRow && proposal.target && proposal.target !== "root") {
             var rows = state.sections[proposal.target] || (state.sections[proposal.target] = []);
+            // Idempotent on the whole key: AG under a second sales area is a different row. A
+            // blank on the existing row counts as a match, as `rowMatchesKey` does server-side.
             var duplicate = rows.some(function (existing) {
-              return String(existing[proposal.field] || "").trim() === value;
+              if (String(existing[proposal.field] || "").trim() !== value) return false;
+              return (proposal.extras || []).every(function (extra) {
+                var current = String(existing[extra.field] || "").trim();
+                return !current
+                  || current === String(extra.value === undefined ? "" : extra.value).trim();
+              });
             });
             if (duplicate) return;
             var added = { __state: "new" };
             added[proposal.field] = value;
+            (proposal.extras || []).forEach(function (extra) {
+              var extraValue = String(extra.value === undefined ? "" : extra.value).trim();
+              if (extraValue) added[extra.field] = extraValue;
+            });
             rows.push(added);
             applied += 1;
             return;
@@ -2783,7 +2891,8 @@ sap.ui.define([
           if (record === state.root && NAME_FIELDS.indexOf(proposal.field) !== -1) renamed = true;
           applied += 1;
         });
-        if (!applied) return;
+        // Returned: the caller re-runs the standard checks only if the payload actually moved.
+        if (!applied) return 0;
         // The payload changed, so a duplicate confirmation taken against the old one no longer
         // applies - the next submit has to check again.
         state.awaitingConfirmation = false;
@@ -2797,6 +2906,57 @@ sap.ui.define([
         this._renderAll();
         this._refreshChangeSummary();
         MessageToast.show(applied + " field(s) updated.");
+        return applied;
+      },
+
+      // S/4's findings, once the dialog is answered: nothing accepted shows what was held (no second
+      // vendor number), something accepted re-runs. Why not filtering them: CLAUDE.md.
+      _resolveStandardChecks: function (standard, rerun) {
+        if (rerun) return this._rerunStandardChecks();
+        var held = standard || [];
+        if (!held.length) return Promise.resolve();
+        var maintenanceModel = this.getView().getModel("maintenance");
+        var state = maintenanceModel.getData();
+        state.messages = (state.messages || []).concat(this._validationMessages(held));
+        // `refresh` too: _renderAll never touches the model, and afterClose has no finally to do it.
+        this._renderAll();
+        maintenanceModel.refresh(true);
+        return Promise.resolve();
+      },
+
+      // The same check on the accepted payload, for its messages only. `Propose: false`: declined
+      // proposals are not re-offered inside one press - pressing Check again is how those are asked.
+      _rerunStandardChecks: async function () {
+        var maintenanceModel = this.getView().getModel("maintenance");
+        var state = maintenanceModel.getData();
+        state.busy = true;
+        maintenanceModel.refresh(true);
+        try {
+          var result = await this._executeAction("checkRequest", {
+            ChangeRequest: state.changeRequest || null,
+            BusinessPartner: state.businessPartner || null,
+            DataJson: this._requestDataJson(state),
+            Propose: false
+          }, "cr");
+          state.messages = this._checkMessages(
+            this._parseJsonArray(result && result.ValidationsJson),
+            this._parseJsonArray(result && result.DerivationsJson),
+            this._parseJsonArray(result && result.StandardJson)
+          );
+          this._renderAll();
+        } catch (error) {
+          // A check that could not run must never read as one that passed - the same rule the
+          // pipeline applies server-side.
+          state.messages = (state.messages || []).concat([{
+            type: "Warning",
+            text: "The checks could not be re-run against the accepted values: "
+              + errorMessage(error, "unknown error")
+          }]);
+          this._renderAll();
+        } finally {
+          state.busy = false;
+          maintenanceModel.refresh(true);
+        }
       },
 
       onSaveRequest: function () {

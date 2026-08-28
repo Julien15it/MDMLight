@@ -22,6 +22,8 @@
 
 const cds = require('@sap/cds');
 
+const { readAllOf } = require('./config-reader');
+
 const SERVICE = 'ZSRVB_MDMLIGHT_VH';
 
 // Same 60s TTL as cvi-checks.js, rule-store.js and field-property-store.js. This is customizing: it
@@ -36,13 +38,13 @@ function invalidate() {
 
 async function readConfiguration() {
   const service = await cds.connect.to(SERVICE);
-  const [countries, taxCategories, timeZones, partnerFunctions, supplierFunctions] = await Promise.all([
-    service.run(cds.ql.SELECT.from('DerAddressDefaults')),
-    service.run(cds.ql.SELECT.from('DerTaxCategories')),
-    service.run(cds.ql.SELECT.from('DerTimeZones')),
-    service.run(cds.ql.SELECT.from('DerPartnerFunctionAccGrp')),
-    service.run(cds.ql.SELECT.from('DerSupplierFunctionAccGrp'))
-  ]);
+  // Paged, not a bare SELECT: the remote service caps a response at 100 rows, and a first page used
+  // as the whole table is what silently lost account group DEBI. See config-reader.js.
+  const [countries, taxCategories, timeZones, partnerFunctions, supplierFunctions] = await readAllOf(
+    service,
+    ['DerAddressDefaults', 'DerTaxCategories', 'DerTimeZones',
+      'DerPartnerFunctionAccGrp', 'DerSupplierFunctionAccGrp']
+  );
   return {
     countries: Array.isArray(countries) ? countries : [],
     taxCategories: Array.isArray(taxCategories) ? taxCategories : [],
@@ -253,6 +255,9 @@ function taxCategoryEntries(payload, { taxCategories }) {
  *
  * Needs a sales area row, because `StagedCustomerSalesPartnerFunc` is keyed by one. When there is
  * none it derives nothing **and says nothing** -- see the time zone above for why.
+ *
+ * **All of them since 2026-08-28**, keyed per function, and beside what a requester typed. See
+ * CLAUDE.md.
  */
 function partnerFunctionEntries(payload, { partnerFunctions }) {
   const [salesArea] = liveRows(payload, 'CustomerSalesArea');
@@ -261,9 +266,6 @@ function partnerFunctionEntries(payload, { partnerFunctions }) {
   const accountGroup = text(liveRows(payload, 'Customers')[0]?.CustomerAccountGroup);
   if (!accountGroup) return [];
 
-  // Not into a section somebody has already filled: those rows are theirs.
-  if (liveRows(payload, 'CustomerSalesPartnerFunctions').length) return [];
-
   const mandatory = partnerFunctions
     .filter((row) => text(row.AccountGroup) === accountGroup)
     .filter((row) => row.IsMandatory)
@@ -271,47 +273,49 @@ function partnerFunctionEntries(payload, { partnerFunctions }) {
     .sort((left, right) => text(left.SortOrder).localeCompare(text(right.SortOrder)));
   if (!mandatory.length) return [];
 
-  // The pipeline creates only the FIRST row of an empty section, so one function is proposed and
-  // the rest are named. Same shape, and the same reasoning, as the tax categories.
-  const [first, ...remaining] = mandatory;
-  const procedure = text(first.DeterminationProcedure);
-
-  const entries = [{
-    target: 'CustomerSalesPartnerFunctions',
-    index: 0,
-    createsRow: true,
-    field: 'PartnerFunction',
-    value: text(first.PartnerFunction),
-    label: 'Mandatory function',
-    message: `Partner function ${text(first.PartnerFunction)} is mandatory for account group `
-      + `${accountGroup} under determination procedure ${procedure} in S/4. The partner number is `
-      + 'left for S/4 to assign at post time.'
-  }];
-
-  // The sales area the row belongs to, filled from the row the requester already added -- three
-  // more entries, because createsRow writes one field and these complete the key.
-  for (const [field, value] of [
+  // The sales area every proposed row belongs to, from the row the requester already added. Part of
+  // each row's key, so a function typed against a DIFFERENT sales area is not mistaken for this one.
+  // Only the levels actually filled in: a blank in a key would match no row that has that level.
+  const area = Object.fromEntries([
     ['SalesOrganization', text(salesArea.SalesOrganization)],
     ['DistributionChannel', text(salesArea.DistributionChannel)],
     ['Division', text(salesArea.Division)]
-  ]) {
-    if (!value) continue;
+  ].filter(([, value]) => value));
+  const areaLabel = Object.values(area).join(' / ');
+
+  const entries = [];
+  for (const row of mandatory) {
+    const partnerFunction = text(row.PartnerFunction);
+    if (!partnerFunction) continue;
+    const procedure = text(row.DeterminationProcedure);
+    // Every entry of one row carries the same key, so the pipeline resolves the index.
+    const rowKey = { PartnerFunction: partnerFunction, ...area };
+
     entries.push({
       target: 'CustomerSalesPartnerFunctions',
-      index: 0,
-      field,
-      value,
-      label: 'Sales area',
-      message: `${field} ${value} is taken from the sales area on this request.`
+      createsRow: true,
+      rowKey,
+      field: 'PartnerFunction',
+      value: partnerFunction,
+      label: 'Mandatory function',
+      message: `Partner function ${partnerFunction} is mandatory for account group ${accountGroup} `
+        + `under determination procedure ${procedure} in S/4.`
+        + (areaLabel ? ` The row is for sales area ${areaLabel}, taken from the sales area on this `
+          + 'request.' : '')
+        + ' The partner number is left for S/4 to assign at post time.'
     });
-  }
 
-  if (remaining.length) {
-    entries.push({
-      message: `Account group ${accountGroup} has ${mandatory.length} mandatory partner functions `
-        + `under procedure ${procedure} (${mandatory.map((row) => text(row.PartnerFunction)).join(', ')}). `
-        + 'One row is proposed; add the others by hand if this customer needs them.'
-    });
+    // createsRow writes exactly one field, so these complete the key.
+    for (const [field, value] of Object.entries(area)) {
+      entries.push({
+        target: 'CustomerSalesPartnerFunctions',
+        rowKey,
+        field,
+        value,
+        label: 'Sales area',
+        message: `${field} ${value} is taken from the sales area on this request.`
+      });
+    }
   }
 
   return entries;
@@ -339,8 +343,6 @@ function supplierFunctionEntries(payload, { supplierFunctions }) {
   const accountGroup = text(liveRows(payload, 'Suppliers')[0]?.SupplierAccountGroup);
   if (!accountGroup) return [];
 
-  if (liveRows(payload, 'SupplierPartnerFunctions').length) return [];
-
   const mandatory = supplierFunctions
     .filter((row) => text(row.AccountGroup) === accountGroup)
     .filter((row) => row.IsMandatory)
@@ -350,41 +352,75 @@ function supplierFunctionEntries(payload, { supplierFunctions }) {
     .sort((left, right) => text(left.SortOrder).localeCompare(text(right.SortOrder)));
   if (!mandatory.length) return [];
 
-  const [first, ...remaining] = mandatory;
-  const procedure = text(first.PurchasingOrgProcedure);
-
-  const entries = [{
-    target: 'SupplierPartnerFunctions',
-    index: 0,
-    createsRow: true,
-    field: 'PartnerFunction',
-    value: text(first.PartnerFunction),
-    label: 'Mandatory function',
-    message: `Partner function ${text(first.PartnerFunction)} is mandatory for supplier account `
-      + `group ${accountGroup} under partner schema ${procedure} in S/4. The partner number is left `
-      + 'for S/4 to assign at post time.'
-  }, {
-    target: 'SupplierPartnerFunctions',
-    index: 0,
-    field: 'PurchasingOrganization',
-    value: organisation,
-    label: 'Purchasing org',
-    message: `Purchasing organization ${organisation} is taken from the purchasing row on this `
-      + 'request.'
-  }];
-
+  // All of them, keyed per function -- the customer stage's own change (2026-08-28).
   // SupplierSubrange and Plant are deliberately NOT filled: they are the lower two levels, each
   // with its own partner schema, and a purchasing-organisation row leaves them blank.
-  if (remaining.length) {
+  const entries = [];
+  for (const row of mandatory) {
+    const partnerFunction = text(row.PartnerFunction);
+    if (!partnerFunction) continue;
+    const procedure = text(row.PurchasingOrgProcedure);
+    const rowKey = { PartnerFunction: partnerFunction, PurchasingOrganization: organisation };
+
     entries.push({
-      message: `Supplier account group ${accountGroup} has ${mandatory.length} mandatory partner `
-        + `functions under schema ${procedure} `
-        + `(${mandatory.map((row) => text(row.PartnerFunction)).join(', ')}). One row is proposed; `
-        + 'add the others by hand if this supplier needs them.'
+      target: 'SupplierPartnerFunctions',
+      createsRow: true,
+      rowKey,
+      field: 'PartnerFunction',
+      value: partnerFunction,
+      label: 'Mandatory function',
+      message: `Partner function ${partnerFunction} is mandatory for supplier account group `
+        + `${accountGroup} under partner schema ${procedure} in S/4. The row is for purchasing `
+        + `organization ${organisation}, taken from the purchasing row on this request. The partner `
+        + 'number is left for S/4 to assign at post time.'
+    }, {
+      target: 'SupplierPartnerFunctions',
+      rowKey,
+      field: 'PurchasingOrganization',
+      value: organisation,
+      label: 'Purchasing org',
+      message: `Purchasing organization ${organisation} is taken from the purchasing row on this `
+        + 'request.'
     });
   }
 
   return entries;
+}
+
+/**
+ * Why a derivation produced nothing, to `cf logs`. Not a message: staying silent about unmet
+ * preconditions is Maarten's rule and it is right for requesters, but it also makes "the config is
+ * there and nothing was proposed" undiagnosable from the screen. One line, everything the five
+ * builders branch on, so the answer is in the log rather than in a guess.
+ */
+function diagnose(payload, config, entries) {
+  const addresses = liveRows(payload, 'Addresses');
+  console.log('[sap-derivations] ' + JSON.stringify({
+    entries: entries.length,
+    // Row counts, because an empty read looks exactly like customizing that says nothing.
+    config: {
+      countries: config.countries.length,
+      taxCategories: config.taxCategories.length,
+      timeZones: config.timeZones.length,
+      partnerFunctions: config.partnerFunctions.length,
+      supplierFunctions: config.supplierFunctions.length
+    },
+    payload: {
+      addresses: addresses.length,
+      addressCountry: text(addresses[0]?.Country),
+      addressRegion: text(addresses[0]?.Region),
+      addressLanguage: text(addresses[0]?.Language),
+      customers: liveRows(payload, 'Customers').length,
+      customerAccountGroup: text(liveRows(payload, 'Customers')[0]?.CustomerAccountGroup),
+      salesAreas: liveRows(payload, 'CustomerSalesArea').length,
+      taxIndicatorRows: liveRows(payload, 'CustomerTaxIndicators').length,
+      customerFunctionRows: liveRows(payload, 'CustomerSalesPartnerFunctions').length,
+      suppliers: liveRows(payload, 'Suppliers').length,
+      supplierAccountGroup: text(liveRows(payload, 'Suppliers')[0]?.SupplierAccountGroup),
+      purchasingOrgs: liveRows(payload, 'SupplierPurchasingOrg').length,
+      supplierFunctionRows: liveRows(payload, 'SupplierPartnerFunctions').length
+    }
+  }));
 }
 
 /**
@@ -412,13 +448,15 @@ function createDerivationStages({ read = readConfiguration } = {}) {
               + 'was derived from them.'
           }];
         }
-        return [
+        const entries = [
           ...addressLanguageEntries(payload, config),
           ...timeZoneEntries(payload, config),
           ...taxCategoryEntries(payload, config),
           ...partnerFunctionEntries(payload, config),
           ...supplierFunctionEntries(payload, config)
         ];
+        diagnose(payload, config, entries);
+        return entries;
       }
     }]
   };
@@ -429,6 +467,7 @@ module.exports = {
   invalidate,
   TTL_MS,
   _internals: {
+    diagnose,
     configuration,
     readConfiguration,
     addressLanguageEntries,

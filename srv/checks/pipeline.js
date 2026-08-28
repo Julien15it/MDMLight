@@ -11,10 +11,12 @@
 // `severity: 'error'` stops the pipeline; 'warning' and 'info' do not.
 const VALIDATIONS = [];
 
-// { name, async run(payload) -> [{ target, index, field, value, message, label?, system? }] },
+// { name, async run(payload) -> [{ target, index, field, value, message, label?, system?, rowKey? }] },
 // `target` being 'root' or a section id. Applied to a copy and reported back, so nothing is
 // discovered after approval.
 // `label` is the three-word version of `message`; `system` means S/4 uses it whatever anyone ticks.
+// `rowKey` names the row an entry belongs to — see `rowMatchesKey` — and is what lets one stage
+// derive SEVERAL rows into a section that is not empty. Every entry of one row carries the same key.
 const DERIVATIONS = [];
 
 const BLOCKING = 'error';
@@ -29,6 +31,38 @@ function targetRecord(payload, entry) {
   const rows = payload.sections?.[entry.target];
   if (!Array.isArray(rows)) return null;
   return rows[entry.index || 0] || null;
+}
+
+// A blank on either side is skipped, so the row a requester part-filled is completed, not
+// duplicated; an all-blank row (`anyFilled` false) matches nothing.
+function rowMatchesKey(row, rowKey) {
+  let anyFilled = false;
+  for (const [field, value] of Object.entries(rowKey || {})) {
+    if (isEmpty(value)) continue;
+    const current = row?.[field];
+    if (isEmpty(current)) continue;
+    anyFilled = true;
+    if (String(current).trim() !== String(value).trim()) return false;
+  }
+  return anyFilled;
+}
+
+// A row on its way out holds nothing. Matches `liveRows` in the derivation stages.
+const isDeleted = (row) => String(row?.action || 'C').trim().toUpperCase() === 'D';
+
+// By key, not by position: every entry of one derived row carries the same `rowKey`.
+function findKeyedRow(payload, entry) {
+  const rows = payload.sections?.[entry.target];
+  if (!Array.isArray(rows)) return null;
+  return rows.find((row) => !isDeleted(row) && rowMatchesKey(row, entry.rowKey)) || null;
+}
+
+// Where the row actually landed, so the proposal the requester ticks names the same row.
+function indexOfRecord(payload, entry, record) {
+  const rows = payload.sections?.[entry.target];
+  if (!Array.isArray(rows)) return entry.index || 0;
+  const at = rows.indexOf(record);
+  return at === -1 ? (entry.index || 0) : at;
 }
 
 async function runValidations(payload, validations = VALIDATIONS) {
@@ -52,15 +86,20 @@ async function runValidations(payload, validations = VALIDATIONS) {
 
 // The same write, replayed onto a second payload from an entry the pipeline already applied.
 function replay(payload, entry) {
+  const keyed = Boolean(entry.rowKey) && entry.target && entry.target !== ROOT;
   if (entry.createsRow && entry.target && entry.target !== ROOT) {
     if (!payload.sections) payload.sections = {};
     const rows = payload.sections[entry.target] || (payload.sections[entry.target] = []);
-    if (!rows.length) {
+    const appendable = keyed ? !findKeyedRow(payload, entry) : !rows.length;
+    if (appendable) {
       rows.push({ [entry.field]: entry.value });
       return;
     }
+    // A keyed row already present is not a write; an unkeyed one falls through and fills.
+    if (keyed) return;
   }
-  const record = targetRecord(payload, entry);
+  // By key: this payload holds only the `system` entries, so indices differ from `derived`.
+  const record = keyed ? findKeyedRow(payload, entry) : targetRecord(payload, entry);
   if (!record || !isEmpty(record[entry.field])) return;
   record[entry.field] = entry.value;
 }
@@ -92,13 +131,13 @@ async function runDerivations(payload, derivations = DERIVATIONS) {
         applied.push({ check: derivation.name, severity: 'info', message: entry.message });
         continue;
       }
-      // The one case where a row *is* invented, and only because the derivation asked for it. The
-      // section has to be EMPTY: appending beside rows somebody added deliberately would put a
-      // registered seat onto their second address, so everything else is still reported and never
-      // written somewhere it was not meant to be.
+      // A `rowKey` names the missing row, which is what makes appending beside existing rows safe;
+      // without one the section must still be EMPTY. See CLAUDE.md.
+      const keyed = Boolean(entry.rowKey) && entry.target && entry.target !== ROOT;
       if (entry.createsRow && entry.target && entry.target !== ROOT) {
         const rows = derived.sections[entry.target] || (derived.sections[entry.target] = []);
-        if (!rows.length) {
+        const appendable = keyed ? !findKeyedRow(derived, entry) : !rows.length;
+        if (appendable) {
           rows.push({ [entry.field]: entry.value });
           applied.push({
             check: derivation.name,
@@ -107,6 +146,7 @@ async function runDerivations(payload, derivations = DERIVATIONS) {
             field: entry.field,
             value: entry.value,
             createsRow: true,
+            rowKey: entry.rowKey || null,
             severity: 'info',
             label: entry.label || null,
             system: Boolean(entry.system),
@@ -114,8 +154,10 @@ async function runDerivations(payload, derivations = DERIVATIONS) {
           });
           continue;
         }
+        // A keyed row already there is not a proposal; an unkeyed one falls through and fills.
+        if (keyed) continue;
       }
-      const record = targetRecord(derived, entry);
+      const record = keyed ? findKeyedRow(derived, entry) : targetRecord(derived, entry);
       // A missing row is never invented, but the value is still reported without a `field`: a registry
       // answer nobody is told about is the same as not having looked it up.
       if (!record) {
@@ -132,9 +174,11 @@ async function runDerivations(payload, derivations = DERIVATIONS) {
       applied.push({
         check: derivation.name,
         target: entry.target || ROOT,
-        index: entry.index || 0,
+        // Where the row actually is, so the proposal the requester ticks names the same one.
+        index: keyed ? indexOfRecord(derived, entry, record) : (entry.index || 0),
         field: entry.field,
         value: entry.value,
+        rowKey: entry.rowKey || null,
         severity: 'info',
         label: entry.label || null,
         system: Boolean(entry.system),
@@ -232,5 +276,6 @@ module.exports = {
   ROOT,
   runValidations,
   runDerivations,
-  runChecks
+  runChecks,
+  rowMatchesKey
 };

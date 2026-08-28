@@ -307,20 +307,44 @@ test('a vendor function under the same procedure is never proposed onto a custom
 
 test('a non-mandatory function is a value help, not a derivation', () => {
   const entries = partnerFunctionEntries(payload({}, customerWithSalesArea), CONFIG);
-  const named = entries.map((entry) => entry.message).join(' ');
+  const proposed = entries.filter((entry) => entry.field === 'PartnerFunction')
+    .map((entry) => entry.value);
 
-  assert.equal(/\bSB\b/u.test(named), false, 'SB is not mandatory, so it is never mentioned');
-  // AG and RE are, so the statement names both.
-  assert.match(named, /AG, RE/u);
+  assert.equal(proposed.includes('SB'), false, 'SB is not mandatory');
+  const named = entries.map((entry) => entry.message).join(' ');
+  assert.equal(/\bSB\b/u.test(named), false, 'and it is never mentioned either');
+});
+
+// ALL of them since 2026-08-28: it proposed the first and named the rest, because createsRow could
+// only invent a row into an empty section. A rowKey lifted that.
+test('every mandatory function is proposed, each as its own keyed row', () => {
+  const entries = partnerFunctionEntries(payload({}, customerWithSalesArea), CONFIG);
+
+  const created = entries.filter((entry) => entry.createsRow);
+  assert.deepEqual(created.map((entry) => entry.value), ['AG', 'RE'], 'in SortOrder');
+  for (const entry of created) {
+    assert.deepEqual(entry.rowKey, {
+      PartnerFunction: entry.value,
+      SalesOrganization: '1710', DistributionChannel: '10', Division: '00'
+    }, 'the key names the function AND the sales area it is for');
+  }
+
+  // Every entry of one row carries that row's key, which is how the three that complete the sales
+  // area find the row the first one made. Nothing counts indices any more.
+  const forRe = entries.filter((entry) => entry.rowKey?.PartnerFunction === 'RE');
+  assert.deepEqual(forRe.map((entry) => entry.field).sort(),
+    ['DistributionChannel', 'Division', 'PartnerFunction', 'SalesOrganization']);
+
+  assert.equal(entries.some((entry) => !entry.field), false,
+    'and no "add the others by hand" statement is left');
 });
 
 // The rule again: no sales area, no derivation, and no strip telling them to add one.
-test('no sales area, no account group and an already-filled section all stay silent', () => {
+test('no sales area and no account group stay silent', () => {
   const cases = [
     { Customers: [{ CustomerAccountGroup: 'KUNA' }] },
     { CustomerSalesArea: [{ SalesOrganization: '1710' }] },
     { ...customerWithSalesArea, Customers: [{}] },
-    { ...customerWithSalesArea, CustomerSalesPartnerFunctions: [{ PartnerFunction: 'AG' }] },
     // An account group TKUPA has no procedure for.
     { ...customerWithSalesArea, Customers: [{ CustomerAccountGroup: 'VVD' }] }
   ];
@@ -333,15 +357,63 @@ test('no sales area, no account group and an already-filled section all stay sil
   }
 });
 
-test('the created row carries the function and the whole sales area key', async () => {
-  const { derived } = await runDerivations(payload({}, customerWithSalesArea), stages());
+// A filled section only ever had to stop the rows that ARE theirs: the key is per function.
+test('a function the requester typed is left alone, and the rest are still proposed', async () => {
+  const sections = {
+    ...customerWithSalesArea,
+    CustomerSalesPartnerFunctions: [{ PartnerFunction: 'AG' }]
+  };
+  const entries = partnerFunctionEntries(payload({}, sections), CONFIG);
+  assert.deepEqual(
+    entries.filter((entry) => entry.createsRow).map((entry) => entry.value),
+    ['AG', 'RE'],
+    'the stage offers both; the pipeline is what drops the one already there'
+  );
 
-  assert.deepEqual(derived.sections.CustomerSalesPartnerFunctions, [{
-    PartnerFunction: 'AG',
-    SalesOrganization: '1710',
-    DistributionChannel: '10',
-    Division: '00'
-  }]);
+  const { derived, applied } = await runDerivations(payload({}, sections), stages());
+  assert.deepEqual(derived.sections.CustomerSalesPartnerFunctions, [
+    // Theirs, with the key it was missing filled in -- never duplicated.
+    { PartnerFunction: 'AG', SalesOrganization: '1710', DistributionChannel: '10', Division: '00' },
+    { PartnerFunction: 'RE', SalesOrganization: '1710', DistributionChannel: '10', Division: '00' }
+  ]);
+  assert.equal(
+    applied.filter((entry) => entry.createsRow).length, 1,
+    'and only the missing row is reported as added'
+  );
+});
+
+test('the created rows each carry their function and the whole sales area key', async () => {
+  const { derived, applied } = await runDerivations(payload({}, customerWithSalesArea), stages());
+
+  assert.deepEqual(derived.sections.CustomerSalesPartnerFunctions, [
+    { PartnerFunction: 'AG', SalesOrganization: '1710', DistributionChannel: '10', Division: '00' },
+    { PartnerFunction: 'RE', SalesOrganization: '1710', DistributionChannel: '10', Division: '00' }
+  ]);
+
+  // The reported index is where the row actually landed, which is what lets the dialog group the
+  // four entries of one row into one line.
+  const indices = new Map();
+  for (const entry of applied.filter((e) => e.target === 'CustomerSalesPartnerFunctions')) {
+    if (!indices.has(entry.rowKey.PartnerFunction)) indices.set(entry.rowKey.PartnerFunction, []);
+    indices.get(entry.rowKey.PartnerFunction).push(entry.index);
+  }
+  assert.deepEqual(indices.get('AG'), [0, 0, 0, 0]);
+  assert.deepEqual(indices.get('RE'), [1, 1, 1, 1]);
+});
+
+// A blank level is not a key: matched against a row that HAS that level it would fail, and the
+// section would collect a second copy of every row.
+test('a sales area with no division keys on the two levels that are filled in', () => {
+  const entries = partnerFunctionEntries(payload({}, {
+    Customers: [{ CustomerAccountGroup: 'KUNA' }],
+    CustomerSalesArea: [{ SalesOrganization: '1710', DistributionChannel: '10' }]
+  }), CONFIG);
+
+  const [first] = entries;
+  assert.deepEqual(first.rowKey, {
+    PartnerFunction: 'AG', SalesOrganization: '1710', DistributionChannel: '10'
+  });
+  assert.equal(entries.some((entry) => entry.field === 'Division'), false);
 });
 
 // --- Supplier partner functions --------------------------------------------
@@ -386,12 +458,11 @@ test('the subrange and plant are never filled by the purchasing-org derivation',
   assert.equal(fields.includes('ReferenceSupplier'), false);
 });
 
-test('no purchasing org, no account group and an already-filled section all stay silent', () => {
+test('no purchasing org and no account group stay silent', () => {
   const cases = [
     { Suppliers: [{ SupplierAccountGroup: 'LIEF' }] },
     { SupplierPurchasingOrg: [{ PurchasingOrganization: '1710' }] },
     { ...supplierWithPurchasingOrg, Suppliers: [{}] },
-    { ...supplierWithPurchasingOrg, SupplierPartnerFunctions: [{ PartnerFunction: 'LF' }] },
     { ...supplierWithPurchasingOrg, Suppliers: [{ SupplierAccountGroup: 'ZZZZ' }] }
   ];
   for (const sections of cases) {
@@ -403,6 +474,27 @@ test('no purchasing org, no account group and an already-filled section all stay
   }
 });
 
+// The customer stage's own change, mirrored: all of them, keyed per function, and a function the
+// requester typed is filled rather than duplicated.
+test('every mandatory supplier function is proposed, keyed on its purchasing organisation', async () => {
+  const entries = supplierFunctionEntries(payload({}, supplierWithPurchasingOrg), CONFIG);
+  assert.deepEqual(
+    entries.filter((entry) => entry.createsRow).map((entry) => entry.value),
+    ['LF', 'RS']
+  );
+  assert.deepEqual(entries[0].rowKey, { PartnerFunction: 'LF', PurchasingOrganization: '1710' });
+  assert.equal(entries.some((entry) => !entry.field), false, 'and nothing is merely named');
+
+  const { derived } = await runDerivations(payload({}, {
+    ...supplierWithPurchasingOrg,
+    SupplierPartnerFunctions: [{ PartnerFunction: 'LF' }]
+  }), stages());
+  assert.deepEqual(derived.sections.SupplierPartnerFunctions, [
+    { PartnerFunction: 'LF', PurchasingOrganization: '1710' },
+    { PartnerFunction: 'RS', PurchasingOrganization: '1710' }
+  ]);
+});
+
 // Both sides fire on one request, into their own sections, without crossing over.
 test('a request that is both a customer and a supplier derives both, separately', async () => {
   const request = payload({}, {
@@ -412,12 +504,14 @@ test('a request that is both a customer and a supplier derives both, separately'
   });
   const { derived } = await runDerivations(request, stages());
 
-  assert.deepEqual(derived.sections.CustomerSalesPartnerFunctions, [{
-    PartnerFunction: 'AG', SalesOrganization: '1710', DistributionChannel: '10', Division: '00'
-  }]);
-  assert.deepEqual(derived.sections.SupplierPartnerFunctions, [{
-    PartnerFunction: 'LF', PurchasingOrganization: '1710'
-  }]);
+  assert.deepEqual(derived.sections.CustomerSalesPartnerFunctions, [
+    { PartnerFunction: 'AG', SalesOrganization: '1710', DistributionChannel: '10', Division: '00' },
+    { PartnerFunction: 'RE', SalesOrganization: '1710', DistributionChannel: '10', Division: '00' }
+  ]);
+  assert.deepEqual(derived.sections.SupplierPartnerFunctions, [
+    { PartnerFunction: 'LF', PurchasingOrganization: '1710' },
+    { PartnerFunction: 'RS', PurchasingOrganization: '1710' }
+  ]);
 });
 
 // --- Through the pipeline --------------------------------------------------
@@ -499,4 +593,79 @@ test('the stage runs on Check and Duplicate Check, and still not on submit', () 
   // Submit still validates without deriving, unchanged since 2026-08-13.
   const submit = serviceJs.slice(serviceJs.indexOf("this.on('submitRequest'"));
   assert.equal(/createDerivationStages/u.test(submit), false);
+});
+
+
+// --- Diagnostics -----------------------------------------------------------
+
+/**
+ * Maarten, 2026-08-27: account group `DEBI`, one sales area row, no partner-function rows, and the
+ * customizing confirmed by hand -- `DEBI` -> `AG` -> `AG, RE, RG, WE` mandatory, `PartnerType` KU.
+ * Nothing was proposed, and because the stage says nothing about unmet preconditions there was no
+ * way to tell WHICH guard stopped it. Two wrong guesses later, this is the instrumentation.
+ *
+ * The first half is the case itself, pinned as a regression: that payload against that config must
+ * produce the AG proposal.
+ */
+test('the DEBI case proposes AG, and the stage logs what it saw', async () => {
+  const lines = [];
+  const original = console.log;
+  console.log = (line) => lines.push(String(line));
+
+  let entries;
+  try {
+    entries = await stages()[0].run(payload(
+      { BusinessPartnerCategory: '2', BusinessPartnerGrouping: '0001' },
+      {
+        Addresses: [{ Country: 'BE', Language: 'N', CityName: 'Destelbergen' }],
+        Customers: [{ CustomerAccountGroup: 'DEBI' }],
+        CustomerSalesArea: [{ SalesOrganization: '0001', DistributionChannel: '01', Division: '01' }],
+        CustomerTaxIndicators: [{ CustomerTaxCategory: 'MWST', DepartureCountry: 'BE' }],
+        CustomerSalesPartnerFunctions: []
+      }
+    ));
+  } finally {
+    console.log = original;
+  }
+
+  const proposed = entries.filter((entry) => entry.target === 'CustomerSalesPartnerFunctions');
+  assert.equal(proposed[0].field, 'PartnerFunction');
+  assert.equal(proposed[0].value, 'AG');
+  assert.equal(proposed[0].createsRow, true);
+
+  const [diagnostic] = lines.filter((line) => line.startsWith('[sap-derivations] '));
+  assert.ok(diagnostic, 'the stage logged one diagnostic line');
+  const seen = JSON.parse(diagnostic.slice('[sap-derivations] '.length));
+
+  // The row counts, because an empty read looks exactly like customizing that says nothing -- which
+  // is the ambiguity that cost two rounds.
+  assert.equal(seen.config.partnerFunctions, CONFIG.partnerFunctions.length);
+  assert.equal(seen.config.taxCategories, CONFIG.taxCategories.length);
+  // And every field the five builders branch on.
+  assert.equal(seen.payload.customerAccountGroup, 'DEBI');
+  assert.equal(seen.payload.salesAreas, 1);
+  assert.equal(seen.payload.customerFunctionRows, 0);
+  assert.equal(seen.payload.addressLanguage, 'N');
+  assert.equal(seen.payload.addressRegion, '', 'no region is why the time zone stayed silent');
+  assert.equal(seen.payload.taxIndicatorRows, 1, 'and rows already there are why tax did');
+  assert.equal(seen.entries, entries.length);
+});
+
+// A derivation that had nothing to do must still say so: the whole point is telling that apart from
+// a read that came back empty.
+test('the diagnostic is logged even when nothing was derived', async () => {
+  const lines = [];
+  const original = console.log;
+  console.log = (line) => lines.push(String(line));
+  try {
+    await stages()[0].run(payload({}, {}));
+  } finally {
+    console.log = original;
+  }
+  const [diagnostic] = lines.filter((line) => line.startsWith('[sap-derivations] '));
+  assert.ok(diagnostic);
+  const seen = JSON.parse(diagnostic.slice('[sap-derivations] '.length));
+  assert.equal(seen.entries, 0);
+  assert.equal(seen.payload.addresses, 0);
+  assert.equal(seen.payload.customerAccountGroup, '');
 });

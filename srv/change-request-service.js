@@ -859,9 +859,15 @@ class ChangeRequestService extends cds.ApplicationService {
         scope: req.data.Scope || null,
         standard: true
       });
+      // The standard findings travel SEPARATELY here (2026-08-28), so the screen can hold them
+      // back while the proposals dialog is open: a city the derivations are offering to fill must
+      // not be reported as missing at the same time. Filtered by identity rather than re-derived --
+      // `runChecks` merges the same objects into `validations`, so this cannot drift from it.
+      const isStandard = new Set(result.standard);
       return {
         Valid: result.valid,
-        ValidationsJson: JSON.stringify(result.validations),
+        ValidationsJson: JSON.stringify(result.validations.filter((entry) => !isStandard.has(entry))),
+        StandardJson: JSON.stringify(result.standard),
         DerivationsJson: JSON.stringify(result.derivations),
         NormalisationsJson: JSON.stringify(result.normalisations)
       };

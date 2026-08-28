@@ -390,7 +390,11 @@ test('an applied proposal can land on an address row, not only on the root', () 
  */
 test('accepting a proposal can create the row it needs', () => {
   // Its own label: adding a record nobody added is a bigger thing than filling an empty field.
-  assert.match(controllerSource, /change: entry\.createsRow \? "Row added" : "Filled in"/u);
+  // The ternary moved into _proposalRows when a KEYED row became one line (2026-08-28) -- an
+  // unkeyed one, which is what the registry's address proposal is, still gets a line per field
+  // and still says "Row added" on each.
+  assert.match(controllerSource, /entry\.createsRow \? "Row added" : "Filled in"/u);
+  assert.match(controllerSource, /this\._derivationRow\(lead, "Row added",/u);
   assert.match(controllerSource, /createsRow: Boolean\(entry\.createsRow\)/u);
   // Accepting is what creates it, and it stages as a C - an update to a row S/4 does not have
   // would be replayed as one by postToS4.

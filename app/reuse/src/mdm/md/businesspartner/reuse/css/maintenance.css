@@ -103,3 +103,10 @@
     padding: 0.75rem 0.5rem;
   }
 }
+
+/* The key a derived row lands under, drawn beneath the section name in the proposals dialog.
+   SAP's own label tokens rather than a fixed grey, so it stays theme-correct. */
+.mdmProposalSubtext {
+  color: var(--sapContent_LabelColor, #6a6d70);
+  font-size: var(--sapFontSmallSize, 0.75rem);
+}

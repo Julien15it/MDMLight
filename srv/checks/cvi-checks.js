@@ -18,6 +18,8 @@
 
 const cds = require('@sap/cds');
 
+const { readAllOf } = require('./config-reader');
+
 const SERVICE = 'ZSRVB_MDMLIGHT_VH';
 
 // Same 60s TTL as rule-store.js and field-property-store.js. The configuration is customizing:
@@ -121,6 +123,8 @@ function invalidate() {
 
 async function readConfiguration() {
   const service = await cds.connect.to(SERVICE);
+  // Paged: the remote service caps a response at 100 rows, so a bare SELECT returned a first
+  // page that was then used as the whole table. See config-reader.js.
   const [
     roles,
     categories,
@@ -129,14 +133,14 @@ async function readConfiguration() {
     customerAssignments,
     supplierAssignments,
     directions
-  ] = await Promise.all([
-    service.run(cds.ql.SELECT.from('CviBusinessPartnerRoles')),
-    service.run(cds.ql.SELECT.from('CviRoleCategories')),
-    service.run(cds.ql.SELECT.from('CviPostprocessingControl')),
-    service.run(cds.ql.SELECT.from('CviNumberRanges')),
-    service.run(cds.ql.SELECT.from('CviCustomerNumberAssignments')),
-    service.run(cds.ql.SELECT.from('CviSupplierNumberAssignments')),
-    service.run(cds.ql.SELECT.from('CviSyncDirections'))
+  ] = await readAllOf(service, [
+    'CviBusinessPartnerRoles',
+    'CviRoleCategories',
+    'CviPostprocessingControl',
+    'CviNumberRanges',
+    'CviCustomerNumberAssignments',
+    'CviSupplierNumberAssignments',
+    'CviSyncDirections'
   ]);
   return {
     roles: roles || [],
