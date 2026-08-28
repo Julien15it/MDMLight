@@ -107,6 +107,12 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
         ChangeRequestStatus_Text : String(30);
   }
 
+  // Dead weight: it is in the deployed schema but in no commit, and cds-deploy cannot drop a table.
+  @readonly entity RequestedByUsers {
+    key RequestedBy      : String(120);
+        RequestedBy_Text : String(120);
+  }
+
   // Value-help lookups sourced from the custom S/4 value-help service
   // ZSRVB_MDMLIGHT_VH — API_BUSINESS_PARTNER itself exposes none of these.
   // Referenced from srv/annotations.cds via @Common.ValueList and, in the
