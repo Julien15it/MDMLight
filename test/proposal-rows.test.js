@@ -40,6 +40,16 @@ function loadController() {
   return members;
 }
 
+/**
+ * Across the `vm` boundary, so `deepStrictEqual` can compare by VALUE.
+ *
+ * `runInNewContext` gives the sandbox its own realm, so an object or array the controller builds
+ * has that realm's `Object.prototype` -- and `node:assert/strict` compares prototypes, so an
+ * otherwise identical result fails with "same structure but not reference-equal". Nothing is wrong
+ * with the value; it is the wrong realm. Round-tripping it rebuilds it in this one.
+ */
+const plain = (value) => JSON.parse(JSON.stringify(value));
+
 const SECTIONS = [
   { id: 'CustomerSalesPartnerFunctions', title: 'Customer Partner Functions' },
   { id: 'Addresses', title: 'Address Data' }
@@ -91,7 +101,7 @@ test('four entries for one derived row become one dialog line', () => {
 test('the key fields travel with the row rather than being their own questions', () => {
   const [row] = context()._proposalRows(rowEntries('AG', 0), []);
 
-  assert.deepEqual(row.extras, [
+  assert.deepEqual(plain(row.extras), [
     { field: 'SalesOrganization', value: '1710' },
     { field: 'DistributionChannel', value: '10' },
     { field: 'Division', value: '00' }
@@ -106,9 +116,9 @@ test('two derived rows are two lines, told apart by their index', () => {
     [...rowEntries('AG', 0), ...rowEntries('RE', 1)], []
   );
 
-  assert.deepEqual(rows.map((row) => row.proposed), ['AG', 'RE']);
-  assert.deepEqual(rows.map((row) => row.index), [0, 1]);
-  assert.deepEqual(rows.map((row) => row.subtext),
+  assert.deepEqual(plain(rows.map((row) => row.proposed)), ['AG', 'RE']);
+  assert.deepEqual(plain(rows.map((row) => row.index)), [0, 1]);
+  assert.deepEqual(plain(rows.map((row) => row.subtext)),
     ['Sales area 1710 / 10 / 00', 'Sales area 1710 / 10 / 00']);
 });
 
@@ -124,7 +134,7 @@ test('a plain filled-in field looks exactly as it did', () => {
   assert.equal(rows[0].change, 'Filled in');
   assert.equal(rows[0].fieldLabel, 'Language');
   assert.equal(rows[0].subtext, '');
-  assert.deepEqual(rows[0].extras, []);
+  assert.deepEqual(plain(rows[0].extras), []);
 });
 
 // A field derived and then reformatted is still one row -- applying both would write it twice.
@@ -161,7 +171,7 @@ test('accepting a row writes the lead value and every key field with it', () => 
     ]
   }]);
 
-  assert.deepEqual(state.sections.CustomerSalesPartnerFunctions, [{
+  assert.deepEqual(plain(state.sections.CustomerSalesPartnerFunctions), [{
     __state: 'new',
     PartnerFunction: 'AG',
     SalesOrganization: '1710',

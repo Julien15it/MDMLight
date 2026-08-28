@@ -390,7 +390,10 @@ test('an applied proposal can land on an address row, not only on the root', () 
  */
 test('accepting a proposal can create the row it needs', () => {
   // Its own label: adding a record nobody added is a bigger thing than filling an empty field.
-  assert.match(controllerSource, /change: entry\.createsRow \? "Row added" : "Filled in"/u);
+  // The two strings moved into _proposalRows' grouping when a created row became one line
+  // (2026-08-28) -- `change` is decided per group there and passed to _derivationRow.
+  assert.match(controllerSource, /this\._derivationRow\(lead, "Row added",/u);
+  assert.match(controllerSource, /this\._derivationRow\(entry, "Filled in", \[\]\)/u);
   assert.match(controllerSource, /createsRow: Boolean\(entry\.createsRow\)/u);
   // Accepting is what creates it, and it stages as a C - an update to a row S/4 does not have
   // would be replayed as one by postToS4.
