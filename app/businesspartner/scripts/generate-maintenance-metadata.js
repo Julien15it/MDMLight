@@ -257,6 +257,9 @@ const sections = [
     kind: 'collection',
     fieldNames: [
       'Customer', 'SalesOrganization', 'DistributionChannel', 'Division',
+      // KNVV-BZIRK. Required entry on account group DEBI: an activation failed on it 2026-08-28
+      // with no field on the screen to satisfy it.
+      'SalesDistrict',
       'CreditControlArea', 'Currency', 'CustomerPriceGroup', 'CustomerPricingProcedure',
       'CustomerPaymentTerms', 'DeliveryPriority', 'ShippingCondition', 'BillingIsBlockedForCustomer',
       // KNVV.KVGR1-5, "Customer Group 1-5". NOT the MDG screen's "Condition Group 1-5",
