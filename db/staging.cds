@@ -308,6 +308,8 @@ entity StagedCustomerSalesArea : cuid {
   SalesOrganization          : String(4);
   DistributionChannel        : String(2);
   Division                   : String(2);
+  // KNVV-BZIRK. Required entry on account group DEBI, and the activation failure of 2026-08-28.
+  SalesDistrict              : String(6);
   CreditControlArea          : String(4);
   Currency                   : String(5);
   CustomerPriceGroup         : String(2);
