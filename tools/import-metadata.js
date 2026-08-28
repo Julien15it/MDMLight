@@ -13,8 +13,9 @@
  *
  * There is deliberately no --file route. A browser download lands on the developer's laptop while
  * `cds import` runs in BAS, so it costs a file transfer before it costs anything else — and once a
- * document is in the workspace, `cds import <file> --as cds --into srv/external` (--as csn for
- * API_BUSINESS_PARTNER) is the whole job and this script adds nothing.
+ * document is in the workspace, `npx cds import <file> --as cds --force --no-copy --no-save` run
+ * from the project root (--as csn for API_BUSINESS_PARTNER) is the whole job and this script adds
+ * nothing.
  *
  * What the fetch routes add is the credentials, and the check that what came back is a model at
  * all — a login page or a gateway error never lands in srv/external.
@@ -149,10 +150,36 @@ async function main() {
     `${path.relative(process.cwd(), edmx)}: ${before === xml ? 'unchanged' : 'updated'} (${xml.length} bytes)`
   );
 
+  // Resolved out of node_modules rather than called as `cds`: the CLI is a devDependency and is
+  // not on PATH unless somebody installed cds-dk globally. Run from this laptop on 2026-08-28 it
+  // failed with "'cds' is not recognized" AFTER writing the .edmx, which reads as a fetch problem
+  // and is not one.
+  //
+  // **No `--into`.** cds-dk 8 has no such flag -- `cds import --help` lists --no-copy, --no-save,
+  // -o/--out, --dry, --as, --force and --from, and nothing else. It was silently doing nothing
+  // useful. `--no-copy` because the document is already in srv/external and the default would copy
+  // it onto itself; the csn is written next to the source either way. `--no-save` because the
+  // package.json entry for this service has existed since it was first imported.
+  // Resolved out of node_modules rather than called as `cds`: the CLI is a devDependency and is not
+  // on PATH unless somebody installed cds-dk globally. Run from a laptop on 2026-08-28 it failed
+  // with "'cds' is not recognized" AFTER writing the .edmx, which reads as a fetch failure and is
+  // not one.
+  //
+  // **No `--into`.** cds-dk 8 has no such flag: `cds import --help` lists --no-copy, --no-save,
+  // -o/--out, --dry, --as, --force and --from, and nothing more.
+  //
+  // The cwd is inherited on purpose. `--no-copy` writes the model to `<cwd>/srv/external`, and this
+  // script already resolves `edmx` against the cwd (`path.resolve(config.model)`), so the two agree
+  // as long as neither is overridden -- npm run sets the cwd to the package root. Overriding it
+  // wrote `srv/srv/external/...`, and `-o` is no way out: it treats its argument as a DIRECTORY and
+  // mkdirs it, so `-o srv/external/X.cds` creates a directory of that name.
   execFileSync(
-    'cds',
-    ['import', edmx, '--as', flavour, '--into', path.dirname(edmx), '--force'],
-    { stdio: 'inherit', shell: process.platform === 'win32' }
+    process.execPath,
+    [
+      require.resolve('@sap/cds-dk/bin/cds.js'),
+      'import', edmx, '--as', flavour, '--force', '--no-copy', '--no-save'
+    ],
+    { stdio: 'inherit' }
   );
 
   console.log(

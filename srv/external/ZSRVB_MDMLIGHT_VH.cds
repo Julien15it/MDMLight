@@ -1,9 +1,28 @@
-/* checksum : 2963dfeb13ad0d27f3d4c67d910ce87d */
+/* checksum : dc562d6bb3e5c8dc9f322be698947553 */
 @cds.external : true
 @m.IsDefaultEntityContainer : 'true'
 @sap.message.scope.supported : 'true'
 @sap.supported.formats : 'atom json xlsx'
 service ZSRVB_MDMLIGHT_VH {};
+
+@cds.external : true
+@cds.persistence.skip : true
+@sap.creatable : 'false'
+@sap.updatable : 'false'
+@sap.deletable : 'false'
+@sap.searchable : 'true'
+@sap.content.version : '1'
+entity ZSRVB_MDMLIGHT_VH.CustomerPricingProcedures {
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Cust.Pric.Procedure'
+  @sap.quickinfo : 'Customer Classification for Pricing Procedure Determination'
+  key CustomerPricingProcedure : String(2) not null;
+  @sap.label : 'Language Key'
+  key Language : String(2) not null;
+  @sap.label : 'Customer Pricing Proc Description'
+  @sap.quickinfo : 'Customer Pricing Procedure Description'
+  CustomerPricingProcedureText : String(20);
+};
 
 @cds.external : true
 @cds.persistence.skip : true
@@ -707,6 +726,107 @@ entity ZSRVB_MDMLIGHT_VH.TaxTypes {
 @sap.deletable : 'false'
 @sap.searchable : 'true'
 @sap.content.version : '1'
+@sap.label : 'Company Code'
+entity ZSRVB_MDMLIGHT_VH.CompanyCodes {
+  @sap.display.format : 'UpperCase'
+  @sap.text : 'CompanyCodeName'
+  @sap.label : 'Company Code'
+  key CompanyCode : String(4) not null;
+  @sap.label : 'Company Name'
+  @sap.quickinfo : 'Name of Company Code or Company'
+  CompanyCodeName : String(25);
+  @sap.label : 'City'
+  CityName : String(25);
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Country/Region Key'
+  Country : String(3);
+  @sap.display.format : 'UpperCase'
+  @sap.text : 'to_Currency/Currency_Text'
+  @sap.label : 'Currency'
+  @sap.quickinfo : 'Currency Key'
+  @sap.value.list : 'standard'
+  @sap.semantics : 'currency-code'
+  Currency : String(5);
+  @sap.text : 'to_Language/Language_Text'
+  @sap.label : 'Language Key'
+  @sap.value.list : 'standard'
+  Language : String(2);
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Chart of Accounts'
+  ChartOfAccounts : String(4);
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Fiscal Year Variant'
+  FiscalYearVariant : String(2);
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Company'
+  Company : String(6);
+  @sap.display.format : 'UpperCase'
+  @sap.text : 'CreditControlArea_Text'
+  @sap.label : 'Credit Control Area'
+  CreditControlArea : String(4);
+  @sap.label : 'Description'
+  @sap.quickinfo : 'Description of the credit control area'
+  @sap.creatable : 'false'
+  @sap.updatable : 'false'
+  CreditControlArea_Text : String(35);
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Alternative COA'
+  @sap.quickinfo : 'Alternative Chart of Accounts'
+  CountryChartOfAccounts : String(4);
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'FM Area'
+  @sap.quickinfo : 'Financial Management Area'
+  FinancialManagementArea : String(4);
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Address'
+  AddressID : String(10);
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Taxes on Sls/Purc.'
+  @sap.quickinfo : 'Taxes on Sales/Purchases Group'
+  TaxableEntity : String(4);
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'VAT Registration No.'
+  @sap.quickinfo : 'VAT Registration Number'
+  VATRegistration : String(20);
+  @sap.label : 'Extended WTax Active'
+  @sap.quickinfo : 'Indicator: Extended Withholding Tax Active'
+  ExtendedWhldgTaxIsActive : Boolean;
+  @sap.display.format : 'UpperCase'
+  @sap.text : 'ControllingArea_Text'
+  @sap.label : 'Controlling Area'
+  ControllingArea : String(4);
+  @sap.label : 'Controlling Area Name'
+  @sap.creatable : 'false'
+  @sap.updatable : 'false'
+  ControllingArea_Text : String(25);
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Field status variant'
+  @sap.quickinfo : 'Field Status Variant'
+  FieldStatusVariant : String(4);
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Output Tax Code'
+  @sap.quickinfo : 'Output Tax Code for Non-Taxable Transactions'
+  NonTaxableTransactionTaxCode : String(2);
+  @sap.label : 'Tax Determ.with Doc.Date'
+  @sap.quickinfo : 'Indicator: Document Date As the Basis for Tax Determination'
+  DocDateIsUsedForTaxDetn : Boolean;
+  @sap.label : 'Tax Date'
+  @sap.quickinfo : 'Tax Reporting Date Active in Documents'
+  TaxRptgDateIsActive : Boolean;
+  @sap.label : 'Net Discount Base'
+  @sap.quickinfo : 'Indicator: Discount base amount is the net value'
+  CashDiscountBaseAmtIsNetAmt : Boolean;
+  to_Currency : Association to ZSRVB_MDMLIGHT_VH.Currencies {  };
+  to_Language : Association to ZSRVB_MDMLIGHT_VH.Languages {  };
+};
+
+@cds.external : true
+@cds.persistence.skip : true
+@sap.creatable : 'false'
+@sap.updatable : 'false'
+@sap.deletable : 'false'
+@sap.searchable : 'true'
+@sap.content.version : '1'
 @sap.label : 'Country/Region'
 entity ZSRVB_MDMLIGHT_VH.Countries {
   @sap.display.format : 'UpperCase'
@@ -727,6 +847,41 @@ entity ZSRVB_MDMLIGHT_VH.Countries {
   @sap.label : 'ISO Code Num. 3'
   @sap.quickinfo : 'ISO Country/Region Code Numeric 3-Characters'
   CountryThreeDigitISOCode : String(3);
+};
+
+@cds.external : true
+@cds.persistence.skip : true
+@sap.creatable : 'false'
+@sap.updatable : 'false'
+@sap.deletable : 'false'
+@sap.searchable : 'true'
+@sap.content.version : '1'
+@sap.label : 'Currency'
+entity ZSRVB_MDMLIGHT_VH.Currencies {
+  @sap.display.format : 'UpperCase'
+  @sap.text : 'Currency_Text'
+  @sap.label : 'Currency'
+  @sap.quickinfo : 'Currency Key'
+  @sap.semantics : 'currency-code'
+  key Currency : String(5) not null;
+  @sap.label : 'Description'
+  @sap.creatable : 'false'
+  @sap.updatable : 'false'
+  Currency_Text : String(40);
+  @odata.Type : 'Edm.Byte'
+  @sap.label : 'Decimal Places'
+  @sap.quickinfo : 'Number of decimal places'
+  Decimals : Integer;
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'ISO Code'
+  @sap.quickinfo : 'ISO Currency Code'
+  CurrencyISOCode : String(3);
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Alternative Key'
+  AlternativeCurrencyKey : String(3);
+  @sap.label : 'Primary'
+  @sap.quickinfo : 'Primary SAP Currency Code for ISO Code'
+  IsPrimaryCurrencyForISOCrcy : Boolean;
 };
 
 @cds.external : true
@@ -794,6 +949,97 @@ entity ZSRVB_MDMLIGHT_VH.CustomerClassificationTexts {
   CustomerClassificationDesc : String(20);
   to_CustomerClassification : Association to ZSRVB_MDMLIGHT_VH.CustomerClassifications {  };
   to_Language : Association to ZSRVB_MDMLIGHT_VH.Languages {  };
+};
+
+@cds.external : true
+@cds.persistence.skip : true
+@sap.creatable : 'false'
+@sap.updatable : 'false'
+@sap.deletable : 'false'
+@sap.searchable : 'true'
+@sap.content.version : '1'
+@sap.label : 'Customer Price Group'
+entity ZSRVB_MDMLIGHT_VH.CustomerPriceGroups {
+  @sap.display.format : 'UpperCase'
+  @sap.text : 'CustomerPriceGroup_Text'
+  @sap.label : 'Customer Price Group'
+  key CustomerPriceGroup : String(2) not null;
+  @sap.label : 'Description'
+  @sap.creatable : 'false'
+  @sap.updatable : 'false'
+  CustomerPriceGroup_Text : String(20);
+  to_Text : Association to many ZSRVB_MDMLIGHT_VH.CustomerPriceGroupTexts {  };
+};
+
+@cds.external : true
+@cds.persistence.skip : true
+@sap.creatable : 'false'
+@sap.updatable : 'false'
+@sap.deletable : 'false'
+@sap.searchable : 'true'
+@sap.content.version : '1'
+@sap.label : 'Customer Price Group - Text'
+entity ZSRVB_MDMLIGHT_VH.CustomerPriceGroupTexts {
+  @sap.display.format : 'UpperCase'
+  @sap.text : 'to_CustomerPriceGroup/CustomerPriceGroup_Text'
+  @sap.label : 'Customer Price Group'
+  @sap.value.list : 'standard'
+  key CustomerPriceGroup : String(2) not null;
+  @sap.text : 'to_Language/Language_Text'
+  @sap.label : 'Language Key'
+  @sap.value.list : 'standard'
+  key Language : String(2) not null;
+  @sap.label : 'Description'
+  CustomerPriceGroupName : String(20);
+  to_CustomerPriceGroup : Association to ZSRVB_MDMLIGHT_VH.CustomerPriceGroups {  };
+  to_Language : Association to ZSRVB_MDMLIGHT_VH.Languages {  };
+};
+
+@cds.external : true
+@cds.persistence.skip : true
+@sap.creatable : 'false'
+@sap.updatable : 'false'
+@sap.deletable : 'false'
+@sap.searchable : 'true'
+@sap.content.version : '1'
+@sap.label : 'Distribution Channel'
+entity ZSRVB_MDMLIGHT_VH.DistributionChannels {
+  @sap.display.format : 'UpperCase'
+  @sap.text : 'DistributionChannel_Text'
+  @sap.label : 'Distribution Channel'
+  key DistributionChannel : String(2) not null;
+  @sap.label : 'Distribution Channel Description'
+  @sap.creatable : 'false'
+  @sap.updatable : 'false'
+  DistributionChannel_Text : String(20);
+  @sap.label : 'Distr Channel OID'
+  @sap.quickinfo : 'Distribution Channel OID'
+  @sap.sortable : 'false'
+  @sap.filterable : 'false'
+  DistributionChannelOID : String(128);
+};
+
+@cds.external : true
+@cds.persistence.skip : true
+@sap.creatable : 'false'
+@sap.updatable : 'false'
+@sap.deletable : 'false'
+@sap.searchable : 'true'
+@sap.content.version : '1'
+@sap.label : 'Division'
+entity ZSRVB_MDMLIGHT_VH.Divisions {
+  @sap.display.format : 'UpperCase'
+  @sap.text : 'Division_Text'
+  @sap.label : 'Division'
+  key Division : String(2) not null;
+  @sap.label : 'Division Description'
+  @sap.creatable : 'false'
+  @sap.updatable : 'false'
+  Division_Text : String(20);
+  @sap.label : 'Division OID'
+  @sap.sortable : 'false'
+  @sap.filterable : 'false'
+  DivisionOID : String(128);
 };
 
 @cds.external : true
@@ -897,6 +1143,31 @@ entity ZSRVB_MDMLIGHT_VH.LanguageTexts {
 @sap.deletable : 'false'
 @sap.searchable : 'true'
 @sap.content.version : '1'
+@sap.label : 'Purchasing Organization'
+entity ZSRVB_MDMLIGHT_VH.PurchasingOrganizations {
+  @sap.display.format : 'UpperCase'
+  @sap.text : 'PurchasingOrganizationName'
+  @sap.label : 'Purchasing Organization'
+  key PurchasingOrganization : String(4) not null;
+  @sap.label : 'Purch. Org. Name'
+  @sap.quickinfo : 'Purchasing Organization Name'
+  PurchasingOrganizationName : String(20);
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Company Code'
+  CompanyCode : String(4);
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Validity'
+  @sap.quickinfo : 'Deprecated Entries'
+  ConfigDeprecationCode : String(1);
+};
+
+@cds.external : true
+@cds.persistence.skip : true
+@sap.creatable : 'false'
+@sap.updatable : 'false'
+@sap.deletable : 'false'
+@sap.searchable : 'true'
+@sap.content.version : '1'
 @sap.label : 'Region'
 entity ZSRVB_MDMLIGHT_VH.Regions {
   @sap.display.format : 'UpperCase'
@@ -911,6 +1182,63 @@ entity ZSRVB_MDMLIGHT_VH.Regions {
   @sap.creatable : 'false'
   @sap.updatable : 'false'
   Region_Text : String(20);
+};
+
+@cds.external : true
+@cds.persistence.skip : true
+@sap.creatable : 'false'
+@sap.updatable : 'false'
+@sap.deletable : 'false'
+@sap.searchable : 'true'
+@sap.content.version : '1'
+@sap.label : 'Sales District'
+entity ZSRVB_MDMLIGHT_VH.SalesDistricts {
+  @sap.display.format : 'UpperCase'
+  @sap.text : 'SalesDistrict_Text'
+  @sap.label : 'Sales District'
+  key SalesDistrict : String(6) not null;
+  @sap.label : 'District Name'
+  @sap.quickinfo : 'Name of the District'
+  @sap.creatable : 'false'
+  @sap.updatable : 'false'
+  SalesDistrict_Text : String(20);
+};
+
+@cds.external : true
+@cds.persistence.skip : true
+@sap.creatable : 'false'
+@sap.updatable : 'false'
+@sap.deletable : 'false'
+@sap.searchable : 'true'
+@sap.content.version : '1'
+@sap.label : 'Sales Organization'
+entity ZSRVB_MDMLIGHT_VH.SalesOrganizations {
+  @sap.display.format : 'UpperCase'
+  @sap.text : 'SalesOrganization_Text'
+  @sap.label : 'Sales Organization'
+  key SalesOrganization : String(4) not null;
+  @sap.label : 'Sales Organization Description'
+  @sap.creatable : 'false'
+  @sap.updatable : 'false'
+  SalesOrganization_Text : String(20);
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Statistics Currency'
+  @sap.quickinfo : 'Statistics currency'
+  @sap.semantics : 'currency-code'
+  SalesOrganizationCurrency : String(5);
+  @sap.display.format : 'UpperCase'
+  @sap.text : 'to_CompanyCode/CompanyCodeName'
+  @sap.label : 'Company Code'
+  @sap.quickinfo : 'Company code of the sales organization'
+  CompanyCode : String(4);
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Customer Interc. Bl.'
+  @sap.quickinfo : 'Customer Number for Intercompany Billing'
+  IntercompanyBillingCustomer : String(10);
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Address'
+  AddressID : String(10);
+  to_CompanyCode : Association to ZSRVB_MDMLIGHT_VH.CompanyCodes {  };
 };
 
 @cds.external : true
@@ -1150,16 +1478,6 @@ entity ZSRVB_MDMLIGHT_VH.CviSyncDirections {
   IsActive : Boolean;
 };
 
-
-/* --------------------------------------------------------------------------
- * The five Der* entities below were transcribed BY HAND from the served
- * $metadata on 2026-08-27, because `npm run import:valuehelp` could not be
- * run against this landscape. They were added to ZSRVB_MDMLIGHT_VH.edmx too, so
- * the two copies agree; only the `checksum` above is now stale, and nothing
- * verifies it. Types and annotations are verbatim from $metadata, so what is
- * here is what the service actually serves. A real `cds import` supersedes it.
- * -------------------------------------------------------------------------- */
-
 @cds.external : true
 @cds.persistence.skip : true
 @sap.creatable : 'false'
@@ -1205,54 +1523,6 @@ entity ZSRVB_MDMLIGHT_VH.DerAddressDefaults {
 @sap.updatable : 'false'
 @sap.deletable : 'false'
 @sap.content.version : '1'
-@sap.label : 'Derivation: time zone per country and region'
-entity ZSRVB_MDMLIGHT_VH.DerTimeZones {
-  @sap.display.format : 'UpperCase'
-  @sap.label : 'Country/Region Key'
-  key Country : String(3) not null;
-  @sap.display.format : 'UpperCase'
-  @sap.label : 'Region'
-  @sap.quickinfo : 'Region (State, Province, County)'
-  key Region : String(3) not null;
-  @sap.display.format : 'UpperCase'
-  @sap.label : 'Time Zone'
-  key AddressTimeZone : String(6) not null;
-  @sap.label : 'Default Time Zone'
-  @sap.quickinfo : 'Indicator for Default Time Zone'
-  IsDefault : Boolean;
-};
-
-@cds.external : true
-@cds.persistence.skip : true
-@sap.creatable : 'false'
-@sap.updatable : 'false'
-@sap.deletable : 'false'
-@sap.content.version : '1'
-@sap.label : 'Derivation: valid tax categories per country'
-entity ZSRVB_MDMLIGHT_VH.DerTaxCategories {
-  @sap.display.format : 'UpperCase'
-  @sap.label : 'Tax country/region'
-  @sap.quickinfo : 'Country/Region is relevant for taxes'
-  key Country : String(3) not null;
-  @sap.display.format : 'NonNegative'
-  @sap.label : 'Tax sequence'
-  @sap.quickinfo : 'Sequence of possible taxes for each country/region'
-  key SequenceNumber : String(1) not null;
-  @sap.display.format : 'UpperCase'
-  @sap.label : 'Tax Condition Type'
-  @sap.quickinfo : 'Tax Condition Type (Sales Tax, Value-Added Tax,...)'
-  TaxCategory : String(4);
-  @sap.label : '% rate from T007'
-  @sap.quickinfo : 'Tax percentage rate from Table T007'
-  RateFromTableT007 : Boolean;
-};
-
-@cds.external : true
-@cds.persistence.skip : true
-@sap.creatable : 'false'
-@sap.updatable : 'false'
-@sap.deletable : 'false'
-@sap.content.version : '1'
 @sap.label : 'Derivation: partner functions valid per account group'
 entity ZSRVB_MDMLIGHT_VH.DerPartnerFunctions {
   @sap.display.format : 'UpperCase'
@@ -1280,22 +1550,20 @@ entity ZSRVB_MDMLIGHT_VH.DerPartnerFunctions {
 @sap.updatable : 'false'
 @sap.deletable : 'false'
 @sap.content.version : '1'
-@sap.label : 'Derivation: mandatory partner functions per procedure'
-entity ZSRVB_MDMLIGHT_VH.DerPartnerFunctionProcedures {
+@sap.label : 'Derivation: partner functions per account group'
+entity ZSRVB_MDMLIGHT_VH.DerPartnerFunctionAccGrp {
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Account group'
+  @sap.quickinfo : 'Customer Account Group'
+  key AccountGroup : String(4) not null;
+  key PartnerFunction : String(2) not null;
   @sap.display.format : 'UpperCase'
   @sap.label : 'PartnerDetermProced.'
   @sap.quickinfo : 'Partner Determination Procedure'
-  key DeterminationProcedure : String(4) not null;
-  key PartnerFunction : String(2) not null;
+  DeterminationProcedure : String(4);
   @sap.label : 'Partner mandatory'
   @sap.quickinfo : 'Partner is mandatory'
   IsMandatory : Boolean;
-  @sap.label : 'No change possible'
-  @sap.quickinfo : 'After entry,partner can no longer be changed in the document'
-  NoChangeAllowed : Boolean;
-  @sap.label : 'Unique'
-  @sap.quickinfo : 'Partner must be unique'
-  IsUnique : Boolean;
   @sap.display.format : 'NonNegative'
   @sap.label : 'Sequence'
   @sap.quickinfo : 'Sequence in which partners are determined in the sales doc.'
@@ -1312,20 +1580,22 @@ entity ZSRVB_MDMLIGHT_VH.DerPartnerFunctionProcedures {
 @sap.updatable : 'false'
 @sap.deletable : 'false'
 @sap.content.version : '1'
-@sap.label : 'Derivation: partner functions per account group'
-entity ZSRVB_MDMLIGHT_VH.DerPartnerFunctionAccGrp {
-  @sap.display.format : 'UpperCase'
-  @sap.label : 'Account group'
-  @sap.quickinfo : 'Customer Account Group'
-  key AccountGroup : String(4) not null;
-  key PartnerFunction : String(2) not null;
+@sap.label : 'Derivation: mandatory partner functions per procedure'
+entity ZSRVB_MDMLIGHT_VH.DerPartnerFunctionProcedures {
   @sap.display.format : 'UpperCase'
   @sap.label : 'PartnerDetermProced.'
   @sap.quickinfo : 'Partner Determination Procedure'
-  DeterminationProcedure : String(4);
+  key DeterminationProcedure : String(4) not null;
+  key PartnerFunction : String(2) not null;
   @sap.label : 'Partner mandatory'
   @sap.quickinfo : 'Partner is mandatory'
   IsMandatory : Boolean;
+  @sap.label : 'No change possible'
+  @sap.quickinfo : 'After entry,partner can no longer be changed in the document'
+  NoChangeAllowed : Boolean;
+  @sap.label : 'Unique'
+  @sap.quickinfo : 'Partner must be unique'
+  IsUnique : Boolean;
   @sap.display.format : 'NonNegative'
   @sap.label : 'Sequence'
   @sap.quickinfo : 'Sequence in which partners are determined in the sales doc.'
@@ -1373,3 +1643,52 @@ entity ZSRVB_MDMLIGHT_VH.DerSupplierFunctionAccGrp {
   @sap.quickinfo : 'Type of partner number'
   PartnerType : String(2);
 };
+
+@cds.external : true
+@cds.persistence.skip : true
+@sap.creatable : 'false'
+@sap.updatable : 'false'
+@sap.deletable : 'false'
+@sap.content.version : '1'
+@sap.label : 'Derivation: valid tax categories per country'
+entity ZSRVB_MDMLIGHT_VH.DerTaxCategories {
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Tax country/region'
+  @sap.quickinfo : 'Country/Region is relevant for taxes'
+  key Country : String(3) not null;
+  @sap.display.format : 'NonNegative'
+  @sap.label : 'Tax sequence'
+  @sap.quickinfo : 'Sequence of possible taxes for each country/region'
+  key SequenceNumber : String(1) not null;
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Tax Condition Type'
+  @sap.quickinfo : 'Tax Condition Type (Sales Tax, Value-Added Tax,...)'
+  TaxCategory : String(4);
+  @sap.label : '% rate from T007'
+  @sap.quickinfo : 'Tax percentage rate from Table T007'
+  RateFromTableT007 : Boolean;
+};
+
+@cds.external : true
+@cds.persistence.skip : true
+@sap.creatable : 'false'
+@sap.updatable : 'false'
+@sap.deletable : 'false'
+@sap.content.version : '1'
+@sap.label : 'Derivation: time zone per country and region'
+entity ZSRVB_MDMLIGHT_VH.DerTimeZones {
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Country/Region Key'
+  key Country : String(3) not null;
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Region'
+  @sap.quickinfo : 'Region (State, Province, County)'
+  key Region : String(3) not null;
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Time Zone'
+  key AddressTimeZone : String(6) not null;
+  @sap.label : 'Default Time Zone'
+  @sap.quickinfo : 'Indicator for Default Time Zone'
+  IsDefault : Boolean;
+};
+
