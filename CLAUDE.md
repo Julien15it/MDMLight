@@ -991,8 +991,20 @@ functions the dialog would have shown **sixteen** lines, twelve of them reading 
 to the person who had just typed it.
 
 `_proposalRows` groups derivation entries on **target + index** — which the pipeline resolves per
-row, so entries of one row always share it and entries of two rows never do — and a group
-containing a `createsRow` entry collapses to one line built by `_derivationRow`:
+row, so entries of one row always share it and entries of two rows never do — and a group whose
+lead entry carries a **`rowKey`** collapses to one line built by `_derivationRow`.
+
+**The key is the boundary, and grouping on `createsRow` instead was a regression** — shipped and
+reported within the hour: *"I can't choose or edit anything in the address popup anymore?"*
+`registry-checks.js:42` sets `createsRow` on **every** address entry when there is no address row
+yet, so Street, Postal Code, City and Country collapsed into one line with only Street editable.
+A `rowKey` is what says the other entries **identify** the row rather than describe it — a partner
+function's sales area is not a value anybody edits, it is *which row this is*. Address fields from
+VIES are five independent values a requester may well want to edit or decline separately. So an
+unkeyed row-adding entry keeps its own line and its own field name, and still says *Row added*;
+`test/proposal-rows.test.js` pins the address case for exactly this reason.
+
+For a keyed group:
 
 - **The Field column names the SECTION** ("Customer Partner Functions"), not the field, because the
   row is what is being accepted; a field name alone reads as a field somebody still has to fill.

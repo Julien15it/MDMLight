@@ -2589,9 +2589,10 @@ sap.ui.define([
       /**
        * One dialog line from one derivation entry, plus the entries that only complete its row.
        *
-       * A created row is named by its SECTION ("Customer Partner Functions"), because the row is
-       * what is being accepted and the field name alone reads as a field somebody has to fill. A
-       * filled-in field is named by itself, as it always was.
+       * A line that CARRIES key fields is named by its SECTION ("Customer Partner Functions"),
+       * because the row is what is being accepted and the field name alone reads as a field
+       * somebody has to fill. Every other line is named by its own field, as it always was --
+       * including a row-adding one with no key, which is the registry's address proposal.
        *
        * `subtext` is the key the extras carry, drawn under the name so the requester can see which
        * sales area the row is for without hovering - asked for 2026-08-28. Hovering the Why column
@@ -2610,7 +2611,9 @@ sap.ui.define([
           index: entry.index || 0,
           createsRow: Boolean(entry.createsRow),
           field: entry.field,
-          fieldLabel: entry.createsRow
+          // `extras` is the grouping signal: only a keyed row ever carries any, so only a keyed row
+          // is named by its section. A row-adding entry with no key keeps its own field name.
+          fieldLabel: extras.length
             ? (this._sectionTitle(entry.target) || entry.field)
             : entry.field,
           subtext: subtext,
@@ -2664,13 +2667,27 @@ sap.ui.define([
           byGroup[id].push(entry);
         });
         groups.forEach(function (entries) {
-          var lead = entries.filter(function (entry) { return entry.createsRow; })[0];
+          // **Grouped ONLY where the derivation supplied a `rowKey`**, and that is the whole
+          // boundary (corrected 2026-08-28, reported the same day). A key says the other entries
+          // IDENTIFY the row rather than describe it -- a partner function's sales area is not a
+          // value anybody edits, it is which row this is. Everywhere else the entries are
+          // independent data and stay one line each.
+          //
+          // The first version grouped on `createsRow` alone, which broke the registry's address
+          // proposal: with no address row yet, `registry-checks.js` marks EVERY address entry
+          // `createsRow`, so Street/Postal Code/City/Country collapsed into one line with only
+          // Street editable. Four values a requester may want to edit or decline separately.
+          var lead = entries.filter(function (entry) {
+            return entry.createsRow && entry.rowKey;
+          })[0];
           if (!lead) {
-            // Nothing was invented here - each entry filled a gap in a row that already existed,
-            // and each is its own question, exactly as before.
+            // Either nothing was invented here, or it was invented without a key. Each entry is its
+            // own question, named by its own field and separately editable - exactly as before.
             entries.forEach(function (entry) {
               seen[keyOf(entry)] = rows.length;
-              rows.push(this._derivationRow(entry, "Filled in", []));
+              rows.push(this._derivationRow(
+                entry, entry.createsRow ? "Row added" : "Filled in", []
+              ));
             }, this);
             return;
           }

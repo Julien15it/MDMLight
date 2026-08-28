@@ -137,6 +137,40 @@ test('a plain filled-in field looks exactly as it did', () => {
   assert.deepEqual(plain(rows[0].extras), []);
 });
 
+/**
+ * **The regression this boundary exists to prevent**, reported 2026-08-28 the same day grouping
+ * shipped: *"I can't choose or edit anything in the address popup anymore?"*
+ *
+ * `registry-checks.js` marks EVERY address entry `createsRow` when there is no address row yet, so
+ * grouping on that flag alone collapsed Street/Postal Code/City/Country into one line with only
+ * Street editable. They are four independent values a requester may want to edit or decline
+ * separately -- not a key. Only a `rowKey` says "these entries identify the row".
+ */
+test('the registry address proposal stays one line per field, each editable', () => {
+  const addressEntries = [
+    ['StreetName', 'Koedreef'], ['StreetPrefixName', '2'],
+    ['PostalCode', '9000'], ['CityName', 'Gent'], ['Country', 'BE']
+  ].map(([field, value]) => ({
+    check: 'registry_enrichment', target: 'Addresses', index: 0, createsRow: true,
+    field, value, label: 'VIES check',
+    message: `${field} was filled in as "${value}" from VIES (a new address).`
+  }));
+
+  const rows = context()._proposalRows(addressEntries, []);
+
+  assert.equal(rows.length, 5, 'five values, five questions - not one line with four extras');
+  assert.deepEqual(plain(rows.map((row) => row.fieldLabel)),
+    ['StreetName', 'StreetPrefixName', 'PostalCode', 'CityName', 'Country'],
+    'each named by its own field, never by the section');
+  for (const row of rows) {
+    assert.equal(row.change, 'Row added', 'it IS still a row being added, and says so');
+    assert.deepEqual(plain(row.extras), [], 'nothing is carried along, so nothing is uneditable');
+    assert.equal(row.subtext, '');
+  }
+  // Independently tickable, which is what a distinct `key` per line means.
+  assert.equal(new Set(rows.map((row) => row.key)).size, 5);
+});
+
 // A field derived and then reformatted is still one row -- applying both would write it twice.
 test('a normalisation still merges into the derivation it reformats', () => {
   const rows = context()._proposalRows(
