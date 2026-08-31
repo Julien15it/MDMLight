@@ -117,3 +117,39 @@ test('the role node itself never needs a parent', async () => {
 
   assert.deepEqual(messages, []);
 });
+
+/**
+ * Every section this stage's own `Object.entries(sections)` loop reads is required to be an
+ * array - `Customers`/`Suppliers` are `!config.many` in PAYLOAD_NODES, so a server-side reader that
+ * reconstructs a section as a bare object (or leaves it null) rather than wrapping it in a
+ * one-element array is invisible here, whatever it actually holds.
+ *
+ * This bit `decideRequest`'s approve-time re-validation (2026-08-31): `loadStagedPayload` used to
+ * mirror `getRequestPayload`'s own `config.many ? clean : (clean[0] || null)` shape, which is safe
+ * there only because `_loadStagedRequest` on the client always re-wraps a bare section into an
+ * array before it is staged into `state.sections` - a server reader that feeds this stage directly,
+ * with no client in between, must do that wrapping itself. Reported live as "SupplierPurchasingOrg
+ * needs a Supplier record, and a new business partner has none" on an approve for a request that
+ * plainly had a Suppliers row - because that row was a bare object, not `[row]`, so `!Array.isArray`
+ * skipped it and it never made it into `broughtAlong`.
+ */
+test('a role node section must be an array to be seen as bringing its own parent along', async () => {
+  const asBareObject = await stage({
+    businessPartner: null,
+    resolve: async () => { throw new Error('must not be asked - a create has no businessPartner'); }
+  }).run(payload({
+    Suppliers: { SupplierAccountGroup: 'KRED' },
+    SupplierPurchasingOrg: [{ PurchasingOrganization: '1000' }]
+  }));
+  assert.equal(asBareObject.length, 1, 'a bare-object Suppliers section is invisible to this stage');
+  assert.match(asBareObject[0].message, /SupplierPurchasingOrg needs a Supplier record/u);
+
+  const asArray = await stage({
+    businessPartner: null,
+    resolve: async () => { throw new Error('must not be asked - a create has no businessPartner'); }
+  }).run(payload({
+    Suppliers: [{ SupplierAccountGroup: 'KRED' }],
+    SupplierPurchasingOrg: [{ PurchasingOrganization: '1000' }]
+  }));
+  assert.deepEqual(asArray, [], 'wrapped in an array, the same row is correctly seen');
+});

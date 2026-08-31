@@ -888,7 +888,15 @@ class ChangeRequestService extends cds.ApplicationService {
             const { ID, request_ID, action, ...rest } = row;
             return { ...rest, ...stateOfAction(action) };
           });
-        sections[section] = config.many ? clean : (clean[0] || null);
+        // Always an array, even for a !config.many section (Customers/Suppliers) - the same shape
+        // _loadStagedRequest always normalises a section into on the client before it is ever fed
+        // to a check. getRequestPayload's own bare-object-or-null for a to-one node is fine because
+        // the client re-wraps it; this reader feeds runSubmitValidations directly, with no client in
+        // between to do that - and relation-checks.js's own loop, unlike sectionRows, requires an
+        // array and silently skips anything else. Without this, an approve-time validation of a
+        // Suppliers/Customers row could not see it at all (fixed 2026-08-31, reported live:
+        // "SupplierPurchasingOrg needs a Supplier record" on a request that plainly had one).
+        sections[section] = clean;
       }
       const { ID, request_ID, ...root } = general || {};
       return { root, sections };

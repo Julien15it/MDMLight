@@ -1507,6 +1507,35 @@ three actions regardless of what the client did or did not check first - belt an
 direct service call, and the actual security-relevant gate (`requesterContext` is still hardcoded on
 every write path).
 
+##### `loadStagedPayload` fed a shape the validation pipeline could not see through (fixed 2026-08-31)
+
+Reported live, the same day the approve gate above shipped: approving a genuine supplier create
+failed with *"SupplierPurchasingOrg needs a Supplier record, and a new business partner has none"* -
+against a request that plainly had a Suppliers row. `loadStagedPayload` had copied
+`getRequestPayload`'s own shape for a to-one node (`Customers`/`Suppliers`, `!config.many` in
+`PAYLOAD_NODES`): a bare object, or `null`, never an array. That is safe for `getRequestPayload`
+only because the **client** always re-wraps a bare section into a one-element array
+(`_loadStagedRequest`: `Array.isArray(value) ? value : (value ? [value] : [])`) before it is ever
+staged into `state.sections` and handed to a check. `loadStagedPayload` feeds
+`runSubmitValidations` **directly**, with no client in between to do that wrapping - and
+`relation-checks.js`'s own loop, unlike `payload-fields.js`'s `sectionRows` (which already tolerates
+either shape), requires `Array.isArray(rows)` and silently **skips** anything else. So a real
+Suppliers row, staged as a bare object, was invisible to the relation check the moment this new
+approve-time re-validation started running it - the section was simply never added to
+`broughtAlong`, and the check reported "no Supplier record" over a row it never looked at.
+
+**A second, previously-silent instance of the same gap came along for free with the fix**:
+`node-required.js`'s own loop has the identical `if (!Array.isArray(rows)) continue;` guard, so the
+mandatory-field check on `Customers`/`Suppliers` (`CustomerAccountGroup`/`SupplierAccountGroup` and
+friends) was *also* being skipped at approve-time before this - an incomplete Suppliers/Customers
+row could have passed the approve gate silently. `loadStagedPayload` now always assigns
+`sections[section] = clean` (an array, whatever `config.many` says), matching the shape every
+validation stage - and the client itself - already assumes.
+
+`test/relation-checks.test.js` pins the behavioural half directly (a bare-object Suppliers section
+is invisible to `relation-checks.js`, an array-wrapped one is seen); `test/submit-messages.test.js`
+pins that `loadStagedPayload` never goes back to the `config.many ? clean : ...` shape.
+
 ### The shared maintenance screen (`app/reuse`, 2026-08-20)
 
 The Business Partner maintenance screen — the object page used for create, edit,

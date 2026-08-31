@@ -478,6 +478,29 @@ test('approve re-validates before posting, and still does not derive', () => {
   );
 });
 
+/**
+ * Fixed 2026-08-31, reported live: an approve failed with "SupplierPurchasingOrg needs a Supplier
+ * record" against a request that had one. `loadStagedPayload` used to copy getRequestPayload's own
+ * `config.many ? clean : (clean[0] || null)` shape for a to-one node (Customers/Suppliers) - a bare
+ * object or null, never an array. That is safe for getRequestPayload because the CLIENT always
+ * re-wraps a bare section into a one-element array before staging it (`_loadStagedRequest`), but
+ * loadStagedPayload feeds runSubmitValidations directly with no client in between - and
+ * relation-checks.js's own loop (unlike payload-fields.js's sectionRows) requires
+ * `Array.isArray(rows)` and silently skips anything else. So a real Suppliers row, staged as a bare
+ * object, was invisible to the relation check on approve - see relation-checks.test.js for the
+ * behavioural half of this.
+ */
+test('loadStagedPayload wraps every section as an array, even a to-one node', () => {
+  const service = fs.readFileSync(
+    path.join(__dirname, '..', 'srv', 'change-request-service.js'), 'utf8'
+  );
+  const fnAt = service.indexOf('const loadStagedPayload =');
+  const body = service.slice(fnAt, service.indexOf('const runSubmitValidations =', fnAt));
+  assert.match(body, /sections\[section\] = clean;/u);
+  // The old shape must not come back.
+  assert.equal(/config\.many \? clean/u.test(body), false);
+});
+
 // Duplicate Check derives in memory so a rule conditioned on a field nobody typed still fires,
 // but returns nothing about it: applying values is the other button's job.
 test('the duplicate check derives without reporting what it derived', () => {
