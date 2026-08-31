@@ -1505,6 +1505,10 @@ class ChangeRequestService extends cds.ApplicationService {
               Entity: section,
               KeyJson: JSON.stringify(data)
             });
+            // Gone from S/4, so a retry over a LATER node's failure must not try to delete it a
+            // second time (a 404-shaped refusal, same class of bug as the create one below) - the
+            // row is removed here rather than left behind with nothing left to represent.
+            await db.run(cds.ql.DELETE.from(config.entity).where({ ID }));
             continue;
           }
 
@@ -1524,6 +1528,21 @@ class ChangeRequestService extends cds.ApplicationService {
             KeyJson: JSON.stringify(data),
             DataJson: JSON.stringify(data)
           });
+
+          // Persisted immediately, the same reasoning as header.businessPartner above: a LATER
+          // node in this same run can still throw, sending the request back to reworkRequired, and
+          // a resubmitted retry must not try to CREATE a row S/4 already has. Fixed 2026-08-31,
+          // reported live: "BP role FLVN01 already exists for partner" on a resubmit's approve,
+          // because BusinessPartnerRoles is not a ROLE_NODE (that set is Customers/Suppliers only,
+          // whose own retry-safety already comes for free from `relationValue` resolving non-null
+          // once CVI has created them) - every OTHER section, roles included, decided create-vs-
+          // update purely from the staged `action` column, which never learned that THIS node's
+          // create had, in fact, already gone through on an earlier partial post. Flipping it to
+          // 'U' here makes the next retry an update instead - the same way header.businessPartner
+          // turns the whole post from create to update once it is known.
+          if (isCreate) {
+            await db.run(cds.ql.UPDATE(config.entity).set({ action: 'U' }).where({ ID }));
+          }
         }
       }
 

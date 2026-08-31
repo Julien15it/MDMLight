@@ -70,6 +70,32 @@ test('an update sends its keys, so it can address a row at all', () => {
   assert.equal(/KeyJson: JSON\.stringify\(\{\}\)/u.test(loop), false, 'no empty key payload left');
 });
 
+/**
+ * Reported live (2026-08-31): approving a resubmit failed with "BP role FLVN01 already exists for
+ * partner" - the request had already, partially, posted once (the role among the nodes that
+ * succeeded) before a LATER node in that same run threw and sent it to reworkRequired. The retry
+ * only self-heals for Customers/Suppliers, because ROLE_NODES is exactly those two and their own
+ * `relationValue` naturally resolves non-null once CVI has created them. Every OTHER node -
+ * BusinessPartnerRoles included - decided create-vs-update purely from the staged `action` column,
+ * which never learned that its own create had, in fact, already gone through.
+ */
+test('a successful create is remembered, so a retry over a later failure updates instead', () => {
+  assert.match(loop, /if \(isCreate\) \{\s*\n\s*await db\.run\(cds\.ql\.UPDATE\(config\.entity\)\.set\(\{ action: 'U' \}\)\.where\(\{ ID \}\)\);\s*\n\s*\}/u);
+  // Marked AFTER the save actually succeeded, and only for a create - an update needs no marker,
+  // since its own retry was already safe (action stays whatever it already was).
+  const saveAt = loop.indexOf("await bp.send('saveBusinessPartnerEntity'");
+  const markAt = loop.indexOf("UPDATE(config.entity).set({ action: 'U' })");
+  assert.ok(saveAt > -1 && markAt > saveAt, 'marked after the save, not before it');
+});
+
+/** The symmetric gap on the other side: a retry must not try to delete a row S/4 has already lost. */
+test('a successful delete removes the staged row too, for the same reason', () => {
+  assert.match(loop, /await db\.run\(cds\.ql\.DELETE\.from\(config\.entity\)\.where\(\{ ID \}\)\);/u);
+  const deleteAt = loop.indexOf("await bp.send('deleteBusinessPartnerEntity'");
+  const removeAt = loop.indexOf('DELETE.from(config.entity).where({ ID })');
+  assert.ok(deleteAt > -1 && removeAt > deleteAt, 'the staged row is removed after the S/4 delete succeeds');
+});
+
 test('the keys an update needs are staged, for every node that has any', async () => {
   const cds = require('@sap/cds');
   const model = cds.linked(await cds.load(path.join(__dirname, '..', 'db')));
