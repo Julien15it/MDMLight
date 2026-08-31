@@ -2482,8 +2482,20 @@ Two more asks landed the same day, both scoped to this one page:
     scalars, an existing rule's condition columns update exactly like any other field now; the CSV
     version's "an existing rule keeps its own conditions, ignored on import" caveat existed only
     because of the child composition, and does not apply any more.
-  - **Import never saves by itself.** It only creates/updates rows on the page, exactly like Add
-    Rule and Duplicate — the existing Save/Discard flow, and `_localProblems`'s validation, still
+  - **The file is the full desired state of the table — a row missing from it is DELETED, not left
+    alone** (fixed 2026-08-31, reported live: *"als ik een lijn verwijder... wordt dit niet effectief
+    verwijderd"* — deleting a row in Excel and re-importing did nothing). The import loop only ever
+    visited rows that WERE in the file, so a currently-loaded rule whose ID simply never came up
+    stayed completely untouched on screen and would still have been posted on the next Save.
+    `_applyImportedXlsx` now tracks every ID it sees while looping the file, and afterwards deletes
+    (`context.delete(UPDATE_GROUP)`, staged like every other change here) any currently-loaded rule
+    whose ID was not among them — the same wholesale-replace reasoning `saveFieldProperties` already
+    applies to a profile's settings. A header-only file therefore removes every rule on the page; that
+    is the wholesale-replace answer taken to its edge case, not special-cased away, because Discard is
+    already the safety net for a re-import that went wrong, the same as for every other row this
+    creates or updates.
+  - **Import never saves by itself.** It only creates/updates/removes rows on the page, exactly like
+    Add Rule and Duplicate — the existing Save/Discard flow, and `_localProblems`'s validation, still
     have the last word before anything reaches the service.
   - **`isActive` is read tolerantly** (`true`/`1`/`yes`/`x`, case-insensitive, and a real boolean
     cell `t="b"` from Excel's own checkbox-like values) rather than matching only the literal word,
