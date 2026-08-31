@@ -1467,11 +1467,45 @@ reasoning for approving is the last point before S/4 ever sees the request: the 
 a rule (a mandatory field, a CVI account group mapping) can have changed since the request was
 submitted.
 
-**Derivations still never run on approve**, deliberately, same as they never ran on submit/resubmit:
-nothing on the approve screen is editable, so there is nobody left to show a proposal to even if one
-ran. This is the other half of "in Approval stap niks tonen" - the first half is the predicate
-above, for the Check button; this half is that the automatic re-check on Approve was never a
-derivation to begin with.
+**Derivations still never run on approve**, deliberately: nothing on the approve screen is editable,
+so there is nobody left to show a proposal to even if one ran. This is the other half of "in
+Approval stap niks tonen" - the first half is the predicate above, for the Check button; this half
+is that the automatic re-check on Approve was never a derivation to begin with.
+
+##### The silent version above was not what "geactiveerd" meant (revised the same day)
+
+Reported back within hours: "als ik op de approve submit of resubmit button druk dan wordt die
+check niet uitgevoerd" - a validation gate that only speaks up when something is WRONG reads as "no
+check happened" when the data is fine, which is indistinguishable from what shipped before this
+section existed. Asked directly what "the check" meant: **the full Check-button experience** -
+validate, derive, and show what was found or proposed - not only a pass/fail gate.
+
+`_runPreActionCheck` (`BusinessPartnerMaintenance.controller.js`) is that: `onSave` (Submit and
+Resubmit, standalone and the embedded My Inbox rework action, which already calls `onSave` itself)
+and `onApprove` both call it before doing anything else, from a button press - not from typing, not
+scheduled, so it does not reopen the door "Checks run on a button press, and only on a button press"
+closed. It calls `checkRequest` exactly as `onCheck` does and:
+
+- **Blocks with the same message `onCheck` shows** on an invalid payload, before the real
+  submit/resubmit/approve action is even attempted.
+- **Opens the SAME `_offerProposals` dialog** when there is something to derive or reformat, and
+  waits for it to close before letting Submit/Resubmit actually proceed - `_offerProposals` gained
+  an optional `onResolved` callback for exactly this, fired once `_resolveStandardChecks` has
+  settled. The requester still has to have seen and ticked (or declined) whatever it found; nothing
+  auto-applies, same as pressing Check by hand. **Now two callers of `_offerProposals` share the one
+  vetted dialog** - `onCheck` and this - never a second, cheaper way for a proposal to reach the
+  screen.
+- **Never opens that dialog for Approve** (`forApprove: true`, also skipping the AI normalisation
+  call entirely - nothing there could be reformatted towards anyway). `decideRequest` takes no
+  `DataJson`, so an approver "accepting" a proposal on that screen would have nowhere for the
+  acceptance to go - the same reasoning that already kept approve out of every proposal-dialog path.
+  Checked before the confirm dialog even opens, so a request about to fail validation does not first
+  make the approver confirm they want to approve it.
+
+The server-side `runSubmitValidations` gate above is unchanged and still runs on every one of these
+three actions regardless of what the client did or did not check first - belt and braces against a
+direct service call, and the actual security-relevant gate (`requesterContext` is still hardcoded on
+every write path).
 
 ### The shared maintenance screen (`app/reuse`, 2026-08-20)
 

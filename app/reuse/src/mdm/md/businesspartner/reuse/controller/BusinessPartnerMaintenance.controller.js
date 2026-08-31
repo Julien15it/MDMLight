@@ -1928,15 +1928,31 @@ sap.ui.define([
           return;
         }
         // No direct-write branch left: an unrecognised mode refuses rather than reaching S/4.
-        if (isCreate || state.mode === "edit") {
-          return this._sendChangeRequest("submitRequest");
+        var action = (isCreate || state.mode === "edit")
+          ? "submitRequest"
+          // The draft view with a different primary action: Resubmit hands the request back to the
+          // parked process rather than starting a new one.
+          : (state.mode === "rework" ? "resubmitRequest" : null);
+        if (!action) {
+          MessageBox.error("This Business Partner is not open for editing.");
+          return;
         }
-        // The draft view with a different primary action: Resubmit hands the request back to the parked
-        // process rather than starting a new one.
-        if (state.mode === "rework") {
-          return this._sendChangeRequest("resubmitRequest");
+
+        // The full check first (2026-08-31) - same as pressing Check, including its proposals
+        // dialog if there is something to fill in or reformat. Only once that is resolved does the
+        // request actually go.
+        state.busy = true;
+        maintenanceModel.refresh(true);
+        var proceed;
+        try {
+          proceed = await this._runPreActionCheck(state, false);
+        } finally {
+          state.busy = false;
+          maintenanceModel.refresh(true);
         }
-        MessageBox.error("This Business Partner is not open for editing.");
+        if (!proceed) return;
+
+        return this._sendChangeRequest(action);
       },
 
       /**
@@ -2364,6 +2380,61 @@ sap.ui.define([
       // dialog offering to fill in a field the object page itself never lets anyone touch.
       _checkRole: function (state) {
         return state.mode === "approve" ? "Approver" : (state.mode === "datasteward" ? "DataSteward" : "Requester");
+      },
+
+      /**
+       * Runs the same check as the Check button before Submit/Resubmit/Approve actually happen
+       * (2026-08-31, "heel belangrijk" - the silent, validation-only gate CAP already ran on those
+       * three did not read as "a check happened", because nothing visible occurred when the data
+       * was fine). Resolves `true` to let the caller proceed, `false` to stop - a blocked payload or
+       * a check that could not run at all.
+       *
+       * Still a check run from a button press, never from typing - this is Submit/Resubmit/Approve
+       * ASKING for one, the same as pressing Check itself, not a background trigger.
+       *
+       * `forApprove` skips the AI normalisation call (nothing on that screen is editable, so there
+       * is nothing to reformat towards) and never opens the proposals dialog even if a derivation
+       * found something: decideRequest takes no DataJson, so an approver "accepting" a proposal here
+       * would have nowhere for that acceptance to go. Submit/Resubmit, where a proposal DOES reach
+       * the payload, show the same dialog the Check button shows and wait for it to close - the
+       * requester has to have seen what they are asking for, the same rule that keeps a derivation
+       * from ever auto-applying anywhere else in this screen.
+       */
+      _runPreActionCheck: function (state, forApprove) {
+        var self = this;
+        this._cancelPendingTrigger();
+        return this._executeAction("checkRequest", {
+          ChangeRequest: state.changeRequest || null,
+          BusinessPartner: state.businessPartner || null,
+          DataJson: this._requestDataJson(state),
+          Propose: !forApprove,
+          Scope: null,
+          RequestType: state.requestType || null,
+          Role: this._checkRole(state)
+        }, "cr").then(function (result) {
+          var validations = self._parseJsonArray(result && result.ValidationsJson);
+          if (!result || result.Valid === false) {
+            MessageBox.error(
+              "The data is not valid yet:\n\n"
+              + validations.map(function (entry) { return "  • " + entry.message; }).join("\n")
+            );
+            return false;
+          }
+          if (forApprove) return true;
+
+          var derivations = self._parseJsonArray(result && result.DerivationsJson);
+          var normalisations = self._parseJsonArray(result && result.NormalisationsJson);
+          var standard = self._parseJsonArray(result && result.StandardJson);
+          var proposals = self._proposalRows(derivations, normalisations);
+          if (!proposals.length) return true;
+
+          return new Promise(function (resolve) {
+            self._offerProposals(proposals, standard, function () { resolve(true); });
+          });
+        }).catch(function (error) {
+          MessageBox.error(errorMessage(error, "The check could not be run."));
+          return false;
+        });
       },
 
       onCheck: async function () {
@@ -2867,7 +2938,13 @@ sap.ui.define([
       //
       // `standard` is S/4's own findings, held back until this dialog is answered - see
       // _resolveStandardChecks for why, and for what happens on each way out.
-      _offerProposals: function (proposals, standard) {
+      //
+      // `onResolved` (optional, added 2026-08-31) fires once the dialog has fully closed and any
+      // re-run of the standard checks it triggered has settled - whatever the requester did with
+      // it, ticked, declined or ignored. It is how Submit/Resubmit continue past a pre-submit check
+      // that found something to propose: the requester has to have SEEN it before the request goes,
+      // the same reasoning that keeps a derivation from ever auto-applying.
+      _offerProposals: function (proposals, standard, onResolved) {
         var model = new JSONModel({ proposals: proposals });
         // Whether Apply Selected was pressed, read in afterClose: every other way out of this dialog
         // - Not Now, Escape - declines everything in it.
@@ -2948,7 +3025,8 @@ sap.ui.define([
             this._rememberDeclined(model.getProperty("/proposals"), applied);
             this._proposalsOpen = false;
             dialog.destroy();
-            this._resolveStandardChecks(standard, changed > 0);
+            var resolved = this._resolveStandardChecks(standard, changed > 0);
+            if (typeof onResolved === "function") resolved.then(onResolved);
           }.bind(this)
         });
         this.getView().addDependent(dialog);
@@ -3559,8 +3637,27 @@ sap.ui.define([
         }
       },
 
-      onApprove: function () {
+      onApprove: async function () {
         var that = this;
+        var maintenanceModel = this.getView().getModel("maintenance");
+        var state = maintenanceModel.getData();
+
+        // The full check first (2026-08-31) - checked before the approver is even asked to confirm,
+        // rather than confirming and only then finding out the data no longer passes. decideRequest
+        // re-validates the same way server-side regardless (belt and braces against a direct call),
+        // but failing here means the approver never sees a confirm dialog for a request about to be
+        // refused. Never opens the proposals dialog - see _runPreActionCheck's `forApprove`.
+        state.busy = true;
+        maintenanceModel.refresh(true);
+        var proceed;
+        try {
+          proceed = await this._runPreActionCheck(state, true);
+        } finally {
+          state.busy = false;
+          maintenanceModel.refresh(true);
+        }
+        if (!proceed) return;
+
         MessageBox.confirm(
           "Approve this request and create the Business Partner in S/4HANA?",
           {

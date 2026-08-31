@@ -129,19 +129,65 @@ test('the commit hook is a change handler on text inputs, not a liveChange', () 
   assert.equal(/attachLiveChange/u.test(attach), false, 'never per keystroke');
 });
 
-// Only the Check button, and only through the vetted dialog: a derivation is still never written
-// without a tick, and it is still the only place proposals reach the screen.
-test('the Check button is the only route to a proposal', () => {
-  const offers = CONTROLLER.split('this._offerProposals(').length - 1;
-  assert.equal(offers, 1, 'exactly one caller');
+// Only the Check button and the pre-submit/approve check (_runPreActionCheck, 2026-08-31) ever open
+// this dialog, and both go through the one vetted function: a derivation is still never written
+// without a tick, and there is still exactly one place proposals reach the screen.
+test('a proposal only ever reaches the screen through the one vetted dialog function', () => {
+  // Two callers: onCheck calls it as `this.`, _runPreActionCheck as `self.` (it is inside a
+  // `.then` callback where `this` is no longer the controller) - both are still calls, not a
+  // second definition, so they are counted together.
+  const offers = (CONTROLLER.match(/(?:this|self)\._offerProposals\(/gu) || []).length;
+  assert.equal(offers, 2, 'onCheck, and the pre-submit/approve check');
   const check = CONTROLLER.slice(
     CONTROLLER.indexOf('onCheck: async function'),
     CONTROLLER.indexOf('onDuplicateCheck: async function')
   );
   // The second argument is the standard findings the dialog holds back for the duration -- see
-  // _resolveStandardChecks. Still one caller, still the Check button.
+  // _resolveStandardChecks.
   assert.match(check, /this\._offerProposals\(proposals, standard\)/u, 'and it is onCheck');
   assert.equal(/_applyProposals/u.test(check), false, 'onCheck never applies anything itself');
+
+  const pre = CONTROLLER.slice(
+    CONTROLLER.indexOf('_runPreActionCheck: function'), CONTROLLER.indexOf('onCheck: async function')
+  );
+  assert.match(pre, /self\._offerProposals\(proposals, standard, function \(\) \{ resolve\(true\); \}\)/u);
+  assert.equal(/_applyProposals/u.test(pre), false, 'it never applies anything itself either');
+});
+
+/**
+ * Approve never opens the dialog even when a derivation finds something: nothing on that screen is
+ * editable and decideRequest takes no DataJson, so an accepted proposal there would have nowhere to
+ * go - see CLAUDE.md, "Derivations/Proposals... geblocked... in Approval stap".
+ */
+test('_runPreActionCheck never offers a proposal on the approve path', () => {
+  const fn = CONTROLLER.slice(CONTROLLER.indexOf('_runPreActionCheck: function'));
+  const body = fn.slice(0, fn.indexOf('\n      },\n\n      onCheck'));
+  assert.match(body, /if \(forApprove\) return true;/u);
+  const beforeGuard = body.slice(0, body.indexOf('if (forApprove) return true;'));
+  assert.equal(/_offerProposals/u.test(beforeGuard), false, 'no dialog reachable before the guard');
+  assert.match(body, /Propose: !forApprove/u, 'no AI normalisation call for approve either');
+});
+
+// Submit/Resubmit and Approve run the same check the Check button does, from the button press
+// itself - not while typing, not automatically - satisfying "automatisch de check nog eens wordt
+// geactiveerd" without reopening the door the automatic trigger was removed through.
+test('onSave and onApprove run the pre-action check before doing anything else', () => {
+  const save = CONTROLLER.slice(
+    CONTROLLER.indexOf('onSave: async function'), CONTROLLER.indexOf('_completeEmbeddedOutcome:')
+  );
+  assert.match(save, /this\._runPreActionCheck\(state, false\)/u);
+  assert.match(save, /if \(!proceed\) return;/u);
+  const checkAt = save.indexOf('_runPreActionCheck');
+  const sendAt = save.indexOf('_sendChangeRequest(action)');
+  assert.ok(checkAt > 0 && sendAt > checkAt, 'the check runs before the request is actually sent');
+
+  const approve = CONTROLLER.slice(
+    CONTROLLER.indexOf('onApprove: async function'), CONTROLLER.indexOf('onReject: function')
+  );
+  assert.match(approve, /this\._runPreActionCheck\(state, true\)/u);
+  const approveCheckAt = approve.indexOf('_runPreActionCheck');
+  const confirmAt = approve.indexOf('MessageBox.confirm(');
+  assert.ok(approveCheckAt > 0 && confirmAt > approveCheckAt, 'checked before the confirm dialog even opens');
 });
 
 /**
@@ -157,7 +203,10 @@ test('every button that checks clears the declined proposals first', () => {
     'onCheck: async function': 'Check',
     'onDuplicateCheck: async function': 'Duplicate Check',
     '_sendChangeRequest: async function': 'Save/Submit/Resubmit',
-    '_withdraw: async function': 'Withdraw'
+    '_withdraw: async function': 'Withdraw',
+    // The pre-submit/approve check (2026-08-31) - onSave/onApprove call this before anything else,
+    // so it is where the reset actually has to happen for those two buttons now.
+    '_runPreActionCheck: function': 'Submit/Resubmit/Approve, via the pre-action check'
   };
   for (const [entry, label] of Object.entries(heads)) {
     const at = CONTROLLER.indexOf(entry);
