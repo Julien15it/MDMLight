@@ -2586,6 +2586,26 @@ That guard is worth keeping, but it was **not** the cause: Maarten's next report
 it exactly — the row persisted and only the two list columns came back empty, which is
 the `context.setProperty` write path above, not a submit that never happened.
 
+**The guard itself had a race, and it is what made Add Rule need two presses of Save
+(fixed 2026-08-31).** Reported live: adding a rule and pressing Save once always answered
+"1 rule(s) were not saved... Reload before trying again" - and pressing Save again, with
+nothing left transient by then, always succeeded. `submitBatch(UPDATE_GROUP)`'s own
+promise can resolve before a freshly created context has actually flipped out of
+`isTransient()` - a real ordering gap in the OData v4 model, not something a retry
+happens to paper over by chance. `context.created()` is the promise that genuinely
+completes a create, and it never settles LATER than `submitBatch`'s own promise, only
+sometimes slightly after - so `onSave` now captures `_transientRows()` **before** the
+submit and, once `hasPendingChanges` has ruled out a genuine rejection, awaits
+`context.created()` (each wrapped in its own `.catch(() => {})`, since a rejected create
+is already reported by that same `hasPendingChanges` check) for every row it caught, before
+asking `_transientRows()` a second time to decide whether to show the warning. **Applied
+to all four rule pages** (`WorkflowRuleList`/`ValidationRuleList`/`DerivationRuleList`/
+`DuplicateRuleList`), since all four copy this exact save idiom and the race lives in the
+model, not in any one page's code - `ValidationRuleList`/`DerivationRuleList`/
+`DuplicateRuleList` never had the `_transientRows`/"not saved" guard to begin with, so
+without this they could have lost a row exactly this way with nothing on screen ever
+saying so.
+
 **Still open, and agreed as the next step:** wiring SBPA to actually consume
 `approvers`. Arthur's definition ignores the field today, so the list is sent and
 nothing reads it — the table is inert until his process assigns its approver task
@@ -3170,20 +3190,38 @@ passes and reads `__state` **not at all**:
    the two lists - so an untouched row is never coloured just because some
    OTHER row in the section moved, and two identical rows are never both
    matched to the same baseline row.
-2. **Whatever is left is paired off in array order**: a row is a CHANGE
-   against one of the still-unconsumed baseline rows for as long as any
-   remain, and only becomes an ADDITION once they run out - i.e. only once
-   this section actually ends up with more rows than the baseline had. A
-   row's own history (whether S/4 has ever seen it) plays no part any more;
-   only whether a same-shaped baseline row still exists to have been edited
-   FROM does.
+2. **Whatever is left is paired off by BEST MATCH** (changed 2026-08-31, was
+   array order): the remaining current row and remaining baseline row sharing
+   the most fields are paired first, picked greedily across the whole
+   remaining pool, repeated until one side runs out. A row is a CHANGE against
+   its best-remaining baseline for as long as any remain, and only becomes an
+   ADDITION once they run out - i.e. only once this section actually ends up
+   with more rows than the baseline had. A row's own history (whether S/4 has
+   ever seen it) plays no part any more; only whether a same-shaped baseline
+   row still exists to have been edited FROM does.
 
 This is still not exact without a stable row key (staging has one, a cuid, but
 `getRequestPayload` strips it before it ever reaches the client) - an edit is
-paired with *a* remaining baseline row in array order, not necessarily the one
-a person would say it "really" came from. But undercounting additions this way
-is the safe direction: it never invents a change nobody made, which a
-`__state`-based guess already proved capable of doing twice.
+paired with the best-scoring remaining baseline row, not necessarily the one a
+person would say it "really" came from. But array order was worse than merely
+imprecise, and a live report on 2026-08-31 is what found it: a section with
+several rows, **none of them edited by the requester**, still lit up with
+"random" changed fields. Two rows can each fail the exact-match pass without
+either being a real edit - one genuinely changed, forcing a reindex, and
+another merely drifted in formatting a reload can introduce (a trimmed space,
+a recast boolean) - and array order then pairs whatever is left purely by
+position, so the two could get shuffled against EACH OTHER: the diff reports a
+change in every field neither person touched. `sharedFieldCount` scores every
+remaining (current, baseline) pair and the highest score is assigned first,
+which is what makes the common case - one row genuinely edited among untouched
+ones - behave exactly as before (there is only ever one pair left to score,
+so nothing about the ranking can move it) while a multi-row mismatch no longer
+compounds into unrelated fields lighting up. Still not perfect - two rows that
+are GENUINELY both edited, in a way that scores identically against each
+other's baseline, remain a coin flip a stable key would settle outright - but
+undercounting additions is still the safe direction on the side that remains:
+it never invents a change nobody made, which a `__state`-based guess already
+proved capable of doing twice.
 
 **A DELETED row - reported 2026-08-28, "als er een lijn verwijderd is kan je dit
 niet meer zien met kleurencode, maar moet dit bovenaan wel vermeld worden".**

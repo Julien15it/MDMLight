@@ -912,16 +912,30 @@ sap.ui.define([
       }
       view.setProperty("/busy", true);
       try {
+        // Captured before the submit: a row already fully created earlier this session has already
+        // settled its own .created() and is not worth waiting on again.
+        var creating = this._transientRows();
         await this._model().submitBatch(UPDATE_GROUP);
         // A rejected row leaves its change pending rather than silently vanishing.
         if (this._model().hasPendingChanges(UPDATE_GROUP)) {
           MessageBox.error("The service rejected at least one rule. Check the messages and correct the row.");
           return;
         }
+        // submitBatch's own promise can settle before a freshly created context has actually
+        // flipped out of "transient" - context.created() is the promise that genuinely completes
+        // that, and it never settles LATER than submitBatch's own does, only sometimes slightly
+        // after. Without this wait, the FIRST Save after Add Rule could report "not saved" for a
+        // row the batch had, in fact, just finished creating - reported live 2026-08-31: pressing
+        // Save again, with nothing left transient by then, made the second press look like the one
+        // that actually worked. A create the service genuinely rejected is already reported above
+        // via hasPendingChanges, so a rejection here is not a second error to surface.
+        await Promise.all(creating.map(function (context) {
+          return context.created().catch(function () {});
+        }));
         // `hasPendingChanges` answers for ONE update group, so it cannot see a create that never
         // travelled - a row added outside this group would leave it false and the toast would claim
         // a save that never happened, which is indistinguishable from a rule clearing itself. So the
-        // rows are asked directly: a context still transient after a submit was never written.
+        // rows are asked directly: a context still transient after the wait above was never written.
         var unsaved = this._transientRows();
         if (unsaved.length) {
           MessageBox.error(unsaved.length + " rule(s) were not saved: the service accepted nothing "

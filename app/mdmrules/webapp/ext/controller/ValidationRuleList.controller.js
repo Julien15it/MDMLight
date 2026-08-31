@@ -232,6 +232,17 @@ sap.ui.define([
       });
     },
 
+    // Rows the page is still holding on its own. `isTransient` is guarded because a persisted
+    // context does not always carry it, depending on how the row got here. See WorkflowRuleList's
+    // own copy of this for the submitBatch/created() race it exists to close.
+    _transientRows: function () {
+      var binding = this._table() && this._table().getBinding("items");
+      if (!binding) return [];
+      return (binding.getCurrentContexts() || []).filter(function (context) {
+        return context && context.isTransient && context.isTransient();
+      });
+    },
+
     onSave: async function () {
       var view = this.getView().getModel("view");
       var problems = this._localProblems(this._draftRules());
@@ -241,10 +252,27 @@ sap.ui.define([
       }
       view.setProperty("/busy", true);
       try {
+        // Captured before the submit: a row already fully created earlier this session has already
+        // settled its own .created() and is not worth waiting on again.
+        var creating = this._transientRows();
         await this._model().submitBatch(UPDATE_GROUP);
         // A rejected row leaves its change pending rather than silently vanishing.
         if (this._model().hasPendingChanges(UPDATE_GROUP)) {
           MessageBox.error("The service rejected at least one rule. Check the messages and correct the row.");
+          return;
+        }
+        // submitBatch's own promise can settle before a freshly created context has actually
+        // flipped out of "transient" - see WorkflowRuleList's onSave for the full reasoning and the
+        // live report that found it. A create the service genuinely rejected is already reported
+        // above via hasPendingChanges, so a rejection here is not a second error to surface.
+        await Promise.all(creating.map(function (context) {
+          return context.created().catch(function () {});
+        }));
+        var unsaved = this._transientRows();
+        if (unsaved.length) {
+          MessageBox.error(unsaved.length + " validation rule(s) were not saved: the service accepted "
+            + "nothing for them and they are still local to this page. Reload before trying again — "
+            + "leaving now loses them.");
           return;
         }
         view.setProperty("/dirty", false);
