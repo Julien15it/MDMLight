@@ -383,9 +383,12 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     parentKeyFields: ['Customer', 'SalesOrganization', 'DistributionChannel', 'Division'],
     creatable: true,
     deletable: true,
+    // PartnerCounter is deliberately absent: S/4 assigns it at post time, the same reason
+    // srv/checks/derivation-checks.js never proposes a value for it - a create has no number for
+    // S/4 to default the function to yet. Requiring it here blocked every mandatory-function row
+    // the derivation itself creates (srv/checks/node-required.js, added 2026-08-28).
     requiredCreateFields: [
-      'Customer', 'SalesOrganization', 'DistributionChannel', 'Division', 'PartnerFunction',
-      'PartnerCounter'
+      'Customer', 'SalesOrganization', 'DistributionChannel', 'Division', 'PartnerFunction'
     ],
     excludedCreateFields: ['CustomerPartnerDescription'],
     excludedUpdateFields: ['CustomerPartnerDescription']
@@ -465,9 +468,12 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     parentKeyFields: ['Supplier', 'PurchasingOrganization'],
     creatable: true,
     deletable: true,
+    // PartnerCounter is deliberately absent: S/4 assigns it at post time, the same reason
+    // srv/checks/derivation-checks.js never proposes a value for it - a create has no number for
+    // S/4 to default the function to yet. Requiring it here blocked every mandatory-function row
+    // the derivation itself creates (srv/checks/node-required.js, added 2026-08-28).
     requiredCreateFields: [
-      'Supplier', 'PurchasingOrganization', 'SupplierSubrange', 'Plant', 'PartnerFunction',
-      'PartnerCounter'
+      'Supplier', 'PurchasingOrganization', 'SupplierSubrange', 'Plant', 'PartnerFunction'
     ],
     excludedCreateFields: ['CreationDate', 'CreatedByUser'],
     excludedUpdateFields: ['CreationDate', 'CreatedByUser']

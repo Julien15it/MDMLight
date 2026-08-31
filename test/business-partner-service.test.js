@@ -375,6 +375,23 @@ test('all creatable maintenance entities use their Business Partner navigation',
   assert.equal(MAINTENANCE_ENTITIES.BusinessPartnerRoles.deletable, true);
 });
 
+/**
+ * Reported directly, with a screenshot: four duplicate "enter required field(s) PartnerCounter"
+ * errors on the mandatory-function rows the derivation itself creates (srv/checks/derivation-checks.js,
+ * "All of the mandatory functions" in CLAUDE.md). PartnerCounter is deliberately never proposed there -
+ * S/4 assigns it at post time, a create has no number for S/4 to default the function to yet - but
+ * requiredCreateFields still demanded it, a pre-existing inconsistency (added 2026-08-19, before that
+ * derivation decision) that only surfaced once Check itself started enforcing requiredCreateFields
+ * (srv/checks/node-required.js, 2026-08-28).
+ */
+test('PartnerCounter is never required on either partner-function node - S/4 assigns it, not the requester', () => {
+  assert.equal(MAINTENANCE_ENTITIES.CustomerSalesPartnerFunctions.requiredCreateFields.includes('PartnerCounter'), false);
+  assert.equal(MAINTENANCE_ENTITIES.SupplierPartnerFunctions.requiredCreateFields.includes('PartnerCounter'), false);
+  // PartnerFunction itself stays required - only the S/4-assigned counter was ever wrong to demand.
+  assert.ok(MAINTENANCE_ENTITIES.CustomerSalesPartnerFunctions.requiredCreateFields.includes('PartnerFunction'));
+  assert.ok(MAINTENANCE_ENTITIES.SupplierPartnerFunctions.requiredCreateFields.includes('PartnerFunction'));
+});
+
 test('maintenance create validation enforces entity keys and useful values', () => {
   assert.doesNotThrow(() => validateMaintenanceCreate('TaxNumbers', {
     BusinessPartner: '1000',
