@@ -648,15 +648,22 @@ sap.ui.define([
     },
 
     /**
-     * Every row becomes either an update to an already-loaded rule (its ID column matches one on
-     * screen) or a new one (blank or unrecognised ID) - so a steward can export, append new rows in
-     * the same spreadsheet, and re-import the whole thing in one go. Nothing is saved here: like Add
-     * Rule, this only populates the (now dirty) table, so the existing Save/Discard flow - and its
-     * validation - still has the last word.
+     * The imported file is treated as the FULL desired state of the table, the same wholesale-
+     * replace reasoning `saveFieldProperties` already uses for a profile's settings: every row
+     * becomes either an update to an already-loaded rule (its ID column matches one on screen) or a
+     * new one (blank or unrecognised ID), and any currently-loaded rule whose ID does NOT appear
+     * anywhere in the file is REMOVED (2026-08-31, fixed after a live report: "als ik een lijn
+     * verwijder... wordt dit niet effectief verwijderd" - deleting a row in Excel and re-importing
+     * did nothing, because nothing ever looked at what was missing). So a steward can export, delete
+     * a row, edit others, append new ones, and re-import the whole thing in one go. Nothing is saved
+     * here: like Add Rule, this only populates the (now dirty) table, so the existing Save/Discard
+     * flow - and its validation - still has the last word; a removal that looks wrong is a Discard
+     * away, same as every other change this makes.
      *
      * Matched by HEADER LABEL, not by fixed column position - the same BRF+-style tolerance for a
      * reordered or trimmed copy that the frozen header row exists to make possible. A file missing
-     * the "CR Type" column is refused outright: it does not look like this table's own export.
+     * the "CR Type" column is refused outright: it does not look like this table's own export, and
+     * nothing is removed on a refused import.
      */
     _applyImportedXlsx: function (table) {
       if (!table.length) {
@@ -683,6 +690,7 @@ sap.ui.define([
         var object = context.getObject();
         if (object && object.ID) byId[object.ID] = context;
       });
+      var seenIds = {};
 
       var created = 0;
       var updated = 0;
@@ -702,6 +710,7 @@ sap.ui.define([
         var id = idIndex !== undefined ? row[idIndex] : undefined;
         var existing = id && byId[id];
         if (existing) {
+          seenIds[id] = true;
           Object.keys(record).forEach(function (key) { existing.setProperty(key, record[key]); });
           updated += 1;
         } else if (record.requestType || record.approvers) {
@@ -711,9 +720,18 @@ sap.ui.define([
           skipped += 1;
         }
       });
+
+      var removed = 0;
+      Object.keys(byId).forEach(function (id) {
+        if (seenIds[id]) return;
+        byId[id].delete(UPDATE_GROUP);
+        removed += 1;
+      });
+
       this._markDirty();
       MessageToast.show(
         created + " rule(s) added, " + updated + " updated"
+        + (removed ? ", " + removed + " removed" : "")
         + (skipped ? ", " + skipped + " blank row(s) skipped" : "")
         + ". Review and press Save."
       );

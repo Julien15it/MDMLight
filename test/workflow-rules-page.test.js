@@ -439,6 +439,32 @@ test('xlsxColumns matches exactly what a WorkflowRules row holds', () => {
   ]);
 });
 
+function extractMethod(source, name) {
+  const marker = `${name}: function`;
+  const start = source.indexOf(marker);
+  if (start === -1) throw new Error(`method not found: ${name}`);
+  const braceStart = source.indexOf('{', start);
+  let depth = 0;
+  let end = braceStart;
+  for (let i = braceStart; i < source.length; i += 1) {
+    if (source[i] === '{') depth += 1;
+    if (source[i] === '}') {
+      depth -= 1;
+      if (depth === 0) { end = i + 1; break; }
+    }
+  }
+  return `function applyImportedXlsx${source.slice(start + marker.length, end)}`;
+}
+
+function mockContext(object) {
+  return {
+    getObject: () => object,
+    setProperty(key, value) { object[key] = value; },
+    deleted: false,
+    delete(group) { this.deleted = true; this.deleteGroup = group; }
+  };
+}
+
 /**
  * Extracted and evaluated directly (the one exception to this file's own source-pinning style),
  * because a hand-rolled ZIP writer/reader and a hand-rolled XML scanner are exactly the kind of code
@@ -504,6 +530,86 @@ const XLSX_FUNCTION_NAMES = [
 ];
 
 const xlsx = extractFunctions(controller, XLSX_FUNCTION_NAMES);
+
+/**
+ * A row deleted in Excel used to do nothing on import - reported live: "als ik een lijn verwijder...
+ * wordt dit niet effectief verwijderd" - because the import loop only ever visited rows that WERE
+ * in the file; a currently-loaded rule whose ID simply never came up was left completely untouched.
+ * Fixed by treating the file as the full desired state: any loaded rule whose ID is not seen among
+ * the imported rows is now deleted (staged, not saved - Save/Discard still decides).
+ *
+ * Executed against a small mock rather than source-pinned, since a regex cannot tell "the code
+ * calls .delete() somewhere" apart from "the code calls .delete() on the right row at the right
+ * time" - exactly the distinction this bug was in.
+ */
+test('an existing rule whose ID is absent from the import is removed, not left untouched', () => {
+  const methodSrc = extractMethod(controller, '_applyImportedXlsx');
+  const toasts = [];
+  const MessageToast = { show: (text) => toasts.push(text) };
+  const MessageBox = { error: () => {} };
+
+  const kept = mockContext({ ID: 'kept', requestType: 'create', approvers: 'a@b.com' });
+  const goneA = mockContext({ ID: 'gone-a', requestType: 'change', approvers: 'a@b.com' });
+  const goneB = mockContext({ ID: 'gone-b', requestType: 'block', approvers: 'a@b.com' });
+
+  const created = [];
+  const binding = {
+    getCurrentContexts: () => [kept, goneA, goneB],
+    create: (record) => { created.push(record); }
+  };
+
+  const fakeThis = {
+    _table: () => ({ getBinding: () => binding }),
+    _markDirty: () => {}
+  };
+
+  const applyImportedXlsx = new Function(
+    'MessageBox', 'MessageToast', 'xlsxColumns', 'isTruthyCell', 'UPDATE_GROUP',
+    `return ${methodSrc};`
+  )(MessageBox, MessageToast, xlsx.xlsxColumns, xlsx.isTruthyCell, 'ruleChanges');
+
+  // The import file only re-lists "kept" - goneA and goneB must be removed.
+  const table = [
+    xlsx.xlsxColumns().map((column) => column.label),
+    ['kept', 'create', 'Approve', '', '', '', 'AND', '', '', '', 'a@b.com', 'true']
+  ];
+  applyImportedXlsx.call(fakeThis, table);
+
+  assert.equal(kept.deleted, false);
+  assert.equal(goneA.deleted, true);
+  assert.equal(goneA.deleteGroup, 'ruleChanges');
+  assert.equal(goneB.deleted, true);
+  assert.equal(created.length, 0, 'the one row in the file matched an existing rule, so nothing new was created');
+  assert.match(toasts[0], /2 removed/u);
+});
+
+/**
+ * A file with no rows at all (header only) removes every currently-loaded rule - the same
+ * wholesale-replace semantics, taken to its edge case. Pinned deliberately: an accidental
+ * near-empty re-import is exactly the case where "did this really mean to delete everything"
+ * matters, and the answer this codebase gives elsewhere (`saveFieldProperties`) is still yes -
+ * Discard is the safety net, not a special case here.
+ */
+test('a header-only import removes every currently-loaded rule', () => {
+  const methodSrc = extractMethod(controller, '_applyImportedXlsx');
+  const toasts = [];
+  const MessageToast = { show: (text) => toasts.push(text) };
+  const MessageBox = { error: () => {} };
+
+  const only = mockContext({ ID: 'only', requestType: 'create', approvers: 'a@b.com' });
+  const binding = { getCurrentContexts: () => [only], create: () => {} };
+  const fakeThis = { _table: () => ({ getBinding: () => binding }), _markDirty: () => {} };
+
+  const applyImportedXlsx = new Function(
+    'MessageBox', 'MessageToast', 'xlsxColumns', 'isTruthyCell', 'UPDATE_GROUP',
+    `return ${methodSrc};`
+  )(MessageBox, MessageToast, xlsx.xlsxColumns, xlsx.isTruthyCell, 'ruleChanges');
+
+  applyImportedXlsx.call(fakeThis, [xlsx.xlsxColumns().map((column) => column.label)]);
+
+  assert.equal(only.deleted, true);
+  assert.match(toasts[0], /1 removed/u);
+});
 
 // The ZIP format's own checksum - a standard check value, so a subtly wrong polynomial or a
 // reversed bit order is caught immediately rather than only once a file fails to open.
