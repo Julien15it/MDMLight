@@ -107,17 +107,59 @@ test('fieldChangeKind: added only when the baseline was empty, changed otherwise
  * an addition once they run out - i.e. only when the section actually ends up with more rows than
  * the baseline had.
  */
-test('matchSectionRows: exact matches first, then pair off by count - never by __state', () => {
+test('matchSectionRows: exact matches first, then pair off by best match - never by __state', () => {
   const fn = controller.slice(controller.indexOf('function matchSectionRows'));
-  const body = fn.slice(0, fn.indexOf('\n  }') + 4);
+  const body = fn.slice(0, fn.indexOf('\n  }\n\n  function categoryText'));
   assert.equal(/__state/u.test(body), false, 'the second pass reads nothing off __state any more');
   assert.match(body, /var matchIndex = remaining\.findIndex/u);
   assert.match(body, /remaining\.splice\(matchIndex, 1\);/u);
   assert.match(body, /kind: "", baseline: null/u);
-  assert.match(body, /kind: "changed", baseline: remaining\.shift\(\)/u);
+  // The second pass pairs by shared-field count now (2026-08-31), not plain array order - see the
+  // scenario tests below for why array order could misattribute a change to the wrong row.
+  assert.match(body, /kind: "changed", baseline: remaining\[bestCandidateAt\]/u);
   assert.match(body, /kind: "added", baseline: \{\}/u);
-  // Two passes: nothing in the second reruns exact matching, it only consumes what pass one left.
-  assert.match(body, /records \|\| \[\]\)\.forEach/gu);
+  assert.match(body, /sharedFieldCount/u);
+});
+
+/**
+ * The exact bug reported live (2026-08-31): a section with several rows, none of them actually
+ * edited by the requester, still lit up with "random" changed fields - because array-order pairing
+ * in the second pass shuffled two rows that both merely failed the exact-match check (one from a
+ * real edit elsewhere in the section forcing a reindex, one from incidental formatting drift) against
+ * EACH OTHER instead of their own baselines.
+ */
+test('two rows that both miss an exact match are still paired with their OWN baseline, not swapped', () => {
+  const matchSectionRows = extractMatchSectionRows(controller);
+  // Row A: genuinely edited (CityName changed). Row B: untouched by the requester, but its baseline
+  // disagrees on a field for some other reason (e.g. a value round-tripped through a re-read) -
+  // still enough to fail the exact-match pass, landing it in the same pool as row A.
+  const baselineA = { StreetName: 'Kerkstraat 1', CityName: 'Antwerpen', Country: 'BE' };
+  const baselineB = { StreetName: 'Nieuwstraat 9', CityName: 'Gent', Country: 'BE' };
+  const currentA = { StreetName: 'Kerkstraat 1', CityName: 'Brussel', Country: 'BE' };
+  const currentB = { StreetName: 'Nieuwstraat 9', CityName: 'Gent', Country: 'be' };
+  const fields = ['StreetName', 'CityName', 'Country'];
+  const matches = matchSectionRows([currentA, currentB], [baselineA, baselineB], fields);
+  assert.equal(matches[0].kind, 'changed');
+  assert.deepEqual(matches[0].baseline, baselineA, 'row A is paired with its own baseline, not B\'s');
+  assert.equal(matches[1].kind, 'changed');
+  assert.deepEqual(matches[1].baseline, baselineB, 'row B is paired with its own baseline, not A\'s');
+});
+
+// With plain array order this exact scenario was the failure: two edited rows, and the ORDER they
+// happen to be paired in flips which row "changed" reports which field.
+test('best-match pairing holds even when the array-order pairing would have picked the wrong one', () => {
+  const matchSectionRows = extractMatchSectionRows(controller);
+  const baselineFirst = { StreetName: 'Aaa', CityName: 'Aaa', Country: 'BE' };
+  const baselineSecond = { StreetName: 'Bbb', CityName: 'Bbb', Country: 'BE' };
+  // currentFirst is closer to baselineSecond by position, but shares more fields with baselineFirst.
+  const currentFirst = { StreetName: 'Aaa', CityName: 'Aaa', Country: 'NL' };
+  const currentSecond = { StreetName: 'Bbb', CityName: 'Zzz', Country: 'BE' };
+  const fields = ['StreetName', 'CityName', 'Country'];
+  const matches = matchSectionRows(
+    [currentFirst, currentSecond], [baselineFirst, baselineSecond], fields
+  );
+  assert.deepEqual(matches[0].baseline, baselineFirst);
+  assert.deepEqual(matches[1].baseline, baselineSecond);
 });
 
 /**

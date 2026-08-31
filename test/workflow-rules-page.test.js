@@ -12,6 +12,9 @@ const read = (...parts) => fs.readFileSync(path.join(...parts), 'utf8');
 
 const view = read(APP, 'ext', 'view', 'WorkflowRuleList.view.xml');
 const controller = read(APP, 'ext', 'controller', 'WorkflowRuleList.controller.js');
+const validationController = read(APP, 'ext', 'controller', 'ValidationRuleList.controller.js');
+const derivationController = read(APP, 'ext', 'controller', 'DerivationRuleList.controller.js');
+const duplicateController = read(APP, 'ext', 'controller', 'DuplicateRuleList.controller.js');
 const hub = read(APP, 'ext', 'view', 'MDMRuleHub.view.xml');
 const hubController = read(APP, 'ext', 'controller', 'MDMRuleHub.controller.js');
 const manifest = JSON.parse(read(APP, 'manifest.json'));
@@ -479,8 +482,45 @@ test('save cannot report success while a row is still local to the page', () => 
   assert.match(controller, /context\.isTransient && context\.isTransient\(\)/u);
   const save = controller.slice(controller.indexOf('onSave: async function'));
   const body = save.slice(0, save.indexOf('onDiscard:'));
-  // Checked after the submit and before anything says "saved".
-  assert.ok(body.indexOf('submitBatch(UPDATE_GROUP)') < body.indexOf('_transientRows()'));
-  assert.ok(body.indexOf('_transientRows()') < body.indexOf('MessageToast.show'));
+  // Captured BEFORE the submit (2026-08-31) so the rows actually being created can be waited on
+  // individually afterwards - see the next test for why.
+  const captureAt = body.indexOf('_transientRows()');
+  const submitAt = body.indexOf('submitBatch(UPDATE_GROUP)');
+  assert.ok(captureAt > -1 && captureAt < submitAt, 'the transient rows are captured before the submit');
+  // The FINAL check - after the wait below - still runs after the submit and before anything says
+  // "saved".
+  const checkAt = body.lastIndexOf('_transientRows()');
+  assert.ok(submitAt < checkAt, 'the verifying check still happens after the submit');
+  assert.ok(checkAt < body.indexOf('MessageToast.show'));
   assert.match(body, /were not saved/u);
+});
+
+/**
+ * submitBatch's own promise can resolve before a freshly created context has actually flipped out
+ * of "transient" - a known SAPUI5 v4-model race, and the reason the FIRST save after Add Rule used
+ * to report "not saved" for a row the batch had, in fact, just created (reported live 2026-08-31:
+ * pressing Save again - nothing transient by then - made the second press look like the one that
+ * worked). context.created() is the promise that genuinely completes a create, so waiting on it for
+ * every row captured as transient before the submit closes the race. Applied identically to all
+ * four rule pages, since all four copy this exact save idiom.
+ */
+test('every rule page waits on context.created() before trusting a create actually landed', () => {
+  for (const [name, source] of [
+    ['WorkflowRuleList', controller],
+    ['ValidationRuleList', validationController],
+    ['DerivationRuleList', derivationController],
+    ['DuplicateRuleList', duplicateController]
+  ]) {
+    const save = source.slice(source.indexOf('onSave: async function'));
+    const body = save.slice(0, save.indexOf('onDiscard:') > -1 ? save.indexOf('onDiscard:') : save.indexOf('\n    },\n'));
+    assert.match(body, /var creating = this\._transientRows\(\);/u, `${name} captures the transient rows first`);
+    assert.match(
+      body,
+      /await Promise\.all\(creating\.map\(function \(context\) \{\s*return context\.created\(\)\.catch\(function \(\) \{\}\);\s*\}\)\);/u,
+      `${name} awaits context.created() for each`
+    );
+    const waitAt = body.indexOf('Promise.all(creating.map');
+    const pendingAt = body.indexOf('hasPendingChanges(UPDATE_GROUP)');
+    assert.ok(pendingAt > -1 && pendingAt < waitAt, `${name} checks for a rejected row before waiting on the rest`);
+  }
 });

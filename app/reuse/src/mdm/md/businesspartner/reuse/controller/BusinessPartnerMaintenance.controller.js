@@ -398,10 +398,20 @@ sap.ui.define([
    *
    * Two passes. First, an exact match (every field equal) is consumed, so an untouched row is never
    * coloured just because some OTHER row moved - two rows with identical content are never both
-   * matched to the same baseline row either. Second, whatever is left is paired off in array order:
-   * a row is an EDIT of one of the still-unconsumed baseline rows for as long as any remain, and only
-   * becomes an ADDITION once they run out - i.e. only when this section ends up with more rows than
-   * the baseline had. That is the one thing this cannot get exactly right without a stable key.
+   * matched to the same baseline row either. Second, whatever is left is paired off by BEST MATCH -
+   * the remaining current row and remaining baseline row sharing the most fields, picked greedily,
+   * highest score first - rather than plain array order (changed 2026-08-31, reported live: two
+   * unrelated rows in the same section came back "changed" in seemingly random fields, with nothing
+   * actually edited on one of them). Array order pairs whatever is left purely by position, so two
+   * rows that both merely FAILED an exact match - one genuinely edited, one only drifted in
+   * formatting a reload can introduce (a trimmed space, a recast boolean) - could get shuffled
+   * against EACH OTHER, and the diff would then report a change in every field neither person
+   * touched. Best-match still cannot be exact without a stable key (see below), but it means a row
+   * is only paired with an unrelated one when NEITHER remaining candidate is actually its own
+   * baseline - the common case of one edited row among untouched ones is unaffected, because ties
+   * (including "only one candidate left") keep working exactly as plain pairing did. A row is an
+   * EDIT of its best-remaining baseline for as long as any remain, and only becomes an ADDITION once
+   * they run out - i.e. only when this section ends up with more rows than the baseline had.
    *
    * Deliberately NOT based on record.__state ("new"/"modified"/"changed") for the second pass, even
    * as a tiebreaker (reverted 2026-08-27 - it was one at first, and it was wrong): that flag tracks
@@ -427,12 +437,45 @@ sap.ui.define([
       remaining.splice(matchIndex, 1);
       results[index] = { kind: "", baseline: null };
     });
+
+    // How many fields two rows still agree on - the higher, the more likely one really is the
+    // other's own baseline rather than an unrelated row that happens to be left over too.
+    var sharedFieldCount = function (record, candidate) {
+      return fieldNames.reduce(function (count, name) {
+        return count + (String(candidate[name] || "") === String(record[name] || "") ? 1 : 0);
+      }, 0);
+    };
+
+    var unmatched = [];
     (records || []).forEach(function (record, index) {
-      if (results[index]) return;
-      results[index] = remaining.length
-        ? { kind: "changed", baseline: remaining.shift() }
-        : { kind: "added", baseline: {} };
+      if (!results[index]) unmatched.push(index);
     });
+    // Greedy, not per-row in order: the single best (record, baseline) pair anywhere in what is left
+    // is assigned first, then both are removed and the search repeats. Assigning row-by-row in
+    // array order could still steal one row's true baseline out from under a later row whose only
+    // remaining option was that same candidate.
+    while (unmatched.length && remaining.length) {
+      var bestAt = -1;
+      var bestCandidateAt = -1;
+      var bestScore = -1;
+      unmatched.forEach(function (recordIndex, at) {
+        remaining.forEach(function (candidate, candidateAt) {
+          var score = sharedFieldCount(records[recordIndex], candidate);
+          if (score > bestScore) {
+            bestScore = score;
+            bestAt = at;
+            bestCandidateAt = candidateAt;
+          }
+        });
+      });
+      results[unmatched[bestAt]] = { kind: "changed", baseline: remaining[bestCandidateAt] };
+      remaining.splice(bestCandidateAt, 1);
+      unmatched.splice(bestAt, 1);
+    }
+    unmatched.forEach(function (recordIndex) {
+      results[recordIndex] = { kind: "added", baseline: {} };
+    });
+
     // Whatever is still unconsumed once every current row has been matched or paired off is a
     // baseline row nothing here corresponds to any more - a row somebody deleted. There is no
     // current record to colour for it (see "a line that was deleted" in CLAUDE.md), so it rides
