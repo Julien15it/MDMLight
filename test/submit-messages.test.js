@@ -427,9 +427,22 @@ test('submit validates but does not derive', () => {
   const service = fs.readFileSync(
     path.join(__dirname, '..', 'srv', 'change-request-service.js'), 'utf8'
   );
+  // submitRequest, resubmitRequest and decideRequest's approve gate share one validation runner
+  // (2026-08-31), so the "no derivation" and "configured validations" guarantees live on that
+  // shared function now rather than being copied into each handler.
+  const runnerFnAt = service.indexOf('const runSubmitValidations =');
+  const runnerFnBody = service.slice(runnerFnAt, service.indexOf('this.on(', runnerFnAt));
+  assert.match(runnerFnBody, /runValidations\(/u);
+  assert.match(runnerFnBody, /configured\.validations/u);
+  assert.equal(
+    /runDerivations|registry\.derivations|configured\.derivations/u.test(runnerFnBody),
+    false,
+    'no derivation on submit, from the registry or the configured table'
+  );
+
   const submitAt = service.indexOf("this.on('submitRequest'");
   const submitBody = service.slice(submitAt, service.indexOf("this.on('getRequestPayload'", submitAt));
-  assert.match(submitBody, /runValidations\(/u);
+  assert.match(submitBody, /runSubmitValidations\(/u);
   assert.equal(
     /runDerivations|registry\.derivations|configured\.derivations/u.test(submitBody),
     false,
@@ -443,9 +456,26 @@ test('submit validates but does not derive', () => {
     runnerBody,
     /derivations: \[\.\.\.configured\.derivations, \.\.\.registry\.derivations,\s*\.\.\.createCviStages\(\)\.derivations, \.\.\.createDerivationStages\(\)\.derivations\]/u
   );
-  // Submit does still run the configured validations, so the table gates a request as well as
-  // reporting on one.
-  assert.match(submitBody, /configured\.validations/u);
+});
+
+// decideRequest re-runs the same validations before approving (2026-08-31, "heel belangrijk"):
+// configuration behind a rule can change between submit and approval, and approving is the last
+// point before S/4 ever sees the data. Still no derivations - nothing on the approve screen is
+// editable, so there is nobody left to show a proposal to.
+test('approve re-validates before posting, and still does not derive', () => {
+  const service = fs.readFileSync(
+    path.join(__dirname, '..', 'srv', 'change-request-service.js'), 'utf8'
+  );
+  const decideAt = service.indexOf("this.on('decideRequest'");
+  const decideBody = service.slice(decideAt, service.indexOf("this.on('completeRequest'", decideAt));
+  assert.match(decideBody, /runSubmitValidations\(req, approvalPayload\)/u);
+  assert.match(decideBody, /loadStagedPayload\(changeRequest\)/u);
+  assert.match(decideBody, /severity === BLOCKING/u);
+  assert.equal(
+    /runDerivations|registry\.derivations|configured\.derivations/u.test(decideBody),
+    false,
+    'no derivation on approve either'
+  );
 });
 
 // Duplicate Check derives in memory so a rule conditioned on a field nobody typed still fires,

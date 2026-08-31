@@ -78,8 +78,11 @@
            _refreshChangeSummary computed - see "Highlighting what changed" in CLAUDE.md. Collapsible
            like the panels above it, for the same reason: a long list of touched fields must not push
            the form itself off screen. New Value carries the colour (Warning = an addition, Error = a
-           change to something that was already there) rather than the row, so the panel stays a
-           plain three-column table - Field / Previous Value / New Value, as asked for. -->
+           change to something that was already there) rather than the row, so the panel stays close
+           to the plain table originally asked for, with one added column: Why (2026-08-31) carries
+           an accepted proposal's own reason - the same three-word label/full-sentence-on-hover
+           convention the proposal dialog itself uses - or "User change/input" for anything typed
+           directly. See _provenanceFor/_recordProvenance. -->
       <Panel
         id="changeSummaryPanel"
         class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
@@ -92,6 +95,7 @@
             <Column><Text text="Field" /></Column>
             <Column><Text text="Previous Value" /></Column>
             <Column><Text text="New Value" /></Column>
+            <Column><Text text="Why" /></Column>
           </columns>
           <items>
             <ColumnListItem>
@@ -101,6 +105,10 @@
                 <ObjectStatus
                   text="{maintenance>newValue}"
                   state="{= ${maintenance>kind} === 'added' ? 'Warning' : 'Error' }" />
+                <!-- Same convention as the proposal dialog's own Why column: the three-word label
+                     shown, the full sentence on hover. "User change/input" carries no detail, so it
+                     has nothing to hover for. -->
+                <Text text="{maintenance>why}" wrapping="false" tooltip="{maintenance>whyDetail}" />
               </cells>
             </ColumnListItem>
           </items>

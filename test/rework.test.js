@@ -175,14 +175,24 @@ test('resubmit runs the same gates as a first submit', () => {
     serviceJs.indexOf("this.on('resubmitRequest'"),
     serviceJs.indexOf("this.on('withdrawRequest'")
   );
-  assert.match(resubmit, /runValidations\(/u);
-  // node_required sits with the offline stages from 2026-08-28, between configured and the cached
-  // CVI read - see quality-rules-page.test.js for why the order is what it is.
-  assert.match(resubmit, /configured\.validations, \.\.\.nodeRequiredStages\.validations,\s*\.\.\.createCviStages\(\)\.validations, \.\.\.registry\.validations/u);
+  // Submit, resubmit and decideRequest's approve gate share one validation runner (2026-08-31) so
+  // the three cannot drift on what "the check" means - the stage list itself is asserted once,
+  // on that shared function, rather than once per caller.
+  assert.match(resubmit, /runSubmitValidations\(/u);
   assert.match(resubmit, /recordDuplicateFindings\(/u);
   assert.match(resubmit, /!req\.data\.Confirm/u);
   // Derivations still do not run on a submit path - a derivation changes the data.
   assert.equal(/configured\.derivations|runDerivations/u.test(resubmit), false);
+
+  const runner = serviceJs.slice(
+    serviceJs.indexOf('const runSubmitValidations ='),
+    serviceJs.indexOf("this.on('checkRequest'")
+  );
+  assert.match(runner, /runValidations\(/u);
+  // node_required sits with the offline stages from 2026-08-28, between configured and the cached
+  // CVI read - see quality-rules-page.test.js for why the order is what it is.
+  assert.match(runner, /configured\.validations, \.\.\.nodeRequiredStages\.validations,\s*\.\.\.createCviStages\(\)\.validations, \.\.\.registry\.validations/u);
+  assert.equal(/configured\.derivations|runDerivations/u.test(runner), false);
 });
 
 /**

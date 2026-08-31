@@ -18,6 +18,7 @@ const { createRelationStages } = require('./checks/relation-checks');
 const { createNodeRequiredStages } = require('./checks/node-required');
 const { configuredStages } = require('./checks/rule-store');
 const { fieldPropertyStages, resolvedProperties } = require('./checks/field-property-store');
+const { fieldState } = require('./checks/field-properties');
 const { dataStewardEmails } = require('./wf/data-stewards');
 const { emailsForRoleCollections, specificRoleFor } = require('./wf/btp-agents');
 
@@ -790,9 +791,22 @@ class ChangeRequestService extends cds.ApplicationService {
       // The requester is who is pressing the button, always. A role the client could name would be
       // one it could also name its way out of - see `requesterProperties`.
       const properties = await fieldPropertyStages(requesterContext(req));
+      // The SCREEN's own role, separate from the line above: gating what a derivation may propose is
+      // not a security boundary the mandatory-field check above is, so the caller's own Role is
+      // trusted here - narrowed to the caller's specific BTP role the same way effectiveFieldProperties
+      // narrows it, so "Approver Customer" is gated by its own profile rather than by every "Approver"
+      // profile in the table. Nothing is sent -> role stays null -> only `*` profiles apply, same as
+      // before this existed.
+      const renderRole = await resolveEffectiveRole(req, req.data.Role || null);
+      const renderResolved = await resolvedProperties({
+        requestType: req.data.RequestType || null,
+        role: renderRole
+      });
+      const fieldEditable = (target, field) => fieldState(renderResolved, target, field).editable;
       return runChecks(
         { root: data.root || {}, sections: data.sections || {} },
         {
+          fieldEditable,
           // CVI before the registry: its configuration is cached for 60s, so it is effectively
           // offline after the first read, and a role this partner's category cannot carry is worth
           // saying before spending a VIES call on an address that will never synchronise anyway.
@@ -842,6 +856,53 @@ class ChangeRequestService extends cds.ApplicationService {
             return JSON.parse(answer || '{}').findings || [];
           } : undefined
         }
+      );
+    };
+
+    /**
+     * The validation half of "the check", shared by submitRequest, resubmitRequest and decideRequest's
+     * approve path so the three cannot drift on what a submit actually gates on - they used to carry
+     * three copies of this exact stage list. Derivations deliberately never run here: they change the
+     * data, and only a requester who pressed Check has actually seen what they are asking for. Approve
+     * has nobody left to show a proposal to even if it ran them, which is the same reasoning taken one
+     * step further - see CLAUDE.md, "Derivations/Proposals... geblocked... in Approval stap".
+     */
+    /**
+     * The `{ root, sections }` shape the pipeline reads, reconstructed from what is actually
+     * persisted for a change request - shared by getRequestPayload and decideRequest's approve gate
+     * (below) so the two read staging exactly the same way. `deleted` rows are left out: neither
+     * caller validates a row on its way out.
+     */
+    const loadStagedPayload = async (changeRequest) => {
+      const general = await db.run(
+        cds.ql.SELECT.one.from(GENERAL).where({ request_ID: changeRequest })
+      );
+      const sections = {};
+      for (const [section, config] of Object.entries(NODES)) {
+        const rows = await db.run(
+          cds.ql.SELECT.from(config.entity).where({ request_ID: changeRequest })
+        );
+        const clean = rows
+          .filter((row) => row.action !== 'D')
+          .map((row) => {
+            const { ID, request_ID, action, ...rest } = row;
+            return { ...rest, ...stateOfAction(action) };
+          });
+        sections[section] = config.many ? clean : (clean[0] || null);
+      }
+      const { ID, request_ID, ...root } = general || {};
+      return { root, sections };
+    };
+
+    const runSubmitValidations = async (req, payload) => {
+      const registry = createRegistryStages();
+      const configured = await configuredStages();
+      const properties = await fieldPropertyStages(requesterContext(req));
+      return runValidations(
+        payload,
+        [...properties.validations, ...configured.validations, ...nodeRequiredStages.validations,
+        ...createCviStages().validations, ...registry.validations,
+        ...relationStages(req.data.BusinessPartner || payload.root?.BusinessPartner).validations]
       );
     };
 
@@ -900,14 +961,8 @@ class ChangeRequestService extends cds.ApplicationService {
       // The Check button's validations, over the payload being submitted. Derivations deliberately do
       // NOT run: they change the data, and the requester has to have seen what they are asking for.
       const data = parseJsonObject(req.data.DataJson, 'DataJson');
-      const registry = createRegistryStages();
-      const configured = await configuredStages();
-      const properties = await fieldPropertyStages(requesterContext(req));
-      const validations = await runValidations(
-        { root: data.root || {}, sections: data.sections || {} },
-        [...properties.validations, ...configured.validations, ...nodeRequiredStages.validations,
-        ...createCviStages().validations, ...registry.validations,
-        ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations]
+      const validations = await runSubmitValidations(
+        req, { root: data.root || {}, sections: data.sections || {} }
       );
       if (validations.some((message) => message.severity === BLOCKING)) {
         return {
@@ -1001,16 +1056,11 @@ class ChangeRequestService extends cds.ApplicationService {
       const changeRequest = await persist(req);
       if (!changeRequest) return;
 
-      // The same gates as a submit, in the same order. Derivations still do not run here.
+      // The same gates as a submit, in the same order (shared via runSubmitValidations). Derivations
+      // still do not run here.
       const data = parseJsonObject(req.data.DataJson, 'DataJson');
-      const registry = createRegistryStages();
-      const configured = await configuredStages();
-      const properties = await fieldPropertyStages(requesterContext(req));
-      const validations = await runValidations(
-        { root: data.root || {}, sections: data.sections || {} },
-        [...properties.validations, ...configured.validations, ...nodeRequiredStages.validations,
-        ...createCviStages().validations, ...registry.validations,
-        ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations]
+      const validations = await runSubmitValidations(
+        req, { root: data.root || {}, sections: data.sections || {} }
       );
       if (validations.some((message) => message.severity === BLOCKING)) {
         return {
@@ -1248,14 +1298,8 @@ class ChangeRequestService extends cds.ApplicationService {
       if (!changeRequestId) return;
 
       const data = parseJsonObject(req.data.DataJson, 'DataJson');
-      const registry = createRegistryStages();
-      const configured = await configuredStages();
-      const properties = await fieldPropertyStages(requesterContext(req));
-      const validations = await runValidations(
-        { root: data.root || {}, sections: data.sections || {} },
-        [...properties.validations, ...configured.validations, ...nodeRequiredStages.validations,
-        ...createCviStages().validations, ...registry.validations,
-        ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations]
+      const validations = await runSubmitValidations(
+        req, { root: data.root || {}, sections: data.sections || {} }
       );
       if (validations.some((message) => message.severity === BLOCKING)) {
         return {
@@ -1622,6 +1666,26 @@ class ChangeRequestService extends cds.ApplicationService {
         await appendComment(db, changeRequest, 'Approver', requestingUserEmail(req), req.data.Comment);
         await notifyWorkflow('rejected');
         return { ChangeRequest: changeRequest, Status: 'reworkRequired', BusinessPartner: null };
+      }
+
+      // "Very important" (2026-08-31, asked for directly): re-run the same validations submit and
+      // resubmit already gate on, against the data exactly as it is persisted right now - the
+      // configuration behind a rule (a mandatory field, a CVI account group mapping) can have changed
+      // since the request was submitted, and approving is the last moment before S/4 ever sees it.
+      // Nothing has been written yet at this point, so a plain reject is safe: the request stays
+      // `inApproval`, the task stays open, and the approver can reject or wait for the data to be
+      // fixed instead. Derivations deliberately do not run here either - see runSubmitValidations.
+      const approvalPayload = await loadStagedPayload(changeRequest);
+      const approvalValidations = await runSubmitValidations(req, approvalPayload);
+      if (approvalValidations.some((message) => message.severity === BLOCKING)) {
+        return req.reject(
+          422,
+          `Change request ${changeRequest} no longer passes validation and cannot be approved: `
+            + approvalValidations
+              .filter((message) => message.severity === BLOCKING)
+              .map((message) => message.message)
+              .join('; ')
+        );
       }
 
       // Approved, and posted from here (changed 2026-08-25, on Julien's ask). It used to stop at

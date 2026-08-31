@@ -160,8 +160,12 @@ test('the stage runs on every gate, submit included', () => {
   const service = fs.readFileSync(
     path.join(__dirname, '..', 'srv', 'change-request-service.js'), 'utf8'
   );
+  // Two textual sites since submit/resubmit/data steward complete/decideRequest's approve gate
+  // were consolidated into one shared runSubmitValidations (2026-08-31) - see
+  // field-property-apply.test.js for the full call-site count (now four, decideRequest included).
   const uses = service.split('...nodeRequiredStages.validations').length - 1;
-  assert.equal(uses, 4, 'checks, submit, resubmit and the data steward completion');
+  assert.equal(uses, 2, 'runRequestChecks (checks) and runSubmitValidations (submit and beyond)');
+  assert.equal((service.match(/runSubmitValidations\(/gu) || []).length, 4);
   assert.match(service, /entities: MAINTENANCE_ENTITIES/u);
   assert.match(service, /relationFields: RELATION_FIELDS/u);
   assert.match(service, /roleNodes: ROLE_NODES/u);

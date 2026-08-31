@@ -175,9 +175,17 @@ test('the configured stages join the registry stages, configured first', () => {
 // data, so the requester has to have seen and ticked it.
 test('submit runs the configured validations and still no derivations', () => {
   const submit = changeRequestJs.slice(changeRequestJs.indexOf("this.on('submitRequest'"));
-  const runValidations = submit.slice(submit.indexOf('runValidations('), submit.indexOf('runValidations(') + 200);
-  assert.match(runValidations, /configured\.validations/u);
+  assert.match(submit, /runSubmitValidations\(/u);
   assert.equal(/configured\.derivations/u.test(submit.slice(0, submit.indexOf('recordDuplicateFindings'))), false);
+
+  // The configured validations themselves live on the shared runSubmitValidations function now
+  // (2026-08-31, also used by resubmit/data steward complete/decideRequest's approve gate), not
+  // copied into submitRequest's own body.
+  const runner = changeRequestJs.slice(
+    changeRequestJs.indexOf('const runSubmitValidations ='),
+    changeRequestJs.indexOf("this.on('checkRequest'")
+  );
+  assert.match(runner, /configured\.validations/u);
 });
 
 /**

@@ -260,3 +260,69 @@ test('a derivation entry with no field is reported and writes nothing', async ()
   assert.deepEqual(derived.root, { OrganizationBPName1: 'Alluvion' }, 'nothing was written');
   assert.equal('undefined' in derived.root, false);
 });
+
+// --- fieldEditable: gating what a derivation may propose by role/field-property (2026-08-31) -----
+
+test('with no fieldEditable predicate, every field is gated exactly as before', async () => {
+  const { derived, applied } = await runDerivations(payload(), [fillCountry]);
+  assert.equal(derived.root.Country, 'BE');
+  assert.equal(applied.length, 1);
+});
+
+test('a field the predicate refuses gets no entry at all, and nothing is written', async () => {
+  const { derived, applied } = await runDerivations(
+    payload(), [fillCountry], { fieldEditable: () => false }
+  );
+  assert.equal(derived.root.Country, undefined, 'nothing was written for a field the role cannot touch');
+  assert.deepEqual(applied, [], 'not even reported - see "what a derivation may say" in CLAUDE.md');
+});
+
+test('the predicate is asked with the entry\'s own target and field', async () => {
+  const asked = [];
+  await runDerivations(payload(), [fillCountry], {
+    fieldEditable: (target, field) => { asked.push([target, field]); return true; }
+  });
+  assert.deepEqual(asked, [['root', 'Country']]);
+});
+
+test('a field-less statement is checked against the entity, with field left undefined', async () => {
+  const statement = { name: 'registry', run: async () => [{ target: 'Addresses', message: 'No row yet.' }] };
+  const asked = [];
+  const { applied } = await runDerivations(payload(), [statement], {
+    fieldEditable: (target, field) => { asked.push([target, field]); return true; }
+  });
+  assert.deepEqual(asked, [['Addresses', undefined]]);
+  assert.equal(applied.length, 1, 'still reported when the predicate allows it');
+});
+
+test('a row-creating entry is gated the same way, and creates nothing when refused', async () => {
+  const { derived, applied } = await runDerivations(
+    payload(), [createsStreet], { fieldEditable: () => false }
+  );
+  assert.deepEqual(derived.sections.Addresses, undefined);
+  assert.deepEqual(applied, []);
+});
+
+test('runChecks threads fieldEditable through to the derivations it runs', async () => {
+  const result = await runChecks(payload(), {
+    derivations: [fillCountry],
+    fieldEditable: () => false
+  });
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.derivations, []);
+  assert.equal(result.derived.root.Country, undefined);
+});
+
+// Approval has nothing editable at all - a role whose profile marks every field readOnly/hidden
+// must see nothing proposed, which is exactly the "in Approval stap niks tonen" ask.
+test('a role editable on some fields and not others only loses the ones it cannot touch', async () => {
+  const fillLanguage = { name: 'lang', run: async () => [{ target: 'root', field: 'Language', value: 'NL' }] };
+  const onlyLanguage = (target, field) => field === 'Language';
+  const { derived, applied } = await runDerivations(
+    payload(), [fillCountry, fillLanguage], { fieldEditable: onlyLanguage }
+  );
+  assert.equal(derived.root.Country, undefined);
+  assert.equal(derived.root.Language, 'NL');
+  assert.equal(applied.length, 1);
+  assert.equal(applied[0].field, 'Language');
+});

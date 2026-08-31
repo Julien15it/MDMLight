@@ -98,7 +98,8 @@ test('complete runs the same gates as resubmit, and hands the same instance back
   const complete = decide.slice(decide.indexOf("// decision === 'complete'"));
   assert.match(complete, /if \(!before\.processInstanceId\)/u);
   assert.match(complete, /const changeRequestId = await persist\(req\);/u);
-  assert.match(complete, /runValidations\(/u);
+  // Shared with submit/resubmit/decideRequest's approve gate since 2026-08-31.
+  assert.match(complete, /runSubmitValidations\(/u);
   assert.match(complete, /recordDuplicateFindings\(/u);
   assert.match(complete, /!req\.data\.Confirm/u);
   assert.match(complete, /const context = await workflowContext\(req, changeRequestId, header, findings\);/u);

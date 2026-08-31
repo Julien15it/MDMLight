@@ -1391,6 +1391,64 @@ the duplicate rule table's layout, and each page still binds only its own entity
 binding `dc>/DuplicateRules` would show duplicate rules under a Validation Rules
 heading and let someone edit them by accident.
 
+#### Gating derivations by role/field property, and re-validating at every gate (2026-08-31)
+
+Asked for directly, "heel belangrijk": a derivation must not propose a value into a field the
+current screen cannot edit, and the validations should run again at submit/resubmit/approve, not
+only at the moment of a first Check. Two separate mechanisms, because they answer different
+questions - "may this be shown" and "does this still pass" - and conflating them would have made
+either one impossible to reason about alone.
+
+**Gating what a derivation may propose.** `runDerivations`/`runChecks` (`srv/checks/pipeline.js`)
+take an optional `fieldEditable(target, field)` predicate. An entry whose target field the
+predicate refuses gets **no entry at all** - not written, not reported, not offered as a proposal -
+the same "a requester never reads what they cannot act on" rule that already governs a derivation
+with no prerequisite (see "The rule about what a derivation may say" above). A field-less statement
+entry is checked the same way with `field` left `undefined`, which resolves to the entity's own
+state via `effectiveProperty`'s cascade - a statement about a section the role cannot see is exactly
+as unhelpful as a value it cannot edit. No caller passing a predicate means every field stays
+editable, exactly the behaviour before this existed.
+
+`runRequestChecks` (`srv/change-request-service.js`, backing both `checkRequest` and
+`duplicateCheckRequest`) builds the predicate from `fieldState`, resolved for the **screen's own
+role** - narrowed to the caller's specific BTP role the same way `effectiveFieldProperties` narrows
+it, so "Approver Customer" is gated by its own profile rather than by every "Approver" profile in
+the table. This is a **separate** resolution from the one already in `runRequestChecks` for the
+mandatory-field validation gate, which stays hardcoded to `requesterContext(req)` on purpose - that
+one is a security boundary (a client naming its own role could submit past a mandatory field), gating
+a proposal is not, so the caller's own `Role`/`RequestType` are trusted for this half only. Both
+actions gained `RequestType`/`Role` parameters for it; a caller that sends neither (an older client,
+or a direct service call) resolves to `role: null`, which matches only `*` profiles - ungated for
+anything scoped to a specific role, exactly as before this existed. The client sends them from
+`_checkRole(state)`, the same `approve`/`datasteward`/else-`Requester` mapping `_loadStagedRequest`
+already uses for `_loadFieldProperties` - so a Check pressed on the approve screen (the button stays
+visible there; approve has never had its own gate on it) cannot open a dialog offering to fill in a
+field the object page itself never lets an approver touch.
+
+**Re-validating at every gate.** `submitRequest`, `resubmitRequest` and `decideDataStewardReview`'s
+`complete` branch used to carry three literal copies of the same validation stage list. They now
+share one function, `runSubmitValidations(req, payload)`, defined once beside `runRequestChecks` -
+purely a deduplication, zero behaviour change, and it closes the drift risk of the three ever
+disagreeing about what "the check" means.
+
+**`decideRequest`'s approve path never ran any of this before** - it went straight from
+`postedBP`/status guards to writing `status: 'approved'` and posting. It now calls
+`runSubmitValidations` too, over `loadStagedPayload(changeRequest)` (the same `{root, sections}`
+reconstruction `getRequestPayload` does, extracted so the two cannot drift on how they read staging).
+A blocking result rejects the action outright - safe because nothing has been written yet at that
+point, unlike a failed *post*, which is why that failure mode uses `ErrorMessage` instead (see
+"Signalling the outcome" above): the request stays `inApproval`, the task stays open, and the
+approver sees why rather than the partner being created against data that no longer passes. The
+reasoning for approving is the last point before S/4 ever sees the request: the configuration behind
+a rule (a mandatory field, a CVI account group mapping) can have changed since the request was
+submitted.
+
+**Derivations still never run on approve**, deliberately, same as they never ran on submit/resubmit:
+nothing on the approve screen is editable, so there is nobody left to show a proposal to even if one
+ran. This is the other half of "in Approval stap niks tonen" - the first half is the predicate
+above, for the Check button; this half is that the automatic re-check on Approve was never a
+derivation to begin with.
+
 ### The shared maintenance screen (`app/reuse`, 2026-08-20)
 
 The Business Partner maintenance screen — the object page used for create, edit,
@@ -2942,6 +3000,45 @@ same day): `commentsPanel` used to sit second, right after the message panel: it
 now comes after the duplicate findings and the new change summary, immediately
 before the `ObjectPageLayout` - nothing stands between the conversation and the
 Business Partner's own name any more except that conversation itself.
+
+##### The change summary names WHY a field changed, not only that it did (2026-08-31)
+
+Asked for directly, alongside the field-property gating above: "Proposal info meenemen naar Changed
+Fields overview... User input vermelden als 'User change/input'." A row in the panel used to say a
+field changed and to what; it could not say whether that value came from VIES, a steward's typed
+correction, or an accepted normalisation - three very different things to an approver deciding
+whether to trust it.
+
+**A fourth column, Why**, added to `changeSummaryPanel`'s table using the exact convention the
+proposal dialog's own Why column already established: the three-word `reason` shown, the full
+`detail` sentence on hover (`wrapping="false"` plus a `tooltip` binding - see "The Why column is
+three words, with the sentence on hover" above). Reusing the convention rather than inventing a
+second one answers the "met/zonder hover?" half of the ask: consistency with the dialog the requester
+already saw the same reason in.
+
+**Content-matched, the same choice `matchSectionRows` itself made for rows.** `state.proposalProvenance`
+(`{ root: { field: {value, reason, detail} }, sections: { sectionId: [ {field: {...}} ] } }`) is
+written by `_recordProvenance`, called from every one of `_applyProposals`'s three write points - a
+plain field, a row-creating lead field, and that row's own key `extras` (all sharing the row's single
+Why, the same way `_derivationRow` already shows one Why for a whole keyed row). `_provenanceFor`
+reads it back and returns the stored `reason`/`detail` **only while the field still carries EXACTLY
+the value the proposal wrote** (compared through the same `displayValue` formatter both diff sides
+already use); anything else - never proposed, or proposed and then typed over - is `"User
+change/input"` with no tooltip. This is deliberately the same design as row matching: nothing has to
+remember to *clear* an entry when a field is edited again, because a further edit simply stops
+matching on its own. The trade-off is the same one already accepted for row provenance being
+index-keyed rather than a stable id: a section row that reorders (matchSectionRows re-pairs against a
+different baseline row) can point a stale entry at the wrong index, which is a cosmetic mislabel, not
+a data problem - nothing here writes to the request payload.
+
+**`proposalProvenance` resets with the rest of `_emptyState()`** - a provenance entry only ever
+describes the record currently on screen, and is never sent anywhere: `getRequestPayload`/`DataJson`
+carry no such column, `db/staging.cds` has none, and nothing about it crosses to S/4 or to the next
+person who opens the request. It exists purely to answer "why does this cell hold this value" for the
+person looking at it right now.
+
+**A removed row's summary lines get no Why at all** (`why: ""`) - there is no current value left to
+attribute a source to, only the value that used to be there.
 
 #### The approve screen as a BPA UI5 Task Form
 

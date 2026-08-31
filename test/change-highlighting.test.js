@@ -48,6 +48,39 @@ function extractMatchSectionRows(source) {
   return new Function('return (' + code + ')')();
 }
 
+/**
+ * Same idea as extractMatchSectionRows, for an object-literal method (`name: function (...) {...}`)
+ * rather than a standalone declaration - _recordProvenance/_provenanceFor reference no `this`, so
+ * they are just as callable in isolation. `displayValue` is injected the same way the real controller
+ * closure supplies it, rather than re-declared inside the extracted body.
+ */
+function extractMethod(source, name, ...freeVars) {
+  const label = name + ': function';
+  const labelAt = source.indexOf(label);
+  const fnStart = labelAt + name.length + 2;
+  const braceStart = source.indexOf('{', fnStart);
+  let depth = 0;
+  let end = braceStart;
+  for (let i = braceStart; i < source.length; i += 1) {
+    if (source[i] === '{') depth += 1;
+    if (source[i] === '}') {
+      depth -= 1;
+      if (depth === 0) { end = i + 1; break; }
+    }
+  }
+  const code = source.slice(fnStart, end);
+  // eslint-disable-next-line no-new-func
+  return new Function(...freeVars.map((pair) => pair[0]), 'return (' + code + ')')(
+    ...freeVars.map((pair) => pair[1])
+  );
+}
+
+function realDisplayValue(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  return String(value);
+}
+
 // --- The colour rules themselves -----------------------------------------------------------
 
 /**
@@ -321,13 +354,18 @@ test('_refreshChangeSummary reports a deleted row per populated field, and count
   assert.match(body, /" row removed" : " rows removed"/u);
 });
 
-test('the panel is a plain three-column table, coloured on the New Value cell, not the row', () => {
+test('the panel table is coloured on the New Value cell, not the row, and names Why last', () => {
   const panel = view.slice(view.indexOf('id="changeSummaryPanel"'));
   const body = panel.slice(0, panel.indexOf('</Panel>'));
   const columns = [...body.matchAll(/<Column>\s*<Text text="([^"]+)"/gu)].map((match) => match[1]);
-  assert.deepEqual(columns, ['Field', 'Previous Value', 'New Value']);
+  // Why (2026-08-31) carries an accepted proposal's own reason, or "User change/input" for a plain
+  // edit - see _provenanceFor/_recordProvenance in the controller.
+  assert.deepEqual(columns, ['Field', 'Previous Value', 'New Value', 'Why']);
   assert.match(body, /items="\{ path: 'maintenance>\/changeSummary'/u);
   assert.match(body, /state="\{= \$\{maintenance>kind\} === 'added' \? 'Warning' : 'Error' \}"/u);
+  // Three words shown, the full sentence on hover - the same convention the proposal dialog itself
+  // uses for its own Why column.
+  assert.match(body, /text="\{maintenance>why\}" wrapping="false" tooltip="\{maintenance>whyDetail\}"/u);
 });
 
 // --- Panel ordering: the conversation is the last thing above the form ------------------------
@@ -481,4 +519,110 @@ test('the three highlight classes exist, on semantic theme tokens - no whole-row
   assert.equal(/\.mdmChangedRow\b/u.test(css), false);
   assert.match(css, /--sapErrorBackground/u);
   assert.match(css, /--sapWarningBackground/u);
+});
+
+// --- Provenance: an accepted proposal's Why survives into the change summary (2026-08-31) --------
+
+/**
+ * Content-matched, like matchSectionRows' own row matching: a stored entry only counts while the
+ * field still carries EXACTLY the value the proposal wrote. This is what makes a further manual edit
+ * correct itself back to "User change/input" without any edit path having to remember to clear
+ * anything - the same design choice CLAUDE.md documents for row matching itself.
+ */
+test('_provenanceFor: the proposal\'s reason only while the value still matches what it wrote', () => {
+  const provenanceFor = extractMethod(
+    controller, '_provenanceFor', ['displayValue', realDisplayValue]
+  );
+  const state = {
+    proposalProvenance: {
+      root: { Country: { value: 'BE', reason: 'VIES check', detail: 'VIES confirmed the address.' } },
+      sections: {
+        Addresses: [{ StreetName: { value: 'Kerkstraat', reason: 'GLEIF check', detail: 'From GLEIF.' } }]
+      }
+    }
+  };
+
+  const matched = provenanceFor(state, 'root', 0, 'Country', 'BE');
+  assert.deepEqual(matched, { why: 'VIES check', whyDetail: 'VIES confirmed the address.' });
+
+  const edited = provenanceFor(state, 'root', 0, 'Country', 'NL');
+  assert.deepEqual(edited, { why: 'User change/input', whyDetail: '' });
+
+  const untouched = provenanceFor(state, 'root', 0, 'Language', 'NL');
+  assert.deepEqual(untouched, { why: 'User change/input', whyDetail: '' });
+
+  const sectionMatched = provenanceFor(state, 'Addresses', 0, 'StreetName', 'Kerkstraat');
+  assert.deepEqual(sectionMatched, { why: 'GLEIF check', whyDetail: 'From GLEIF.' });
+
+  const sectionEdited = provenanceFor(state, 'Addresses', 0, 'StreetName', 'Kerkweg');
+  assert.deepEqual(sectionEdited, { why: 'User change/input', whyDetail: '' });
+});
+
+test('_provenanceFor: no provenance store at all is the same as never having proposed anything', () => {
+  const provenanceFor = extractMethod(
+    controller, '_provenanceFor', ['displayValue', realDisplayValue]
+  );
+  assert.deepEqual(
+    provenanceFor({}, 'root', 0, 'Country', 'BE'),
+    { why: 'User change/input', whyDetail: '' }
+  );
+});
+
+/**
+ * _recordProvenance is what _applyProposals calls at each of its three write points (a plain field,
+ * a row-creating lead field, and that row's own key "extras"). Falls back to the proposal's message
+ * when there is no `detail` - an empty tooltip reads as a broken one, the same rule the proposal
+ * dialog's own Why column follows for a normalisation with no `detail`.
+ */
+test('_recordProvenance: root by field name, a section by [index][field], with sensible fallbacks', () => {
+  const recordProvenance = extractMethod(
+    controller, '_recordProvenance', ['displayValue', realDisplayValue]
+  );
+  const state = { proposalProvenance: { root: {}, sections: {} } };
+
+  recordProvenance(state, 'root', 0, 'Country', 'BE', { reason: 'VIES check', detail: 'Confirmed.' });
+  assert.deepEqual(state.proposalProvenance.root.Country, {
+    value: 'BE', reason: 'VIES check', detail: 'Confirmed.'
+  });
+
+  recordProvenance(state, 'Addresses', 2, 'StreetName', 'Kerkstraat', { message: 'From GLEIF.' });
+  assert.deepEqual(state.proposalProvenance.sections.Addresses[2].StreetName, {
+    value: 'Kerkstraat', reason: 'Derived', detail: 'From GLEIF.'
+  });
+});
+
+test('_applyProposals records provenance for a plain field, and for a created row plus its extras', () => {
+  const fn = controller.slice(controller.indexOf('_applyProposals: function'));
+  const body = fn.slice(0, fn.indexOf('\n      _resolveStandardChecks'));
+  // The plain-field write.
+  assert.match(
+    body,
+    /record\[proposal\.field\] = value;\s*self\._recordProvenance\(state, proposal\.target, proposal\.index \|\| 0, proposal\.field, value, proposal\);/u
+  );
+  // The row-creation write: the lead field, then every extra that actually landed.
+  assert.match(
+    body,
+    /self\._recordProvenance\(state, proposal\.target, newIndex, proposal\.field, value, proposal\);/u
+  );
+  assert.match(
+    body,
+    /self\._recordProvenance\(state, proposal\.target, newIndex, extra\.field, added\[extra\.field\], proposal\);/u
+  );
+});
+
+test('_refreshChangeSummary attaches why/whyDetail from _provenanceFor, for root and section rows', () => {
+  const fn = controller.slice(controller.indexOf('_refreshChangeSummary: function'));
+  const body = fn.slice(0, fn.indexOf('_rootFieldLabel: function'));
+  assert.match(
+    body,
+    /var provenance = this\._provenanceFor\(state, "root", 0, fieldName, root\[fieldName\]\);/u
+  );
+  assert.match(
+    body,
+    /var provenance = self\._provenanceFor\(state, section\.id, index, field\.name, record\[field\.name\]\);/u
+  );
+  assert.match(body, /why: provenance\.why,\s*whyDetail: provenance\.whyDetail/u);
+  // A removed row has no current value left to attribute anything to - both removed-row branches
+  // (a field that had a value, and a row removed before it ever got one) say so explicitly.
+  assert.equal((body.match(/why: "",\s*whyDetail: ""/gu) || []).length, 2);
 });

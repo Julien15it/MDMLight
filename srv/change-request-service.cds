@@ -130,7 +130,13 @@ service ChangeRequestService @(path: '/service/changerequest') {
     Propose         : Boolean,
     /** Narrows the normalisation to one target - 'root' or a section name such as
      *  'addresses' - so a scoped call does not re-ask about the whole record. */
-    Scope           : String(40)
+    Scope           : String(40),
+    /** The request type and the screen's own role - Requester, Approver or DataSteward, same as
+     *  effectiveFieldProperties - so a derivation cannot propose a value into a field this role
+     *  could not touch. Null matches only `*` profiles, the same fallback effectiveFieldProperties
+     *  uses, so an older caller that never sends these is ungated exactly as it always was. */
+    RequestType     : String(10),
+    Role            : String(40)
   ) returns {
     /** False when a validation blocked; nothing after validation ran. */
     Valid             : Boolean;
@@ -151,7 +157,10 @@ service ChangeRequestService @(path: '/service/changerequest') {
   action duplicateCheckRequest(
     ChangeRequest   : UUID,
     BusinessPartner : String(10),
-    DataJson        : LargeString not null
+    DataJson        : LargeString not null,
+    /** Same as on checkRequest - gates what the in-memory derivations may fill in before matching. */
+    RequestType     : String(10),
+    Role            : String(40)
   ) returns {
     /** False when a validation blocked; nothing after validation ran. */
     Valid             : Boolean;

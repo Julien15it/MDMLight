@@ -667,9 +667,16 @@ sap.ui.define([
           // Whether a baseline is meaningful at all - false on a plain new create, where "original"
           // is trivially empty and every field would show as an addition. See _refreshChangeSummary.
           trackChanges: false,
-          // The collapsible "what changed" list above the form - {field, oldValue, newValue, kind}.
+          // The collapsible "what changed" list above the form -
+          // {field, oldValue, newValue, kind, why, whyDetail}.
           changeSummary: [],
           changeSummaryHeader: "",
+          // Where an accepted proposal's value came from, so the summary above can say "Why" instead
+          // of just "changed" - see _recordProvenance/_provenanceFor and "Highlighting what changed"
+          // in CLAUDE.md. Keyed the same way a proposal addresses a field: root by field name,
+          // a section by [index][field]. Reset with the rest of the state on every fresh load - a
+          // provenance entry only ever describes the record currently on screen.
+          proposalProvenance: { root: {}, sections: {} },
           root: {
             BusinessPartnerCategory: "2",
             BusinessPartnerGrouping: ""
@@ -2350,6 +2357,15 @@ sap.ui.define([
         this._declinedProposals = {};
       },
 
+      // The role a derivation is gated on server-side (2026-08-31) - same mapping _loadStagedRequest
+      // already uses for _loadFieldProperties, so a field hidden or read-only for this screen's own
+      // role never gets a value proposed for it either. Approve has nothing editable at all, which is
+      // what makes this matter there: without it, Check on the approve screen could still open a
+      // dialog offering to fill in a field the object page itself never lets anyone touch.
+      _checkRole: function (state) {
+        return state.mode === "approve" ? "Approver" : (state.mode === "datasteward" ? "DataSteward" : "Requester");
+      },
+
       onCheck: async function () {
         // Pressing Check is the requester asking, so a proposal declined earlier is offered again.
         this._cancelPendingTrigger();
@@ -2368,7 +2384,9 @@ sap.ui.define([
           var result = await this._executeAction("checkRequest", {
             ChangeRequest: state.changeRequest || null,
             BusinessPartner: state.businessPartner || null,
-            DataJson: this._requestDataJson(state)
+            DataJson: this._requestDataJson(state),
+            RequestType: state.requestType || null,
+            Role: this._checkRole(state)
           }, "cr");
 
           var validations = this._parseJsonArray(result && result.ValidationsJson);
@@ -2428,7 +2446,9 @@ sap.ui.define([
           var result = await this._executeAction("duplicateCheckRequest", {
             ChangeRequest: state.changeRequest || null,
             BusinessPartner: state.businessPartner || null,
-            DataJson: this._requestDataJson(state)
+            DataJson: this._requestDataJson(state),
+            RequestType: state.requestType || null,
+            Role: this._checkRole(state)
           }, "cr");
 
           var validations = this._parseJsonArray(result && result.ValidationsJson);
@@ -2519,6 +2539,7 @@ sap.ui.define([
        * straight off __state rather than from matching.
        */
       _refreshChangeSummary: function () {
+        var self = this;
         var state = this.getView().getModel("maintenance").getData();
         if (!state.trackChanges) {
           state.changeSummary = [];
@@ -2535,11 +2556,14 @@ sap.ui.define([
           .forEach(function (fieldName) {
             var kind = fieldChangeKind(originalRoot[fieldName], root[fieldName]);
             if (!kind) return;
+            var provenance = this._provenanceFor(state, "root", 0, fieldName, root[fieldName]);
             rows.push({
               field: this._rootFieldLabel(fieldName),
               oldValue: displayValue(originalRoot[fieldName]) || "—",
               newValue: displayValue(root[fieldName]) || "—",
-              kind: kind
+              kind: kind,
+              why: provenance.why,
+              whyDetail: provenance.whyDetail
             });
           }, this);
 
@@ -2562,11 +2586,14 @@ sap.ui.define([
                   ? (isBlank(record[field.name]) ? "" : "added")
                   : fieldChangeKind(match.baseline[field.name], record[field.name]);
                 if (!fieldKind) return;
+                var provenance = self._provenanceFor(state, section.id, index, field.name, record[field.name]);
                 rows.push({
                   field: section.title + " – " + field.label,
                   oldValue: displayValue(match.baseline[field.name]) || "—",
                   newValue: displayValue(record[field.name]) || "—",
-                  kind: fieldKind
+                  kind: fieldKind,
+                  why: provenance.why,
+                  whyDetail: provenance.whyDetail
                 });
               });
             });
@@ -2585,7 +2612,11 @@ sap.ui.define([
                   field: section.title + " – " + field.label,
                   oldValue: displayValue(baseline[field.name]) || "—",
                   newValue: "(removed)",
-                  kind: "removed"
+                  kind: "removed",
+                  // Nothing to attribute a removal to: the row is gone, not changed to a value that
+                  // could itself have come from a proposal or a person.
+                  why: "",
+                  whyDetail: ""
                 });
               });
               // A deleted row that was never actually filled in (added, then removed again without
@@ -2596,7 +2627,9 @@ sap.ui.define([
                   field: section.title + " – Row removed",
                   oldValue: "—",
                   newValue: "(removed)",
-                  kind: "removed"
+                  kind: "removed",
+                  why: "",
+                  whyDetail: ""
                 });
               }
             });
@@ -2922,9 +2955,45 @@ sap.ui.define([
         dialog.open();
       },
 
+      // Remembers what an accepted proposal wrote, so the change summary can name it instead of
+      // reading as a plain user edit. Keyed by content, not by a flag: see _provenanceFor for why
+      // that is what makes a later manual edit correct itself for free.
+      _recordProvenance: function (state, target, index, field, value, proposal) {
+        state.proposalProvenance = state.proposalProvenance || { root: {}, sections: {} };
+        var entry = {
+          value: value,
+          reason: proposal.reason || "Derived",
+          detail: proposal.detail || proposal.message || proposal.reason || ""
+        };
+        if (!target || target === "root") {
+          state.proposalProvenance.root[field] = entry;
+          return;
+        }
+        var bucket = state.proposalProvenance.sections[target]
+          || (state.proposalProvenance.sections[target] = []);
+        bucket[index] = bucket[index] || {};
+        bucket[index][field] = entry;
+      },
+
+      // "User change/input" unless the field still carries EXACTLY what an accepted proposal wrote.
+      // Content-matched rather than flag-tracked (the same choice "Highlighting what changed" made
+      // for row matching): a proposal accepted and then typed over goes back to reading as a user
+      // change on its own, with nothing needing to clear the old entry on every edit path.
+      _provenanceFor: function (state, target, index, field, currentValue) {
+        var provenance = state.proposalProvenance || {};
+        var entry = (!target || target === "root")
+          ? (provenance.root || {})[field]
+          : (((provenance.sections || {})[target] || [])[index] || {})[field];
+        if (entry && (displayValue(entry.value) || "—") === (displayValue(currentValue) || "—")) {
+          return { why: entry.reason, whyDetail: entry.detail };
+        }
+        return { why: "User change/input", whyDetail: "" };
+      },
+
       _applyProposals: function (accepted) {
         var applied = 0;
         var renamed = false;
+        var self = this;
         var state = this.getView().getModel("maintenance").getData();
         accepted.forEach(function (proposal) {
           // An emptied field is a decline, not an instruction to blank what is there.
@@ -2956,6 +3025,15 @@ sap.ui.define([
               if (extraValue) added[extra.field] = extraValue;
             });
             rows.push(added);
+            var newIndex = rows.length - 1;
+            // The extras carry the same Why as the lead field - they are the row's own key, not a
+            // separate fact, so "Sales area 1710 / 10 / 00" and "AG" share one reason.
+            self._recordProvenance(state, proposal.target, newIndex, proposal.field, value, proposal);
+            (proposal.extras || []).forEach(function (extra) {
+              if (added[extra.field] !== undefined) {
+                self._recordProvenance(state, proposal.target, newIndex, extra.field, added[extra.field], proposal);
+              }
+            });
             applied += 1;
             return;
           }
@@ -2965,6 +3043,7 @@ sap.ui.define([
             : (state.sections[proposal.target] || [])[proposal.index || 0];
           if (!record) return;
           record[proposal.field] = value;
+          self._recordProvenance(state, proposal.target, proposal.index || 0, proposal.field, value, proposal);
           // Or the accepted value never reaches staging.
           if (record !== state.root && !record.__state) record.__state = "changed";
           // A name accepted here has to recompose the full name, exactly as typing it would.

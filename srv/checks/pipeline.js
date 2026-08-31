@@ -104,9 +104,22 @@ function replay(payload, entry) {
   record[entry.field] = entry.value;
 }
 
+// No caller passed a role to gate on: every field is editable, exactly the behaviour before this
+// existed. A caller that resolves field properties for a role (Requester/Approver/DataSteward)
+// passes its own predicate instead - see `runRequestChecks` in change-request-service.js.
+const ALWAYS_EDITABLE = () => true;
+
 // `derived` is everything filled in (for the duplicate check); `systemDerived` is what was typed
 // plus only the `system` entries, which is what the S/4 standard checks are allowed to see.
-async function runDerivations(payload, derivations = DERIVATIONS) {
+//
+// `fieldEditable(target, field)` gates what a derivation may PROPOSE, never what it may read: a
+// field the current role cannot touch (hidden or read-only, per a field property profile) gets no
+// entry at all, silently — the same "a requester never reads what they cannot act on" rule that
+// already governs a derivation with no prerequisite (see CLAUDE.md, "The rule about what a
+// derivation may say"). A field-less statement entry is checked the same way with `field` left
+// undefined, which resolves to the entity's own state - a statement about a section the current
+// role cannot see is exactly as unhelpful as a value it cannot edit.
+async function runDerivations(payload, derivations = DERIVATIONS, { fieldEditable = ALWAYS_EDITABLE } = {}) {
   const derived = clone(payload);
   const systemDerived = clone(payload);
   const applied = [];
@@ -125,6 +138,7 @@ async function runDerivations(payload, derivations = DERIVATIONS) {
       continue;
     }
     for (const entry of entries) {
+      if (!fieldEditable(entry.target || ROOT, entry.field || undefined)) continue;
       // An entry with no field is a statement, not a value: report it and write nothing. It used
       // to depend on `targetRecord` happening to miss, which wrote root[undefined].
       if (!entry.field) {
@@ -195,7 +209,9 @@ async function runDerivations(payload, derivations = DERIVATIONS) {
 
 // `checkDuplicates` is injected, not imported: this module stays free of the S/4 connection, and the
 // caller decides what to compare against - submit excludes the request's own staged copy, a check does not.
-async function runChecks(payload, { checkDuplicates, checkStandard, validations, derivations, propose } = {}) {
+async function runChecks(payload, {
+  checkDuplicates, checkStandard, validations, derivations, propose, fieldEditable
+} = {}) {
   const validationMessages = await runValidations(payload, validations);
   if (validationMessages.some((message) => message.severity === BLOCKING)) {
     return {
@@ -211,7 +227,9 @@ async function runChecks(payload, { checkDuplicates, checkStandard, validations,
     };
   }
 
-  const { derived, applied, systemDerived } = await runDerivations(payload, derivations);
+  const { derived, applied, systemDerived } = await runDerivations(
+    payload, derivations, { fieldEditable }
+  );
 
   // Proposals, not changes. Made against the derived payload so a field just filled in can be
   // normalised in the same pass, and never applied here — the requester accepts or declines.

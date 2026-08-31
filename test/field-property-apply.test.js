@@ -335,9 +335,12 @@ test('no profile means no stage at all, not an empty one that runs per request',
  */
 test('the enforcing context is the requester, never a role the client named', () => {
   assert.match(serviceJs, /const requesterContext = \(req\) => \(\{ requestType: req\.data\.RequestType, role: 'Requester' \}\)/u);
-  // Four call sites: the two check buttons share one runner, then submit, resubmit, and a data
-  // steward's `complete` decision - which runs the same gates as resubmit under a different status.
-  assert.equal((serviceJs.match(/fieldPropertyStages\(requesterContext\(req\)\)/gu) || []).length, 4);
+  // Two textual call sites now (2026-08-31): the two check buttons share `runRequestChecks`, and
+  // submit/resubmit/a data steward's `complete` decision/decideRequest's approve gate all share
+  // `runSubmitValidations` - so the same requester context reaches six logical run paths through
+  // two definitions rather than being copied into each one.
+  assert.equal((serviceJs.match(/fieldPropertyStages\(requesterContext\(req\)\)/gu) || []).length, 2);
+  assert.equal((serviceJs.match(/runSubmitValidations\(/gu) || []).length, 4, 'submit, resubmit, data steward complete, and decideRequest');
   // The rendering answer is a separate, read-only function.
   assert.match(serviceCds, /function effectiveFieldProperties\(/u);
   assert.match(serviceJs, /this\.on\('effectiveFieldProperties'/u);
@@ -367,12 +370,15 @@ test('effectiveFieldProperties narrows Approver/DataSteward to the caller\'s own
 });
 
 test('the property validations run alongside the configured ones, on every gate', () => {
+  // One definition in runRequestChecks (check/duplicate-check), one in the shared
+  // runSubmitValidations (submit, resubmit, data steward complete, decideRequest's approve gate) -
+  // see "the enforcing context is the requester" above for the full call-site count.
   assert.equal(
     (serviceJs.match(
       /\[\.\.\.properties\.validations, \.\.\.configured\.validations, \.\.\.nodeRequiredStages\.validations,\s*\.\.\.createCviStages\(\)\.validations, \.\.\.registry\.validations,\s*\.\.\.relationStages\([^)]*\)\.validations\]/gu
     ) || []).length,
-    4,
-    'check/duplicate-check, submit, resubmit and a data steward completing review'
+    2,
+    'runRequestChecks and runSubmitValidations'
   );
 });
 
@@ -477,4 +483,64 @@ test('workflowContext resolves criticalField from resolvedProperties, not a dedi
 test('datastewards comes from the BTP role collections directly, not the WorkflowRules table', () => {
   assert.match(serviceJs, /const \{ dataStewardEmails \} = require\('\.\/wf\/data-stewards'\)/u);
   assert.match(serviceJs, /const datastewards = await dataStewardEmails\(\);/u);
+});
+
+// --- Gating what a derivation may propose by role/field-property (2026-08-31) ---------------------
+
+/**
+ * "Derivations/Proposals ook geblocked worden op basis van role/field properties (in Approval stap
+ * niks tonen want niks is editeerbaar bv)" - the Check/Duplicate Check buttons now tell the server
+ * which role the SCREEN is rendered for, and runRequestChecks narrows it the same way
+ * effectiveFieldProperties does before turning it into a fieldEditable predicate for runChecks.
+ */
+test('runRequestChecks resolves the screen\'s own role into a fieldEditable predicate', () => {
+  const runner = serviceJs.slice(
+    serviceJs.indexOf('const runRequestChecks ='),
+    serviceJs.indexOf("this.on('effectiveFieldProperties'")
+  );
+  assert.match(runner, /fieldState/u);
+  assert.match(runner, /resolveEffectiveRole\(req, req\.data\.Role \|\| null\)/u);
+  assert.match(
+    runner,
+    /resolvedProperties\(\{\s*requestType: req\.data\.RequestType \|\| null,\s*role: renderRole\s*\}\)/u
+  );
+  assert.match(runner, /const fieldEditable = \(target, field\) => fieldState\(renderResolved, target, field\)\.editable;/u);
+  assert.match(runner, /fieldEditable,/u);
+  assert.match(serviceJs, /const \{ fieldState \} = require\('\.\/checks\/field-properties'\);/u);
+});
+
+test('checkRequest and duplicateCheckRequest both declare RequestType/Role', () => {
+  const check = serviceCds.slice(
+    serviceCds.indexOf('action checkRequest('),
+    serviceCds.indexOf('action duplicateCheckRequest(')
+  );
+  assert.match(check, /RequestType\s*:\s*String\(10\)/u);
+  assert.match(check, /Role\s*:\s*String\(40\)/u);
+
+  const duplicate = serviceCds.slice(
+    serviceCds.indexOf('action duplicateCheckRequest('),
+    serviceCds.indexOf('action decideRequest(')
+  );
+  assert.match(duplicate, /RequestType\s*:\s*String\(10\)/u);
+  assert.match(duplicate, /Role\s*:\s*String\(40\)/u);
+});
+
+/** The client tells the server which role the screen renders for - same mapping _loadStagedRequest
+ *  already uses for _loadFieldProperties, so a Check on the approve screen cannot propose a value
+ *  into a field the object page itself never lets an approver touch. */
+test('onCheck and onDuplicateCheck send the screen\'s own RequestType/Role', () => {
+  assert.match(
+    controller,
+    /_checkRole: function \(state\) \{\s*return state\.mode === "approve" \? "Approver" : \(state\.mode === "datasteward" \? "DataSteward" : "Requester"\);/u
+  );
+  const onCheck = controller.slice(
+    controller.indexOf('onCheck: async function'), controller.indexOf('onDuplicateCheck: async function')
+  );
+  assert.match(onCheck, /RequestType: state\.requestType \|\| null,\s*Role: this\._checkRole\(state\)/u);
+
+  const onDuplicateCheck = controller.slice(
+    controller.indexOf('onDuplicateCheck: async function'),
+    controller.indexOf('onDuplicateCheck: async function') + 1200
+  );
+  assert.match(onDuplicateCheck, /RequestType: state\.requestType \|\| null,\s*Role: this\._checkRole\(state\)/u);
 });
