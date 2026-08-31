@@ -80,18 +80,19 @@ function listMatches(values, value, compare) {
 }
 
 /**
- * How the two condition pairs are joined (2026-08-27). One definition for all four rule tables, so
- * a steward reading AND on one page cannot get a different answer on another.
+ * How the condition pairs are joined (2026-08-27, generalised to any number of conditions
+ * 2026-08-28 for WorkflowRules' dynamic `conditions` column). One definition for every rule table,
+ * so a steward reading AND on one page cannot get a different answer on another.
  *
  * `AND` is the default and is what every stored row means: `conditionsHold` was `.every()` before
  * this column existed, so a null reads as AND and no row had to be migrated. It only ever applies
- * when BOTH pairs are filled — one condition has nothing to be joined to, and NOR on a single
- * condition would silently invert it.
+ * when TWO OR MORE conditions are filled — one condition has nothing to be joined to, and NOR on a
+ * single condition would silently invert it.
  */
 const CONDITION_LOGIC = Object.freeze({
-  AND: { text: 'AND', apply: (first, second) => first && second },
-  OR: { text: 'OR', apply: (first, second) => first || second },
-  NOR: { text: 'NOR', apply: (first, second) => !first && !second }
+  AND: { text: 'AND' },
+  OR: { text: 'OR' },
+  NOR: { text: 'NOR' }
 });
 
 const DEFAULT_CONDITION_LOGIC = 'AND';
@@ -114,13 +115,19 @@ function conditionLogicOf(raw) {
 }
 
 /**
- * `results` is one boolean per FILLED pair, in column order. Zero is "no conditions", which holds;
- * one is itself, whatever the column says; two are joined.
+ * `results` is one boolean per FILLED condition, in the order they were written. Zero is "no
+ * conditions", which holds; one is itself, whatever the column says, logic bypassed entirely (see
+ * the comment on CONDITION_LOGIC - this is what keeps NOR from inverting a lone condition); two or
+ * more FOLD across the whole list under one logic, which is what makes this work for however many
+ * conditions a rule has, not just two.
  */
 function joinConditions(results, logic) {
   if (!results.length) return true;
   if (results.length === 1) return results[0];
-  return CONDITION_LOGIC[conditionLogicOf(logic)].apply(results[0], results[1]);
+  const key = conditionLogicOf(logic);
+  if (key === 'OR') return results.some(Boolean);
+  if (key === 'NOR') return !results.some(Boolean);
+  return results.every(Boolean);
 }
 
 const trimmed = (value) => String(value === null || value === undefined ? '' : value).trim();

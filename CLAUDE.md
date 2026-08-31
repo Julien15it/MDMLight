@@ -77,6 +77,13 @@ cds watch --profile hybrid
 Without a working destination binding, CAP still compiles and `npm test` still
 runs, but any live S/4HANA call will fail.
 
+The destination itself must be named `VF_S4HANA_DEST`, with its own URL ending at
+`/sap/opu/odata/sap` — CAP appends only `/API_BUSINESS_PARTNER` or
+`/ZSRVB_MDMLIGHT_VH` (see `package.json`'s `cds.requires`). For an on-premise
+system it needs `ProxyType=OnPremise` via Cloud Connector and an auth method
+allowed to read and maintain business partners; creating a partner also needs
+CSRF token support (`csrf: true`, already set in `package.json`).
+
 ## Architecture
 
 ### Facade, not a data model
@@ -226,6 +233,23 @@ maintenance" above) — a reasoning that does not actually apply here:
   from the `Customers` and `Suppliers` entries in
   `generate-maintenance-metadata.js` — followed by `npm run generate:metadata`.
   `MAINTENANCE_ENTITIES` on the server is untouched and must stay that way.
+
+### The `abap/` folder — how the two S/4-side services are built
+
+`abap/valuehelp/README.md` and `abap/customerfields/README.md` are the ADT-side
+companions to the two services above: exact ABAP steps for creating the service
+definition/binding in the S/4 system, which released views back each value help,
+and known drift between what is exposed there and what has been imported here.
+Read one before touching a `@Common.ValueList` or asking why a field has no F4.
+
+**`abap/customerfields` (`ZMDML_CUST_ENTITY` / `ZSRVB_MDMLIGHT_CUST`) is designed
+but not yet wired in** — it is not in `package.json`'s `cds.requires`, has no
+`srv/external` copy, and nothing in `srv/business-partner-service.cds` projects
+it. It exposes S/4's `I_Customer` view to close the gap between
+`A_Customer`'s 53 fields and the MDG *ERP Customer* screen's larger set
+(Trading Partner, DME Indicator, Condition Groups 1–5, and others) — build it
+when one of those fields is actually asked for, following the README's ADT and
+wiring steps rather than guessing at the shape.
 
 ### Change request staging (approve-then-create)
 
@@ -2133,12 +2157,15 @@ people***. The columns are CR type, step, two condition pairs, and the approvers
   (Supplier creation, Customer creation) with several steps each, and a step added
   later must not be a column added later.
 
-#### One value per column
+#### One value per column (the legacy two-pair shape)
 
-Both condition values and the approver hold a single value, like every other rule table — see
-"Multiple values per condition" above for the version that was built and withdrawn, and what the
-next attempt would need. The columns keep their plural names because `cds-deploy` cannot rename an
-element.
+Both condition values and the approver held a single value in the original design, like every
+other rule table — see "Multiple values per condition" above for the version that was built and
+withdrawn, and what the next attempt would need. The columns keep their plural names because
+`cds-deploy` cannot rename an element. **Superseded for conditions by the dynamic `conditions`
+column below (2026-08-28)** — a rule is no longer stuck at exactly two — but every bullet here still
+describes the legacy `conditionField`/`conditionValues`(+2) pair, which a rule saved before that
+date still reads through, and still describes `approvers` exactly as it works today.
 
 - **A condition here is always a statement about the partner.** A row of this table targets no
   section of its own, so any row of the named section satisfying the condition is enough — unlike
@@ -2148,6 +2175,80 @@ element.
   de-duplicates on step + value, so two rows naming the same person produce one approver.
 - **The read path still tolerates a delimited list**, for rows written while multiple values were
   live.
+
+#### As many conditions as a rule needs, not just two (2026-08-28)
+
+Asked for directly: "Nu is dit beperkt tot 2 maar dit kunnen meer factoren zijn" — the two fixed
+condition pairs above could never become three without a schema change `cds-deploy` cannot walk
+back if it turns out to be one column too many, the same trap `createsRow` and the `cond*` columns
+are already stuck in. `WorkflowRules.conditions` (`LargeString`) replaces them: **one condition per
+LINE**, `field = value1|value2`, however many lines a rule needs.
+
+**This reuses the lesson "Multiple values per condition" (above) left behind, applied to a
+DIFFERENT problem.** That attempt was about several *values* in one field and failed on a
+token/`MultiInput` cell that could not be made to save reliably — three ways, three failures, all
+because a hand-managed aggregation sat *beside* a bound column instead of the binding being the only
+writer. This is several *conditions*, not several values in one condition, but the same fix applies:
+a plain `sap.m.TextArea`, two-way bound straight to the one `conditions` string, is the whole
+mechanism. No child entity, no per-condition row controls, nothing to keep in sync by hand.
+
+- **`parseConditionLines`/`formatConditionLines` (`srv/checks/workflow-rules.js`)** are the codec: a
+  line with no `=` is a bare field with no values (the same "half a condition" shape the old pair
+  could produce), blank lines are dropped, and each condition's own value side still goes through
+  the existing `parseValueList`/`listMatches` — so `|`-multi-value and the `*` wildcard both carry
+  over for free, unchanged.
+- **`readConditions` prefers `conditions` and falls back to the legacy pair only while it is empty.**
+  A rule saved before 2026-08-28 keeps matching exactly as it always did, with no migration — the
+  moment it is opened and re-saved under the new format, `conditions` is what has the current truth
+  and the legacy columns simply go stale (never written again, the same tolerance as every other
+  dead column in these four tables).
+- **`joinConditions` (`srv/checks/value-lists.js`) was generalised to fold over N results, not just
+  two** — `results.every(Boolean)` for AND, `.some(Boolean)` for OR, `!.some(Boolean)` for NOR. This
+  is shared by all four rule tables' engines, but the fold is defined so it produces the *exact same
+  answer* for 0/1/2 results as the old pairwise version did — a single condition still bypasses the
+  logic entirely rather than letting NOR invert it, which is the one behaviour that had to survive
+  unchanged. `ValidationRules`/`DerivationRules`/`DuplicateRules` still only ever pass 0/1/2 results
+  themselves (their own `CONDITION_PAIRS` are untouched — this change was scoped to WorkflowRules
+  only), so nothing about them changed; the shared fold could serve all four the day their own
+  columns are generalised the same way.
+- **The UI column count dropped from nine to six**: `Condition 1/2 Field/Value` and the titleless
+  AND/OR/NOR column collapsed into one `Conditions` `TextArea` cell and one always-enabled `Logic`
+  ComboBox (always enabled because the engine itself ignores it below two conditions — nothing unsafe
+  about it being set early). **"Insert Field"**, a small button beside the `TextArea`, reuses the
+  same `FieldValueHelp` fragment/dialog every other condition cell on this tile already uses — told
+  apart from the old Input-driven case by `onFieldValueHelp` checking whether its caller has its own
+  `value` binding (a bound `Input`, replace) or not (this button, append a new line, never
+  overwriting what is already typed).
+
+#### Copy a rule, and bulk-edit the table in Excel (2026-08-28, asked for)
+
+Two more asks landed the same day, both scoped to this one page:
+
+- **Duplicate.** A "Duplicate" button beside Delete reads the selected row
+  (`context.getObject()`), strips its identity and managed columns (`ID`, `@odata.etag`,
+  `createdAt`/`createdBy`/`modifiedAt`/`modifiedBy` — sending any of those back on a `POST` is either
+  ignored or rejected depending on the column, never something worth relying on), and feeds the copy
+  into the same `binding.create()` call `onAddRule` already uses. Nothing is saved automatically —
+  same as Add Rule, it only populates the (now dirty) table.
+- **Export to Excel / Import from Excel — really a CSV round trip, said so in the UI.** This repo has
+  never taken a dependency on a spreadsheet reader/writer anywhere, front or back end, and real
+  `.xlsx` is a zipped XML format nothing here can hand-parse. CSV needs none of that: Excel opens and
+  saves it natively, and the button labels name the destination a steward actually cares about
+  (“Excel”) while the file on disk is honestly `.csv`. `toCsv`/`fromCsv` are a small, hand-rolled
+  RFC-4180-shaped codec (quoted fields, doubled embedded quotes, a real state machine for `fromCsv`
+  rather than a naive split on `\n` — the `Conditions` column is multi-line by design, so a quoted
+  field holding a literal newline is the normal case, not an edge case). A UTF-8 BOM is prepended on
+  export so Excel on Windows does not guess the system codepage and mangle a name outside ASCII.
+  - **The columns are exactly what a row holds**: `ID`, CR Type, Step, Conditions, Logic, Approvers,
+    Active — `ID` is the match key on re-import (blank or unrecognised creates a new rule, one
+    matching a currently-loaded row updates it in place), so a steward can export, edit existing
+    rows *and* append new ones in the same file, then re-import the whole thing in one pass.
+  - **Import never saves by itself.** It only creates/updates rows on the page, exactly like Add
+    Rule and Duplicate — the existing Save/Discard flow, and `_localProblems`'s validation, still
+    have the last word before anything reaches the service.
+  - **`isActive` is read tolerantly** (`true`/`1`/`yes`/`x`, case-insensitive) rather than matching
+    only the literal word, because a business user filling this in quickly in Excel writes any of
+    those as often as the exact string.
 
 #### The approver picker is sourced from the subaccount, not from this app (2026-08-26)
 
@@ -3596,6 +3697,12 @@ It fails identically on all retries because it is a compile-time error — the
 deployer never reaches the database. `--auto-undeploy` is HDI-only and does
 nothing here. While staging holds nothing worth keeping, the fix is to wipe and
 redeploy; once it holds real change requests, write a migration instead.
+
+Before the very first deploy of a subaccount, verify `postgresql-db`'s plan
+name — it varies by entitlement, and `mta.yaml` currently requests `free`:
+```bash
+cf marketplace -e postgresql-db
+```
 
 `tools/wipe-staging.js` does the wipe. It lists what it would drop and stops
 unless given `--yes`. Note two BTP-specific constraints it already handles: the

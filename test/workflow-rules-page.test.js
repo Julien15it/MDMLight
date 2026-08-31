@@ -22,12 +22,11 @@ const rulesCds = read(ROOT, 'db', 'workflow-rules.cds');
 const changeRequestJs = read(ROOT, 'srv', 'change-request-service.js');
 
 // The columns are the agreed shape of a rule, so they are pinned rather than left to a refactor.
+// Down from nine to six (2026-08-28): the two fixed condition pairs and the titleless AND/OR/NOR
+// column collapsed into one "Conditions" column (as many lines as the rule needs) plus "Logic".
 test('the workflow table has the columns a rule needs, in order', () => {
   const columns = [...view.matchAll(/<Column[^>]*>\s*<Text text="([^"]+)"/gu)].map((match) => match[1]);
-  assert.deepEqual(columns, [
-    'CR Type', 'Step', 'Condition 1 Field', 'Condition 1 Value',
-    'Condition 2 Field', 'Condition 2 Value', 'Approvers', 'Active'
-  ]);
+  assert.deepEqual(columns, ['CR Type', 'Step', 'Conditions', 'Logic', 'Approvers', 'Active']);
 });
 
 test('the fifth tile leads to it, and the route exists', () => {
@@ -73,10 +72,14 @@ test('the CR types and steps come from the service, not from the page', () => {
 
 /**
  * A condition names a payload field, so this page shares the quality pages' catalog and their
- * searchable value help - several hundred fields is not a ComboBox.
+ * searchable value help - several hundred fields is not a ComboBox. Since the Conditions column
+ * became a free-text TextArea (2026-08-28), there is no bound Input for the value help to write
+ * into directly any more - "Insert Field" is a plain Button (`press`, not `valueHelpRequest`) that
+ * APPENDS the chosen field as a new line instead of replacing the cell's whole value.
  */
 test('a condition field is chosen through the shared value help', () => {
-  assert.match(view, /valueHelpRequest="\.onFieldValueHelp"/u);
+  const insertButton = view.slice(view.indexOf('text="Insert Field"'));
+  assert.match(insertButton.slice(0, insertButton.indexOf('/>')), /press="\.onFieldValueHelp"/u);
   assert.match(controller, /ext\.fragment\.FieldValueHelp/u);
   assert.match(controller, /FilterOperator\.Contains/u);
   // The stored value is the qualified code, and it is read off the binding context BEFORE anything
@@ -85,15 +88,26 @@ test('a condition field is chosen through the shared value help', () => {
   const body = chosen.slice(0, chosen.indexOf('\n    },'));
   assert.ok(body.indexOf('getProperty("code")') < body.indexOf('setProperty('));
   assert.equal(/filter\(\[\]\)/u.test(body), false);
+  // Appended as a new line, never overwriting what is already typed - the whole point of this
+  // column is to hold more than one condition.
+  assert.match(body, /mode === "append"/u);
+  assert.match(body, /prefix \+ code \+ " = "/u);
   const open = controller.slice(controller.indexOf('onFieldValueHelp:'));
   assert.match(open.slice(0, open.indexOf('.open("")')), /getBinding\("items"\)[\s\S]{0,80}filter\(\[\]\)/u);
 });
 
-// Half a condition is the dangerous half, so the values cell stays shut until there is a field -
-// the same guard the validation and derivation pages carry.
-test('a values cell is disabled until its field is chosen', () => {
-  assert.match(view, /enabled="\{= !!\$\{dc>conditionField\} \}"/u);
-  assert.match(view, /enabled="\{= !!\$\{dc>conditionField2\} \}"/u);
+/**
+ * Neither cell is ever disabled any more (2026-08-28): the Conditions TextArea has no "field chosen
+ * first" gate to begin with (there is no separate field/value split left to gate between), and Logic
+ * is always enabled because the engine itself ignores it for zero or one condition - see
+ * joinConditions in srv/checks/value-lists.js. Nothing left to disable is not the same as nothing
+ * left to validate: half a condition (a field with no value after "=", or the reverse) is still
+ * refused, just by validateWorkflowRule/onSave rather than by a disabled cell.
+ */
+test('the conditions cell and the logic combo are always editable', () => {
+  assert.equal(/enabled="\{= !!\$\{dc>conditionField/u.test(view), false);
+  const logic = view.slice(view.indexOf("selectedKey=\"{dc>conditionLogic}\""));
+  assert.equal(/enabled=/u.test(logic.slice(0, logic.indexOf('</ComboBox>'))), false);
 });
 
 /**
@@ -103,11 +117,11 @@ test('a values cell is disabled until its field is chosen', () => {
  * back in by accident: a plain bound Input is the whole mechanism, and it is the one that works.
  */
 test('every cell is a single bound value, and nothing tokenises', () => {
-  for (const column of ['conditionValues', 'conditionValues2', 'approvers']) {
-    assert.match(
-      view, new RegExp(`value="\\{dc>${column}\\}"`, 'u'), `${column} is a bound Input`
-    );
-  }
+  // Conditions is a TextArea rather than an Input, but it is still exactly one bound property - the
+  // multi-value part is expressed as lines of TEXT inside that one column, never as several cells
+  // or a token control.
+  assert.match(view, /<TextArea[\s\S]{0,200}value="\{dc>conditions\}"/u, 'conditions is a bound TextArea');
+  assert.match(view, /value="\{dc>approvers\}"/u, 'approvers is a bound Input');
   assert.equal(/MultiInput/u.test(view), false, 'no token cell is left');
   assert.equal(/app:listPath|app:listSink/u.test(view), false, 'and no custom data driving one');
   assert.equal(/updateFinished/u.test(view), false, 'nothing has to be redrawn after a render');
@@ -124,7 +138,7 @@ test('every cell is a single bound value, and nothing tokenises', () => {
 test('the row is checked before it is sent, and again on the way in', () => {
   assert.match(controller, /choose the CR type this rule applies to/u);
   assert.match(controller, /name the approver/u);
-  assert.match(controller, /needs a value, or clear its field/u);
+  assert.match(controller, /needs a value after "="/u);
   assert.match(serviceJs, /guard\('WorkflowRules', WORKFLOW_RULES, validateWorkflowRule/u);
   // Its own store, or a write would drop the quality cache and leave the approvers stale.
   assert.match(serviceJs, /workflowRuleStore\.markStale/u);
@@ -136,7 +150,7 @@ test('the row is checked before it is sent, and again on the way in', () => {
 test('the table is rows, and every column holds one value', () => {
   assert.match(rulesCds, /entity WorkflowRules : managed/u);
   for (const column of [
-    'requestType', 'step', 'conditionField', 'conditionValues', 'conditionField2',
+    'requestType', 'step', 'conditions', 'conditionField', 'conditionValues', 'conditionField2',
     'conditionValues2', 'approvers', 'isActive'
   ]) {
     // The plural names are stuck: `cds-deploy` cannot rename an element any more than it can drop
@@ -249,6 +263,110 @@ test('choosing an agent writes it into the cell', () => {
   assert.match(body, /getProperty\("value"\)/u);
   assert.match(body, /this\._roleTarget\.context\.setProperty\(this\._roleTarget\.path, value\)/u);
   assert.ok(body.indexOf('getProperty("value")') < body.indexOf('setProperty('));
+});
+
+// --- Duplicate (2026-08-28, asked for: "copy en paste" for a rule) ------------------------------
+
+/**
+ * "Copy and paste" for a rule: the same `binding.create` mechanism Add Rule already uses, just
+ * pre-filled from the selected row instead of blank. Identity and managed columns are stripped so
+ * the copy becomes its OWN row rather than colliding with the original's key.
+ */
+test('Duplicate copies the selected row, stripping its identity', () => {
+  const button = view.slice(view.indexOf('text="Duplicate"'));
+  assert.match(button.slice(0, button.indexOf('/>')), /press="\.onDuplicateRule"/u);
+
+  const fn = controller.slice(controller.indexOf('onDuplicateRule: function'));
+  const body = fn.slice(0, fn.indexOf('\n    },'));
+  assert.match(body, /getSelectedItem\(\)/u);
+  assert.match(body, /Object\.assign\(\{\}, context\.getObject\(\)\)/u);
+  for (const stripped of ['ID', '@odata.etag', 'createdAt', 'createdBy', 'modifiedAt', 'modifiedBy']) {
+    assert.match(body, new RegExp(`["']${stripped.replace(/[.]/u, '\\.')}["']`, 'u'), `${stripped} is stripped`);
+  }
+  assert.match(body, /binding\.create\(copy\)/u);
+  assert.match(body, /MessageToast\.show\("Select the rule to duplicate\."\)/u);
+});
+
+// --- Excel (CSV) import / export (2026-08-28, asked for) ------------------------------------------
+
+/**
+ * Real .xlsx would need a third-party reader/writer this repo has never taken a dependency on -
+ * CSV needs none, and Excel opens/saves it natively. The button labels say "Excel" (what a steward
+ * asked for and thinks in); the mechanism is a hand-rolled RFC-4180-shaped CSV codec.
+ */
+test('Export/Import buttons exist and drive a CSV round trip, not a new library', () => {
+  assert.match(view, /text="Export to Excel"[\s\S]{0,80}press="\.onExportExcel"/u);
+  assert.match(view, /text="Import from Excel"[\s\S]{0,80}press="\.onImportExcel"/u);
+  // Not "no mention of .xlsx in a comment" - this file's own comments say why real .xlsx was
+  // rejected - but no actual dependency on one: nothing requires/defines a spreadsheet library.
+  assert.equal(/require\(["'](xlsx|exceljs)|sap\/ui\/export\/Spreadsheet/iu.test(controller), false);
+  assert.match(controller, /function toCsv\(/u);
+  assert.match(controller, /function fromCsv\(/u);
+  assert.match(controller, /new Blob\(/u);
+  assert.match(controller, /type: "text\/csv/u);
+});
+
+/** The columns of the round trip are exactly the fields a rule needs - see db/workflow-rules.cds. */
+test('the CSV columns match what a WorkflowRules row actually holds', () => {
+  const csvColumns = controller.slice(
+    controller.indexOf('var CSV_COLUMNS'), controller.indexOf('];') + 2
+  );
+  for (const key of ['ID', 'requestType', 'step', 'conditions', 'conditionLogic', 'approvers', 'isActive']) {
+    assert.match(csvColumns, new RegExp(`key: "${key}"`, 'u'), `${key} is one of the exported columns`);
+  }
+});
+
+/**
+ * Extracted and evaluated directly (the one exception to this file's own source-pinning style,
+ * because a hand-rolled CSV codec is exactly the kind of thing that looks right and is not - a
+ * quoted comma, an embedded quote, or a literal newline inside the Conditions cell each broke a
+ * naive version of this before it shipped).
+ */
+function extractCsvFunctions(source) {
+  const names = ['csvEscape', 'toCsv', 'fromCsv'];
+  const body = names.map((name) => {
+    const start = source.indexOf(`function ${name}(`);
+    const braceStart = source.indexOf('{', start);
+    let depth = 0;
+    let end = braceStart;
+    for (let i = braceStart; i < source.length; i += 1) {
+      if (source[i] === '{') depth += 1;
+      if (source[i] === '}') {
+        depth -= 1;
+        if (depth === 0) { end = i + 1; break; }
+      }
+    }
+    return source.slice(start, end);
+  }).join('\n');
+  // eslint-disable-next-line no-new-func
+  return new Function(`${body}\nreturn { csvEscape, toCsv, fromCsv };`)();
+}
+
+const { toCsv, fromCsv } = extractCsvFunctions(controller);
+
+test('toCsv/fromCsv round-trip a value containing a comma, a quote and a newline', () => {
+  const rows = [{
+    ID: '1', requestType: 'create', step: 'Approve',
+    conditions: 'Addresses.Country = BE|NL\nGeneral.BusinessPartnerCategory = 2',
+    conditionLogic: 'AND', approvers: 'Acme, "big" corp <maarten@alluvion.eu>', isActive: true
+  }];
+  const columns = [
+    { key: 'ID', label: 'ID' }, { key: 'requestType', label: 'CR Type' },
+    { key: 'step', label: 'Step' }, { key: 'conditions', label: 'Conditions' },
+    { key: 'conditionLogic', label: 'Logic' }, { key: 'approvers', label: 'Approvers' },
+    { key: 'isActive', label: 'Active' }
+  ];
+  const csv = toCsv(rows, columns);
+  const table = fromCsv(csv);
+  assert.equal(table.length, 2, 'a header row and one data row');
+  const [, dataRow] = table;
+  assert.equal(dataRow[3], rows[0].conditions, 'the embedded newline stayed inside one cell');
+  assert.equal(dataRow[5], rows[0].approvers, 'the comma and the quote round-tripped exactly');
+});
+
+test('fromCsv drops a wholly blank trailing line', () => {
+  const table = fromCsv('a,b\r\n1,2\r\n');
+  assert.deepEqual(table, [['a', 'b'], ['1', '2']]);
 });
 
 /**
