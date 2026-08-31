@@ -1,0 +1,676 @@
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:05:20.334134] Updated app with guid 4f64a631-24c8-4e6c-a87c-c7ffafab8758 ({"lifecycle"=>{"data"=>{"buildpacks"=>["nodejs_buildpack"]}, "type"=>"buildpack"}}) (STDOUT, API)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:05:20.440580] Updating process: "web" (STDOUT, API)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:05:52.507497] Uploading app package for app with guid 4f64a631-24c8-4e6c-a87c-c7ffafab8758 (STDOUT, API)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:05:52.756896] Updated app with guid 4f64a631-24c8-4e6c-a87c-c7ffafab8758 ({"environment_variables"=>"[PRIVATE DATA HIDDEN]"}) (STDOUT, API)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:04.363316] Creating build for app with guid 4f64a631-24c8-4e6c-a87c-c7ffafab8758 (STDOUT, API)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:04.930140] Downloading nodejs_buildpack... (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:04.950105] Downloaded nodejs_buildpack (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:04.950183] Cell fc340deb-43a3-4fd7-8fd5-740da26933b8 creating container for instance 64b46f1b-90c8-425c-965f-96ed954e7dc3 (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:05.570094] Security group rules were updated (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:05.651654] Cell fc340deb-43a3-4fd7-8fd5-740da26933b8 successfully created container for instance 64b46f1b-90c8-425c-965f-96ed954e7dc3 (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:06.317169] Downloading app package... (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:06.317173] Downloading build artifacts cache... (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:06.357565] Downloaded build artifacts cache (227B) (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:06.780785] Downloaded app package (4.2M) (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:06.872531] -----> Nodejs Buildpack version 1.9.3 (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:07.060975] -----> Bootstrapping python (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:07.060990] -----> Installing python 3.13.14 (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:07.061127] Copy [/tmp/buildpacks/9936862875b7d90e/dependencies/4b4266a2ff36730aef37b88b668ca327/python_3.13.14_linux_x64_cflinuxfs4_b80d4954.tgz] (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:11.155164] -----> Installing binaries (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:11.155196] engines.node (package.json): unspecified (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:11.155215] engines.npm (package.json): unspecified (use default) (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:11.155219] [31;1m**WARNING**[0m Node version not specified in package.json or .nvmrc. See: http://docs.cloudfoundry.org/buildpacks/node/node-tips.html (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:11.155283] -----> Installing node 22.23.1 (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:11.155471] Copy [/tmp/buildpacks/9936862875b7d90e/dependencies/da260f7f1d69f16ac66d62a9a4cde815/node_22.23.1_linux_x64_cflinuxfs4_1bd9c039.tgz] (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.435360] Using default npm version: 10.9.8 (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.435393] -----> Installing yarn 1.22.22 (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.435489] Copy [/tmp/buildpacks/9936862875b7d90e/dependencies/e4fe26756e9984a665478d350474fa2e/yarn_1.22.22_linux_noarch_any-stack_b6132b86.tgz] (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.763618] Installed yarn 1.22.22 (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.763700] -----> Creating runtime environment (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765599] NODE_ENV=production (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765627] NODE_HOME=/tmp/contents1569310698/deps/0/node (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765631] NODE_MODULES_CACHE=true (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765633] NODE_VERBOSE=false (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765635] NPM_CONFIG_LOGLEVEL=error (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765640] NPM_CONFIG_PRODUCTION=true (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765642] -----> Building dependencies (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765643] Prebuild detected (node_modules already exists) (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765645] Rebuilding any native modules (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:14.349527] rebuilt dependencies successfully (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:14.418561] Installing any new modules (package.json + package-lock.json) (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:14.952358] up to date in 466ms (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:14.952448] 18 packages are looking for funding (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:14.952555] run `npm fund` for details (STDOUT, STG)#
+#2026 08 31 09:06:16.923#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9396#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:15.700746] Contrast Security no credentials found. Will not write environment files. (STDOUT, STG)#
+#2026 08 31 09:06:28.902#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7963#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:24.625573] Exit status 0 (STDOUT, STG)#
+#2026 08 31 09:06:28.902#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7963#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:24.625631] Uploading droplet, build artifacts cache... (STDOUT, STG)#
+#2026 08 31 09:06:28.902#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7963#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:24.625661] Uploading droplet... (STDOUT, STG)#
+#2026 08 31 09:06:28.902#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7963#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:24.625703] Uploading build artifacts cache... (STDOUT, STG)#
+#2026 08 31 09:06:28.902#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7963#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:24.648162] Uploaded build artifacts cache (228B) (STDOUT, STG)#
+#2026 08 31 09:06:28.902#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7963#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:25.357051] Creating droplet for app with guid 4f64a631-24c8-4e6c-a87c-c7ffafab8758 (STDOUT, API)#
+#2026 08 31 09:06:28.902#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7963#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:27.436451] Uploaded droplet (60.4M) (STDOUT, STG)#
+#2026 08 31 09:06:28.902#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7963#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:27.457824] Uploading complete (STDOUT, STG)#
+#2026 08 31 09:06:28.902#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7963#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:27.914415] Cell fc340deb-43a3-4fd7-8fd5-740da26933b8 stopping instance 64b46f1b-90c8-425c-965f-96ed954e7dc3 (STDOUT, STG)#
+#2026 08 31 09:06:28.902#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7963#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:27.914459] Cell fc340deb-43a3-4fd7-8fd5-740da26933b8 destroying container for instance 64b46f1b-90c8-425c-965f-96ed954e7dc3 (STDOUT, STG)#
+#2026 08 31 09:06:28.902#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7963#
+[PollStageAppStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:27.971599] Staging complete for build 64b46f1b-90c8-425c-965f-96ed954e7dc3 (STDOUT, API)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:05:20.334134] Updated app with guid 4f64a631-24c8-4e6c-a87c-c7ffafab8758 ({"lifecycle"=>{"data"=>{"buildpacks"=>["nodejs_buildpack"]}, "type"=>"buildpack"}}) (STDOUT, API)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:05:20.440580] Updating process: "web" (STDOUT, API)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:05:52.507497] Uploading app package for app with guid 4f64a631-24c8-4e6c-a87c-c7ffafab8758 (STDOUT, API)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:05:52.756896] Updated app with guid 4f64a631-24c8-4e6c-a87c-c7ffafab8758 ({"environment_variables"=>"[PRIVATE DATA HIDDEN]"}) (STDOUT, API)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:04.363316] Creating build for app with guid 4f64a631-24c8-4e6c-a87c-c7ffafab8758 (STDOUT, API)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:04.930140] Downloading nodejs_buildpack... (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:04.950105] Downloaded nodejs_buildpack (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:04.950183] Cell fc340deb-43a3-4fd7-8fd5-740da26933b8 creating container for instance 64b46f1b-90c8-425c-965f-96ed954e7dc3 (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:05.570094] Security group rules were updated (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:05.651654] Cell fc340deb-43a3-4fd7-8fd5-740da26933b8 successfully created container for instance 64b46f1b-90c8-425c-965f-96ed954e7dc3 (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:06.317169] Downloading app package... (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:06.317173] Downloading build artifacts cache... (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:06.357565] Downloaded build artifacts cache (227B) (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:06.780785] Downloaded app package (4.2M) (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:06.872531] -----> Nodejs Buildpack version 1.9.3 (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:07.060975] -----> Bootstrapping python (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:07.060990] -----> Installing python 3.13.14 (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:07.061127] Copy [/tmp/buildpacks/9936862875b7d90e/dependencies/4b4266a2ff36730aef37b88b668ca327/python_3.13.14_linux_x64_cflinuxfs4_b80d4954.tgz] (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:11.155164] -----> Installing binaries (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:11.155196] engines.node (package.json): unspecified (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:11.155215] engines.npm (package.json): unspecified (use default) (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:11.155219] [31;1m**WARNING**[0m Node version not specified in package.json or .nvmrc. See: http://docs.cloudfoundry.org/buildpacks/node/node-tips.html (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:11.155283] -----> Installing node 22.23.1 (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:11.155471] Copy [/tmp/buildpacks/9936862875b7d90e/dependencies/da260f7f1d69f16ac66d62a9a4cde815/node_22.23.1_linux_x64_cflinuxfs4_1bd9c039.tgz] (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.435360] Using default npm version: 10.9.8 (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.435393] -----> Installing yarn 1.22.22 (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.435489] Copy [/tmp/buildpacks/9936862875b7d90e/dependencies/e4fe26756e9984a665478d350474fa2e/yarn_1.22.22_linux_noarch_any-stack_b6132b86.tgz] (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.763618] Installed yarn 1.22.22 (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.763700] -----> Creating runtime environment (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765599] NODE_ENV=production (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765627] NODE_HOME=/tmp/contents1569310698/deps/0/node (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765631] NODE_MODULES_CACHE=true (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765633] NODE_VERBOSE=false (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765635] NPM_CONFIG_LOGLEVEL=error (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765640] NPM_CONFIG_PRODUCTION=true (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765642] -----> Building dependencies (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765643] Prebuild detected (node_modules already exists) (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765645] Rebuilding any native modules (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:14.349527] rebuilt dependencies successfully (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:14.418561] Installing any new modules (package.json + package-lock.json) (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:14.952358] up to date in 466ms (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:14.952448] 18 packages are looking for funding (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:14.952555] run `npm fund` for details (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:15.700746] Contrast Security no credentials found. Will not write environment files. (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:24.625573] Exit status 0 (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:24.625631] Uploading droplet, build artifacts cache... (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:24.625661] Uploading droplet... (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:24.625703] Uploading build artifacts cache... (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:24.648162] Uploaded build artifacts cache (228B) (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:25.357051] Creating droplet for app with guid 4f64a631-24c8-4e6c-a87c-c7ffafab8758 (STDOUT, API)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:27.436451] Uploaded droplet (60.4M) (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:27.457824] Uploading complete (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:27.914415] Cell fc340deb-43a3-4fd7-8fd5-740da26933b8 stopping instance 64b46f1b-90c8-425c-965f-96ed954e7dc3 (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:27.914459] Cell fc340deb-43a3-4fd7-8fd5-740da26933b8 destroying container for instance 64b46f1b-90c8-425c-965f-96ed954e7dc3 (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:27.971599] Staging complete for build 64b46f1b-90c8-425c-965f-96ed954e7dc3 (STDOUT, API)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:28.989266] Updated app with guid 4f64a631-24c8-4e6c-a87c-c7ffafab8758 ({:droplet_guid=>"d974d6ea-bf81-4ad0-840b-6451273b3af1"}) (STDOUT, API)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:30.415194] Cell fc340deb-43a3-4fd7-8fd5-740da26933b8 successfully destroyed container for instance 64b46f1b-90c8-425c-965f-96ed954e7dc3 (STDOUT, STG)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:30.978369] Cell 63278343-b5bf-4ea7-8a04-d1c7895a72bc creating container for instance 770adb70-037d-408d-b4b2-3f386d89984a (STDOUT, CELL)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:31.909850] Security group rules were updated (STDOUT, CELL)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:32.001991] Cell 63278343-b5bf-4ea7-8a04-d1c7895a72bc successfully created container for instance 770adb70-037d-408d-b4b2-3f386d89984a (STDOUT, CELL)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:35.715999] Invoking pre-start scripts. (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:35.878323] Invoking start command. (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:36.244510] > start (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:36.244528] > cds-deploy (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.148010] /> deployment to postgres-4e4c8787-98ac-4583-b73b-a74acc00a101.ce4jcviyvogb.eu-central-1.rds.amazonaws.com:8346 failed (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.151854] Error: CDS compilation failed (@sap/cds-compiler v5.9.16) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.151882] db/csn.json:3644: Error: Changed element “conditions” is a lossy type change from “cds.LargeString” to “cds.Composition” and is not supported (in entity:“mdmlight.config.WorkflowRules”/element:“conditions”) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.151889] at throwWithAnyError (/home/vcap/app/node_modules/@sap/cds-compiler/lib/base/messages.js:583:13) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.151895] at Proxy.toSqlDdl (/home/vcap/app/node_modules/@sap/cds-compiler/lib/render/toSql.js:312:3) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.151897] at sqlMigration (/home/vcap/app/node_modules/@sap/cds-compiler/lib/api/main.js:594:13) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.151900] at Function.api [as migration] (/home/vcap/app/node_modules/@sap/cds-compiler/lib/api/main.js:1154:22) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.151902] at Function.migration (/home/vcap/app/node_modules/@sap/cds-compiler/lib/main.js:144:41) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.151903] at Object.deltaSql (/home/vcap/app/node_modules/@sap/cds/lib/compile/cdsc.js:162:53) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.151907] at /home/vcap/app/node_modules/@sap/cds/lib/compile/to/sql.js:39:61 (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.151909] at next (/home/vcap/app/node_modules/@sap/cds/lib/compile/to/sql.js:45:4) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.151912] at Function.cds_compile_to_deltaSql [as delta] (/home/vcap/app/node_modules/@sap/cds/lib/compile/to/sql.js:47:21) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.151916] at deploy.schema (/home/vcap/app/node_modules/@sap/cds/lib/dbs/cds-deploy.js:75:75) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.173491] npm notice (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.173512] npm notice New major version of npm available! 10.9.8 -> 12.0.2 (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.173516] npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2 (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.173517] npm notice To update run: npm install -g npm@12.0.2 (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.173519] npm notice (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.239001] Exit status 1 (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.618243] Cell 63278343-b5bf-4ea7-8a04-d1c7895a72bc stopping instance 770adb70-037d-408d-b4b2-3f386d89984a (STDOUT, CELL)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.618296] Cell 63278343-b5bf-4ea7-8a04-d1c7895a72bc destroying container for instance 770adb70-037d-408d-b4b2-3f386d89984a (STDOUT, CELL)#
+#2026 08 31 09:06:41.625#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7526#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:40.950627] Cell 63278343-b5bf-4ea7-8a04-d1c7895a72bc successfully destroyed container for instance 770adb70-037d-408d-b4b2-3f386d89984a (STDOUT, CELL)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:05:20.334134] Updated app with guid 4f64a631-24c8-4e6c-a87c-c7ffafab8758 ({"lifecycle"=>{"data"=>{"buildpacks"=>["nodejs_buildpack"]}, "type"=>"buildpack"}}) (STDOUT, API)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:05:20.440580] Updating process: "web" (STDOUT, API)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:05:52.507497] Uploading app package for app with guid 4f64a631-24c8-4e6c-a87c-c7ffafab8758 (STDOUT, API)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:05:52.756896] Updated app with guid 4f64a631-24c8-4e6c-a87c-c7ffafab8758 ({"environment_variables"=>"[PRIVATE DATA HIDDEN]"}) (STDOUT, API)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:04.363316] Creating build for app with guid 4f64a631-24c8-4e6c-a87c-c7ffafab8758 (STDOUT, API)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:04.930140] Downloading nodejs_buildpack... (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:04.950105] Downloaded nodejs_buildpack (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:04.950183] Cell fc340deb-43a3-4fd7-8fd5-740da26933b8 creating container for instance 64b46f1b-90c8-425c-965f-96ed954e7dc3 (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:05.570094] Security group rules were updated (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:05.651654] Cell fc340deb-43a3-4fd7-8fd5-740da26933b8 successfully created container for instance 64b46f1b-90c8-425c-965f-96ed954e7dc3 (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:06.317169] Downloading app package... (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:06.317173] Downloading build artifacts cache... (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:06.357565] Downloaded build artifacts cache (227B) (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:06.780785] Downloaded app package (4.2M) (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:06.872531] -----> Nodejs Buildpack version 1.9.3 (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:07.060975] -----> Bootstrapping python (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:07.060990] -----> Installing python 3.13.14 (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:07.061127] Copy [/tmp/buildpacks/9936862875b7d90e/dependencies/4b4266a2ff36730aef37b88b668ca327/python_3.13.14_linux_x64_cflinuxfs4_b80d4954.tgz] (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:11.155164] -----> Installing binaries (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:11.155196] engines.node (package.json): unspecified (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:11.155215] engines.npm (package.json): unspecified (use default) (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:11.155219] [31;1m**WARNING**[0m Node version not specified in package.json or .nvmrc. See: http://docs.cloudfoundry.org/buildpacks/node/node-tips.html (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:11.155283] -----> Installing node 22.23.1 (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:11.155471] Copy [/tmp/buildpacks/9936862875b7d90e/dependencies/da260f7f1d69f16ac66d62a9a4cde815/node_22.23.1_linux_x64_cflinuxfs4_1bd9c039.tgz] (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.435360] Using default npm version: 10.9.8 (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.435393] -----> Installing yarn 1.22.22 (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.435489] Copy [/tmp/buildpacks/9936862875b7d90e/dependencies/e4fe26756e9984a665478d350474fa2e/yarn_1.22.22_linux_noarch_any-stack_b6132b86.tgz] (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.763618] Installed yarn 1.22.22 (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.763700] -----> Creating runtime environment (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765599] NODE_ENV=production (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765627] NODE_HOME=/tmp/contents1569310698/deps/0/node (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765631] NODE_MODULES_CACHE=true (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765633] NODE_VERBOSE=false (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765635] NPM_CONFIG_LOGLEVEL=error (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765640] NPM_CONFIG_PRODUCTION=true (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765642] -----> Building dependencies (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765643] Prebuild detected (node_modules already exists) (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:13.765645] Rebuilding any native modules (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:14.349527] rebuilt dependencies successfully (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:14.418561] Installing any new modules (package.json + package-lock.json) (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:14.952358] up to date in 466ms (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:14.952448] 18 packages are looking for funding (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:14.952555] run `npm fund` for details (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:15.700746] Contrast Security no credentials found. Will not write environment files. (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:24.625573] Exit status 0 (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:24.625631] Uploading droplet, build artifacts cache... (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:24.625661] Uploading droplet... (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:24.625703] Uploading build artifacts cache... (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:24.648162] Uploaded build artifacts cache (228B) (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:25.357051] Creating droplet for app with guid 4f64a631-24c8-4e6c-a87c-c7ffafab8758 (STDOUT, API)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:27.436451] Uploaded droplet (60.4M) (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:27.457824] Uploading complete (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:27.914415] Cell fc340deb-43a3-4fd7-8fd5-740da26933b8 stopping instance 64b46f1b-90c8-425c-965f-96ed954e7dc3 (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:27.914459] Cell fc340deb-43a3-4fd7-8fd5-740da26933b8 destroying container for instance 64b46f1b-90c8-425c-965f-96ed954e7dc3 (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:27.971599] Staging complete for build 64b46f1b-90c8-425c-965f-96ed954e7dc3 (STDOUT, API)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:28.989266] Updated app with guid 4f64a631-24c8-4e6c-a87c-c7ffafab8758 ({:droplet_guid=>"d974d6ea-bf81-4ad0-840b-6451273b3af1"}) (STDOUT, API)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:30.415194] Cell fc340deb-43a3-4fd7-8fd5-740da26933b8 successfully destroyed container for instance 64b46f1b-90c8-425c-965f-96ed954e7dc3 (STDOUT, STG)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:30.978369] Cell 63278343-b5bf-4ea7-8a04-d1c7895a72bc creating container for instance 770adb70-037d-408d-b4b2-3f386d89984a (STDOUT, CELL)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:31.909850] Security group rules were updated (STDOUT, CELL)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:32.001991] Cell 63278343-b5bf-4ea7-8a04-d1c7895a72bc successfully created container for instance 770adb70-037d-408d-b4b2-3f386d89984a (STDOUT, CELL)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:35.715999] Invoking pre-start scripts. (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:35.878323] Invoking start command. (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:36.244510] > start (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:36.244528] > cds-deploy (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.148010] /> deployment to postgres-4e4c8787-98ac-4583-b73b-a74acc00a101.ce4jcviyvogb.eu-central-1.rds.amazonaws.com:8346 failed (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.151854] Error: CDS compilation failed (@sap/cds-compiler v5.9.16) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.151882] db/csn.json:3644: Error: Changed element “conditions” is a lossy type change from “cds.LargeString” to “cds.Composition” and is not supported (in entity:“mdmlight.config.WorkflowRules”/element:“conditions”) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.151889] at throwWithAnyError (/home/vcap/app/node_modules/@sap/cds-compiler/lib/base/messages.js:583:13) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.151895] at Proxy.toSqlDdl (/home/vcap/app/node_modules/@sap/cds-compiler/lib/render/toSql.js:312:3) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.151897] at sqlMigration (/home/vcap/app/node_modules/@sap/cds-compiler/lib/api/main.js:594:13) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.151900] at Function.api [as migration] (/home/vcap/app/node_modules/@sap/cds-compiler/lib/api/main.js:1154:22) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.151902] at Function.migration (/home/vcap/app/node_modules/@sap/cds-compiler/lib/main.js:144:41) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.151903] at Object.deltaSql (/home/vcap/app/node_modules/@sap/cds/lib/compile/cdsc.js:162:53) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.151907] at /home/vcap/app/node_modules/@sap/cds/lib/compile/to/sql.js:39:61 (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.151909] at next (/home/vcap/app/node_modules/@sap/cds/lib/compile/to/sql.js:45:4) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.151912] at Function.cds_compile_to_deltaSql [as delta] (/home/vcap/app/node_modules/@sap/cds/lib/compile/to/sql.js:47:21) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.151916] at deploy.schema (/home/vcap/app/node_modules/@sap/cds/lib/dbs/cds-deploy.js:75:75) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.173491] npm notice (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.173512] npm notice New major version of npm available! 10.9.8 -> 12.0.2 (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.173516] npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2 (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.173517] npm notice To update run: npm install -g npm@12.0.2 (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.173519] npm notice (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.239001] Exit status 1 (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.618243] Cell 63278343-b5bf-4ea7-8a04-d1c7895a72bc stopping instance 770adb70-037d-408d-b4b2-3f386d89984a (STDOUT, CELL)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:38.618296] Cell 63278343-b5bf-4ea7-8a04-d1c7895a72bc destroying container for instance 770adb70-037d-408d-b4b2-3f386d89984a (STDOUT, CELL)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:40.950627] Cell 63278343-b5bf-4ea7-8a04-d1c7895a72bc successfully destroyed container for instance 770adb70-037d-408d-b4b2-3f386d89984a (STDOUT, CELL)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:46.776425] Cell c828384b-2ce6-48c2-b80e-01c2c9beb09a creating container for instance e68ecd2c-29e0-4808-a7e0-5fdfbd76fec7 (STDOUT, CELL)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:47.343565] Security group rules were updated (STDOUT, CELL)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:47.414354] Cell c828384b-2ce6-48c2-b80e-01c2c9beb09a successfully created container for instance e68ecd2c-29e0-4808-a7e0-5fdfbd76fec7 (STDOUT, CELL)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:51.864377] Invoking pre-start scripts. (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:52.033852] Invoking start command. (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:52.370743] > start (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:06:52.901#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8439#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:52.370769] > cds-deploy (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:04.228#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7644#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.042753] /> deployment to postgres-4e4c8787-98ac-4583-b73b-a74acc00a101.ce4jcviyvogb.eu-central-1.rds.amazonaws.com:8346 failed (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:04.228#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7644#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.047075] Error: CDS compilation failed (@sap/cds-compiler v5.9.16) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:04.228#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7644#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.047101] db/csn.json:3644: Error: Changed element “conditions” is a lossy type change from “cds.LargeString” to “cds.Composition” and is not supported (in entity:“mdmlight.config.WorkflowRules”/element:“conditions”) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:04.228#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7644#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.047105] at throwWithAnyError (/home/vcap/app/node_modules/@sap/cds-compiler/lib/base/messages.js:583:13) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:04.228#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7644#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.047108] at Proxy.toSqlDdl (/home/vcap/app/node_modules/@sap/cds-compiler/lib/render/toSql.js:312:3) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:04.228#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7644#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.047110] at sqlMigration (/home/vcap/app/node_modules/@sap/cds-compiler/lib/api/main.js:594:13) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:04.228#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7644#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.047116] at Function.api [as migration] (/home/vcap/app/node_modules/@sap/cds-compiler/lib/api/main.js:1154:22) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:04.228#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7644#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.047117] at Function.migration (/home/vcap/app/node_modules/@sap/cds-compiler/lib/main.js:144:41) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:04.228#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7644#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.047119] at Object.deltaSql (/home/vcap/app/node_modules/@sap/cds/lib/compile/cdsc.js:162:53) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:04.228#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7644#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.047121] at /home/vcap/app/node_modules/@sap/cds/lib/compile/to/sql.js:39:61 (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:04.228#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7644#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.047124] at next (/home/vcap/app/node_modules/@sap/cds/lib/compile/to/sql.js:45:4) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:04.228#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7644#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.047129] at Function.cds_compile_to_deltaSql [as delta] (/home/vcap/app/node_modules/@sap/cds/lib/compile/to/sql.js:47:21) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:04.228#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7644#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.047131] at deploy.schema (/home/vcap/app/node_modules/@sap/cds/lib/dbs/cds-deploy.js:75:75) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:04.228#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7644#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.071523] npm notice (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:04.228#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7644#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.071550] npm notice New major version of npm available! 10.9.8 -> 12.0.2 (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:04.228#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7644#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.071554] npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2 (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:04.228#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7644#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.071556] npm notice To update run: npm install -g npm@12.0.2 (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:04.228#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7644#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.071563] npm notice (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:04.228#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7644#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.139948] Exit status 1 (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:04.228#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7644#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:55.226336] Cell c828384b-2ce6-48c2-b80e-01c2c9beb09a stopping instance e68ecd2c-29e0-4808-a7e0-5fdfbd76fec7 (STDOUT, CELL)#
+#2026 08 31 09:07:04.228#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7644#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:55.226365] Cell c828384b-2ce6-48c2-b80e-01c2c9beb09a destroying container for instance e68ecd2c-29e0-4808-a7e0-5fdfbd76fec7 (STDOUT, CELL)#
+#2026 08 31 09:07:04.228#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-7644#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:57.325129] Cell c828384b-2ce6-48c2-b80e-01c2c9beb09a successfully destroyed container for instance e68ecd2c-29e0-4808-a7e0-5fdfbd76fec7 (STDOUT, CELL)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.042753] /> deployment to postgres-4e4c8787-98ac-4583-b73b-a74acc00a101.ce4jcviyvogb.eu-central-1.rds.amazonaws.com:8346 failed (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.047075] Error: CDS compilation failed (@sap/cds-compiler v5.9.16) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.047101] db/csn.json:3644: Error: Changed element “conditions” is a lossy type change from “cds.LargeString” to “cds.Composition” and is not supported (in entity:“mdmlight.config.WorkflowRules”/element:“conditions”) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.047105] at throwWithAnyError (/home/vcap/app/node_modules/@sap/cds-compiler/lib/base/messages.js:583:13) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.047108] at Proxy.toSqlDdl (/home/vcap/app/node_modules/@sap/cds-compiler/lib/render/toSql.js:312:3) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.047110] at sqlMigration (/home/vcap/app/node_modules/@sap/cds-compiler/lib/api/main.js:594:13) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.047116] at Function.api [as migration] (/home/vcap/app/node_modules/@sap/cds-compiler/lib/api/main.js:1154:22) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.047117] at Function.migration (/home/vcap/app/node_modules/@sap/cds-compiler/lib/main.js:144:41) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.047119] at Object.deltaSql (/home/vcap/app/node_modules/@sap/cds/lib/compile/cdsc.js:162:53) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.047121] at /home/vcap/app/node_modules/@sap/cds/lib/compile/to/sql.js:39:61 (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.047124] at next (/home/vcap/app/node_modules/@sap/cds/lib/compile/to/sql.js:45:4) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.047129] at Function.cds_compile_to_deltaSql [as delta] (/home/vcap/app/node_modules/@sap/cds/lib/compile/to/sql.js:47:21) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.047131] at deploy.schema (/home/vcap/app/node_modules/@sap/cds/lib/dbs/cds-deploy.js:75:75) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.071523] npm notice (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.071550] npm notice New major version of npm available! 10.9.8 -> 12.0.2 (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.071554] npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2 (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.071556] npm notice To update run: npm install -g npm@12.0.2 (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.071563] npm notice (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:54.139948] Exit status 1 (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:55.226336] Cell c828384b-2ce6-48c2-b80e-01c2c9beb09a stopping instance e68ecd2c-29e0-4808-a7e0-5fdfbd76fec7 (STDOUT, CELL)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:55.226365] Cell c828384b-2ce6-48c2-b80e-01c2c9beb09a destroying container for instance e68ecd2c-29e0-4808-a7e0-5fdfbd76fec7 (STDOUT, CELL)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:06:57.325129] Cell c828384b-2ce6-48c2-b80e-01c2c9beb09a successfully destroyed container for instance e68ecd2c-29e0-4808-a7e0-5fdfbd76fec7 (STDOUT, CELL)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:07.744971] Cell b0a243ea-3b69-4396-bfab-88b38162c5d8 creating container for instance 107a7ef3-4d2b-4b08-be02-2c849b86c1cb (STDOUT, CELL)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:08.412238] Security group rules were updated (STDOUT, CELL)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:08.486293] Cell b0a243ea-3b69-4396-bfab-88b38162c5d8 successfully created container for instance 107a7ef3-4d2b-4b08-be02-2c849b86c1cb (STDOUT, CELL)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:12.323228] Invoking pre-start scripts. (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:12.486372] Invoking start command. (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:12.824205] > start (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:12.824238] > cds-deploy (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:14.563401] /> deployment to postgres-4e4c8787-98ac-4583-b73b-a74acc00a101.ce4jcviyvogb.eu-central-1.rds.amazonaws.com:8346 failed (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:14.567909] Error: CDS compilation failed (@sap/cds-compiler v5.9.16) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:14.567934] db/csn.json:3644: Error: Changed element “conditions” is a lossy type change from “cds.LargeString” to “cds.Composition” and is not supported (in entity:“mdmlight.config.WorkflowRules”/element:“conditions”) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:14.567937] at throwWithAnyError (/home/vcap/app/node_modules/@sap/cds-compiler/lib/base/messages.js:583:13) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:14.567940] at Proxy.toSqlDdl (/home/vcap/app/node_modules/@sap/cds-compiler/lib/render/toSql.js:312:3) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:14.567942] at sqlMigration (/home/vcap/app/node_modules/@sap/cds-compiler/lib/api/main.js:594:13) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:14.567944] at Function.api [as migration] (/home/vcap/app/node_modules/@sap/cds-compiler/lib/api/main.js:1154:22) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:14.567946] at Function.migration (/home/vcap/app/node_modules/@sap/cds-compiler/lib/main.js:144:41) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:14.567951] at Object.deltaSql (/home/vcap/app/node_modules/@sap/cds/lib/compile/cdsc.js:162:53) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:14.567954] at /home/vcap/app/node_modules/@sap/cds/lib/compile/to/sql.js:39:61 (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:14.567955] at next (/home/vcap/app/node_modules/@sap/cds/lib/compile/to/sql.js:45:4) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:14.567958] at Function.cds_compile_to_deltaSql [as delta] (/home/vcap/app/node_modules/@sap/cds/lib/compile/to/sql.js:47:21) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:14.567960] at deploy.schema (/home/vcap/app/node_modules/@sap/cds/lib/dbs/cds-deploy.js:75:75) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:14.587815] npm notice (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:14.587839] npm notice New major version of npm available! 10.9.8 -> 12.0.2 (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:14.587843] npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2 (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:14.587850] npm notice To update run: npm install -g npm@12.0.2 (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:14.587855] npm notice (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:15.976#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8272#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:14.652042] Exit status 1 (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:27.735#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9670#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:16.125507] Cell b0a243ea-3b69-4396-bfab-88b38162c5d8 stopping instance 107a7ef3-4d2b-4b08-be02-2c849b86c1cb (STDOUT, CELL)#
+#2026 08 31 09:07:27.735#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9670#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:16.125541] Cell b0a243ea-3b69-4396-bfab-88b38162c5d8 destroying container for instance 107a7ef3-4d2b-4b08-be02-2c849b86c1cb (STDOUT, CELL)#
+#2026 08 31 09:07:27.735#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-9670#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:18.195482] Cell b0a243ea-3b69-4396-bfab-88b38162c5d8 successfully destroyed container for instance 107a7ef3-4d2b-4b08-be02-2c849b86c1cb (STDOUT, CELL)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:16.125507] Cell b0a243ea-3b69-4396-bfab-88b38162c5d8 stopping instance 107a7ef3-4d2b-4b08-be02-2c849b86c1cb (STDOUT, CELL)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:16.125541] Cell b0a243ea-3b69-4396-bfab-88b38162c5d8 destroying container for instance 107a7ef3-4d2b-4b08-be02-2c849b86c1cb (STDOUT, CELL)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:18.195482] Cell b0a243ea-3b69-4396-bfab-88b38162c5d8 successfully destroyed container for instance 107a7ef3-4d2b-4b08-be02-2c849b86c1cb (STDOUT, CELL)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:32.365614] Cell 90014af4-ed0c-4b05-b670-858048a5418c creating container for instance b3afc789-bde0-41b0-87c4-70237c96cc95 (STDOUT, CELL)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:33.027643] Security group rules were updated (STDOUT, CELL)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:33.111766] Cell 90014af4-ed0c-4b05-b670-858048a5418c successfully created container for instance b3afc789-bde0-41b0-87c4-70237c96cc95 (STDOUT, CELL)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:36.652898] Invoking pre-start scripts. (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:36.826097] Invoking start command. (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:37.183038] > start (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:37.183067] > cds-deploy (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:39.288072] /> deployment to postgres-4e4c8787-98ac-4583-b73b-a74acc00a101.ce4jcviyvogb.eu-central-1.rds.amazonaws.com:8346 failed (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:39.293209] Error: CDS compilation failed (@sap/cds-compiler v5.9.16) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:39.293228] db/csn.json:3644: Error: Changed element “conditions” is a lossy type change from “cds.LargeString” to “cds.Composition” and is not supported (in entity:“mdmlight.config.WorkflowRules”/element:“conditions”) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:39.293232] at throwWithAnyError (/home/vcap/app/node_modules/@sap/cds-compiler/lib/base/messages.js:583:13) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:39.293235] at Proxy.toSqlDdl (/home/vcap/app/node_modules/@sap/cds-compiler/lib/render/toSql.js:312:3) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:39.293237] at sqlMigration (/home/vcap/app/node_modules/@sap/cds-compiler/lib/api/main.js:594:13) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:39.293238] at Function.api [as migration] (/home/vcap/app/node_modules/@sap/cds-compiler/lib/api/main.js:1154:22) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:39.293240] at Function.migration (/home/vcap/app/node_modules/@sap/cds-compiler/lib/main.js:144:41) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:39.293242] at Object.deltaSql (/home/vcap/app/node_modules/@sap/cds/lib/compile/cdsc.js:162:53) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:39.293244] at /home/vcap/app/node_modules/@sap/cds/lib/compile/to/sql.js:39:61 (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:39.293246] at next (/home/vcap/app/node_modules/@sap/cds/lib/compile/to/sql.js:45:4) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:39.293248] at Function.cds_compile_to_deltaSql [as delta] (/home/vcap/app/node_modules/@sap/cds/lib/compile/to/sql.js:47:21) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:39.293254] at deploy.schema (/home/vcap/app/node_modules/@sap/cds/lib/dbs/cds-deploy.js:75:75) (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:39.315691] npm notice (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:39.315717] npm notice New major version of npm available! 10.9.8 -> 12.0.2 (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:39.315724] npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2 (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:39.315729] npm notice To update run: npm install -g npm@12.0.2 (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:39.315733] npm notice (STDERR, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:39.379714] Exit status 1 (STDOUT, APP/TASK/deploy_to_postgresql)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:40.018624] Cell 90014af4-ed0c-4b05-b670-858048a5418c stopping instance b3afc789-bde0-41b0-87c4-70237c96cc95 (STDOUT, CELL)#
+#2026 08 31 09:07:40.975#Z#DEBUG#f4f69719-a51a-11f1-a367-eeee0a8d51d5.mdm-businesspartner-db-deployer#flowable-async-job-executor-thread-8948#
+[PollExecuteTaskStatusExecution] 4f64a631-24c8-4e6c-a87c-c7ffafab8758 [2026-08-31T09:07:40.018954] Cell 90014af4-ed0c-4b05-b670-858048a5418c destroying container for instance b3afc789-bde0-41b0-87c4-70237c96cc95 (STDOUT, CELL)#

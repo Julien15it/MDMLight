@@ -11,11 +11,11 @@
     <content>
       <!--
         A decision table like the other three, and read the same way left to right - "a create
-        request whose Country is BE, NL, FR or DE is approved by these three people". A rule's
-        conditions render side by side, as many as it has - "Add Condition" grows that row only, the
-        way the first two condition slots always looked, never stacked as lines of text. Approvers
-        stay a list of ROWS instead: several approvers is several rules, which is what "Duplicate" is
-        for.
+        request whose Country is BE, NL, FR or DE is approved by these three people". Two fixed
+        condition slots (reverted 2026-08-31, back to how it originally was), each field/operator/
+        value, joined by one Logic combo - not the dynamic, unbounded composition this briefly became.
+        Approvers stay a list of ROWS: several approvers is several rules, which is what "Duplicate"
+        is for.
       -->
       <MessageStrip
         class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
@@ -25,7 +25,7 @@
         showIcon="true" />
       <Table
         id="ruleTable"
-        items="{ path: 'dc>/WorkflowRules', parameters: { $orderby: 'createdAt', $$updateGroupId: 'ruleChanges', $expand: 'conditions' } }"
+        items="{ path: 'dc>/WorkflowRules', parameters: { $orderby: 'createdAt', $$updateGroupId: 'ruleChanges' } }"
         mode="SingleSelectMaster"
         busy="{view>/busy}"
         growing="true"
@@ -48,12 +48,12 @@
         <!-- Percentage widths: without them every cell shrinks to its content and the row reads as
              scattered controls with gaps between them. -->
         <columns>
-          <Column width="10%"><Text text="CR Type" /></Column>
-          <Column width="8%"><Text text="Step" /></Column>
-          <!-- As many conditions as the rule needs, side by side - see db/workflow-rules.cds. -->
-          <Column width="34%"><Text text="Conditions" /></Column>
-          <Column width="9%"><Text text="Logic" /></Column>
-          <Column width="26%"><Text text="Approvers" /></Column>
+          <Column width="9%"><Text text="CR Type" /></Column>
+          <Column width="7%"><Text text="Step" /></Column>
+          <Column width="26%"><Text text="Condition 1" /></Column>
+          <Column width="8%"><Text text="Logic" /></Column>
+          <Column width="26%"><Text text="Condition 2" /></Column>
+          <Column width="20%"><Text text="Approvers" /></Column>
           <Column width="4rem" hAlign="Center"><Text text="Active" /></Column>
         </columns>
         <items>
@@ -75,49 +75,34 @@
                 change=".onCellChange">
                 <core:Item key="{opt>code}" text="{opt>text}" />
               </ComboBox>
-              <!-- As many conditions as the rule needs, side by side - "Add Condition" grows THIS
-                   row's own composition (WorkflowRuleConditions), never a shared column count. Wraps
-                   onto a second line inside the cell rather than growing the row forever sideways. -->
-              <VBox>
-                <FlexBox wrap="Wrap" items="{ path: 'dc>conditions', templateShareable: false }">
-                  <HBox class="sapUiTinyMarginEnd sapUiTinyMarginBottom" alignItems="Center">
-                    <Input
-                      width="9rem"
-                      value="{dc>field}"
-                      placeholder="Field"
-                      showValueHelp="true"
-                      valueHelpRequest=".onFieldValueHelp"
-                      change=".onCellChange" />
-                    <Select
-                      width="6.5rem"
-                      class="sapUiTinyMarginBeginEnd"
-                      selectedKey="{dc>operator}"
-                      items="{ path: 'opt>/comparisons', templateShareable: false }"
-                      change=".onCellChange">
-                      <core:Item key="{opt>code}" text="{opt>text}" />
-                    </Select>
-                    <Input
-                      width="7rem"
-                      value="{dc>values}"
-                      placeholder="Value1|Value2"
-                      enabled="{= ${dc>operator} !== 'empty' &amp;&amp; ${dc>operator} !== 'notEmpty' }"
-                      change=".onCellChange" />
-                    <Button
-                      icon="sap-icon://decline"
-                      type="Transparent"
-                      tooltip="Remove this condition"
-                      press=".onRemoveCondition" />
-                  </HBox>
-                </FlexBox>
-                <Button
-                  text="Add Condition"
-                  icon="sap-icon://add"
-                  type="Transparent"
-                  press=".onAddCondition" />
-              </VBox>
-              <!-- Always enabled: with zero or one condition the engine ignores this column entirely
+              <!-- Condition 1: field (value help), operator, value - a plain bound scalar triple,
+                   nothing dynamic. -->
+              <HBox alignItems="Center">
+                <Input
+                  width="9rem"
+                  value="{dc>conditionField}"
+                  placeholder="Field"
+                  showValueHelp="true"
+                  valueHelpRequest=".onFieldValueHelp"
+                  change=".onCellChange" />
+                <Select
+                  width="6.5rem"
+                  class="sapUiTinyMarginBeginEnd"
+                  selectedKey="{dc>conditionOperator}"
+                  items="{ path: 'opt>/comparisons', templateShareable: false }"
+                  change=".onCellChange">
+                  <core:Item key="{opt>code}" text="{opt>text}" />
+                </Select>
+                <Input
+                  width="7rem"
+                  value="{dc>conditionValues}"
+                  placeholder="Value1|Value2"
+                  enabled="{= ${dc>conditionOperator} !== 'empty' &amp;&amp; ${dc>conditionOperator} !== 'notEmpty' }"
+                  change=".onCellChange" />
+              </HBox>
+              <!-- Always enabled: with one condition blank the engine ignores this column entirely
                    (see joinConditions in srv/checks/value-lists.js), so there is nothing unsafe about
-                   it being set ahead of a second condition being added. -->
+                   it being set ahead of the second condition being filled in. -->
               <ComboBox
                 width="100%"
                 selectedKey="{dc>conditionLogic}"
@@ -125,6 +110,30 @@
                 change=".onCellChange">
                 <core:Item key="{opt>code}" text="{opt>text}" />
               </ComboBox>
+              <!-- Condition 2: same shape as Condition 1. -->
+              <HBox alignItems="Center">
+                <Input
+                  width="9rem"
+                  value="{dc>conditionField2}"
+                  placeholder="Field"
+                  showValueHelp="true"
+                  valueHelpRequest=".onFieldValueHelp"
+                  change=".onCellChange" />
+                <Select
+                  width="6.5rem"
+                  class="sapUiTinyMarginBeginEnd"
+                  selectedKey="{dc>conditionOperator2}"
+                  items="{ path: 'opt>/comparisons', templateShareable: false }"
+                  change=".onCellChange">
+                  <core:Item key="{opt>code}" text="{opt>text}" />
+                </Select>
+                <Input
+                  width="7rem"
+                  value="{dc>conditionValues2}"
+                  placeholder="Value1|Value2"
+                  enabled="{= ${dc>conditionOperator2} !== 'empty' &amp;&amp; ${dc>conditionOperator2} !== 'notEmpty' }"
+                  change=".onCellChange" />
+              </HBox>
               <!-- ONE approver: an e-mail address or a role. An entry carrying an `@` goes to SBPA
                    as a user and anything else as a role; which roles RESOLVE to is SBPA's to know,
                    not ours. Several approvers means several rows - the engine merges them. The value

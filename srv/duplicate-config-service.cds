@@ -19,13 +19,11 @@ service DuplicateConfigService {
   entity ValidationRules as projection on quality.ValidationRules;
   entity DerivationRules as projection on quality.DerivationRules;
 
-  /** Who approves what. Read on every submit to build the `approvers` list in the workflow context. */
+  /** Who approves what. Read on every submit to build the `approvers` list in the workflow context.
+   *  Two fixed condition slots per row (reverted 2026-08-31) - no separate conditions entity is
+   *  exposed here any more; `WorkflowRuleConditions` still exists in the persistence model (see
+   *  db/workflow-rules.cds) but nothing reads or writes it, so nothing projects it either. */
   entity WorkflowRules   as projection on workflow.WorkflowRules;
-
-  /** One condition of a WorkflowRules row - as many as that rule needs, added/removed one at a time
-   *  from the page rather than replaced wholesale, so this is plain CRUD like WorkflowRules itself,
-   *  not an action like saveFieldProperties. */
-  entity WorkflowRuleConditions as projection on workflow.WorkflowRuleConditions;
 
   /** The profile header. Its settings are written through `saveFieldProperties`, not by binding the
    *  composition: the dialog replaces the whole set in one call. */
