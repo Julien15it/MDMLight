@@ -244,9 +244,10 @@ test('Duplicate, Export to Excel and Import from Excel are all wired up', () => 
 /**
  * The columns mirror the page itself exactly - `sequence` and `threshold` exist on the entity but
  * are not columns here (see `onAddRule`'s own comment: neither is worth a column a steward has to
- * think about), so neither is exported either.
+ * think about), so neither is exported either. No `ID` column either (dropped 2026-08-31 along with
+ * ID-matching on import - see the wholesale-replace test below).
  */
-test('xlsxColumns matches exactly what a DuplicateRules row holds on screen', () => {
+test('xlsxColumns matches exactly what a DuplicateRules row holds on screen, minus the generated ID', () => {
   const start = controllerSource.indexOf('function xlsxColumns');
   const braceStart = controllerSource.indexOf('{', start);
   let depth = 0;
@@ -258,20 +259,14 @@ test('xlsxColumns matches exactly what a DuplicateRules row holds on screen', ()
   const body = controllerSource.slice(start, end);
   const keys = [...body.matchAll(/key: "([^"]+)"/gu)].map((match) => match[1]);
   assert.deepEqual(keys, [
-    'ID', 'conditionField', 'conditionValue', 'conditionLogic', 'conditionField2', 'conditionValue2',
+    'conditionField', 'conditionValue', 'conditionLogic', 'conditionField2', 'conditionValue2',
     'field', 'comparison', 'indicator', 'isActive'
   ]);
+  assert.equal(keys.includes('ID'), false);
   assert.equal(keys.includes('sequence'), false);
   assert.equal(keys.includes('threshold'), false);
 });
 
-/**
- * The same wholesale-replace fix WorkflowRuleList got the same day, applied here too: a row missing
- * from the imported file is DELETED (staged, not saved), not left untouched. Executed through
- * `loadController()` (the real vm-loaded controller, so `xlsxColumns`/`XlsxCodec`/`UPDATE_GROUP` are
- * all wired exactly as the page itself wires them) rather than hand-extracted, since this controller
- * has no separate helper-extraction harness of its own.
- */
 function extractXlsxColumnsFn() {
   const start = controllerSource.indexOf('function xlsxColumns');
   const braceStart = controllerSource.indexOf('{', start);
@@ -285,27 +280,37 @@ function extractXlsxColumnsFn() {
   return new Function(`${controllerSource.slice(start, end)}\nreturn xlsxColumns;`)();
 }
 
-test('an existing rule whose ID is absent from the import is removed, not left untouched', () => {
+/**
+ * Import now REPLACES the table wholesale, the same change WorkflowRuleList got the same day
+ * (2026-08-31, on direct feedback: matching by ID was dropped in favour of just overriding with
+ * whatever the file holds). Executed through `loadController()` (the real vm-loaded controller, so
+ * `xlsxColumns`/`XlsxCodec`/`UPDATE_GROUP` are all wired exactly as the page itself wires them)
+ * rather than hand-extracted, since this controller has no separate helper-extraction harness of
+ * its own.
+ */
+test('import deletes every existing row and creates one for every row in the file', () => {
   const toasts = [];
   const members = loadController(STUB_XLSX_CODEC, undefined, { show: (text) => toasts.push(text) });
   const xlsxColumns = extractXlsxColumnsFn();
 
-  const kept = mockContext({ ID: 'kept', field: 'Name', comparison: 'exact', indicator: 'strong' });
-  const gone = mockContext({ ID: 'gone', field: 'TaxNumber', comparison: 'exact', indicator: 'strong' });
+  // Two rows already on the page - neither should survive untouched, even one whose data happens
+  // to match a row in the file.
+  const first = mockContext({ field: 'Name', comparison: 'exact', indicator: 'strong' });
+  const second = mockContext({ field: 'TaxNumber', comparison: 'exact', indicator: 'strong' });
   const created = [];
-  const binding = { getCurrentContexts: () => [kept, gone], create: (record) => created.push(record) };
+  const binding = { getCurrentContexts: () => [first, second], create: (record) => created.push(record) };
   const fakeThis = { _table: () => ({ getBinding: () => binding }), _markDirty: () => {} };
 
-  // The import file only re-lists "kept" - "gone" must be removed.
+  // The file names only one row - data-identical to "first".
   const table = [
     xlsxColumns().map((column) => column.label),
-    ['kept', '', '', 'AND', '', '', 'Name', 'exact', 'strong', 'true']
+    ['', '', 'AND', '', '', 'Name', 'exact', 'strong', 'true']
   ];
   members._applyImportedXlsx.call(fakeThis, table);
 
-  assert.equal(kept.deleted, false);
-  assert.equal(gone.deleted, true);
-  assert.equal(gone.deleteGroup, 'ruleChanges');
-  assert.equal(created.length, 0, 'the one row in the file matched an existing rule');
-  assert.match(toasts[0], /1 removed/u);
+  assert.equal(first.deleted, true, 'deleted even though a data-identical row exists in the file');
+  assert.equal(first.deleteGroup, 'ruleChanges');
+  assert.equal(second.deleted, true);
+  assert.equal(created.length, 1, 'one new row for the one non-blank row in the file');
+  assert.match(toasts[0], /2 existing rule\(s\) replaced by 1 from the file/u);
 });

@@ -23,10 +23,10 @@ sap.ui.define([
   // copy of this for the reasoning.
   var STRIP_ON_COPY = ["ID", "@odata.etag", "createdAt", "createdBy", "modifiedAt", "modifiedBy"];
 
-  /** The rule's own fields, mirroring the table on screen exactly - see ValidationRuleList.controller.js. */
+  /** The rule's own fields, mirroring the table on screen exactly - see ValidationRuleList.controller.js.
+   *  No `ID` column (dropped 2026-08-31 - see WorkflowRuleList.controller.js's own copy of this comment). */
   function xlsxColumns() {
     return [
-      { key: "ID", label: "ID" },
       { key: "conditionField", label: "Condition 1 Field" },
       { key: "conditionValue", label: "Condition 1 Value" },
       { key: "conditionLogic", label: "Logic" },
@@ -231,9 +231,12 @@ sap.ui.define([
       });
     },
 
-    /** The imported file is the full desired state of the table - see WorkflowRuleList.controller.js
-     *  for the full reasoning (wholesale replace, matched by header label, nothing saved
-     *  automatically, a rule missing from the file is removed). */
+    /**
+     * The imported file REPLACES the table wholesale - see WorkflowRuleList.controller.js's own copy
+     * of this for the full reasoning (changed 2026-08-31: matching by ID was dropped on direct
+     * feedback, in favour of just overriding with whatever the file holds). Every row currently on
+     * the page is deleted and every non-blank row in the file becomes a brand new one.
+     */
     _applyImportedXlsx: function (table) {
       if (!table.length) {
         MessageBox.error("The file has no rows.");
@@ -254,35 +257,22 @@ sap.ui.define([
 
       var binding = this._table().getBinding("items");
       if (!binding) return;
-      var byId = {};
-      binding.getCurrentContexts().forEach(function (context) {
-        var object = context.getObject();
-        if (object && object.ID) byId[object.ID] = context;
-      });
-      var seenIds = {};
+      var existingRows = binding.getCurrentContexts().slice();
+      existingRows.forEach(function (context) { context.delete(UPDATE_GROUP); });
 
       var created = 0;
-      var updated = 0;
       var skipped = 0;
       table.slice(1).forEach(function (row) {
         var isBlank = !row || row.every(function (cell) { return cell === undefined || cell === ""; });
         if (isBlank) return;
         var record = {};
         columns.forEach(function (column) {
-          if (column.key === "ID") return;
           var index = indexOfKey[column.key];
           if (index === undefined) return;
           var value = row[index];
           record[column.key] = column.key === "isActive" ? XlsxCodec.isTruthyCell(value) : (value === undefined ? "" : value);
         });
-        var idIndex = indexOfKey.ID;
-        var id = idIndex !== undefined ? row[idIndex] : undefined;
-        var existing = id && byId[id];
-        if (existing) {
-          seenIds[id] = true;
-          Object.keys(record).forEach(function (key) { existing.setProperty(key, record[key]); });
-          updated += 1;
-        } else if (record.field || record.value) {
+        if (record.field || record.value) {
           binding.create(record);
           created += 1;
         } else {
@@ -290,17 +280,9 @@ sap.ui.define([
         }
       });
 
-      var removed = 0;
-      Object.keys(byId).forEach(function (id) {
-        if (seenIds[id]) return;
-        byId[id].delete(UPDATE_GROUP);
-        removed += 1;
-      });
-
       this._markDirty();
       MessageToast.show(
-        created + " rule(s) added, " + updated + " updated"
-        + (removed ? ", " + removed + " removed" : "")
+        existingRows.length + " existing rule(s) replaced by " + created + " from the file"
         + (skipped ? ", " + skipped + " blank row(s) skipped" : "")
         + ". Review and press Save."
       );

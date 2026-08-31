@@ -21,14 +21,16 @@ sap.ui.define([
 
   /**
    * The rule's own fields, one column per fixed condition slot - "de structuur die ook zichtbaar is
-   * in de app" (asked for): this mirrors the table on screen exactly. The ZIP/OOXML mechanics behind
-   * export/import are shared with the other three rule pages via `XlsxCodec` (extracted 2026-08-31,
-   * the same day this table's own conditions reverted to two fixed slots) - only this column list,
-   * and the required-field check in `_applyImportedXlsx` below, are specific to WorkflowRules.
+   * in de app" (asked for): this mirrors the table on screen exactly. No `ID` column (dropped
+   * 2026-08-31 along with the ID-matching import ever did with it - see `_applyImportedXlsx`): a
+   * generated key a requester cannot type in for a new row is not worth exporting once import no
+   * longer reads it either. The ZIP/OOXML mechanics behind export/import are shared with the other
+   * three rule pages via `XlsxCodec` (extracted 2026-08-31, the same day this table's own conditions
+   * reverted to two fixed slots) - only this column list, and the required-field check in
+   * `_applyImportedXlsx` below, are specific to WorkflowRules.
    */
   function xlsxColumns() {
     return [
-      { key: "ID", label: "ID" },
       { key: "requestType", label: "CR Type" },
       { key: "step", label: "Step" },
       { key: "conditionField", label: "Condition 1 Field" },
@@ -234,22 +236,20 @@ sap.ui.define([
     },
 
     /**
-     * The imported file is treated as the FULL desired state of the table, the same wholesale-
-     * replace reasoning `saveFieldProperties` already uses for a profile's settings: every row
-     * becomes either an update to an already-loaded rule (its ID column matches one on screen) or a
-     * new one (blank or unrecognised ID), and any currently-loaded rule whose ID does NOT appear
-     * anywhere in the file is REMOVED (2026-08-31, fixed after a live report: "als ik een lijn
-     * verwijder... wordt dit niet effectief verwijderd" - deleting a row in Excel and re-importing
-     * did nothing, because nothing ever looked at what was missing). So a steward can export, delete
-     * a row, edit others, append new ones, and re-import the whole thing in one go. Nothing is saved
-     * here: like Add Rule, this only populates the (now dirty) table, so the existing Save/Discard
-     * flow - and its validation - still has the last word; a removal that looks wrong is a Discard
-     * away, same as every other change this makes.
+     * The imported file REPLACES the table wholesale (changed 2026-08-31, on direct feedback: "nu
+     * kijk je of er een id matched, maar eigenlijk mag je gewoon dus overriden met hetgeen uit de
+     * excel komt" - just override, matching by ID was never the point). Every row currently on the
+     * page is deleted and every non-blank row in the file becomes a brand new one - no attempt to
+     * line an imported row up with an existing one, which is also why the `ID` column left export
+     * (see `xlsxColumns`): nothing reads it any more, on either side of the round trip. Nothing is
+     * saved here: like Add Rule, this only populates the (now dirty) table, so the existing
+     * Save/Discard flow - and its validation - still has the last word; an import that went wrong is
+     * a Discard away, same as every other change this makes.
      *
      * Matched by HEADER LABEL, not by fixed column position - the same BRF+-style tolerance for a
      * reordered or trimmed copy that the frozen header row exists to make possible. A file missing
      * the "CR Type" column is refused outright: it does not look like this table's own export, and
-     * nothing is removed on a refused import.
+     * nothing is deleted on a refused import.
      */
     _applyImportedXlsx: function (table) {
       if (!table.length) {
@@ -271,35 +271,22 @@ sap.ui.define([
 
       var binding = this._table().getBinding("items");
       if (!binding) return;
-      var byId = {};
-      binding.getCurrentContexts().forEach(function (context) {
-        var object = context.getObject();
-        if (object && object.ID) byId[object.ID] = context;
-      });
-      var seenIds = {};
+      var existingRows = binding.getCurrentContexts().slice();
+      existingRows.forEach(function (context) { context.delete(UPDATE_GROUP); });
 
       var created = 0;
-      var updated = 0;
       var skipped = 0;
       table.slice(1).forEach(function (row) {
         var isBlank = !row || row.every(function (cell) { return cell === undefined || cell === ""; });
         if (isBlank) return;
         var record = {};
         columns.forEach(function (column) {
-          if (column.key === "ID") return;
           var index = indexOfKey[column.key];
           if (index === undefined) return;
           var value = row[index];
           record[column.key] = column.key === "isActive" ? XlsxCodec.isTruthyCell(value) : (value === undefined ? "" : value);
         });
-        var idIndex = indexOfKey.ID;
-        var id = idIndex !== undefined ? row[idIndex] : undefined;
-        var existing = id && byId[id];
-        if (existing) {
-          seenIds[id] = true;
-          Object.keys(record).forEach(function (key) { existing.setProperty(key, record[key]); });
-          updated += 1;
-        } else if (record.requestType || record.approvers) {
+        if (record.requestType || record.approvers) {
           binding.create(record);
           created += 1;
         } else {
@@ -307,17 +294,9 @@ sap.ui.define([
         }
       });
 
-      var removed = 0;
-      Object.keys(byId).forEach(function (id) {
-        if (seenIds[id]) return;
-        byId[id].delete(UPDATE_GROUP);
-        removed += 1;
-      });
-
       this._markDirty();
       MessageToast.show(
-        created + " rule(s) added, " + updated + " updated"
-        + (removed ? ", " + removed + " removed" : "")
+        existingRows.length + " existing rule(s) replaced by " + created + " from the file"
         + (skipped ? ", " + skipped + " blank row(s) skipped" : "")
         + ". Review and press Save."
       );

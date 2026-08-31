@@ -425,26 +425,28 @@ test('Export/Import buttons exist and produce/accept a real .xlsx', () => {
 /**
  * The columns mirror the page itself exactly - "de structuur die ook zichtbaar is in de app"
  * (asked for) - one Field/Operator/Value column per fixed condition slot, matching BRF+'s own
- * decision-table Excel up/download shape. No capped/variable column count is needed any more, now
- * that conditions are two fixed slots rather than an unbounded composition.
+ * decision-table Excel up/download shape. No `ID` column (dropped 2026-08-31 along with ID-matching
+ * on import - see the wholesale-replace test below): a generated key nothing reads any more is not
+ * worth a column.
  */
-test('xlsxColumns matches exactly what a WorkflowRules row holds', () => {
+test('xlsxColumns matches exactly what a WorkflowRules row holds, minus the generated ID', () => {
   const fn = controller.slice(controller.indexOf('function xlsxColumns'));
   const body = fn.slice(0, fn.indexOf('\n  }'));
   const keys = [...body.matchAll(/key: "([^"]+)"/gu)].map((match) => match[1]);
   assert.deepEqual(keys, [
-    'ID', 'requestType', 'step',
+    'requestType', 'step',
     'conditionField', 'conditionOperator', 'conditionValues', 'conditionLogic',
     'conditionField2', 'conditionOperator2', 'conditionValues2',
     'approvers', 'isActive'
   ]);
   const labels = [...body.matchAll(/label: "([^"]+)"/gu)].map((match) => match[1]);
   assert.deepEqual(labels, [
-    'ID', 'CR Type', 'Step',
+    'CR Type', 'Step',
     'Condition 1 Field', 'Condition 1 Operator', 'Condition 1 Value', 'Logic',
     'Condition 2 Field', 'Condition 2 Operator', 'Condition 2 Value',
     'Approvers', 'Active'
   ]);
+  assert.equal(keys.includes('ID'), false);
 });
 
 function extractMethod(source, name) {
@@ -510,29 +512,31 @@ const wrappedCodec = codecSource
 const XlsxCodec = new Function(wrappedCodec)();
 
 /**
- * A row deleted in Excel used to do nothing on import - reported live: "als ik een lijn verwijder...
- * wordt dit niet effectief verwijderd" - because the import loop only ever visited rows that WERE
- * in the file; a currently-loaded rule whose ID simply never came up was left completely untouched.
- * Fixed by treating the file as the full desired state: any loaded rule whose ID is not seen among
- * the imported rows is now deleted (staged, not saved - Save/Discard still decides).
+ * Import now REPLACES the table wholesale (changed 2026-08-31, on direct feedback: "nu kijk je of er
+ * een id matched, maar eigenlijk mag je gewoon dus overriden met hetgeen uit de excel komt" - just
+ * override, matching by ID was never the point). Every row on the page is deleted, whether or not an
+ * equivalent row exists in the file, and every non-blank row in the file becomes a new one - no
+ * attempt to line the two up.
  *
- * Executed against a small mock rather than source-pinned, since a regex cannot tell "the code
- * calls .delete() somewhere" apart from "the code calls .delete() on the right row at the right
- * time" - exactly the distinction this bug was in.
+ * Executed against a small mock rather than source-pinned, since a regex cannot tell "the code calls
+ * .delete() somewhere" apart from "the code deletes every existing row and creates every file row",
+ * which is exactly the distinction this design is about.
  */
-test('an existing rule whose ID is absent from the import is removed, not left untouched', () => {
+test('import deletes every existing row and creates one for every row in the file', () => {
   const methodSrc = extractMethod(controller, '_applyImportedXlsx');
   const toasts = [];
   const MessageToast = { show: (text) => toasts.push(text) };
   const MessageBox = { error: () => {} };
 
-  const kept = mockContext({ ID: 'kept', requestType: 'create', approvers: 'a@b.com' });
-  const goneA = mockContext({ ID: 'gone-a', requestType: 'change', approvers: 'a@b.com' });
-  const goneB = mockContext({ ID: 'gone-b', requestType: 'block', approvers: 'a@b.com' });
+  // Three rows already on the page - none of them should survive untouched, even one whose data
+  // happens to match a row in the file.
+  const first = mockContext({ requestType: 'create', approvers: 'a@b.com' });
+  const second = mockContext({ requestType: 'change', approvers: 'a@b.com' });
+  const third = mockContext({ requestType: 'block', approvers: 'a@b.com' });
 
   const created = [];
   const binding = {
-    getCurrentContexts: () => [kept, goneA, goneB],
+    getCurrentContexts: () => [first, second, third],
     create: (record) => { created.push(record); }
   };
 
@@ -546,35 +550,36 @@ test('an existing rule whose ID is absent from the import is removed, not left u
     `return ${methodSrc};`
   )(MessageBox, MessageToast, xlsxColumns, XlsxCodec, 'ruleChanges');
 
-  // The import file only re-lists "kept" - goneA and goneB must be removed.
+  // The file names only two rows - one of them data-identical to "first".
   const table = [
     xlsxColumns().map((column) => column.label),
-    ['kept', 'create', 'Approve', '', '', '', 'AND', '', '', '', 'a@b.com', 'true']
+    ['create', 'Approve', '', '', '', 'AND', '', '', '', 'a@b.com', 'true'],
+    ['change', 'Approve', '', '', '', 'AND', '', '', '', 'c@d.com', 'true']
   ];
   applyImportedXlsx.call(fakeThis, table);
 
-  assert.equal(kept.deleted, false);
-  assert.equal(goneA.deleted, true);
-  assert.equal(goneA.deleteGroup, 'ruleChanges');
-  assert.equal(goneB.deleted, true);
-  assert.equal(created.length, 0, 'the one row in the file matched an existing rule, so nothing new was created');
-  assert.match(toasts[0], /2 removed/u);
+  assert.equal(first.deleted, true, 'deleted even though a data-identical row exists in the file');
+  assert.equal(first.deleteGroup, 'ruleChanges');
+  assert.equal(second.deleted, true);
+  assert.equal(third.deleted, true);
+  assert.equal(created.length, 2, 'one new row per non-blank row in the file');
+  assert.match(toasts[0], /3 existing rule\(s\) replaced by 2 from the file/u);
 });
 
 /**
- * A file with no rows at all (header only) removes every currently-loaded rule - the same
- * wholesale-replace semantics, taken to its edge case. Pinned deliberately: an accidental
- * near-empty re-import is exactly the case where "did this really mean to delete everything"
- * matters, and the answer this codebase gives elsewhere (`saveFieldProperties`) is still yes -
- * Discard is the safety net, not a special case here.
+ * A file with no data rows at all (header only) still replaces the table - with nothing. The same
+ * wholesale-replace semantics, taken to its edge case. Pinned deliberately: an accidental near-empty
+ * re-import is exactly the case where "did this really mean to clear everything" matters, and the
+ * answer this codebase gives elsewhere (`saveFieldProperties`) is still yes - Discard is the safety
+ * net, not a special case here.
  */
-test('a header-only import removes every currently-loaded rule', () => {
+test('a header-only import clears every currently-loaded rule and creates none', () => {
   const methodSrc = extractMethod(controller, '_applyImportedXlsx');
   const toasts = [];
   const MessageToast = { show: (text) => toasts.push(text) };
   const MessageBox = { error: () => {} };
 
-  const only = mockContext({ ID: 'only', requestType: 'create', approvers: 'a@b.com' });
+  const only = mockContext({ requestType: 'create', approvers: 'a@b.com' });
   const binding = { getCurrentContexts: () => [only], create: () => {} };
   const fakeThis = { _table: () => ({ getBinding: () => binding }), _markDirty: () => {} };
 
@@ -586,7 +591,7 @@ test('a header-only import removes every currently-loaded rule', () => {
   applyImportedXlsx.call(fakeThis, [xlsxColumns().map((column) => column.label)]);
 
   assert.equal(only.deleted, true);
-  assert.match(toasts[0], /1 removed/u);
+  assert.match(toasts[0], /1 existing rule\(s\) replaced by 0 from the file/u);
 });
 
 test('save cannot report success while a row is still local to the page', () => {

@@ -2475,28 +2475,30 @@ Two more asks landed the same day, both scoped to this one page:
     Field`/`Operator`/`Value`, Approvers, Active. No condition-slot cap is needed any more: the page
     itself is limited to two slots since the revert, so the spreadsheet's own column count and the
     page's own column count are simply the same number now — `MAX_EXCEL_CONDITIONS` is gone.
-  - **Matched by header LABEL on import, not by fixed column position** — the frozen header row is
-    what makes a reordered or trimmed copy re-importable at all, the same BRF+-style tolerance the
-    original design already had. `ID` is still the match key (blank or unrecognised creates a new
-    rule, one matching a currently-loaded row updates its fields) — and with conditions back to plain
-    scalars, an existing rule's condition columns update exactly like any other field now; the CSV
-    version's "an existing rule keeps its own conditions, ignored on import" caveat existed only
-    because of the child composition, and does not apply any more.
-  - **The file is the full desired state of the table — a row missing from it is DELETED, not left
-    alone** (fixed 2026-08-31, reported live: *"als ik een lijn verwijder... wordt dit niet effectief
-    verwijderd"* — deleting a row in Excel and re-importing did nothing). The import loop only ever
-    visited rows that WERE in the file, so a currently-loaded rule whose ID simply never came up
-    stayed completely untouched on screen and would still have been posted on the next Save.
-    `_applyImportedXlsx` now tracks every ID it sees while looping the file, and afterwards deletes
-    (`context.delete(UPDATE_GROUP)`, staged like every other change here) any currently-loaded rule
-    whose ID was not among them — the same wholesale-replace reasoning `saveFieldProperties` already
-    applies to a profile's settings. A header-only file therefore removes every rule on the page; that
-    is the wholesale-replace answer taken to its edge case, not special-cased away, because Discard is
-    already the safety net for a re-import that went wrong, the same as for every other row this
-    creates or updates.
-  - **Import never saves by itself.** It only creates/updates/removes rows on the page, exactly like
-    Add Rule and Duplicate — the existing Save/Discard flow, and `_localProblems`'s validation, still
-    have the last word before anything reaches the service.
+  - **Matched by header LABEL, not by fixed column position** — the frozen header row is what makes a
+    reordered or trimmed copy re-importable at all, the same BRF+-style tolerance the original design
+    already had.
+  - **Import REPLACES the table wholesale — no ID matching at all** (changed 2026-08-31, on direct
+    feedback: *"nu kijk je of er een id matched, maar eigenlijk mag je gewoon dus overriden met
+    hetgeen uit de excel komt"* — just override with whatever the file holds, matching by ID was
+    never the point). The first version of this feature (also 2026-08-31, and itself already a fix for
+    a live report: *"als ik een lijn verwijder... wordt dit niet effectief verwijderd"* — deleting a
+    row in Excel and re-importing did nothing) matched rows by `ID`: update the row a file row's ID
+    named, create one for an unrecognised ID, delete a currently-loaded row whose ID never came up.
+    That shipped and was immediately corrected the same day: matching by ID is not what "override"
+    means, and it kept a column (`ID`, the row's own generated key) that a requester could never fill
+    in for a new row anyway — the exact confusion a live question about that column had already
+    surfaced. `_applyImportedXlsx` now does the simpler thing directly: delete every row currently on
+    the page, then create a brand new row for every non-blank row in the file — no attempt to line an
+    imported row up with an existing one, so a row that happens to be data-identical to one already on
+    screen is still deleted and recreated (as a new record with a new generated ID) rather than left
+    alone. **`ID` left `xlsxColumns` on all four pages the same day**, for the reason above: nothing
+    reads it on either side of the round trip any more.
+  - **Import never saves by itself.** It only creates/deletes rows on the page, exactly like Add Rule
+    and Duplicate — the existing Save/Discard flow, and `_localProblems`'s validation, still have the
+    last word before anything reaches the service; an import that went wrong is a Discard away, the
+    same safety net as every other change this makes. A header-only file (no data rows at all) is the
+    wholesale-replace answer taken to its edge case — it clears the table, not special-cased away.
   - **`isActive` is read tolerantly** (`true`/`1`/`yes`/`x`, case-insensitive, and a real boolean
     cell `t="b"` from Excel's own checkbox-like values) rather than matching only the literal word,
     because a business user filling this in quickly in Excel writes any of those as often as the
@@ -2529,10 +2531,12 @@ use it too rather than keep a diverging first copy beside the new shared one.
   Approvers; Duplicate Check Rules: Field + Comparison; Validation Rules: Field + Comparison;
   Derivation Rules: Field + Value) - a single shared import function would have had to parameterise
   that check anyway, so nothing was saved by sharing more than the codec.
-- **The wholesale-replace fix (a row missing from the file is deleted, not left untouched) shipped on
-  all four from the start here** - it was a live-reported bug fixed on WorkflowRuleList mid-session,
-  and the other three pages were built with it already in place rather than needing the same fix
-  applied a second time afterwards.
+- **The wholesale-replace import (every existing row deleted, every file row created fresh, no ID
+  matching) shipped on all four from the start here** - it went through two shapes on WorkflowRuleList
+  mid-session (delete-what's-missing by ID match, then override-everything with no matching at all -
+  see "Import REPLACES the table wholesale" above for why the first shape did not survive the day),
+  and the other three pages were built directly against the second, final shape rather than needing
+  either fix applied to them separately afterwards.
 - **`onDuplicateRule` needed no codec at all** - copying a rule is `Object.assign` plus
   `STRIP_ON_COPY`, identical on all four pages (`STRIP_ON_COPY` is duplicated as a small `var`, not
   shared, since it is four identical lines and pulling it into `XlsxCodec` would have made a codec

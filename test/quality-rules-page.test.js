@@ -282,15 +282,22 @@ function loadXlsxColumns(name) {
   return new Function(`${body}\nreturn xlsxColumns;`)();
 }
 
-test('xlsxColumns mirrors each page\'s own table exactly', () => {
-  assert.deepEqual(loadXlsxColumns('ValidationRuleList')().map((c) => c.key), [
-    'ID', 'conditionField', 'conditionValue', 'conditionLogic', 'conditionField2', 'conditionValue2',
+// No `ID` column on either page (dropped 2026-08-31 along with ID-matching on import - see the
+// wholesale-replace test below).
+test('xlsxColumns mirrors each page\'s own table exactly, minus the generated ID', () => {
+  const validationKeys = loadXlsxColumns('ValidationRuleList')().map((c) => c.key);
+  assert.deepEqual(validationKeys, [
+    'conditionField', 'conditionValue', 'conditionLogic', 'conditionField2', 'conditionValue2',
     'field', 'comparison', 'value', 'severity', 'isActive'
   ]);
-  assert.deepEqual(loadXlsxColumns('DerivationRuleList')().map((c) => c.key), [
-    'ID', 'conditionField', 'conditionValue', 'conditionLogic', 'conditionField2', 'conditionValue2',
+  assert.equal(validationKeys.includes('ID'), false);
+
+  const derivationKeys = loadXlsxColumns('DerivationRuleList')().map((c) => c.key);
+  assert.deepEqual(derivationKeys, [
+    'conditionField', 'conditionValue', 'conditionLogic', 'conditionField2', 'conditionValue2',
     'field', 'value', 'isActive'
   ]);
+  assert.equal(derivationKeys.includes('ID'), false);
 });
 
 /**
@@ -328,21 +335,22 @@ function mockContext(object) {
 }
 
 /**
- * The same wholesale-replace fix WorkflowRuleList got the same day (2026-08-31), applied to both
- * quality-rule pages too: a row missing from the imported file is DELETED (staged, not saved), not
- * left untouched. Rows are built directly against each page's own column order, rather than through
- * a generic label-lookup, so a mistake here cannot mask one in the code being tested.
+ * Import now REPLACES the table wholesale, the same change WorkflowRuleList got the same day
+ * (2026-08-31, on direct feedback: matching by ID was dropped in favour of just overriding with
+ * whatever the file holds), applied to both quality-rule pages too. Rows are built directly against
+ * each page's own column order, rather than through a generic label-lookup, so a mistake here cannot
+ * mask one in the code being tested.
  */
-test('an existing rule whose ID is absent from the import is removed, on both pages', () => {
+test('import deletes every existing row and creates one for every row in the file, on both pages', () => {
   const cases = {
     ValidationRuleList: {
-      // ID, Condition1Field, Condition1Value, Logic, Condition2Field, Condition2Value, Field,
+      // Condition1Field, Condition1Value, Logic, Condition2Field, Condition2Value, Field,
       // Comparison, Value, Severity, Active
-      row: (id) => [id, '', '', 'AND', '', '', 'General.Language', 'eq', 'NL', 'error', 'true']
+      row: () => ['', '', 'AND', '', '', 'General.Language', 'eq', 'NL', 'error', 'true']
     },
     DerivationRuleList: {
-      // ID, Condition1Field, Condition1Value, Logic, Condition2Field, Condition2Value, Field, Value, Active
-      row: (id) => [id, '', '', 'AND', '', '', 'General.Language', 'NL', 'true']
+      // Condition1Field, Condition1Value, Logic, Condition2Field, Condition2Value, Field, Value, Active
+      row: () => ['', '', 'AND', '', '', 'General.Language', 'NL', 'true']
     }
   };
 
@@ -351,20 +359,21 @@ test('an existing rule whose ID is absent from the import is removed, on both pa
     const members = loadController(name, STUB_XLSX_CODEC, undefined, { show: (text) => toasts.push(text) });
     const xlsxColumns = loadXlsxColumns(name);
 
-    const kept = mockContext({ ID: 'kept' });
-    const gone = mockContext({ ID: 'gone' });
+    // Two rows already on the page - neither should survive untouched, even one whose data happens
+    // to match the row in the file.
+    const first = mockContext({});
+    const second = mockContext({});
     const created = [];
-    const binding = { getCurrentContexts: () => [kept, gone], create: (record) => created.push(record) };
+    const binding = { getCurrentContexts: () => [first, second], create: (record) => created.push(record) };
     const fakeThis = { _table: () => ({ getBinding: () => binding }), _markDirty: () => {} };
 
     const header = xlsxColumns().map((column) => column.label);
-    // The import file only re-lists "kept" - "gone" must be removed.
-    members._applyImportedXlsx.call(fakeThis, [header, cases[name].row('kept')]);
+    members._applyImportedXlsx.call(fakeThis, [header, cases[name].row()]);
 
-    assert.equal(kept.deleted, false, `${name}: kept row stays`);
-    assert.equal(gone.deleted, true, `${name}: missing row is removed`);
-    assert.equal(gone.deleteGroup, 'ruleChanges');
-    assert.equal(created.length, 0, `${name}: the one row in the file matched an existing rule`);
-    assert.match(toasts[0], /1 removed/u, name);
+    assert.equal(first.deleted, true, `${name}: first row deleted`);
+    assert.equal(first.deleteGroup, 'ruleChanges');
+    assert.equal(second.deleted, true, `${name}: second row deleted`);
+    assert.equal(created.length, 1, `${name}: one new row for the one non-blank row in the file`);
+    assert.match(toasts[0], /2 existing rule\(s\) replaced by 1 from the file/u, name);
   }
 });
