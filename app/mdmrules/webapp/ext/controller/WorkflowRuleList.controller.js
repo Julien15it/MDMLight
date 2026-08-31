@@ -12,37 +12,52 @@ sap.ui.define([
 
   var UPDATE_GROUP = "ruleChanges";
 
+  // Identity/managed columns that must never travel back on a create - `binding.create` is a POST,
+  // and sending an existing key or a server-assigned timestamp is either ignored or rejected
+  // depending on the column, never something worth relying on either way. Shared by Duplicate and
+  // by the Excel import, since both build a fresh row from data that already carries these.
+  var STRIP_ON_COPY = ["ID", "@odata.etag", "createdAt", "createdBy", "modifiedAt", "modifiedBy"];
+
   /**
-   * One condition per LINE of the `conditions` column - "field = value1|value2" - mirroring
-   * parseConditionLines/formatConditionLines in srv/checks/workflow-rules.js. Kept as a page-side
-   * copy for the same reason CONDITION_PAIRS used to be: this shape is part of the OData contract,
-   * not an internal detail, so a courtesy client-side check needs to read it the same way the
-   * service does.
+   * A fixed number of condition SLOTS for the Excel round trip only - not a limit on the page, where
+   * "Add Condition" is genuinely unbounded (see WorkflowRuleConditions in db/workflow-rules.cds). A
+   * spreadsheet needs some concrete column count, and this is deliberately generous rather than
+   * matched to what is in use today; a rule with more conditions than this is exported with a
+   * warning naming which ones were left off, never silently.
    */
-  function parseConditionLines(raw) {
-    return String(raw === null || raw === undefined ? "" : raw)
-      .split("\n")
-      .map(function (line) { return line.trim(); })
-      .filter(Boolean)
-      .map(function (line) {
-        var at = line.indexOf("=");
-        if (at === -1) return { field: line.trim(), values: "" };
-        return { field: line.slice(0, at).trim(), values: line.slice(at + 1).trim() };
-      });
+  var MAX_EXCEL_CONDITIONS = 6;
+
+  function csvColumns() {
+    var columns = [
+      { key: "ID", label: "ID (leave blank for a new rule)" },
+      { key: "requestType", label: "CR Type" },
+      { key: "step", label: "Step" }
+    ];
+    for (var i = 1; i <= MAX_EXCEL_CONDITIONS; i += 1) {
+      columns.push({ key: "field" + i, label: "Condition " + i + " Field" });
+      columns.push({ key: "operator" + i, label: "Condition " + i + " Operator" });
+      columns.push({ key: "values" + i, label: "Condition " + i + " Value" });
+    }
+    columns.push({ key: "conditionLogic", label: "Logic" });
+    columns.push({ key: "approvers", label: "Approvers" });
+    columns.push({ key: "isActive", label: "Active" });
+    return columns;
   }
 
-  // Columns of the Excel/CSV round trip, in export order. "ID" is the match key on import: a blank
-  // (or unrecognised) one creates a new rule, one matching a currently-loaded row updates it in
-  // place - see _applyImportedCsv.
-  var CSV_COLUMNS = [
-    { key: "ID", label: "ID (leave blank for a new rule)" },
-    { key: "requestType", label: "CR Type" },
-    { key: "step", label: "Step" },
-    { key: "conditions", label: "Conditions" },
-    { key: "conditionLogic", label: "Logic" },
-    { key: "approvers", label: "Approvers" },
-    { key: "isActive", label: "Active" }
-  ];
+  /** A rule's own fields plus one column per condition slot - the same shape the page itself shows,
+   *  asked for directly rather than the DSL-in-one-cell shape this replaced. */
+  function flattenForExport(rule) {
+    var flat = Object.assign({}, rule);
+    var conditions = Array.isArray(rule.conditions) ? rule.conditions : [];
+    for (var i = 0; i < MAX_EXCEL_CONDITIONS; i += 1) {
+      var condition = conditions[i] || {};
+      flat["field" + (i + 1)] = condition.field || "";
+      flat["operator" + (i + 1)] = condition.operator || "";
+      flat["values" + (i + 1)] = condition.values || "";
+    }
+    delete flat.conditions;
+    return flat;
+  }
 
   /** Quotes a field only when it needs it - a bare value stays readable in a plain text editor too. */
   function csvEscape(value) {
@@ -195,11 +210,14 @@ sap.ui.define([
       });
     },
 
-    // "Copy and paste" for a rule: the same fields as Add Rule, pre-filled from the selected row
-    // rather than blank. Identity and managed columns are stripped so the copy becomes its own row
-    // instead of fighting the original for one - `binding.create` is a POST, and sending an existing
-    // key or a server-assigned timestamp back to it is either ignored or rejected depending on the
-    // column, never something worth relying on either way.
+    /**
+     * "Copy and paste" for a rule: the same fields as Add Rule, pre-filled from the selected row
+     * rather than blank - conditions included, each of them its own new row of
+     * WorkflowRuleConditions rather than a deep-insert payload, so this cannot depend on whether the
+     * OData v4 model's create() supports a nested composition array in one call. The rule is created
+     * first; its conditions are added against the fresh (still transient) context exactly the way
+     * "Add Condition" adds one, just once per condition the original had.
+     */
     onDuplicateRule: function () {
       var item = this._table().getSelectedItem();
       if (!item) {
@@ -210,11 +228,23 @@ sap.ui.define([
       var binding = this._table().getBinding("items");
       if (!context || !binding) return;
       var copy = Object.assign({}, context.getObject());
-      ["ID", "@odata.etag", "createdAt", "createdBy", "modifiedAt", "modifiedBy"].forEach(function (key) {
-        delete copy[key];
-      });
-      binding.create(copy);
+      var conditions = Array.isArray(copy.conditions) ? copy.conditions : [];
+      STRIP_ON_COPY.concat(["conditions"]).forEach(function (key) { delete copy[key]; });
+      var newContext = binding.create(copy);
+      conditions.forEach(function (row) {
+        var conditionCopy = Object.assign({}, row);
+        STRIP_ON_COPY.concat(["rule_ID", "rule"]).forEach(function (key) { delete conditionCopy[key]; });
+        this._conditionsBinding(newContext).create(conditionCopy);
+      }, this);
       this._markDirty();
+    },
+
+    /** A fresh list binding for one rule's `conditions` navigation - the mechanism Add Condition,
+     *  Duplicate and Excel import all share for adding a condition row under a given rule context. */
+    _conditionsBinding: function (ruleContext) {
+      return ruleContext.getModel().bindList(
+        "conditions", ruleContext, [], [], { $$updateGroupId: UPDATE_GROUP }
+      );
     },
 
     onCellChange: function () {
@@ -225,6 +255,30 @@ sap.ui.define([
       this.getView().getModel("view").setProperty("/dirty", true);
     },
 
+    // --- Conditions: as many as a rule needs, side by side (2026-08-28) ---------------------
+    //
+    // Each condition is its own row of WorkflowRuleConditions (db/workflow-rules.cds), so "Add
+    // Condition" on one rule never touches any other rule's own count - genuinely dynamic per row,
+    // not a fixed number of always-visible slots.
+
+    /** The button sits inside the per-rule FlexBox cell, so its own binding context IS the rule. */
+    onAddCondition: function (event) {
+      var ruleContext = event.getSource().getBindingContext("dc");
+      if (!ruleContext) return;
+      this._conditionsBinding(ruleContext).create({ operator: "eq", values: "" });
+      this._markDirty();
+    },
+
+    /** The remove button sits inside the per-condition template, so its own binding context IS the
+     *  condition being removed - unlike Delete Rule, this needs no confirmation: it is exactly as
+     *  reversible as clearing an Input was in the old fixed-column layout. */
+    onRemoveCondition: function (event) {
+      var context = event.getSource().getBindingContext("dc");
+      if (!context) return;
+      context.delete(UPDATE_GROUP);
+      this._markDirty();
+    },
+
     // --- Excel (CSV) import / export ----------------------------------------
     //
     // Real .xlsx would need a third-party reader/writer library this repo has never taken a
@@ -233,14 +287,18 @@ sap.ui.define([
     // nothing to vendor or keep patched. "Export to Excel" / "Import from Excel" in the UI names the
     // destination the steward actually cares about; the file on disk is `.csv`.
 
-    /** Every row on the page, in the same shape Save already reads them in. */
+    /** Every row on the page, in the same shape Save already reads them in - one column per
+     *  condition slot, exactly the structure visible in the table itself. */
     onExportExcel: function () {
       var rows = this._draftRules();
       if (!rows.length) {
         MessageToast.show("There is nothing to export yet.");
         return;
       }
-      var csv = toCsv(rows, CSV_COLUMNS);
+      var overflowing = rows.filter(function (rule) {
+        return Array.isArray(rule.conditions) && rule.conditions.length > MAX_EXCEL_CONDITIONS;
+      });
+      var csv = toCsv(rows.map(flattenForExport), csvColumns());
       // A UTF-8 BOM, because Excel on Windows otherwise guesses the system codepage for a plain
       // .csv and can mangle anything outside ASCII - an approver's name, say.
       var blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
@@ -252,6 +310,16 @@ sap.ui.define([
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
+      // Told rather than silently truncated: a spreadsheet needs a fixed number of condition
+      // columns, but a rule is never limited to it on the page itself.
+      if (overflowing.length) {
+        MessageBox.warning(
+          overflowing.length + " rule(s) have more than " + MAX_EXCEL_CONDITIONS + " conditions; "
+          + "only the first " + MAX_EXCEL_CONDITIONS + " of each were exported. Editing and "
+          + "re-importing such a rule would drop the rest - add or edit its later conditions on "
+          + "the page instead."
+        );
+      }
     },
 
     /** A hidden native file input, reused across presses rather than rebuilt each time. */
@@ -284,10 +352,16 @@ sap.ui.define([
 
     /**
      * Every row becomes either an update to an already-loaded rule (its ID column matches one on
-     * screen) or a new one (blank or unrecognised ID) - so a steward can export, edit existing rows
-     * AND append new ones in the same spreadsheet, and re-import the whole thing in one go. Nothing
-     * is saved here: like Add Rule, this only populates the (now dirty) table, so the existing
-     * Save/Discard flow - and its validation - still has the last word.
+     * screen) or a new one (blank or unrecognised ID) - so a steward can export, append new rows in
+     * the same spreadsheet, and re-import the whole thing in one go. Nothing is saved here: like Add
+     * Rule, this only populates the (now dirty) table, so the existing Save/Discard flow - and its
+     * validation - still has the last word.
+     *
+     * Conditions are only ever taken from a NEW row's slot columns - an EXISTING rule keeps whatever
+     * conditions it already has on the page. Replacing them would mean deleting contexts this
+     * function never touched (the page's own nested list bindings hold them, not this method), and
+     * a silent partial replace is worse than a clearly communicated no-op: the toast says so, and a
+     * row whose condition columns were filled in anyway is named, so nothing is dropped unnoticed.
      */
     _applyImportedCsv: function (text) {
       var table = fromCsv(text);
@@ -295,8 +369,9 @@ sap.ui.define([
         MessageBox.error("The file is empty.");
         return;
       }
+      var columns = csvColumns();
       var keyForLabel = {};
-      CSV_COLUMNS.forEach(function (column) { keyForLabel[column.label.trim()] = column.key; });
+      columns.forEach(function (column) { keyForLabel[column.label.trim()] = column.key; });
       var header = table[0].map(function (label) { return keyForLabel[label.trim()]; });
       if (header.indexOf("requestType") === -1 || header.indexOf("approvers") === -1) {
         MessageBox.error("This file's header does not match the Workflow Agent Determination "
@@ -315,13 +390,23 @@ sap.ui.define([
       var created = 0;
       var updated = 0;
       var skipped = 0;
+      var ignoredConditions = 0;
       table.slice(1).forEach(function (fields) {
         if (fields.length === 1 && fields[0] === "") return;
         var record = {};
+        var conditionSlots = [];
         header.forEach(function (key, column) {
           if (!key || key === "ID") return;
-          record[key] = fields[column] !== undefined ? fields[column] : "";
+          var value = fields[column] !== undefined ? fields[column] : "";
+          if (/^field\d+$/u.test(key) || /^operator\d+$/u.test(key) || /^values\d+$/u.test(key)) {
+            var slot = Number(key.replace(/\D+/gu, ""));
+            conditionSlots[slot - 1] = conditionSlots[slot - 1] || {};
+            conditionSlots[slot - 1][key.replace(/\d+$/u, "")] = value;
+            return;
+          }
+          record[key] = value;
         });
+        var conditions = conditionSlots.filter(function (slot) { return slot && slot.field; });
         // Tolerant on purpose: a business user typing quickly in Excel writes "yes"/"Yes"/"TRUE"/
         // "1"/"x" as often as the literal word, and a strict match would silently read every one of
         // those as inactive.
@@ -330,18 +415,26 @@ sap.ui.define([
         var existing = id && byId[id];
         if (existing) {
           Object.keys(record).forEach(function (key) { existing.setProperty(key, record[key]); });
+          if (conditions.length) ignoredConditions += 1;
           updated += 1;
-        } else if (record.requestType || record.approvers || record.conditions) {
-          binding.create(record);
+        } else if (record.requestType || record.approvers || conditions.length) {
+          var newContext = binding.create(record);
+          conditions.forEach(function (condition) {
+            this._conditionsBinding(newContext).create({
+              field: condition.field, operator: condition.operator || "eq", values: condition.values || ""
+            });
+          }, this);
           created += 1;
         } else {
           skipped += 1;
         }
-      });
+      }, this);
       this._markDirty();
       MessageToast.show(
         created + " rule(s) added, " + updated + " updated"
         + (skipped ? ", " + skipped + " blank row(s) skipped" : "")
+        + (ignoredConditions ? ", " + ignoredConditions + " existing rule(s) kept their own conditions"
+          + " (edit those on the page)" : "")
         + ". Review and press Save."
       );
     },
@@ -424,20 +517,16 @@ sap.ui.define([
 
     // --- The field value help ----------------------------------------------
 
-    /**
-     * Two callers, told apart by what pressed it. A bound `Input` (this page has none left today,
-     * but the fragment and this handler stay generic) supplies its own binding and REPLACES its
-     * value, same as always. The "Insert Field" button beside the Conditions `TextArea` has no
-     * value of its own to bind - it names the row through its own binding context instead - and its
-     * chosen field is APPENDED as a new line rather than overwriting whatever is already typed,
-     * since the whole point of this column is to hold more than one condition.
-     */
+    // Opened from a condition's own Field cell. The cell is identified by its own binding rather than
+    // custom data: `getBinding("value").getPath()` already knows what it writes - one bound Input per
+    // condition again, the same as before conditions became a column of stacked text.
     onFieldValueHelp: async function (event) {
-      var source = event.getSource();
-      var binding = source.getBinding && source.getBinding("value");
-      this._target = binding
-        ? { context: source.getBindingContext("dc"), path: binding.getPath(), mode: "replace" }
-        : { context: source.getBindingContext("dc"), path: "conditions", mode: "append" };
+      var input = event.getSource();
+      var binding = input.getBinding("value");
+      this._target = {
+        context: input.getBindingContext("dc"),
+        path: binding && binding.getPath()
+      };
       if (!this._target.context || !this._target.path) return;
       if (!this._valueHelp) {
         this._valueHelp = await Fragment.load({
@@ -478,13 +567,7 @@ sap.ui.define([
       // a rule that no longer resolves the moment a label is reworded.
       var code = context && context.getProperty("code");
       if (!code || !this._target) return;
-      if (this._target.mode === "append") {
-        var current = this._target.context.getProperty(this._target.path) || "";
-        var prefix = current && !/\n$/u.test(current) ? current + "\n" : current;
-        this._target.context.setProperty(this._target.path, prefix + code + " = ");
-      } else {
-        this._target.context.setProperty(this._target.path, code);
-      }
+      this._target.context.setProperty(this._target.path, code);
       this._markDirty();
     },
 
@@ -502,14 +585,18 @@ sap.ui.define([
         if (!rule.approvers) {
           problems.push(label + "name the approver — an e-mail address or a role.");
         }
-        // Half a condition is the dangerous half: a field with no values would match everything.
-        parseConditionLines(rule.conditions).forEach(function (condition, position) {
+        // Half a condition is the dangerous half: a field with no values would match everything -
+        // unless the operator is one of the two that need no value at all ("is empty"/"is not
+        // empty"). Each condition also validates on its own write server-side (validateCondition);
+        // this is the same check done at the keyboard.
+        (Array.isArray(rule.conditions) ? rule.conditions : []).forEach(function (condition, position) {
           var name = "condition " + (position + 1);
-          if (condition.field && !condition.values) {
-            problems.push(label + name + ' needs a value after "=", or remove its line.');
+          var needsValue = condition.operator !== "empty" && condition.operator !== "notEmpty";
+          if (condition.field && needsValue && !condition.values) {
+            problems.push(label + name + " needs a value.");
           }
           if (!condition.field && condition.values) {
-            problems.push(label + name + ' needs a field before "=".');
+            problems.push(label + name + " needs a field.");
           }
         });
       });

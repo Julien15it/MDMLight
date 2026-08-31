@@ -2162,10 +2162,10 @@ people***. The columns are CR type, step, two condition pairs, and the approvers
 Both condition values and the approver held a single value in the original design, like every
 other rule table — see "Multiple values per condition" above for the version that was built and
 withdrawn, and what the next attempt would need. The columns keep their plural names because
-`cds-deploy` cannot rename an element. **Superseded for conditions by the dynamic `conditions`
-column below (2026-08-28)** — a rule is no longer stuck at exactly two — but every bullet here still
-describes the legacy `conditionField`/`conditionValues`(+2) pair, which a rule saved before that
-date still reads through, and still describes `approvers` exactly as it works today.
+`cds-deploy` cannot rename an element. **Superseded for conditions by the `WorkflowRuleConditions`
+composition below (2026-08-28)** — a rule is no longer stuck at exactly two — but every bullet here
+still describes the legacy `conditionField`/`conditionValues`(+2) pair, which a rule saved before
+that date still reads through, and still describes `approvers` exactly as it works today.
 
 - **A condition here is always a statement about the partner.** A row of this table targets no
   section of its own, so any row of the named section satisfying the condition is enough — unlike
@@ -2176,32 +2176,49 @@ date still reads through, and still describes `approvers` exactly as it works to
 - **The read path still tolerates a delimited list**, for rows written while multiple values were
   live.
 
-#### As many conditions as a rule needs, not just two (2026-08-28)
+#### As many conditions as a rule needs, side by side (2026-08-28)
 
 Asked for directly: "Nu is dit beperkt tot 2 maar dit kunnen meer factoren zijn" — the two fixed
 condition pairs above could never become three without a schema change `cds-deploy` cannot walk
 back if it turns out to be one column too many, the same trap `createsRow` and the `cond*` columns
-are already stuck in. `WorkflowRules.conditions` (`LargeString`) replaces them: **one condition per
-LINE**, `field = value1|value2`, however many lines a rule needs.
+are already stuck in. `WorkflowRuleConditions` (`db/workflow-rules.cds`) replaces them: a real
+composition, one row per condition, `Association to WorkflowRules` plus `field`/`operator`/`values`.
+"Add Condition" grows one rule's own composition — genuinely per row (rule A can have two conditions
+and rule B five, each its own count), not a fixed number of always-visible slots.
 
-**This reuses the lesson "Multiple values per condition" (above) left behind, applied to a
-DIFFERENT problem.** That attempt was about several *values* in one field and failed on a
-token/`MultiInput` cell that could not be made to save reliably — three ways, three failures, all
-because a hand-managed aggregation sat *beside* a bound column instead of the binding being the only
-writer. This is several *conditions*, not several values in one condition, but the same fix applies:
-a plain `sap.m.TextArea`, two-way bound straight to the one `conditions` string, is the whole
-mechanism. No child entity, no per-condition row controls, nothing to keep in sync by hand.
+**A free-text, line-per-condition column (`field = value1|value2` in a `TextArea`) was tried first
+the same day and reverted the same day, on direct feedback: "ik wil dit naast elkaar zoals het
+ervoor was... niet hoe het nu is".** The ask was never "fewer columns", it was "as many of the
+original side-by-side Field/Value groups as a rule needs" — stacking them as lines of text solved
+the *dynamic* half and broke the *side by side* half. `WorkflowRuleConditions` is what a real
+composition looks like once "the binding is the only writer" (the lesson "Multiple values per
+condition" above left behind, for a *different* problem — several values in ONE field, not several
+conditions) is honoured for *this* problem too: no hand-parsed DSL, no line-splitting, one row, one
+set of plain two-way-bound cells, rendered inline.
 
-- **`parseConditionLines`/`formatConditionLines` (`srv/checks/workflow-rules.js`)** are the codec: a
-  line with no `=` is a bare field with no values (the same "half a condition" shape the old pair
-  could produce), blank lines are dropped, and each condition's own value side still goes through
-  the existing `parseValueList`/`listMatches` — so `|`-multi-value and the `*` wildcard both carry
-  over for free, unchanged.
-- **`readConditions` prefers `conditions` and falls back to the legacy pair only while it is empty.**
-  A rule saved before 2026-08-28 keeps matching exactly as it always did, with no migration — the
-  moment it is opened and re-saved under the new format, `conditions` is what has the current truth
-  and the legacy columns simply go stale (never written again, the same tolerance as every other
-  dead column in these four tables).
+- **The view: a wrapping `FlexBox` templated over `dc>conditions`.** Each condition renders as its
+  own small `HBox` — Field `Input` (the same `FieldValueHelp` fragment every condition cell on this
+  tile has always used, unchanged), an operator `Select`, a Value `Input`, and a remove button — and
+  `wrap="Wrap"` lets a rule with many conditions spill onto a second line inside the cell rather than
+  growing the row forever sideways. An "Add Condition" button below the `FlexBox` creates a new child
+  row against *that rule's own* `conditions` navigation via `_conditionsBinding` (a fresh
+  `bindList("conditions", ruleContext, ..., { $$updateGroupId: 'ruleChanges' })`) — the same
+  mechanism Duplicate and the Excel import share for adding a condition row under a given rule
+  context, so nothing here depends on the OData v4 model supporting a deep-insert payload in one
+  call. Remove reads the *condition's own* binding context (it lives inside the per-condition
+  template) and deletes just that row.
+- **Operators reuse `rule-engine.js`'s `COMPARISONS`** (`eq`/`ne`/`lt`/`le`/`gt`/`ge`/`contains`/
+  `empty`/`notEmpty`) — asked for directly ("volgens mij alle mogelijke operatoren") rather than a
+  smaller, WorkflowRules-only set, and served through `workflowRuleOptions()` the identical way
+  `qualityRuleOptions()` already serves them to ValidationRules/DerivationRules. `conditionHolds`
+  keeps the *shape* every condition here has always had — "some row of the named section, some
+  listed value" — for every operator, not just `eq`: `Country != BE` holds when *some* address
+  disagrees with BE, not when *every* address does, the exact same "any row is enough" reading the
+  positive case has always had. `eq` alone keeps the wildcard/`|`-multi-value matching
+  (`listMatches`) every other condition column in this app already has — a `*` pattern only ever
+  meant "equal to, loosely". `empty`/`notEmpty` read the **raw** field value via `sectionRows`
+  directly, never `fieldValues` (which filters empties out before either check would ever see one —
+  found while writing the test for it, not assumed).
 - **`joinConditions` (`srv/checks/value-lists.js`) was generalised to fold over N results, not just
   two** — `results.every(Boolean)` for AND, `.some(Boolean)` for OR, `!.some(Boolean)` for NOR. This
   is shared by all four rule tables' engines, but the fold is defined so it produces the *exact same
@@ -2211,24 +2228,35 @@ mechanism. No child entity, no per-condition row controls, nothing to keep in sy
   themselves (their own `CONDITION_PAIRS` are untouched — this change was scoped to WorkflowRules
   only), so nothing about them changed; the shared fold could serve all four the day their own
   columns are generalised the same way.
-- **The UI column count dropped from nine to six**: `Condition 1/2 Field/Value` and the titleless
-  AND/OR/NOR column collapsed into one `Conditions` `TextArea` cell and one always-enabled `Logic`
-  ComboBox (always enabled because the engine itself ignores it below two conditions — nothing unsafe
-  about it being set early). **"Insert Field"**, a small button beside the `TextArea`, reuses the
-  same `FieldValueHelp` fragment/dialog every other condition cell on this tile already uses — told
-  apart from the old Input-driven case by `onFieldValueHelp` checking whether its caller has its own
-  `value` binding (a bound `Input`, replace) or not (this button, append a new line, never
-  overwriting what is already typed).
+- **`readConditions` prefers the composition and falls back to the legacy pair only while it has no
+  rows.** A rule saved before 2026-08-28 keeps matching exactly as it always did, with no migration —
+  the moment it gets its first real condition row, the legacy columns simply go stale (never written
+  again, the same tolerance as every other dead column in these four tables).
+- **Each condition validates on its OWN write, as its own entity**, not as a slice of the rule that
+  owns it: `WorkflowRuleConditions` gets the same `guard()` treatment `WorkflowRules` itself does,
+  with its own validator (`validateCondition`) rather than looping a fixed `CONDITION_PAIRS.entries()`
+  — which is what made "as many conditions as it needs" simplify validation rather than complicate
+  it: one row, one set of checks, no position-based "condition 1"/"condition 2" naming needed
+  server-side any more (the client's own courtesy check in `_localProblems` still numbers them for
+  the error message a steward reads).
+- **No `sequence` column, deliberately, on `WorkflowRuleConditions` either** — AND/OR/NOR fold over
+  these rows without caring what order they were added in, so there is nothing for a sequence to
+  mean, the same reasoning `WorkflowRules` itself already gives for having no order column of its
+  own ("rows are additive... nothing needs ranking").
 
 #### Copy a rule, and bulk-edit the table in Excel (2026-08-28, asked for)
 
 Two more asks landed the same day, both scoped to this one page:
 
 - **Duplicate.** A "Duplicate" button beside Delete reads the selected row
-  (`context.getObject()`), strips its identity and managed columns (`ID`, `@odata.etag`,
-  `createdAt`/`createdBy`/`modifiedAt`/`modifiedBy` — sending any of those back on a `POST` is either
-  ignored or rejected depending on the column, never something worth relying on), and feeds the copy
-  into the same `binding.create()` call `onAddRule` already uses. Nothing is saved automatically —
+  (`context.getObject()`), strips its identity and managed columns (`STRIP_ON_COPY`: `ID`,
+  `@odata.etag`, `createdAt`/`createdBy`/`modifiedAt`/`modifiedBy` — sending any of those back on a
+  `POST` is either ignored or rejected depending on the column, never something worth relying on),
+  and feeds the copy into the same `binding.create()` call `onAddRule` already uses. **Its conditions
+  are copied too** — each one individually created as its own new `WorkflowRuleConditions` row
+  against the *fresh* rule's context via `_conditionsBinding`, exactly the way Add Condition creates
+  one, rather than sending the whole nested array back as part of one deep-insert payload (which
+  would depend on model support this app has never needed to trust). Nothing is saved automatically —
   same as Add Rule, it only populates the (now dirty) table.
 - **Export to Excel / Import from Excel — really a CSV round trip, said so in the UI.** This repo has
   never taken a dependency on a spreadsheet reader/writer anywhere, front or back end, and real
@@ -2236,13 +2264,24 @@ Two more asks landed the same day, both scoped to this one page:
   saves it natively, and the button labels name the destination a steward actually cares about
   (“Excel”) while the file on disk is honestly `.csv`. `toCsv`/`fromCsv` are a small, hand-rolled
   RFC-4180-shaped codec (quoted fields, doubled embedded quotes, a real state machine for `fromCsv`
-  rather than a naive split on `\n` — the `Conditions` column is multi-line by design, so a quoted
-  field holding a literal newline is the normal case, not an edge case). A UTF-8 BOM is prepended on
-  export so Excel on Windows does not guess the system codepage and mangle a name outside ASCII.
-  - **The columns are exactly what a row holds**: `ID`, CR Type, Step, Conditions, Logic, Approvers,
-    Active — `ID` is the match key on re-import (blank or unrecognised creates a new rule, one
-    matching a currently-loaded row updates it in place), so a steward can export, edit existing
-    rows *and* append new ones in the same file, then re-import the whole thing in one pass.
+  rather than a naive split on `\n`). A UTF-8 BOM is prepended on export so Excel on Windows does not
+  guess the system codepage and mangle a name outside ASCII.
+  - **The columns mirror the page itself, not a packed DSL cell** — asked for directly ("ik wil
+    eigenlijk de structuur hebben die ook zichtbaar is dan in de app"): `ID`, CR Type, Step, then
+    `Condition 1 Field`/`Operator`/`Value` through `Condition 6` (`MAX_EXCEL_CONDITIONS`), then
+    Logic, Approvers, Active. `ID` is the match key on re-import (blank or unrecognised creates a new
+    rule, one matching a currently-loaded row updates its flat fields), so a steward can export,
+    tweak simple fields, append whole new rows with their own conditions, and re-import the file.
+  - **The condition-slot cap is a spreadsheet limitation, not a page one.** A rule can have more than
+    six conditions on the page itself; export only warns and truncates (naming how many rules were
+    affected) rather than failing or silently dropping data past the sixth unannounced.
+  - **An existing rule keeps whatever conditions it already has on import — the file's condition
+    columns are read only for a NEW row.** Replacing an existing rule's conditions on re-import would
+    mean deleting contexts this code path never touched (they live in the page's own nested list
+    bindings, not something `_applyImportedCsv` holds a handle to), and a silent partial replace is
+    worse than a clearly communicated no-op: the toast counts how many existing rows had condition
+    columns filled in anyway, so nothing is dropped unnoticed — edit an existing rule's conditions on
+    the page itself.
   - **Import never saves by itself.** It only creates/updates rows on the page, exactly like Add
     Rule and Duplicate — the existing Save/Discard flow, and `_localProblems`'s validation, still
     have the last word before anything reaches the service.

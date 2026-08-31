@@ -20,7 +20,7 @@ const {
 const fieldPropertyStore = require('./checks/field-property-store');
 const {
   REQUEST_TYPES: WORKFLOW_REQUEST_TYPES, REQUEST_TYPE_TEXT: WORKFLOW_REQUEST_TYPE_TEXT,
-  STEPS, STEP_TEXT, validateWorkflowRule, runnableWorkflowRules
+  STEPS, STEP_TEXT, validateWorkflowRule, validateCondition, runnableWorkflowRules
 } = require('./checks/workflow-rules');
 const workflowRuleStore = require('./checks/workflow-rule-store');
 const { workflowAgents } = require('./wf/btp-agents');
@@ -31,6 +31,7 @@ const DERIVATIONS = 'mdmlight.config.DerivationRules';
 const PROFILES = 'mdmlight.config.FieldPropertyProfiles';
 const SETTINGS = 'mdmlight.config.FieldPropertySettings';
 const WORKFLOW_RULES = 'mdmlight.config.WorkflowRules';
+const WORKFLOW_RULE_CONDITIONS = 'mdmlight.config.WorkflowRuleConditions';
 
 const SEVERITY_TEXT = Object.freeze({
   error: 'Error — blocks the request',
@@ -107,6 +108,15 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
     // Same treatment again, and for the same reason: by submit time the approvers have already gone
     // to SBPA, so a row that cannot resolve has to be caught at the keyboard. Its own store, though.
     guard('WorkflowRules', WORKFLOW_RULES, validateWorkflowRule, workflowRuleStore.markStale);
+    // A condition is its own row now (2026-08-28, asked for: a rule can have as many as it needs,
+    // added and removed one at a time), so it is validated on its OWN write rather than only as part
+    // of the rule that owns it - `validateCondition` needs no model here, the same permissive
+    // "unloaded model accepts the name" convention every validator in this file already follows.
+    guard(
+      'WorkflowRuleConditions', WORKFLOW_RULE_CONDITIONS,
+      (data) => ({ errors: validateCondition(data, undefined, 'This condition'), warnings: [] }),
+      workflowRuleStore.markStale
+    );
 
     // The payload catalog again - a condition names a payload field, so the two pages offer the same
     // list - plus the two closed lists and the count of rows that would actually run.
@@ -128,6 +138,12 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
         })),
         steps: STEPS.map((code) => ({ code, text: STEP_TEXT[code] || code })),
         conditionLogics: CONDITION_LOGIC_OPTIONS,
+        // The exact same operator vocabulary qualityRuleOptions already offers ValidationRules/
+        // DerivationRules for their own comparison column - asked for directly ("volgens mij alle
+        // mogelijke operatoren") rather than a smaller, WorkflowRules-only set.
+        comparisons: Object.entries(COMPARISONS).map(([code, comparison]) => ({
+          code, text: comparison.text.trim(), needsValue: comparison.needsValue
+        })),
         // The subaccount's own role collections (MDMLIGHT* only) and users - see srv/wf/btp-agents.js
         // and CLAUDE.md "Workflow Agent Determination". Not this app's own Requester/Approver/
         // DataSteward roles: those are what the Field Property Profiles page still conditions on

@@ -11,10 +11,11 @@
     <content>
       <!--
         A decision table like the other three, and read the same way left to right - "a create
-        request whose Country is BE, NL, FR or DE is approved by these three people". Conditions and
-        approvers both take a LIST rather than one value: four countries are one condition line, and
-        the approvers, so a step can have several - several approvers is several ROWS, though, not a
-        packed cell, which is what "Duplicate" is for.
+        request whose Country is BE, NL, FR or DE is approved by these three people". A rule's
+        conditions render side by side, as many as it has - "Add Condition" grows that row only, the
+        way the first two condition slots always looked, never stacked as lines of text. Approvers
+        stay a list of ROWS instead: several approvers is several rules, which is what "Duplicate" is
+        for.
       -->
       <MessageStrip
         class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
@@ -24,7 +25,7 @@
         showIcon="true" />
       <Table
         id="ruleTable"
-        items="{ path: 'dc>/WorkflowRules', parameters: { $orderby: 'createdAt', $$updateGroupId: 'ruleChanges' } }"
+        items="{ path: 'dc>/WorkflowRules', parameters: { $orderby: 'createdAt', $$updateGroupId: 'ruleChanges', $expand: 'conditions' } }"
         mode="SingleSelectMaster"
         busy="{view>/busy}"
         growing="true"
@@ -49,7 +50,7 @@
         <columns>
           <Column width="10%"><Text text="CR Type" /></Column>
           <Column width="8%"><Text text="Step" /></Column>
-          <!-- As many conditions as the rule needs, one per line - see db/workflow-rules.cds. -->
+          <!-- As many conditions as the rule needs, side by side - see db/workflow-rules.cds. -->
           <Column width="34%"><Text text="Conditions" /></Column>
           <Column width="9%"><Text text="Logic" /></Column>
           <Column width="26%"><Text text="Approvers" /></Column>
@@ -74,28 +75,49 @@
                 change=".onCellChange">
                 <core:Item key="{opt>code}" text="{opt>text}" />
               </ComboBox>
-              <!-- One condition per line - "field = value1|value2" - however many the rule needs.
-                   Empty means "any". A plain two-way binding on the whole column is deliberate: see
-                   the comment on the `conditions` element in db/workflow-rules.cds for why this is
-                   not a token/multi-value control. "Insert Field" appends a chosen field's qualified
-                   name so nobody has to remember or type it by hand; the value after "=" is typed. -->
+              <!-- As many conditions as the rule needs, side by side - "Add Condition" grows THIS
+                   row's own composition (WorkflowRuleConditions), never a shared column count. Wraps
+                   onto a second line inside the cell rather than growing the row forever sideways. -->
               <VBox>
-                <TextArea
-                  width="100%"
-                  rows="3"
-                  growing="true"
-                  value="{dc>conditions}"
-                  placeholder="Field = Value1|Value2 (one condition per line, any is empty)"
-                  change=".onCellChange" />
+                <FlexBox wrap="Wrap" items="{ path: 'dc>conditions', templateShareable: false }">
+                  <HBox class="sapUiTinyMarginEnd sapUiTinyMarginBottom" alignItems="Center">
+                    <Input
+                      width="9rem"
+                      value="{dc>field}"
+                      placeholder="Field"
+                      showValueHelp="true"
+                      valueHelpRequest=".onFieldValueHelp"
+                      change=".onCellChange" />
+                    <Select
+                      width="6.5rem"
+                      class="sapUiTinyMarginBeginEnd"
+                      selectedKey="{dc>operator}"
+                      items="{ path: 'opt>/comparisons', templateShareable: false }"
+                      change=".onCellChange">
+                      <core:Item key="{opt>code}" text="{opt>text}" />
+                    </Select>
+                    <Input
+                      width="7rem"
+                      value="{dc>values}"
+                      placeholder="Value1|Value2"
+                      enabled="{= ${dc>operator} !== 'empty' &amp;&amp; ${dc>operator} !== 'notEmpty' }"
+                      change=".onCellChange" />
+                    <Button
+                      icon="sap-icon://decline"
+                      type="Transparent"
+                      tooltip="Remove this condition"
+                      press=".onRemoveCondition" />
+                  </HBox>
+                </FlexBox>
                 <Button
-                  text="Insert Field"
-                  icon="sap-icon://value-help"
+                  text="Add Condition"
+                  icon="sap-icon://add"
                   type="Transparent"
-                  press=".onFieldValueHelp" />
+                  press=".onAddCondition" />
               </VBox>
               <!-- Always enabled: with zero or one condition the engine ignores this column entirely
                    (see joinConditions in srv/checks/value-lists.js), so there is nothing unsafe about
-                   it being set ahead of a second line being typed. -->
+                   it being set ahead of a second condition being added. -->
               <ComboBox
                 width="100%"
                 selectedKey="{dc>conditionLogic}"

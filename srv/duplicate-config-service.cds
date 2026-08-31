@@ -22,6 +22,11 @@ service DuplicateConfigService {
   /** Who approves what. Read on every submit to build the `approvers` list in the workflow context. */
   entity WorkflowRules   as projection on workflow.WorkflowRules;
 
+  /** One condition of a WorkflowRules row - as many as that rule needs, added/removed one at a time
+   *  from the page rather than replaced wholesale, so this is plain CRUD like WorkflowRules itself,
+   *  not an action like saveFieldProperties. */
+  entity WorkflowRuleConditions as projection on workflow.WorkflowRuleConditions;
+
   /** The profile header. Its settings are written through `saveFieldProperties`, not by binding the
    *  composition: the dialog replaces the whole set in one call. */
   entity FieldPropertyProfiles as projection on fieldprops.FieldPropertyProfiles;
@@ -121,6 +126,11 @@ service DuplicateConfigService {
     /** `Approve` today. A column rather than an assumption - see db/workflow-rules.cds. */
     steps        : array of Option;
     conditionLogics : array of Option;
+    /** The same operator vocabulary ValidationRules/DerivationRules already offer for their own
+     *  comparison column (`eq`/`ne`/`lt`/`le`/`gt`/`ge`/`contains`/`empty`/`notEmpty`) - asked for
+     *  directly rather than a smaller, WorkflowRules-only set. `needsValue: false` for the two that
+     *  take no value at all ("is empty"/"is not empty"), so the page can hide that cell. */
+    comparisons  : array of ComparisonOption;
     /** Rules that would actually run, so the page can say when a saved row is being skipped. */
     ruleCount    : Integer;
   }

@@ -1,9 +1,9 @@
 'use strict';
 
-const { compare } = require('./rule-engine');
-const { fieldValues, resolvePayloadField } = require('./payload-fields');
+const { compare, COMPARISONS, EMPTINESS_COMPARISONS } = require('./rule-engine');
+const { sectionRows, isEmptyValue, resolvePayloadField } = require('./payload-fields');
 const {
-  parseValueList, formatValueList, listMatches, joinConditions, conditionLogicError
+  parseValueList, listMatches, joinConditions, conditionLogicError
 } = require('./value-lists');
 
 /**
@@ -35,8 +35,12 @@ const STEP_TEXT = Object.freeze({
   Approve: 'Approve'
 });
 
+/** The default operator for a condition row and for the legacy two-column shape below, which never
+ *  had an operator concept at all - "field is one of these values" is exactly what `eq` means here. */
+const DEFAULT_CONDITION_OPERATOR = 'eq';
+
 /**
- * The legacy two-pair shape (superseded by the `conditions` text column, see db/workflow-rules.cds)
+ * The legacy two-pair shape (superseded by the `conditions` composition, see db/workflow-rules.cds)
  * - kept only so `legacyConditionPairs` can still read a rule saved before 2026-08-28.
  */
 const CONDITION_PAIRS = Object.freeze([
@@ -44,35 +48,11 @@ const CONDITION_PAIRS = Object.freeze([
   Object.freeze({ field: 'conditionField2', values: 'conditionValues2' })
 ]);
 
-/**
- * One condition per LINE of the `conditions` column: `field = value1|value2`. A line with no `=` is
- * read as a bare field with no values (caught by validation the same way an empty legacy pair was -
- * "half a condition"). Blank lines are dropped, so a trailing newline costs nothing.
- */
-function parseConditionLines(raw) {
-  return String(raw === null || raw === undefined ? '' : raw)
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const at = line.indexOf('=');
-      if (at === -1) return { field: trimmed(line), values: [] };
-      return { field: trimmed(line.slice(0, at)), values: parseValueList(line.slice(at + 1)) };
-    });
-}
-
-/** Round-trips with `parseConditionLines` - used by the UI to rebuild the text after an edit. */
-function formatConditionLines(conditions) {
-  return (conditions || [])
-    .filter((condition) => condition.field)
-    .map((condition) => `${condition.field} = ${formatValueList(condition.values)}`)
-    .join('\n');
-}
-
-/** The two-column shape as a plain array, for a rule that has nothing in `conditions` yet. */
+/** The two-column shape as a plain array, operator implied `eq`, for a rule with no `conditions` rows. */
 function legacyConditionPairs(rule) {
   return CONDITION_PAIRS.map((pair) => ({
     field: trimmed(rule[pair.field]),
+    operator: DEFAULT_CONDITION_OPERATOR,
     values: parseValueList(rule[pair.values])
   }));
 }
@@ -86,38 +66,104 @@ const approverKind = (entry) => (looksLikeEmail(entry) ? 'user' : 'role');
 
 const trimmed = (value) => String(value === null || value === undefined ? '' : value).trim();
 
+/** A known operator, defaulting a blank or unusable one to `eq` - the read side always has one to
+ *  apply, exactly like `conditionLogicOf` never leaves the AND/OR/NOR column unresolved. */
+function operatorOf(raw) {
+  const key = trimmed(raw);
+  return COMPARISONS[key] ? key : DEFAULT_CONDITION_OPERATOR;
+}
+
 /**
- * The rule's conditions as `{ field, values, resolved }`, dropping halves that carry no field. As
- * many as `conditions` holds; a rule with nothing there yet falls back to the two legacy columns,
- * so a row saved before 2026-08-28 keeps matching exactly as it did without needing a migration.
+ * The rule's conditions as `{ field, operator, values, resolved }`, dropping entries with no field.
+ * As many as the `conditions` composition holds (each its own row, `WorkflowRuleConditions`); a rule
+ * with none there yet falls back to the two legacy columns, so a row saved before 2026-08-28 keeps
+ * matching exactly as it did, with no migration.
  */
 function readConditions(rule, model) {
-  const lines = parseConditionLines(rule.conditions);
-  const raw = lines.length ? lines : legacyConditionPairs(rule);
-  return raw
+  const rows = Array.isArray(rule.conditions) && rule.conditions.length
+    ? rule.conditions.map((row) => ({
+      field: trimmed(row.field),
+      operator: operatorOf(row.operator),
+      values: parseValueList(row.values)
+    }))
+    : legacyConditionPairs(rule);
+  return rows
     .filter((condition) => condition.field)
     .map((condition) => ({ ...condition, resolved: resolvePayloadField(condition.field, model) }));
 }
 
 /**
  * One condition, over the whole payload. A row of this table targets no section of its own, so a
- * condition is always a statement about the partner: any row of the named section satisfying it is
- * enough. The values are OR - "Country is BE, NL, FR or DE" is one row.
+ * condition is always a statement about the partner: it holds if SOME row of the named section
+ * satisfies it against SOME one of the listed values - the same "any row, any value" shape for every
+ * operator, so `Country != BE` reads the same way `Country = BE` always has: not "every address
+ * disagrees with BE", just "at least one does".
+ *
+ * `eq` alone keeps the wildcard/multi-value matching (`listMatches`) every other condition column in
+ * this app already has - `*` as a pattern only ever meant "equal to, loosely", so it stays scoped to
+ * the operator that means equality. The emptiness pair needs no listed value at all.
  */
 function conditionHolds(condition, payload, model) {
   if (!condition.resolved) return false;
+  const comparison = COMPARISONS[condition.operator] || COMPARISONS[DEFAULT_CONDITION_OPERATOR];
+  const rows = sectionRows(payload, condition.resolved.section);
+  const rawValues = rows.map((row) => row.record[condition.resolved.element]);
+
+  // "is empty"/"is not empty" are read on the RAW value, same as rule-engine.js's own validation
+  // check - an empty value is exactly the thing these two exist to notice, so it must not already
+  // be filtered out before either ever sees it.
+  if (EMPTINESS_COMPARISONS.includes(condition.operator)) {
+    return rawValues.some((value) => comparison.apply(value));
+  }
+
+  const actual = rawValues.filter((value) => !isEmptyValue(value));
+  if (!actual.length) return false;
   if (!condition.values.length) return false;
-  return fieldValues(payload, condition.field, model)
-    .some((value) => listMatches(condition.values, value, compare));
+  if (condition.operator === 'eq') {
+    return actual.some((value) => listMatches(condition.values, value, compare));
+  }
+  return actual.some((value) => condition.values.some((expected) => comparison.apply(value, expected)));
 }
 
-// Joined by `conditionLogic` when both pairs are filled; an empty pair was already dropped, so no
-// condition still means "any". A stored row has no logic column and reads as AND, as before.
+// Joined by `conditionLogic` across however many conditions the rule has; zero still means "any". A
+// stored row has no logic column and reads as AND, as before.
 function conditionsHold(conditions, payload, model, logic) {
   return joinConditions(
     conditions.map((condition) => conditionHolds(condition, payload, model)),
     logic
   );
+}
+
+/**
+ * One condition row's own problems - field/operator/values consistency - independent of the rule it
+ * belongs to. Each `WorkflowRuleConditions` row is its own thing to validate now, not a slice of a
+ * fixed pair, so this runs once per row rather than looping a hard-coded `CONDITION_PAIRS.entries()`.
+ */
+function validateCondition(row = {}, model, name) {
+  const errors = [];
+  const field = trimmed(row.field);
+  const operator = trimmed(row.operator);
+  const values = parseValueList(row.values);
+  const needsValue = !operator || !COMPARISONS[operator] || COMPARISONS[operator].needsValue !== false;
+
+  if (operator && !COMPARISONS[operator]) {
+    errors.push({ field: 'operator', message: `“${operator}” is not a condition operator.` });
+  }
+  // Half a condition is the dangerous half: a field with no values would match everything - unless
+  // the operator is one of the two that need no value at all ("is empty"/"is not empty").
+  if (field && needsValue && !values.length) {
+    errors.push({ field: 'values', message: `${name} needs at least one value.` });
+  }
+  if (!field && values.length) {
+    errors.push({ field: 'field', message: `${name} needs a field.` });
+  }
+  if (field && !resolvePayloadField(field, model)) {
+    errors.push({
+      field: 'field',
+      message: `“${field}” is not a field of the request payload. Choose one from the list.`
+    });
+  }
+  return errors;
 }
 
 /** Whether one row could ever run, and what is wrong with it if not. */
@@ -160,23 +206,14 @@ function validateWorkflowRule(rule = {}, model) {
     }
   }
 
-  // Validates `conditions` only - the two legacy columns are dead going forward (see
-  // db/workflow-rules.cds), the same way the other rule tables' own dead columns are never checked.
-  for (const [index, condition] of parseConditionLines(rule.conditions).entries()) {
-    const name = `condition ${index + 1}`;
-    // Half a condition is the dangerous half: a field with no values would match everything.
-    if (condition.field && !condition.values.length) {
-      errors.push({ field: 'conditions', message: `${name} needs at least one value after "=".` });
-    }
-    if (!condition.field && condition.values.length) {
-      errors.push({ field: 'conditions', message: `${name} needs a field before "=".` });
-    }
-    if (condition.field && !resolvePayloadField(condition.field, model)) {
-      errors.push({
-        field: 'conditions',
-        message: `“${condition.field}” is not a field of the request payload. Choose one from the list.`
-      });
-    }
+  // Only when conditions were sent alongside the rule (a deep read/update, or the courtesy check
+  // that already has them in hand) - the service's own guard on WorkflowRuleConditions validates a
+  // row on its own write regardless, so a rule PATCH that carries no conditions is not penalised for
+  // rows it never touched.
+  if (Array.isArray(rule.conditions)) {
+    rule.conditions.forEach((row, index) => {
+      errors.push(...validateCondition(row, model, `condition ${index + 1}`));
+    });
   }
 
   const logicProblem = conditionLogicError(rule.conditionLogic);
@@ -226,12 +263,14 @@ module.exports = {
   STEPS,
   STEP_TEXT,
   CONDITION_PAIRS,
-  parseConditionLines,
-  formatConditionLines,
+  DEFAULT_CONDITION_OPERATOR,
+  operatorOf,
+  legacyConditionPairs,
   approverKind,
   readConditions,
   conditionHolds,
   conditionsHold,
+  validateCondition,
   validateWorkflowRule,
   runnableWorkflowRules: runnable,
   resolveApprovers

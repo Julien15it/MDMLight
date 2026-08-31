@@ -72,14 +72,14 @@ test('the CR types and steps come from the service, not from the page', () => {
 
 /**
  * A condition names a payload field, so this page shares the quality pages' catalog and their
- * searchable value help - several hundred fields is not a ComboBox. Since the Conditions column
- * became a free-text TextArea (2026-08-28), there is no bound Input for the value help to write
- * into directly any more - "Insert Field" is a plain Button (`press`, not `valueHelpRequest`) that
- * APPENDS the chosen field as a new line instead of replacing the cell's whole value.
+ * searchable value help - several hundred fields is not a ComboBox. Each condition is its own
+ * bound Field `Input` again (2026-08-28, reverted from a free-text TextArea): "naast elkaar zoals
+ * het ervoor was" - the value help writes straight into that cell, replacing it, exactly as every
+ * other condition cell in this app already works.
  */
 test('a condition field is chosen through the shared value help', () => {
-  const insertButton = view.slice(view.indexOf('text="Insert Field"'));
-  assert.match(insertButton.slice(0, insertButton.indexOf('/>')), /press="\.onFieldValueHelp"/u);
+  const fieldCell = view.slice(view.indexOf('value="{dc>field}"'));
+  assert.match(fieldCell.slice(0, fieldCell.indexOf('/>')), /valueHelpRequest="\.onFieldValueHelp"/u);
   assert.match(controller, /ext\.fragment\.FieldValueHelp/u);
   assert.match(controller, /FilterOperator\.Contains/u);
   // The stored value is the qualified code, and it is read off the binding context BEFORE anything
@@ -88,24 +88,25 @@ test('a condition field is chosen through the shared value help', () => {
   const body = chosen.slice(0, chosen.indexOf('\n    },'));
   assert.ok(body.indexOf('getProperty("code")') < body.indexOf('setProperty('));
   assert.equal(/filter\(\[\]\)/u.test(body), false);
-  // Appended as a new line, never overwriting what is already typed - the whole point of this
-  // column is to hold more than one condition.
-  assert.match(body, /mode === "append"/u);
-  assert.match(body, /prefix \+ code \+ " = "/u);
+  // A plain replace again - no "append a new line" mode left over from the TextArea design.
+  assert.equal(/mode === "append"/u.test(body), false);
   const open = controller.slice(controller.indexOf('onFieldValueHelp:'));
   assert.match(open.slice(0, open.indexOf('.open("")')), /getBinding\("items"\)[\s\S]{0,80}filter\(\[\]\)/u);
 });
 
 /**
- * Neither cell is ever disabled any more (2026-08-28): the Conditions TextArea has no "field chosen
- * first" gate to begin with (there is no separate field/value split left to gate between), and Logic
- * is always enabled because the engine itself ignores it for zero or one condition - see
- * joinConditions in srv/checks/value-lists.js. Nothing left to disable is not the same as nothing
- * left to validate: half a condition (a field with no value after "=", or the reverse) is still
- * refused, just by validateWorkflowRule/onSave rather than by a disabled cell.
+ * The Values cell is disabled once the operator is "is empty"/"is not empty" - those two need no
+ * value at all, so offering one would invite a value that is simply never read. Logic stays always
+ * enabled: the engine itself ignores it for zero or one condition (see joinConditions in
+ * srv/checks/value-lists.js), so there is nothing unsafe about it being set ahead of a second
+ * condition being added.
  */
-test('the conditions cell and the logic combo are always editable', () => {
-  assert.equal(/enabled="\{= !!\$\{dc>conditionField/u.test(view), false);
+test('the values cell is disabled for empty/notEmpty; the logic combo is always enabled', () => {
+  const valuesCell = view.slice(view.indexOf('value="{dc>values}"'));
+  assert.match(
+    valuesCell.slice(0, valuesCell.indexOf('/>')),
+    /enabled="\{= \$\{dc>operator\} !== 'empty' &amp;&amp; \$\{dc>operator\} !== 'notEmpty' \}"/u
+  );
   const logic = view.slice(view.indexOf("selectedKey=\"{dc>conditionLogic}\""));
   assert.equal(/enabled=/u.test(logic.slice(0, logic.indexOf('</ComboBox>'))), false);
 });
@@ -117,10 +118,13 @@ test('the conditions cell and the logic combo are always editable', () => {
  * back in by accident: a plain bound Input is the whole mechanism, and it is the one that works.
  */
 test('every cell is a single bound value, and nothing tokenises', () => {
-  // Conditions is a TextArea rather than an Input, but it is still exactly one bound property - the
-  // multi-value part is expressed as lines of TEXT inside that one column, never as several cells
-  // or a token control.
-  assert.match(view, /<TextArea[\s\S]{0,200}value="\{dc>conditions\}"/u, 'conditions is a bound TextArea');
+  // Each condition is field/operator/values as three plain bound cells - side by side, as many
+  // condition-groups as the rule has, but never several VALUES packed into one cell via a token
+  // control. The `values` cell itself still takes the `|`-delimited encoding every other condition
+  // column in this app already uses (see conditionHolds), same as before.
+  assert.match(view, /value="\{dc>field\}"/u, 'field is a bound Input');
+  assert.match(view, /selectedKey="\{dc>operator\}"/u, 'operator is a bound Select');
+  assert.match(view, /value="\{dc>values\}"/u, 'values is a bound Input');
   assert.match(view, /value="\{dc>approvers\}"/u, 'approvers is a bound Input');
   assert.equal(/MultiInput/u.test(view), false, 'no token cell is left');
   assert.equal(/app:listPath|app:listSink/u.test(view), false, 'and no custom data driving one');
@@ -138,8 +142,12 @@ test('every cell is a single bound value, and nothing tokenises', () => {
 test('the row is checked before it is sent, and again on the way in', () => {
   assert.match(controller, /choose the CR type this rule applies to/u);
   assert.match(controller, /name the approver/u);
-  assert.match(controller, /needs a value after "="/u);
+  assert.match(controller, /needs a value\."/u);
   assert.match(serviceJs, /guard\('WorkflowRules', WORKFLOW_RULES, validateWorkflowRule/u);
+  // Each condition ALSO validates on its own write, since it is its own entity now - the same
+  // guard() helper, its own validator, its own store invalidation.
+  assert.match(serviceJs, /guard\(\s*'WorkflowRuleConditions', WORKFLOW_RULE_CONDITIONS/u);
+  assert.match(serviceJs, /validateCondition\(data, undefined, 'This condition'\)/u);
   // Its own store, or a write would drop the quality cache and leave the approvers stale.
   assert.match(serviceJs, /workflowRuleStore\.markStale/u);
 });
@@ -158,8 +166,10 @@ test('the table is rows, and every column holds one value', () => {
     assert.match(rulesCds, new RegExp(`\\b${column}\\b`, 'u'), `${column} is modelled`);
   }
   // No order column: rows are additive, so every matching row contributes and nothing is ranked.
-  assert.equal(/sequence/u.test(rulesCds), false, 'the table carries no order column');
-  assert.equal(/sequence/u.test(read(ROOT, 'srv', 'checks', 'workflow-rules.js')), false);
+  // Neither WorkflowRules nor its own WorkflowRuleConditions declares one - a bare mention of the
+  // WORD "sequence" is fine (it shows up explaining the absence), an actual column is not.
+  assert.equal(/\bsequence\s*:/u.test(rulesCds), false, 'no table declares a sequence column');
+  assert.equal(/\bsequence\b/u.test(read(ROOT, 'srv', 'checks', 'workflow-rules.js')), false);
   assert.match(serviceCds, /entity WorkflowRules   as projection on workflow\.WorkflowRules/u);
 });
 
@@ -265,25 +275,97 @@ test('choosing an agent writes it into the cell', () => {
   assert.ok(body.indexOf('getProperty("value")') < body.indexOf('setProperty('));
 });
 
+// --- Dynamic conditions, side by side (2026-08-28, asked for) -----------------------------------
+
+/**
+ * The view side of the composition: a wrapping FlexBox templated over `dc>conditions`, so a rule
+ * with three conditions renders three Field/Operator/Value groups side by side (wrapping onto a
+ * second line rather than growing the row forever sideways), and a rule with one renders one -
+ * genuinely per-row, not a fixed number of always-visible slots.
+ */
+test('conditions render as a wrapping FlexBox of Field/Operator/Value groups, one per condition row', () => {
+  assert.match(
+    view,
+    /<FlexBox wrap="Wrap" items="\{ path: 'dc>conditions', templateShareable: false \}"/u
+  );
+  const conditionsCell = view.slice(view.indexOf('<FlexBox wrap="Wrap"'));
+  const body = conditionsCell.slice(0, conditionsCell.indexOf('</FlexBox>'));
+  assert.match(body, /value="\{dc>field\}"/u);
+  assert.match(body, /items="\{ path: 'opt>\/comparisons', templateShareable: false \}"/u);
+  assert.match(body, /value="\{dc>values\}"/u);
+  assert.match(body, /press="\.onRemoveCondition"/u);
+  assert.match(view, /text="Add Condition"[\s\S]{0,150}press="\.onAddCondition"/u);
+});
+
+/**
+ * "Add Condition" grows THIS rule's own composition - a fresh list binding on its `conditions`
+ * navigation, the same mechanism Duplicate and the Excel import share (`_conditionsBinding`) -
+ * never a shared, page-wide column. "Remove" reads its OWN binding context (the CONDITION, not the
+ * rule, since the button lives inside the per-condition template) and deletes just that one row.
+ */
+test('Add Condition and Remove act on one row\'s own conditions, not a shared column', () => {
+  const add = controller.slice(controller.indexOf('onAddCondition: function'));
+  const addBody = add.slice(0, add.indexOf('\n    },'));
+  assert.match(addBody, /event\.getSource\(\)\.getBindingContext\("dc"\)/u);
+  assert.match(addBody, /this\._conditionsBinding\(ruleContext\)\.create\(\{ operator: "eq", values: "" \}\)/u);
+
+  const remove = controller.slice(controller.indexOf('onRemoveCondition: function'));
+  const removeBody = remove.slice(0, remove.indexOf('\n    },'));
+  assert.match(removeBody, /event\.getSource\(\)\.getBindingContext\("dc"\)/u);
+  assert.match(removeBody, /context\.delete\(UPDATE_GROUP\)/u);
+
+  assert.match(controller, /_conditionsBinding: function \(ruleContext\)/u);
+  assert.match(controller, /bindList\(\s*"conditions", ruleContext/u);
+});
+
+// --- Operators (2026-08-28, asked for: "= of !=, en dan andere") --------------------------------
+
+/**
+ * The exact vocabulary rule-engine.js already offers ValidationRules/DerivationRules for their own
+ * comparison column - asked for directly ("volgens mij alle mogelijke operatoren") rather than a
+ * smaller, WorkflowRules-only set, and served the same way qualityRuleOptions already does.
+ */
+test('the operator picker offers the same comparisons ValidationRules/DerivationRules already use', () => {
+  const handler = serviceJs.slice(serviceJs.indexOf("this.on('workflowRuleOptions'"));
+  const body = handler.slice(0, handler.indexOf('\n    });'));
+  assert.match(body, /comparisons: Object\.entries\(COMPARISONS\)\.map/u);
+  assert.match(serviceCds, /comparisons {2}: array of ComparisonOption;/u);
+
+  const workflowRulesJs = read(ROOT, 'srv', 'checks', 'workflow-rules.js');
+  assert.match(workflowRulesJs, /require\('\.\/rule-engine'\)/u);
+  assert.match(workflowRulesJs, /COMPARISONS\[condition\.operator\]/u);
+  // The composition carries the operator, not the two now-legacy scalar columns.
+  assert.match(rulesCds, /operator : String\(10\) default 'eq';/u);
+});
+
 // --- Duplicate (2026-08-28, asked for: "copy en paste" for a rule) ------------------------------
 
 /**
  * "Copy and paste" for a rule: the same `binding.create` mechanism Add Rule already uses, just
- * pre-filled from the selected row instead of blank. Identity and managed columns are stripped so
- * the copy becomes its OWN row rather than colliding with the original's key.
+ * pre-filled from the selected row instead of blank - conditions included, each created as its OWN
+ * new WorkflowRuleConditions row against the fresh rule context (see _conditionsBinding), rather
+ * than relying on the OData v4 model's create() to support a deep-insert payload. Identity and
+ * managed columns are stripped so the copy becomes its OWN row rather than colliding with the
+ * original's key - shared with the Excel import via STRIP_ON_COPY.
  */
-test('Duplicate copies the selected row, stripping its identity', () => {
+test('Duplicate copies the selected row, its conditions, and strips their identity', () => {
   const button = view.slice(view.indexOf('text="Duplicate"'));
   assert.match(button.slice(0, button.indexOf('/>')), /press="\.onDuplicateRule"/u);
 
+  const stripDeclaration = controller.slice(0, controller.indexOf('return Controller.extend'));
+  assert.match(stripDeclaration, /var STRIP_ON_COPY = \[/u);
+  for (const stripped of ['ID', '@odata.etag', 'createdAt', 'createdBy', 'modifiedAt', 'modifiedBy']) {
+    assert.match(stripDeclaration, new RegExp(`["']${stripped.replace(/[.]/u, '\\.')}["']`, 'u'), `${stripped} is stripped`);
+  }
+
   const fn = controller.slice(controller.indexOf('onDuplicateRule: function'));
-  const body = fn.slice(0, fn.indexOf('\n    },'));
+  const body = fn.slice(0, fn.indexOf('\n    },\n\n    /** A fresh list binding'));
   assert.match(body, /getSelectedItem\(\)/u);
   assert.match(body, /Object\.assign\(\{\}, context\.getObject\(\)\)/u);
-  for (const stripped of ['ID', '@odata.etag', 'createdAt', 'createdBy', 'modifiedAt', 'modifiedBy']) {
-    assert.match(body, new RegExp(`["']${stripped.replace(/[.]/u, '\\.')}["']`, 'u'), `${stripped} is stripped`);
-  }
-  assert.match(body, /binding\.create\(copy\)/u);
+  assert.match(body, /var newContext = binding\.create\(copy\)/u);
+  // Each of the original rule's conditions becomes its own new row of the fresh rule's own
+  // composition - not a deep-insert payload sent alongside the rule itself.
+  assert.match(body, /this\._conditionsBinding\(newContext\)\.create\(conditionCopy\)/u);
   assert.match(body, /MessageToast\.show\("Select the rule to duplicate\."\)/u);
 });
 
@@ -306,14 +388,32 @@ test('Export/Import buttons exist and drive a CSV round trip, not a new library'
   assert.match(controller, /type: "text\/csv/u);
 });
 
-/** The columns of the round trip are exactly the fields a rule needs - see db/workflow-rules.cds. */
-test('the CSV columns match what a WorkflowRules row actually holds', () => {
-  const csvColumns = controller.slice(
-    controller.indexOf('var CSV_COLUMNS'), controller.indexOf('];') + 2
-  );
-  for (const key of ['ID', 'requestType', 'step', 'conditions', 'conditionLogic', 'approvers', 'isActive']) {
-    assert.match(csvColumns, new RegExp(`key: "${key}"`, 'u'), `${key} is one of the exported columns`);
+/**
+ * The columns of the round trip are the rule's own fields plus one Field/Operator/Value column per
+ * condition slot - "de structuur die ook zichtbaar is in de app" (asked for), not a DSL packed into
+ * one cell. `MAX_EXCEL_CONDITIONS` is the one thing a spreadsheet needs that the page itself does
+ * not: a fixed column count, generous rather than tied to what is in use today.
+ */
+test('the CSV columns match what a WorkflowRules row actually holds, one triple per condition slot', () => {
+  const fn = controller.slice(controller.indexOf('function csvColumns'));
+  const body = fn.slice(0, fn.indexOf('\n  }\n'));
+  for (const key of ['ID', 'requestType', 'step', 'conditionLogic', 'approvers', 'isActive']) {
+    assert.match(body, new RegExp(`key: "${key}"`, 'u'), `${key} is one of the exported columns`);
   }
+  assert.match(body, /"field" \+ i/u);
+  assert.match(body, /"operator" \+ i/u);
+  assert.match(body, /"values" \+ i/u);
+  assert.match(controller, /var MAX_EXCEL_CONDITIONS = \d+;/u);
+});
+
+/** flattenForExport spreads one rule's conditions array across the fixed slot columns. */
+test('flattenForExport maps a rule\'s conditions onto Condition 1/2/... columns', () => {
+  const fn = controller.slice(controller.indexOf('function flattenForExport'));
+  const body = fn.slice(0, fn.indexOf('\n  }\n'));
+  assert.match(body, /condition\.field \|\| ""/u);
+  assert.match(body, /condition\.operator \|\| ""/u);
+  assert.match(body, /condition\.values \|\| ""/u);
+  assert.match(body, /delete flat\.conditions/u);
 });
 
 /**
