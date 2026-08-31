@@ -4,7 +4,6 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
-const zlib = require('node:zlib');
 
 const ROOT = path.join(__dirname, '..');
 const APP = path.join(ROOT, 'app', 'mdmrules', 'webapp');
@@ -397,18 +396,27 @@ test('Duplicate copies the selected row (conditions included, as plain scalars) 
 });
 
 // --- Excel import / export - a real .xlsx (2026-08-31, "op basis van al die fixed velden") -------
+//
+// The ZIP/OOXML/DEFLATE mechanics themselves are shared with the other three rule pages via
+// `XlsxCodec` (extracted the same day, see test/xlsx-codec.test.js for the codec's own tests) -
+// what is specific to THIS page is the button wiring, `xlsxColumns`, and `_applyImportedXlsx`'s
+// wholesale-replace behaviour, tested below.
 
-test('Export/Import buttons exist and drive a real .xlsx, not a new library', () => {
-  assert.match(view, /text="Export to Excel"[\s\S]{0,80}press="\.onExportExcel"/u);
-  assert.match(view, /text="Import from Excel"[\s\S]{0,80}press="\.onImportExcel"/u);
-  // No third-party spreadsheet library - the ZIP/OOXML/DEFLATE handling is all hand-rolled, the
-  // same choice the CSV codec this replaces already made, just for a real .xlsx this time.
+test('the controller depends on the shared XlsxCodec, not its own copy or a new library', () => {
+  assert.match(controller, /mdm\/md\/mdmrules\/manage\/ext\/util\/XlsxCodec/u);
+  assert.match(controller, /XlsxCodec\.buildWorkbook\(/u);
+  assert.match(controller, /XlsxCodec\.readWorkbook\(/u);
+  assert.match(controller, /XlsxCodec\.isTruthyCell\(/u);
+  // No lingering copy of the codec itself, and no third-party spreadsheet library either.
+  assert.equal(/function zipStore\(/u.test(controller), false);
+  assert.equal(/function readCentralDirectory\(/u.test(controller), false);
   assert.equal(/require\(["'](xlsx|exceljs|jszip|pako)["']/iu.test(controller), false);
   assert.equal(/sap\/ui\/export\/Spreadsheet/u.test(controller), false);
-  assert.match(controller, /function zipStore\(/u);
-  assert.match(controller, /function readCentralDirectory\(/u);
-  // DEFLATE decompression on import is a browser built-in, not a bundled inflate implementation.
-  assert.match(controller, /new DecompressionStream\("deflate-raw"\)/u);
+});
+
+test('Export/Import buttons exist and produce/accept a real .xlsx', () => {
+  assert.match(view, /text="Export to Excel"[\s\S]{0,80}press="\.onExportExcel"/u);
+  assert.match(view, /text="Import from Excel"[\s\S]{0,80}press="\.onImportExcel"/u);
   assert.match(controller, /type: "application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet"/u);
   assert.match(controller, /download = "workflow-agent-determination\.xlsx"/u);
   assert.match(controller, /accept = "\.xlsx"/u);
@@ -466,70 +474,40 @@ function mockContext(object) {
 }
 
 /**
- * Extracted and evaluated directly (the one exception to this file's own source-pinning style),
- * because a hand-rolled ZIP writer/reader and a hand-rolled XML scanner are exactly the kind of code
- * that looks right and is not - three real bugs were found writing these tests, not by inspection:
- * an un-unescaped `&amp;`/`&lt;`/`&gt;`/`&quot;` in cell text, and a self-closing `<c ... />` cell
- * (exactly what real Excel writes for an empty cell) being misread as an OPEN tag, which silently
- * shifted every column after it one to the left for the rest of the row.
+ * `xlsxColumns` is still page-specific (lives in the controller); `XlsxCodec` (the shared ZIP/OOXML
+ * module, see test/xlsx-codec.test.js) supplies `isTruthyCell`. Both are needed to exercise
+ * `_applyImportedXlsx` in isolation - a regex cannot tell "the code calls .delete() somewhere" apart
+ * from "the code calls .delete() on the right row at the right time", which is exactly the
+ * distinction the bug below was in.
  */
-function extractFunctions(source, names) {
-  const body = names.map((name) => {
-    const patterns = [
-      new RegExp(`(?:async\\s+)?function ${name}\\s*\\(`, 'u'),
-      new RegExp(`(?:var|const) ${name}\\s*=`, 'u')
-    ];
-    let start = -1;
-    for (const pattern of patterns) {
-      const match = pattern.exec(source);
-      if (match) { start = match.index; break; }
+function extractFunction(source, name) {
+  const marker = `function ${name}(`;
+  const start = source.indexOf(marker);
+  if (start === -1) throw new Error(`function not found: ${name}`);
+  const braceStart = source.indexOf('{', start);
+  let depth = 0;
+  let end = braceStart;
+  for (let i = braceStart; i < source.length; i += 1) {
+    if (source[i] === '{') depth += 1;
+    if (source[i] === '}') {
+      depth -= 1;
+      if (depth === 0) { end = i + 1; break; }
     }
-    if (start === -1) throw new Error(`not found in controller source: ${name}`);
-    if (/^(?:async\s+)?function/u.test(source.slice(start))) {
-      const braceStart = source.indexOf('{', start);
-      let depth = 0;
-      let end = braceStart;
-      for (let i = braceStart; i < source.length; i += 1) {
-        if (source[i] === '{') depth += 1;
-        if (source[i] === '}') {
-          depth -= 1;
-          if (depth === 0) { end = i + 1; break; }
-        }
-      }
-      return source.slice(start, end);
-    }
-    // var/const declaration - scan to the matching top-level semicolon, tracking quotes so a `;`
-    // inside a string literal (there are several, in the XML template constants) is not mistaken
-    // for the end of the statement.
-    let i = start;
-    let inString = false;
-    let quote = '';
-    for (; i < source.length; i += 1) {
-      const ch = source[i];
-      if (inString) {
-        if (ch === '\\') { i += 1; continue; }
-        if (ch === quote) inString = false;
-        continue;
-      }
-      if (ch === '"' || ch === "'") { inString = true; quote = ch; continue; }
-      if (ch === ';') { i += 1; break; }
-    }
-    return source.slice(start, i);
-  }).join('\n');
-  return new Function(`${body}\nreturn { ${names.join(', ')} };`)();
+  }
+  return source.slice(start, end);
 }
 
-const XLSX_FUNCTION_NAMES = [
-  'crc32', 'utf8Bytes', 'xmlEscape', 'COLUMN_LETTERS', 'columnLetters', 'columnIndexOf',
-  'writeUint32LE', 'writeUint16LE', 'zipStore',
-  'readUint32LE', 'readUint16LE', 'findEndOfCentralDirectory', 'readCentralDirectory', 'extractZipEntry',
-  'xmlUnescape', 'parseAttrs', 'matchTags', 'parseSharedStrings', 'cellText', 'parseWorksheetTable',
-  'resolveFirstSheetPath', 'xlsxColumns', 'STYLES_XML', 'CONTENT_TYPES_XML', 'RELS_XML',
-  'WORKBOOK_XML', 'WORKBOOK_RELS_XML', 'sheetXml', 'buildWorkflowRulesXlsx', 'readWorkflowRulesXlsx',
-  'isTruthyCell'
-];
+const xlsxColumnsSrc = extractFunction(controller, 'xlsxColumns');
+// eslint-disable-next-line no-new-func
+const xlsxColumns = new Function(`${xlsxColumnsSrc}\nreturn xlsxColumns;`)();
 
-const xlsx = extractFunctions(controller, XLSX_FUNCTION_NAMES);
+const CODEC_PATH = path.join(APP, 'ext', 'util', 'XlsxCodec.js');
+const codecSource = fs.readFileSync(CODEC_PATH, 'utf8');
+const wrappedCodec = codecSource
+  .replace(/^sap\.ui\.define\(\[\], function \(\) \{/u, 'return (function () {')
+  .replace(/\}\);\s*$/u, '})();');
+// eslint-disable-next-line no-new-func
+const XlsxCodec = new Function(wrappedCodec)();
 
 /**
  * A row deleted in Excel used to do nothing on import - reported live: "als ik een lijn verwijder...
@@ -564,13 +542,13 @@ test('an existing rule whose ID is absent from the import is removed, not left u
   };
 
   const applyImportedXlsx = new Function(
-    'MessageBox', 'MessageToast', 'xlsxColumns', 'isTruthyCell', 'UPDATE_GROUP',
+    'MessageBox', 'MessageToast', 'xlsxColumns', 'XlsxCodec', 'UPDATE_GROUP',
     `return ${methodSrc};`
-  )(MessageBox, MessageToast, xlsx.xlsxColumns, xlsx.isTruthyCell, 'ruleChanges');
+  )(MessageBox, MessageToast, xlsxColumns, XlsxCodec, 'ruleChanges');
 
   // The import file only re-lists "kept" - goneA and goneB must be removed.
   const table = [
-    xlsx.xlsxColumns().map((column) => column.label),
+    xlsxColumns().map((column) => column.label),
     ['kept', 'create', 'Approve', '', '', '', 'AND', '', '', '', 'a@b.com', 'true']
   ];
   applyImportedXlsx.call(fakeThis, table);
@@ -601,140 +579,14 @@ test('a header-only import removes every currently-loaded rule', () => {
   const fakeThis = { _table: () => ({ getBinding: () => binding }), _markDirty: () => {} };
 
   const applyImportedXlsx = new Function(
-    'MessageBox', 'MessageToast', 'xlsxColumns', 'isTruthyCell', 'UPDATE_GROUP',
+    'MessageBox', 'MessageToast', 'xlsxColumns', 'XlsxCodec', 'UPDATE_GROUP',
     `return ${methodSrc};`
-  )(MessageBox, MessageToast, xlsx.xlsxColumns, xlsx.isTruthyCell, 'ruleChanges');
+  )(MessageBox, MessageToast, xlsxColumns, XlsxCodec, 'ruleChanges');
 
-  applyImportedXlsx.call(fakeThis, [xlsx.xlsxColumns().map((column) => column.label)]);
+  applyImportedXlsx.call(fakeThis, [xlsxColumns().map((column) => column.label)]);
 
   assert.equal(only.deleted, true);
   assert.match(toasts[0], /1 removed/u);
-});
-
-// The ZIP format's own checksum - a standard check value, so a subtly wrong polynomial or a
-// reversed bit order is caught immediately rather than only once a file fails to open.
-test('crc32 matches the standard CRC-32 check values', () => {
-  assert.equal(xlsx.crc32(new TextEncoder().encode('')), 0);
-  assert.equal(xlsx.crc32(new TextEncoder().encode('123456789')), 0xcbf43926);
-});
-
-test('columnLetters/columnIndexOf round-trip through the double-letter boundary', () => {
-  assert.equal(xlsx.columnLetters(0), 'A');
-  assert.equal(xlsx.columnLetters(25), 'Z');
-  assert.equal(xlsx.columnLetters(26), 'AA');
-  assert.equal(xlsx.columnIndexOf('AA7'), 26);
-  assert.equal(xlsx.columnIndexOf('B12'), 1);
-});
-
-test('a rule with every field filled in round-trips through build and read', async () => {
-  const rows = [{
-    ID: '1', requestType: 'create', step: 'Approve',
-    conditionField: 'Addresses.Country', conditionOperator: 'eq', conditionValues: 'BE|NL',
-    conditionLogic: 'AND',
-    conditionField2: 'General.BusinessPartnerCategory', conditionOperator2: 'ge', conditionValues2: '2',
-    approvers: 'maarten@alluvion.eu|DataSteward', isActive: true
-  }];
-  const bytes = xlsx.buildWorkflowRulesXlsx(rows);
-  const table = await xlsx.readWorkflowRulesXlsx(bytes);
-  assert.deepEqual(table[0], xlsx.xlsxColumns().map((column) => column.label));
-  assert.deepEqual(table[1], [
-    '1', 'create', 'Approve',
-    'Addresses.Country', 'eq', 'BE|NL', 'AND',
-    'General.BusinessPartnerCategory', 'ge', '2',
-    'maarten@alluvion.eu|DataSteward', true
-  ]);
-});
-
-// Entity-escaped characters in a value - a comma, a quote, an ampersand, angle brackets, exactly
-// the kind of text an approver's e-mail alias or a company name carries - must come back exactly
-// as typed, not still XML-escaped.
-test('special characters in a value survive the round trip unescaped', async () => {
-  const rows = [{
-    ID: '2', requestType: 'change', step: 'Approve',
-    conditionField: '', conditionOperator: 'eq', conditionValues: '',
-    conditionLogic: 'AND',
-    conditionField2: '', conditionOperator2: 'eq', conditionValues2: '',
-    approvers: 'Acme, "big" corp <x@y.com> & Co', isActive: false
-  }];
-  const bytes = xlsx.buildWorkflowRulesXlsx(rows);
-  const table = await xlsx.readWorkflowRulesXlsx(bytes);
-  assert.equal(table[1][10], 'Acme, "big" corp <x@y.com> & Co');
-  assert.equal(table[1][11], false);
-});
-
-/**
- * The regression this whole reading path was rewritten around: real Excel (and any conforming
- * writer - openpyxl reproduced it in a live round trip while writing this) represents an EMPTY
- * inlineStr cell as a self-closing tag WITH A SPACE before the slash: `<c r="D3" t="inlineStr" />`.
- * A naive "greedy attributes, then look for `/>`" regex reads that trailing `/` as part of the
- * attribute string, so `/>` never matches, the tag reads as OPEN, and everything up to the next
- * `</c>` it can find - typically the FOLLOWING cell's own closing tag - is swallowed as this cell's
- * content. Every column after the empty one then lands one position too far left for the rest of
- * the row. Fixed by making the attribute group lazy so it stops expanding the moment `/>` matches.
- */
-test('a self-closing empty cell does not shift the columns after it', () => {
-  const sheetXmlText = '<?xml version="1.0"?>'
-    + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
-    + '<row r="1"><c r="A1" t="inlineStr"><is><t>ID</t></is></c>'
-    + '<c r="B1" t="inlineStr"><is><t>CR Type</t></is></c></row>'
-    + '<row r="2"><c r="A2" t="inlineStr"><is><t>1</t></is></c>'
-    + '<c r="B2" t="inlineStr" />'
-    + '<c r="C2" t="inlineStr"><is><t>Approve</t></is></c></row>'
-    + '</sheetData></worksheet>';
-  const table = xlsx.parseWorksheetTable(sheetXmlText, []);
-  assert.deepEqual(table[0], ['ID', 'CR Type']);
-  assert.deepEqual(table[1], ['1', '', 'Approve']);
-});
-
-test('isTruthyCell is tolerant of how a business user writes "yes" in Excel', () => {
-  assert.equal(xlsx.isTruthyCell(true), true);
-  assert.equal(xlsx.isTruthyCell(false), false);
-  for (const truthy of ['true', 'TRUE', '1', 'yes', 'Yes', 'x', 'X', ' x ']) {
-    assert.equal(xlsx.isTruthyCell(truthy), true, `"${truthy}" reads as active`);
-  }
-  for (const falsy of ['', 'no', 'false', '0', undefined]) {
-    assert.equal(xlsx.isTruthyCell(falsy), false, `"${falsy}" reads as inactive`);
-  }
-});
-
-/**
- * The container-level round trip, independent of the worksheet's own XML: build a ZIP with
- * `zipStore` (what export writes - STORE only), then read it back through
- * `readCentralDirectory`/`extractZipEntry` (what import reads). Confirms the ZIP structure itself -
- * local headers, central directory, end-of-central-directory - is self-consistent, not only that
- * the higher-level xlsx functions happen to agree with each other.
- */
-test('zipStore/readCentralDirectory/extractZipEntry round-trip a STORE-only archive', async () => {
-  const files = [
-    { name: 'a.txt', data: new TextEncoder().encode('hello world') },
-    { name: 'dir/b.txt', data: new TextEncoder().encode('') }
-  ];
-  const bytes = xlsx.zipStore(files);
-  const entries = xlsx.readCentralDirectory(bytes);
-  assert.deepEqual(entries.map((entry) => entry.name), ['a.txt', 'dir/b.txt']);
-  assert.deepEqual([...entries.map((entry) => entry.method)], [0, 0]);
-  const first = await xlsx.extractZipEntry(bytes, entries[0]);
-  assert.equal(new TextDecoder().decode(first), 'hello world');
-  const second = await xlsx.extractZipEntry(bytes, entries[1]);
-  assert.equal(second.length, 0);
-});
-
-/**
- * Real Excel always DEFLATEs on save, which export never does but import has to read - proven with
- * Node's own `zlib.deflateRawSync` standing in for "whatever Excel's own compressor produced",
- * decompressed here through the identical `DecompressionStream('deflate-raw')` the controller uses.
- */
-test('extractZipEntry decompresses a DEFLATE (method 8) entry via DecompressionStream', async () => {
-  const uncompressed = Buffer.from('a value only real Excel would have compressed this way');
-  const compressed = zlib.deflateRawSync(uncompressed);
-  const entry = { name: 'xl/worksheets/sheet1.xml', method: 8, compressedSize: compressed.length, localHeaderOffset: 0 };
-  const local = Buffer.alloc(30 + 'xl/worksheets/sheet1.xml'.length);
-  local.writeUInt32LE(0x04034b50, 0);
-  local.writeUInt16LE('xl/worksheets/sheet1.xml'.length, 26);
-  Buffer.from('xl/worksheets/sheet1.xml').copy(local, 30);
-  const bytes = new Uint8Array(Buffer.concat([local, compressed]));
-  const result = await xlsx.extractZipEntry(bytes, entry);
-  assert.equal(new TextDecoder().decode(result), uncompressed.toString());
 });
 
 test('save cannot report success while a row is still local to the page', () => {

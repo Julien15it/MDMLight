@@ -3,8 +3,9 @@ sap.ui.define([
   "sap/ui/core/UIComponent",
   "sap/ui/model/json/JSONModel",
   "sap/m/MessageBox",
-  "sap/m/MessageToast"
-], function (Controller, UIComponent, JSONModel, MessageBox, MessageToast) {
+  "sap/m/MessageToast",
+  "mdm/md/mdmrules/manage/ext/util/XlsxCodec"
+], function (Controller, UIComponent, JSONModel, MessageBox, MessageToast, XlsxCodec) {
   "use strict";
 
   var UPDATE_GROUP = "ruleChanges";
@@ -15,6 +16,34 @@ sap.ui.define([
     { field: "conditionField", value: "conditionValue" },
     { field: "conditionField2", value: "conditionValue2" }
   ];
+
+  // Identity/managed columns that must never travel back on a create - `binding.create` is a POST,
+  // and sending an existing key or a server-assigned timestamp is either ignored or rejected
+  // depending on the column, never something worth relying on either way. Shared by Duplicate and
+  // by the Excel import, since both build a fresh row from data that already carries these.
+  var STRIP_ON_COPY = ["ID", "@odata.etag", "createdAt", "createdBy", "modifiedAt", "modifiedBy"];
+
+  /**
+   * The rule's own fields, mirroring the table on screen exactly - "sequence" and "threshold" exist
+   * on the entity (db/duplicate-rules.cds) but are not columns here (sequence carries no semantics,
+   * threshold takes the tuned default for a fuzzy rule - see onAddRule), so neither is exported.
+   * The ZIP/OOXML mechanics behind export/import are shared with the other three rule pages via
+   * `XlsxCodec` (see WorkflowRuleList.controller.js, built there first, 2026-08-31).
+   */
+  function xlsxColumns() {
+    return [
+      { key: "ID", label: "ID" },
+      { key: "conditionField", label: "Condition 1 Field" },
+      { key: "conditionValue", label: "Condition 1 Value" },
+      { key: "conditionLogic", label: "Logic" },
+      { key: "conditionField2", label: "Condition 2 Field" },
+      { key: "conditionValue2", label: "Condition 2 Value" },
+      { key: "field", label: "Field" },
+      { key: "comparison", label: "Comparison" },
+      { key: "indicator", label: "Indicator" },
+      { key: "isActive", label: "Active" }
+    ];
+  }
 
   return Controller.extend("mdm.md.mdmrules.manage.ext.controller.DuplicateRuleList", {
 
@@ -113,6 +142,150 @@ sap.ui.define([
           this._markDirty();
         }.bind(this)
       });
+    },
+
+    /** "Copy and paste" for a rule: the same fields as Add Rule, pre-filled from the selected row
+     *  rather than blank - see WorkflowRuleList.controller.js's own copy of this for the reasoning. */
+    onDuplicateRule: function () {
+      var item = this._table().getSelectedItem();
+      if (!item) {
+        MessageToast.show("Select the rule to duplicate.");
+        return;
+      }
+      var context = item.getBindingContext("dc");
+      var binding = this._table().getBinding("items");
+      if (!context || !binding) return;
+      var copy = Object.assign({}, context.getObject());
+      STRIP_ON_COPY.forEach(function (key) { delete copy[key]; });
+      binding.create(copy);
+      this._markDirty();
+    },
+
+    // --- Excel import / export - a real .xlsx (2026-08-31) -----------------------------------------
+    //
+    // See WorkflowRuleList.controller.js for the full reasoning (BRF+-style, no third-party
+    // dependency) - the ZIP/OOXML mechanics live in XlsxCodec, shared by all four rule pages.
+
+    onExportExcel: function () {
+      var rows = this._draftRules();
+      if (!rows.length) {
+        MessageToast.show("There is nothing to export yet.");
+        return;
+      }
+      var bytes = XlsxCodec.buildWorkbook("DuplicateRules", xlsxColumns(), rows);
+      var blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      var url = URL.createObjectURL(blob);
+      var link = document.createElement("a");
+      link.href = url;
+      link.download = "duplicate-check-rules.xlsx";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    },
+
+    onImportExcel: function () {
+      if (!this._importInput) {
+        this._importInput = document.createElement("input");
+        this._importInput.type = "file";
+        this._importInput.accept = ".xlsx";
+        this._importInput.style.display = "none";
+        this._importInput.addEventListener("change", this._onImportFileChosen.bind(this));
+        document.body.appendChild(this._importInput);
+      }
+      this._importInput.value = "";
+      this._importInput.click();
+    },
+
+    _onImportFileChosen: function (event) {
+      var file = event.target.files && event.target.files[0];
+      if (!file) return;
+      var that = this;
+      file.arrayBuffer().then(function (buffer) {
+        return XlsxCodec.readWorkbook(new Uint8Array(buffer));
+      }).then(function (table) {
+        that._applyImportedXlsx(table);
+      }).catch(function (error) {
+        MessageBox.error("This file could not be read as an Excel workbook: " + (error && error.message ? error.message : error));
+      });
+    },
+
+    /**
+     * The imported file is the full desired state of the table - see WorkflowRuleList.controller.js's
+     * own copy of this for the full reasoning (wholesale replace, matched by header label, nothing
+     * saved automatically). A currently-loaded rule whose ID does not appear anywhere in the file is
+     * removed (staged, not saved).
+     */
+    _applyImportedXlsx: function (table) {
+      if (!table.length) {
+        MessageBox.error("The file has no rows.");
+        return;
+      }
+      var header = table[0].map(function (label) { return String(label === undefined ? "" : label).trim(); });
+      var columns = xlsxColumns();
+      var indexOfKey = {};
+      columns.forEach(function (column) {
+        var index = header.indexOf(column.label);
+        if (index !== -1) indexOfKey[column.key] = index;
+      });
+      if (indexOfKey.field === undefined || indexOfKey.comparison === undefined) {
+        MessageBox.error("This file's header row does not match the Duplicate Check Rules export "
+          + "format. Export the current rules first and edit that file.");
+        return;
+      }
+
+      var binding = this._table().getBinding("items");
+      if (!binding) return;
+      var byId = {};
+      binding.getCurrentContexts().forEach(function (context) {
+        var object = context.getObject();
+        if (object && object.ID) byId[object.ID] = context;
+      });
+      var seenIds = {};
+
+      var created = 0;
+      var updated = 0;
+      var skipped = 0;
+      table.slice(1).forEach(function (row) {
+        var isBlank = !row || row.every(function (cell) { return cell === undefined || cell === ""; });
+        if (isBlank) return;
+        var record = {};
+        columns.forEach(function (column) {
+          if (column.key === "ID") return;
+          var index = indexOfKey[column.key];
+          if (index === undefined) return;
+          var value = row[index];
+          record[column.key] = column.key === "isActive" ? XlsxCodec.isTruthyCell(value) : (value === undefined ? "" : value);
+        });
+        var idIndex = indexOfKey.ID;
+        var id = idIndex !== undefined ? row[idIndex] : undefined;
+        var existing = id && byId[id];
+        if (existing) {
+          seenIds[id] = true;
+          Object.keys(record).forEach(function (key) { existing.setProperty(key, record[key]); });
+          updated += 1;
+        } else if (record.field || record.comparison) {
+          binding.create(record);
+          created += 1;
+        } else {
+          skipped += 1;
+        }
+      });
+
+      var removed = 0;
+      Object.keys(byId).forEach(function (id) {
+        if (seenIds[id]) return;
+        byId[id].delete(UPDATE_GROUP);
+        removed += 1;
+      });
+
+      this._markDirty();
+      MessageToast.show(
+        created + " rule(s) added, " + updated + " updated"
+        + (removed ? ", " + removed + " removed" : "")
+        + (skipped ? ", " + skipped + " blank row(s) skipped" : "")
+        + ". Review and press Save."
+      );
     },
 
     onFieldChange: function (event) {

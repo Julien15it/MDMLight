@@ -2502,6 +2502,56 @@ Two more asks landed the same day, both scoped to this one page:
     because a business user filling this in quickly in Excel writes any of those as often as the
     exact string.
 
+#### Duplicate and Excel rolled out to all four rule pages, behind one shared codec (2026-08-31, asked for)
+
+Everything above was built for WorkflowRuleList first; the same day, Duplicate and a real `.xlsx`
+Export/Import were asked for on the other three tiles too (Duplicate Check Rules, Validation Rules,
+Derivation Rules). Rather than copy the ~350 lines of ZIP/OOXML/DEFLATE handling three more times -
+exactly the surface a bug (the self-closing-tag fix above) would then need fixing on four separate
+times - it was extracted into `app/mdmrules/webapp/ext/util/XlsxCodec.js`, a plain `sap.ui.define([],
+...)` module with no dependencies of its own, and `WorkflowRuleList.controller.js` was refactored to
+use it too rather than keep a diverging first copy beside the new shared one.
+
+- **The codec's public surface is three functions**: `buildWorkbook(sheetName, columns, rows)`,
+  `async readWorkbook(bytes)`, and `isTruthyCell(value)`. `sheetName` is new (parameterised, where the
+  original WorkflowRuleList version hardcoded `"WorkflowRules"` into the workbook XML) so each page's
+  export names its own worksheet tab rather than every file reading "WorkflowRules" regardless of
+  which table it came from. Everything else - `crc32`, the ZIP reader/writer, the tag scanner - is
+  exposed too, but only for `test/xlsx-codec.test.js`'s own isolated tests; no page controller calls
+  any of them directly.
+- **Each page still owns its own `xlsxColumns()`** - a plain array of `{ key, label }` mirroring that
+  page's own table exactly, the same "de structuur die ook zichtbaar is in de app" reasoning as
+  before. Duplicate Check Rules' version leaves out `sequence` and `threshold` (neither is a column on
+  screen - see `onAddRule`'s own comment on why); Validation Rules' and Derivation Rules' both leave
+  out `sequence` for the same reason (it only orders the grid, `$orderby` already reads it).
+- **Each page still owns its own `_applyImportedXlsx`**, because the required-field check that decides
+  "does this file look like this table's own export" is different per table (WorkflowRules: CR Type +
+  Approvers; Duplicate Check Rules: Field + Comparison; Validation Rules: Field + Comparison;
+  Derivation Rules: Field + Value) - a single shared import function would have had to parameterise
+  that check anyway, so nothing was saved by sharing more than the codec.
+- **The wholesale-replace fix (a row missing from the file is deleted, not left untouched) shipped on
+  all four from the start here** - it was a live-reported bug fixed on WorkflowRuleList mid-session,
+  and the other three pages were built with it already in place rather than needing the same fix
+  applied a second time afterwards.
+- **`onDuplicateRule` needed no codec at all** - copying a rule is `Object.assign` plus
+  `STRIP_ON_COPY`, identical on all four pages (`STRIP_ON_COPY` is duplicated as a small `var`, not
+  shared, since it is four identical lines and pulling it into `XlsxCodec` would have made a codec
+  module respons­ible for something that has nothing to do with spreadsheets).
+- **Tested at two levels, matching the split in the code**: `test/xlsx-codec.test.js` tests the
+  shared module in isolation (loaded via `new Function`-wrapping the AMD factory - not `vm.
+  createContext`/`runInContext`, which creates a genuinely separate JS realm and made an array the
+  module returned fail `assert.deepEqual` against an array built in the test file, "same structure but
+  not reference-equal" - found writing this, and `duplicate-rules-page.test.js`'s own
+  `loadController()` already carries the identical warning about its own vm-based harness). Each
+  page's own test file (`workflow-rules-page.test.js`, `duplicate-rules-page.test.js`,
+  `quality-rules-page.test.js` for both Validation and Derivation) tests that page's own `xlsxColumns`
+  shape and its own `_applyImportedXlsx` wholesale-replace behaviour - `duplicate-rules-page.test.js`
+  and `quality-rules-page.test.js` load the real controller through `vm.runInNewContext` (already
+  established there for `_localProblems`) with the sixth/ninth factory parameter now filled by a
+  small stub `XlsxCodec` and by `MessageBox`/`MessageToast` spies, rather than the hand-extracted
+  `new Function` harness `workflow-rules-page.test.js` uses for the same purpose - two different
+  vetted techniques for the same job, chosen per file by what that file already had.
+
 #### The approver picker is sourced from the subaccount, not from this app (2026-08-26)
 
 Until now the value help on the approver cell offered this app's own three-entry

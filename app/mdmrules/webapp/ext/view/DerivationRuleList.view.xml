@@ -33,7 +33,12 @@
             <Title text="Rules" level="H2" />
             <ToolbarSpacer />
             <Button text="Add Rule" icon="sap-icon://add" type="Transparent" press=".onAddRule" />
+            <Button text="Duplicate" icon="sap-icon://copy" type="Transparent" press=".onDuplicateRule" />
             <Button text="Delete" icon="sap-icon://delete" type="Transparent" press=".onDeleteRule" />
+            <ToolbarSeparator />
+            <Button text="Export to Excel" icon="sap-icon://excel-attachment" type="Transparent" press=".onExportExcel" />
+            <Button text="Import from Excel" icon="sap-icon://upload" type="Transparent" press=".onImportExcel" />
+            <ToolbarSeparator />
             <Button text="Save" icon="sap-icon://save" type="Emphasized" press=".onSave" enabled="{view>/dirty}" />
             <Button text="Discard" icon="sap-icon://undo" type="Transparent" press=".onDiscard" enabled="{view>/dirty}" />
           </OverflowToolbar>

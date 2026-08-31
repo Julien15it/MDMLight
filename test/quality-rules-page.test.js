@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const vm = require('node:vm');
 
 const ROOT = path.join(__dirname, '..');
 const APP = path.join(ROOT, 'app', 'mdmrules', 'webapp');
@@ -237,4 +238,133 @@ test('a readable table becomes the stages, and an empty one becomes none', async
   assert.equal(loaded.validations.length, 1);
   assert.equal(loaded.validations[0].name, 'configured_validation');
   store.reset();
+});
+
+// --- Duplicate, and Excel import/export - a real .xlsx (2026-08-31, asked for on all four rule
+// pages, built for WorkflowRuleList first) --------------------------------------------------------
+
+test('Duplicate, Export to Excel and Import from Excel are wired up on both pages', () => {
+  for (const name of ['ValidationRuleList', 'DerivationRuleList']) {
+    const source = view(name);
+    const ctrl = controller(name);
+    assert.match(source, /text="Duplicate"[\s\S]{0,80}press="\.onDuplicateRule"/u, `${name} has Duplicate`);
+    assert.match(source, /text="Export to Excel"[\s\S]{0,80}press="\.onExportExcel"/u, `${name} has Export`);
+    assert.match(source, /text="Import from Excel"[\s\S]{0,80}press="\.onImportExcel"/u, `${name} has Import`);
+    assert.match(ctrl, /mdm\/md\/mdmrules\/manage\/ext\/util\/XlsxCodec/u, `${name} depends on XlsxCodec`);
+    assert.match(ctrl, new RegExp(`XlsxCodec\\.buildWorkbook\\(\\s*"${name.replace('List', '')}s?"`, 'u'));
+    assert.match(ctrl, /XlsxCodec\.readWorkbook\(/u);
+    // No copy of the codec itself, and no third-party spreadsheet library.
+    assert.equal(/function zipStore\(/u.test(ctrl), false, `${name} carries no codec copy`);
+    assert.equal(/require\(["'](xlsx|exceljs|jszip|pako)["']/iu.test(ctrl), false);
+  }
+});
+
+function extractFunction(source, name) {
+  const marker = `function ${name}(`;
+  const start = source.indexOf(marker);
+  if (start === -1) throw new Error(`function not found: ${name}`);
+  const braceStart = source.indexOf('{', start);
+  let depth = 0;
+  let end = braceStart;
+  for (let i = braceStart; i < source.length; i += 1) {
+    if (source[i] === '{') depth += 1;
+    if (source[i] === '}') {
+      depth -= 1;
+      if (depth === 0) { end = i + 1; break; }
+    }
+  }
+  return source.slice(start, end);
+}
+
+function loadXlsxColumns(name) {
+  const body = extractFunction(controller(name), 'xlsxColumns');
+  // eslint-disable-next-line no-new-func
+  return new Function(`${body}\nreturn xlsxColumns;`)();
+}
+
+test('xlsxColumns mirrors each page\'s own table exactly', () => {
+  assert.deepEqual(loadXlsxColumns('ValidationRuleList')().map((c) => c.key), [
+    'ID', 'conditionField', 'conditionValue', 'conditionLogic', 'conditionField2', 'conditionValue2',
+    'field', 'comparison', 'value', 'severity', 'isActive'
+  ]);
+  assert.deepEqual(loadXlsxColumns('DerivationRuleList')().map((c) => c.key), [
+    'ID', 'conditionField', 'conditionValue', 'conditionLogic', 'conditionField2', 'conditionValue2',
+    'field', 'value', 'isActive'
+  ]);
+});
+
+/**
+ * `xlsxCodec` fills the ninth factory parameter (`XlsxCodec`); `messageBox`/`messageToast` default
+ * to harmless no-op stubs, since `_applyImportedXlsx` always ends by calling one or the other. Both
+ * pages share the identical nine-parameter factory signature, so one loader serves both.
+ */
+function loadController(name, xlsxCodec, messageBox, messageToast) {
+  let definition;
+  const base = { extend: (ctrlName, members) => ({ name: ctrlName, members }) };
+  vm.runInNewContext(controller(name), {
+    sap: { ui: { define: (unused, factory) => {
+      definition = factory(
+        base, {}, function () {}, {}, function () {}, {},
+        messageBox || { error: () => {} },
+        messageToast || { show: () => {} },
+        xlsxCodec || {}
+      );
+    } } }
+  });
+  return definition.members;
+}
+
+const STUB_XLSX_CODEC = {
+  isTruthyCell: (value) => (typeof value === 'boolean' ? value : /^(true|1|yes|x)$/iu.test(String(value === undefined ? '' : value).trim()))
+};
+
+function mockContext(object) {
+  return {
+    getObject: () => object,
+    setProperty(key, value) { object[key] = value; },
+    deleted: false,
+    delete(group) { this.deleted = true; this.deleteGroup = group; }
+  };
+}
+
+/**
+ * The same wholesale-replace fix WorkflowRuleList got the same day (2026-08-31), applied to both
+ * quality-rule pages too: a row missing from the imported file is DELETED (staged, not saved), not
+ * left untouched. Rows are built directly against each page's own column order, rather than through
+ * a generic label-lookup, so a mistake here cannot mask one in the code being tested.
+ */
+test('an existing rule whose ID is absent from the import is removed, on both pages', () => {
+  const cases = {
+    ValidationRuleList: {
+      // ID, Condition1Field, Condition1Value, Logic, Condition2Field, Condition2Value, Field,
+      // Comparison, Value, Severity, Active
+      row: (id) => [id, '', '', 'AND', '', '', 'General.Language', 'eq', 'NL', 'error', 'true']
+    },
+    DerivationRuleList: {
+      // ID, Condition1Field, Condition1Value, Logic, Condition2Field, Condition2Value, Field, Value, Active
+      row: (id) => [id, '', '', 'AND', '', '', 'General.Language', 'NL', 'true']
+    }
+  };
+
+  for (const name of Object.keys(cases)) {
+    const toasts = [];
+    const members = loadController(name, STUB_XLSX_CODEC, undefined, { show: (text) => toasts.push(text) });
+    const xlsxColumns = loadXlsxColumns(name);
+
+    const kept = mockContext({ ID: 'kept' });
+    const gone = mockContext({ ID: 'gone' });
+    const created = [];
+    const binding = { getCurrentContexts: () => [kept, gone], create: (record) => created.push(record) };
+    const fakeThis = { _table: () => ({ getBinding: () => binding }), _markDirty: () => {} };
+
+    const header = xlsxColumns().map((column) => column.label);
+    // The import file only re-lists "kept" - "gone" must be removed.
+    members._applyImportedXlsx.call(fakeThis, [header, cases[name].row('kept')]);
+
+    assert.equal(kept.deleted, false, `${name}: kept row stays`);
+    assert.equal(gone.deleted, true, `${name}: missing row is removed`);
+    assert.equal(gone.deleteGroup, 'ruleChanges');
+    assert.equal(created.length, 0, `${name}: the one row in the file matched an existing rule`);
+    assert.match(toasts[0], /1 removed/u, name);
+  }
 });

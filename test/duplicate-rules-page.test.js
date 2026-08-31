@@ -19,13 +19,40 @@ const controllerSource = fs.readFileSync(
 const routing = manifest['sap.ui5'].routing;
 const route = routing.routes.find((entry) => entry.name === 'DuplicateRuleList');
 
-function loadController() {
+// `xlsxCodec` fills the sixth factory parameter (`XlsxCodec`, added 2026-08-31 alongside Duplicate/
+// Export/Import) - defaulted to `{}` since most callers here never touch it. `messageBox`/
+// `messageToast` default to harmless no-op stubs, since `_applyImportedXlsx` always ends by calling
+// one or the other.
+function loadController(xlsxCodec, messageBox, messageToast) {
   let definition;
   const base = { extend: (name, members) => ({ name, members }) };
   vm.runInNewContext(controllerSource, {
-    sap: { ui: { define: (unused, factory) => { definition = factory(base, {}, function () {}, {}, {}); } } }
+    sap: { ui: { define: (unused, factory) => {
+      definition = factory(
+        base, {}, function () {},
+        messageBox || { error: () => {} },
+        messageToast || { show: () => {} },
+        xlsxCodec || {}
+      );
+    } } }
   });
   return definition.members;
+}
+
+// The same tolerant boolean parser XlsxCodec.isTruthyCell uses (see test/xlsx-codec.test.js) -
+// stubbed here rather than loaded, since these tests exercise `_applyImportedXlsx`'s own
+// wholesale-replace logic, not the codec.
+const STUB_XLSX_CODEC = {
+  isTruthyCell: (value) => (typeof value === 'boolean' ? value : /^(true|1|yes|x)$/iu.test(String(value === undefined ? '' : value).trim()))
+};
+
+function mockContext(object) {
+  return {
+    getObject: () => object,
+    setProperty(key, value) { object[key] = value; },
+    deleted: false,
+    delete(group) { this.deleted = true; this.deleteGroup = group; }
+  };
 }
 
 test('the rules page is reachable through its own route and model', () => {
@@ -197,4 +224,88 @@ test('the client refuses a fuzzy rule with no usable threshold before the round 
   assert.equal(_localProblems([
     { field: '', comparison: '', indicator: '' }
   ]).length, 3);
+});
+
+// --- Duplicate, and Excel import/export - a real .xlsx (2026-08-31, asked for on all four rule
+// pages, built for WorkflowRuleList first) --------------------------------------------------------
+
+test('Duplicate, Export to Excel and Import from Excel are all wired up', () => {
+  assert.match(view, /text="Duplicate"[\s\S]{0,80}press="\.onDuplicateRule"/u);
+  assert.match(view, /text="Export to Excel"[\s\S]{0,80}press="\.onExportExcel"/u);
+  assert.match(view, /text="Import from Excel"[\s\S]{0,80}press="\.onImportExcel"/u);
+  assert.match(controllerSource, /mdm\/md\/mdmrules\/manage\/ext\/util\/XlsxCodec/u);
+  assert.match(controllerSource, /XlsxCodec\.buildWorkbook\(\s*"DuplicateRules"/u);
+  assert.match(controllerSource, /XlsxCodec\.readWorkbook\(/u);
+  // No copy of the codec itself, and no third-party spreadsheet library.
+  assert.equal(/function zipStore\(/u.test(controllerSource), false);
+  assert.equal(/require\(["'](xlsx|exceljs|jszip|pako)["']/iu.test(controllerSource), false);
+});
+
+/**
+ * The columns mirror the page itself exactly - `sequence` and `threshold` exist on the entity but
+ * are not columns here (see `onAddRule`'s own comment: neither is worth a column a steward has to
+ * think about), so neither is exported either.
+ */
+test('xlsxColumns matches exactly what a DuplicateRules row holds on screen', () => {
+  const start = controllerSource.indexOf('function xlsxColumns');
+  const braceStart = controllerSource.indexOf('{', start);
+  let depth = 0;
+  let end = braceStart;
+  for (let i = braceStart; i < controllerSource.length; i += 1) {
+    if (controllerSource[i] === '{') depth += 1;
+    if (controllerSource[i] === '}') { depth -= 1; if (depth === 0) { end = i + 1; break; } }
+  }
+  const body = controllerSource.slice(start, end);
+  const keys = [...body.matchAll(/key: "([^"]+)"/gu)].map((match) => match[1]);
+  assert.deepEqual(keys, [
+    'ID', 'conditionField', 'conditionValue', 'conditionLogic', 'conditionField2', 'conditionValue2',
+    'field', 'comparison', 'indicator', 'isActive'
+  ]);
+  assert.equal(keys.includes('sequence'), false);
+  assert.equal(keys.includes('threshold'), false);
+});
+
+/**
+ * The same wholesale-replace fix WorkflowRuleList got the same day, applied here too: a row missing
+ * from the imported file is DELETED (staged, not saved), not left untouched. Executed through
+ * `loadController()` (the real vm-loaded controller, so `xlsxColumns`/`XlsxCodec`/`UPDATE_GROUP` are
+ * all wired exactly as the page itself wires them) rather than hand-extracted, since this controller
+ * has no separate helper-extraction harness of its own.
+ */
+function extractXlsxColumnsFn() {
+  const start = controllerSource.indexOf('function xlsxColumns');
+  const braceStart = controllerSource.indexOf('{', start);
+  let depth = 0;
+  let end = braceStart;
+  for (let i = braceStart; i < controllerSource.length; i += 1) {
+    if (controllerSource[i] === '{') depth += 1;
+    if (controllerSource[i] === '}') { depth -= 1; if (depth === 0) { end = i + 1; break; } }
+  }
+  // eslint-disable-next-line no-new-func
+  return new Function(`${controllerSource.slice(start, end)}\nreturn xlsxColumns;`)();
+}
+
+test('an existing rule whose ID is absent from the import is removed, not left untouched', () => {
+  const toasts = [];
+  const members = loadController(STUB_XLSX_CODEC, undefined, { show: (text) => toasts.push(text) });
+  const xlsxColumns = extractXlsxColumnsFn();
+
+  const kept = mockContext({ ID: 'kept', field: 'Name', comparison: 'exact', indicator: 'strong' });
+  const gone = mockContext({ ID: 'gone', field: 'TaxNumber', comparison: 'exact', indicator: 'strong' });
+  const created = [];
+  const binding = { getCurrentContexts: () => [kept, gone], create: (record) => created.push(record) };
+  const fakeThis = { _table: () => ({ getBinding: () => binding }), _markDirty: () => {} };
+
+  // The import file only re-lists "kept" - "gone" must be removed.
+  const table = [
+    xlsxColumns().map((column) => column.label),
+    ['kept', '', '', 'AND', '', '', 'Name', 'exact', 'strong', 'true']
+  ];
+  members._applyImportedXlsx.call(fakeThis, table);
+
+  assert.equal(kept.deleted, false);
+  assert.equal(gone.deleted, true);
+  assert.equal(gone.deleteGroup, 'ruleChanges');
+  assert.equal(created.length, 0, 'the one row in the file matched an existing rule');
+  assert.match(toasts[0], /1 removed/u);
 });
