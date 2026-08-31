@@ -2210,11 +2210,17 @@ people***. The columns are CR type, step, two condition pairs, and the approvers
   duplicate gate, and is rebuilt after a rework — a resubmitted request is routed
   on the payload the requester fixed, not the one that was rejected. Best-effort,
   like `businesspartnerinput`.
-- **All four CR types, and no `*`.** Unlike the field property profiles' closed
-  list this table offers `block` and `delete`, because it is where a steward says
-  who approves one and saying it early is harmless — `SUPPORTED_REQUEST_TYPES`
-  still gates what can be submitted. There is no "any type" row on purpose: an
-  approver list is not something to default.
+- **All four CR types, plus `*` ("Any") since 2026-08-31.** Unlike the field
+  property profiles' closed list this table offers `block` and `delete`, because
+  it is where a steward says who approves one and saying it early is harmless —
+  `SUPPORTED_REQUEST_TYPES` still gates what can be submitted. `*` was added on
+  direct feedback ("ik moet ook 1 hebben dat voor alle gevallen werkt") so one row
+  can name the approvers for every CR type instead of the same list copied onto
+  four rows — an explicit value a steward picks on a row, still `not null` and
+  still validated, not a silent default for a blank type. `resolveApprovers`
+  matches a `*` rule against whatever the request's own type actually is, and a
+  `*` rule and a specific-type rule both contribute additively for a request that
+  matches both, the same way two specific-type rules already do.
 - **`step` carries only `Approve`.** It is a column rather than an assumption
   because the next version of this table is meant to describe whole request types
   (Supplier creation, Customer creation) with several steps each, and a step added

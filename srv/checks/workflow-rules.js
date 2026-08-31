@@ -18,9 +18,17 @@ const {
 // All four CR types, unlike the field property profiles' closed list: this table is where a steward
 // says who approves a block or a delete, and saying it before the app processes those types is
 // harmless. `SUPPORTED_REQUEST_TYPES` in change-request-service.js is what actually gates a submit.
-const REQUEST_TYPES = Object.freeze(['create', 'change', 'block', 'delete']);
+//
+// `*` joined the list (2026-08-31, asked for directly: "ik moet ook 1 hebben dat voor alle gevallen
+// werkt") so one rule can name the approvers for every CR type, rather than needing the same
+// approver list copied onto four rows. This is an explicit choice a steward makes on a row, not a
+// silent default for a blank type - `requestType` is still `not null` and still validated, `*` is
+// simply now one of the values it may hold. Listed first, the same convention the field property
+// profiles' own `*` condition already uses.
+const REQUEST_TYPES = Object.freeze(['*', 'create', 'change', 'block', 'delete']);
 
 const REQUEST_TYPE_TEXT = Object.freeze({
+  '*': 'Any',
   create: 'Create',
   change: 'Change',
   block: 'Block',
@@ -231,7 +239,8 @@ const runnable = (rules, model) => (Array.isArray(rules) ? rules : [])
 function resolveApprovers({ rules = [], requestType, payload = {}, model } = {}) {
   const type = trimmed(requestType);
   const matching = runnable(rules, model)
-    .filter((rule) => trimmed(rule.requestType) === type)
+    // `*` matches every request type - a rule naming it applies whichever type the request actually is.
+    .filter((rule) => { const ruleType = trimmed(rule.requestType); return ruleType === '*' || ruleType === type; })
     .filter((rule) => conditionsHold(readConditions(rule, model), payload, model, rule.conditionLogic));
 
   const approvers = [];

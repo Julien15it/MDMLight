@@ -119,7 +119,9 @@ service DuplicateConfigService {
      *  needs no list either way. Best-effort: an unreachable subaccount API leaves this empty rather
      *  than failing the page. */
     agents       : array of Agent;
-    /** All four CR types. No `*`: an approver list is not something to default. */
+    /** All four CR types plus `*` ("Any") - added 2026-08-31, asked for directly, so one rule can
+     *  name the approvers for every type instead of the same list copied onto four rows. `*` is an
+     *  explicit value a steward picks on a row, not a silent default for a blank type. */
     requestTypes : array of Option;
     /** `Approve` today. A column rather than an assumption - see db/workflow-rules.cds. */
     steps        : array of Option;
