@@ -122,58 +122,19 @@ test('both pairs are ANDed, and an empty pair means any', () => {
 });
 
 // ---------------------------------------------------------------------------
-// The dynamic `conditions` composition (2026-08-28) - replaces the two fixed pairs above for any
-// rule saved from now on. One condition per ROW of WorkflowRuleConditions, each carrying its own
-// field/operator/values, added and removed independently of the rule's own edits.
-// ---------------------------------------------------------------------------
-
-// The whole point of the composition: a rule is not stuck at two conditions any more.
-test('a rule can hold more than two conditions, folded by conditionLogic', () => {
-  const rule3 = rule({
-    conditions: [
-      { field: 'Addresses.Country', operator: 'eq', values: 'BE|NL' },
-      { field: 'General.BusinessPartnerCategory', operator: 'eq', values: '2' },
-      { field: 'General.OrganizationBPName1', operator: 'eq', values: 'Acme' }
-    ],
-    conditionLogic: 'AND'
-  });
-  const conditions = readConditions(rule3, model);
-  assert.equal(conditions.length, 3);
-  const matching = payload(
-    { BusinessPartnerCategory: '2', OrganizationBPName1: 'Acme' },
-    { Addresses: [{ Country: 'NL' }] }
-  );
-  const missingOne = payload(
-    { BusinessPartnerCategory: '2', OrganizationBPName1: 'Something Else' },
-    { Addresses: [{ Country: 'NL' }] }
-  );
-  assert.equal(conditionsHold(conditions, matching, model), true);
-  assert.equal(conditionsHold(conditions, missingOne, model), false);
-});
-
-// A rule saved before 2026-08-28 has real data in the legacy columns and no `conditions` rows - it
-// must keep matching exactly as it always did, with no migration.
-test('readConditions falls back to the legacy columns only while `conditions` is empty', () => {
-  const legacy = rule({ conditionField: 'Addresses.Country', conditionValues: 'BE' });
-  assert.deepEqual(readConditions(legacy, model).map((c) => c.field), ['Addresses.Country']);
-
-  // The moment a rule has real condition rows, those are what have the current truth - the legacy
-  // columns are not merged in alongside them, even if a stale value still sits there.
-  const migrated = rule({
-    conditionField: 'Addresses.Country', conditionValues: 'BE',
-    conditions: [{ field: 'General.BusinessPartnerCategory', operator: 'eq', values: '2' }]
-  });
-  assert.deepEqual(readConditions(migrated, model).map((c) => c.field), ['General.BusinessPartnerCategory']);
-});
-
-// --- Operators (2026-08-28, asked for: "= of !=, en dan andere") -------------------------------
+// Two fixed condition slots (reverted 2026-08-31), on direct feedback: "ik wil dit naast elkaar
+// zoals het ervoor was ... niet hoe het nu is" - a dynamic, unbounded `conditionRows` composition
+// (db/workflow-rules.cds) was built and briefly deployed-toward, and turned out not to be what was
+// wanted after all. `conditionRows`/`WorkflowRuleConditions` stay in the model, permanently unused -
+// see the abandoned-column tests in workflow-rules-page.test.js.
 //
-// The exact vocabulary rule-engine.js already offers ValidationRules/DerivationRules for their own
-// comparison column - reused rather than a smaller, WorkflowRules-only set.
+// The operator per slot survives the revert, because the ORIGINAL two-slot layout already had one
+// ("dan je = of != en dan andere") - it was never a bare field/value pair.
+// ---------------------------------------------------------------------------
 
 test('eq keeps the existing OR-across-values, wildcard-matching behaviour', () => {
   const conditions = readConditions(rule({
-    conditions: [{ field: 'Addresses.Country', operator: 'eq', values: 'BE|NL' }]
+    conditionField: 'Addresses.Country', conditionOperator: 'eq', conditionValues: 'BE|NL'
   }), model);
   assert.equal(conditionsHold(conditions, payload({}, { Addresses: [{ Country: 'NL' }] }), model), true);
   assert.equal(conditionsHold(conditions, payload({}, { Addresses: [{ Country: 'FR' }] }), model), false);
@@ -182,7 +143,7 @@ test('eq keeps the existing OR-across-values, wildcard-matching behaviour', () =
 // "!=" is the exact negation of the same "some row, some value" shape - not "every row disagrees".
 test('ne holds when some row differs from every listed value', () => {
   const conditions = readConditions(rule({
-    conditions: [{ field: 'Addresses.Country', operator: 'ne', values: 'BE' }]
+    conditionField: 'Addresses.Country', conditionOperator: 'ne', conditionValues: 'BE'
   }), model);
   const oneMatchesOneDoesnt = payload({}, { Addresses: [{ Country: 'BE' }, { Country: 'NL' }] });
   const bothMatch = payload({}, { Addresses: [{ Country: 'BE' }] });
@@ -192,7 +153,7 @@ test('ne holds when some row differs from every listed value', () => {
 
 test('lt/le/gt/ge compare numerically, the same comparator rule-engine.js uses elsewhere', () => {
   const atLeast5 = readConditions(rule({
-    conditions: [{ field: 'General.BusinessPartnerCategory', operator: 'ge', values: '5' }]
+    conditionField: 'General.BusinessPartnerCategory', conditionOperator: 'ge', conditionValues: '5'
   }), model);
   assert.equal(conditionsHold(atLeast5, payload({ BusinessPartnerCategory: '7' }), model), true);
   assert.equal(conditionsHold(atLeast5, payload({ BusinessPartnerCategory: '3' }), model), false);
@@ -200,7 +161,7 @@ test('lt/le/gt/ge compare numerically, the same comparator rule-engine.js uses e
 
 test('empty/notEmpty need no listed value at all', () => {
   const mustBeEmpty = readConditions(rule({
-    conditions: [{ field: 'General.OrganizationBPName1', operator: 'empty', values: '' }]
+    conditionField: 'General.OrganizationBPName1', conditionOperator: 'empty', conditionValues: ''
   }), model);
   assert.equal(conditionsHold(mustBeEmpty, payload({ OrganizationBPName1: '' }), model), true);
   assert.equal(conditionsHold(mustBeEmpty, payload({ OrganizationBPName1: 'Acme' }), model), false);
@@ -208,13 +169,42 @@ test('empty/notEmpty need no listed value at all', () => {
 
 test('an unknown or blank operator falls back to eq, never crashes the engine', () => {
   const conditions = readConditions(rule({
-    conditions: [{ field: 'Addresses.Country', operator: 'nonsense', values: 'BE' }]
+    conditionField: 'Addresses.Country', conditionOperator: 'nonsense', conditionValues: 'BE'
   }), model);
   assert.equal(conditions[0].operator, 'eq');
   assert.equal(conditionsHold(conditions, payload({}, { Addresses: [{ Country: 'BE' }] }), model), true);
 });
 
-// --- Validating one condition row on its own (2026-08-28) -----------------------------------
+// The second slot takes an operator too, independent of the first.
+test('the second slot has its own operator, independent of the first', () => {
+  const conditions = readConditions(rule({
+    conditionField: 'Addresses.Country', conditionOperator: 'eq', conditionValues: 'BE',
+    conditionField2: 'General.BusinessPartnerCategory', conditionOperator2: 'ne', conditionValues2: '1'
+  }), model);
+  assert.equal(conditions[0].operator, 'eq');
+  assert.equal(conditions[1].operator, 'ne');
+});
+
+// A rule saved before operators existed has neither `conditionOperator` column filled in - it must
+// keep matching exactly as it always did (implicit `eq`), with no migration.
+test('a rule saved before operators existed reads as eq, unchanged', () => {
+  const legacy = rule({ conditionField: 'Addresses.Country', conditionValues: 'BE|NL' });
+  const conditions = readConditions(legacy, model);
+  assert.equal(conditions[0].operator, 'eq');
+  assert.equal(conditionsHold(conditions, payload({}, { Addresses: [{ Country: 'NL' }] }), model), true);
+});
+
+// `conditionRows` is abandoned (see db/workflow-rules.cds) - a rule that happens to carry rows there
+// from the brief window the composition was live must be read as if they did not exist.
+test('conditionRows is never read, even if a rule happens to carry rows there', () => {
+  const withStaleRows = rule({
+    conditionField: 'Addresses.Country', conditionValues: 'BE',
+    conditionRows: [{ field: 'General.OrganizationBPName1', operator: 'eq', values: 'Ignored' }]
+  });
+  assert.deepEqual(readConditions(withStaleRows, model).map((c) => c.field), ['Addresses.Country']);
+});
+
+// --- Validating one condition slot on its own --------------------------------------------------
 
 test('validateCondition: half a condition is refused, from either side', () => {
   const fields = (row) => validateCondition(row, model, 'condition 1').map((e) => e.field);
@@ -268,35 +258,38 @@ test('all four CR types can be configured, and one step exists', () => {
   }
 });
 
-// Half a condition is the dangerous half: a field with no values would match every request. Only
-// checked when the rule's conditions were actually sent alongside it (see validateWorkflowRule) -
-// each row also validates on its own write, through validateCondition, tested separately above.
-test('half a condition is refused, from either side', () => {
-  const fields = (conditions) => validateWorkflowRule(rule({ conditions }), model).errors.map((e) => e.field);
-  assert.deepEqual(fields([{ field: 'Addresses.Country', operator: 'eq', values: '' }]), ['values']);
-  assert.deepEqual(fields([{ field: '', operator: 'eq', values: 'BE' }]), ['field']);
-  assert.deepEqual(fields([{ field: 'Nowhere.Country', operator: 'eq', values: 'BE' }]), ['field']);
+// Half a condition is the dangerous half: a field with no values would match every request. Both
+// fixed slots are always validated (see validateWorkflowRule) - each also validates on its own
+// terms through validateCondition, tested separately above.
+test('half a condition is refused, from either side, in either slot', () => {
+  const fields = (overrides) => validateWorkflowRule(rule(overrides), model).errors.map((e) => e.field);
+  assert.deepEqual(fields({ conditionField: 'Addresses.Country', conditionValues: '' }), ['values']);
+  assert.deepEqual(fields({ conditionField: '', conditionValues: 'BE' }), ['field']);
+  assert.deepEqual(fields({ conditionField: 'Nowhere.Country', conditionValues: 'BE' }), ['field']);
+  assert.deepEqual(fields({ conditionField2: 'Addresses.Country', conditionValues2: '' }), ['values']);
+  assert.deepEqual(fields({ conditionField2: '', conditionValues2: 'BE' }), ['field']);
 });
 
-// The legacy two columns are dead going forward - a rule saved under the old shape must not be
-// refused now that nothing validates them any more.
-test('the legacy condition columns are no longer validated', () => {
-  const errors = validateWorkflowRule(
-    rule({ conditionField: 'Addresses.Country' }), model
-  ).errors;
-  assert.deepEqual(errors, []);
-});
-
-// The whole reason for the composition: three or more conditions, not just two.
-test('a rule can hold more than two conditions', () => {
+// A fully-specified pair, in either slot, passes clean.
+test('two fully-specified condition slots pass clean', () => {
   const errors = validateWorkflowRule(rule({
-    conditions: [
-      { field: 'Addresses.Country', operator: 'eq', values: 'BE|NL' },
-      { field: 'General.BusinessPartnerCategory', operator: 'eq', values: '2' },
-      { field: 'General.OrganizationBPName1', operator: 'eq', values: 'Acme' }
-    ]
+    conditionField: 'Addresses.Country', conditionOperator: 'eq', conditionValues: 'BE|NL',
+    conditionField2: 'General.BusinessPartnerCategory', conditionOperator2: 'ge', conditionValues2: '2'
   }), model).errors;
   assert.deepEqual(errors, []);
+});
+
+// An unknown operator in either slot is refused the same way validateCondition refuses it alone.
+test('an unknown operator in either slot is refused', () => {
+  const fields = (overrides) => validateWorkflowRule(rule(overrides), model).errors.map((e) => e.field);
+  assert.deepEqual(
+    fields({ conditionField: 'Addresses.Country', conditionOperator: 'maybe', conditionValues: 'BE' }),
+    ['operator']
+  );
+  assert.deepEqual(
+    fields({ conditionField2: 'Addresses.Country', conditionOperator2: 'maybe', conditionValues2: 'BE' }),
+    ['operator']
+  );
 });
 
 /**

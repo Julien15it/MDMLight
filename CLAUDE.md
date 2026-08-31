@@ -2241,6 +2241,12 @@ that date still reads through, and still describes `approvers` exactly as it wor
 
 #### As many conditions as a rule needs, side by side (2026-08-28)
 
+**Reverted 2026-08-31** — see "The whole dynamic-conditions detour was reverted the same day it
+deployed cleanly" further down. `WorkflowRuleConditions` and the `conditionRows` composition this
+section describes are still in the model (`cds-deploy` cannot drop them), but nothing reads or
+writes them any more; `WorkflowRules` is back to the two fixed condition slots, now with an operator
+column each. The rest of this section is kept as the historical record of what was built and why.
+
 Asked for directly: "Nu is dit beperkt tot 2 maar dit kunnen meer factoren zijn" — the two fixed
 condition pairs above could never become three without a schema change `cds-deploy` cannot walk
 back if it turns out to be one column too many, the same trap `createsRow` and the `cond*` columns
@@ -2259,17 +2265,19 @@ condition" above left behind, for a *different* problem — several values in ON
 conditions) is honoured for *this* problem too: no hand-parsed DSL, no line-splitting, one row, one
 set of plain two-way-bound cells, rendered inline.
 
-- **The view: a wrapping `FlexBox` templated over `dc>conditions`.** Each condition renders as its
+- **The view: a wrapping `FlexBox` templated over `dc>conditionRows`.** Each condition renders as its
   own small `HBox` — Field `Input` (the same `FieldValueHelp` fragment every condition cell on this
   tile has always used, unchanged), an operator `Select`, a Value `Input`, and a remove button — and
   `wrap="Wrap"` lets a rule with many conditions spill onto a second line inside the cell rather than
   growing the row forever sideways. An "Add Condition" button below the `FlexBox` creates a new child
-  row against *that rule's own* `conditions` navigation via `_conditionsBinding` (a fresh
-  `bindList("conditions", ruleContext, ..., { $$updateGroupId: 'ruleChanges' })`) — the same
+  row against *that rule's own* `conditionRows` navigation via `_conditionsBinding` (a fresh
+  `bindList("conditionRows", ruleContext, ..., { $$updateGroupId: 'ruleChanges' })`) — the same
   mechanism Duplicate and the Excel import share for adding a condition row under a given rule
   context, so nothing here depends on the OData v4 model supporting a deep-insert payload in one
   call. Remove reads the *condition's own* binding context (it lives inside the per-condition
-  template) and deletes just that row.
+  template) and deletes just that row. **Not named `conditions`** — see "The composition element had
+  to be renamed before it ever deployed" immediately below, which is the one part of this feature
+  that did not ship as first designed.
 - **Operators reuse `rule-engine.js`'s `COMPARISONS`** (`eq`/`ne`/`lt`/`le`/`gt`/`ge`/`contains`/
   `empty`/`notEmpty`) — asked for directly ("volgens mij alle mogelijke operatoren") rather than a
   smaller, WorkflowRules-only set, and served through `workflowRuleOptions()` the identical way
@@ -2307,6 +2315,109 @@ set of plain two-way-bound cells, rendered inline.
   mean, the same reasoning `WorkflowRules` itself already gives for having no order column of its
   own ("rows are additive... nothing needs ranking").
 
+#### The composition element had to be renamed before it ever deployed (2026-08-31)
+
+The design above was built twice. **The first cut of "as many conditions as a rule needs" was a
+scalar `conditions : LargeString` column** — a line-per-condition `field = value1|value2` text blob
+— and it deployed to production before the very same day's feedback ("ik wil dit naast elkaar zoals
+het ervoor was... niet hoe het nu is", quoted above) reworked it into the real
+`WorkflowRuleConditions` composition this section describes. The second cut kept the element name:
+`conditions : Composition of many WorkflowRuleConditions`, same name, new kind.
+
+**Every retry of the next `cf deploy` failed `deploy_to_postgresql` on it**, identically each time:
+
+```
+Error: CDS compilation failed (@sap/cds-compiler v5.9.16)
+db/csn.json:3644: Error: Changed element "conditions" is a lossy type change from
+"cds.LargeString" to "cds.Composition" and is not supported
+(in entity:"mdmlight.config.WorkflowRules"/element:"conditions")
+```
+
+This is the identical trap `createsRow` and the four `cond*` columns are already stuck in, wearing a
+different message: `cds-deploy` will not DROP a deployed element, and — the fact this incident
+established — it will not RETYPE one either, even where the old and new shapes are conceptually the
+same idea (one condition, several values). A compile-time error, so it failed on every one of the
+three automatic retries the same way and would have failed on a hundred more.
+
+**The fix is the same one this codebase always reaches for: abandon the deployed element in place,
+and give the real mechanism a name deploy has never seen.** `conditions : LargeString` stays in
+`db/workflow-rules.cds`, permanently dead — nothing reads or writes it any more, the same as the two
+legacy `conditionField`/`conditionValues` pairs beside it. The composition is `conditionRows`
+instead, which is a pure ADDITION to the deployed schema and carries no risk on the next deploy.
+Every reference to the old name was renamed to match — the view's `dc>conditionRows` binding, the
+controller's `_conditionsBinding`/`bindList("conditionRows", ...)`, `flattenForExport`'s
+`rule.conditionRows`, and `readConditions`/`validateWorkflowRule` in `srv/checks/workflow-rules.js` —
+so `WorkflowRules` now carries **two** dead columns from two abandoned first attempts
+(`conditions: LargeString`, plus the still-earlier `conditionField`/`conditionValues` pair), neither
+of which any running code touches.
+
+**Nobody had deployed against the composition-shaped `conditions` yet**, which is what made this a
+same-day rename rather than a real migration: the column existed in a live database only as the
+`LargeString` from the first cut, so renaming the second cut's element cost nothing beyond an
+in-repo find-and-replace across schema, engine, service, view and controller, plus the two test
+files (`test/workflow-rules.test.js`, `test/workflow-rules-page.test.js`) that exercise the
+composition directly. Had the composition-shaped version already reached a live deploy, the fix would
+have needed a real migration instead of a rename.
+
+**Diagnosed from the actual MTA operation log, not from the top-level `cf deploy` console output** —
+that only ever says a task failed and to check the logs, never what broke. `cf mta-ops` lists every
+operation on an MTA ID including other developers' (a colleague's deploy was found `RUNNING` at the
+same moment this was diagnosed — nothing was deployed or retried while that was true, per the
+standing multi-developer deploy-lock rule elsewhere in this file), and `cf dmol -i <operation-id> -d
+<dir>` downloads the per-module logs an operation produced; `deploy_to_postgresql`'s own log is where
+the compiler error above actually lives.
+
+#### The whole dynamic-conditions detour was reverted the same day it deployed cleanly (2026-08-31)
+
+Hours after the rename above finally made `conditionRows` deploy-safe, direct feedback arrived that
+the feature itself — not its element name — was the wrong shape: *"Kan je het terug brengen naar
+condition 1 en 2 zoals dit origineel was?"* (bring it back to Condition 1 and Condition 2 as it
+originally was). The dynamic, genuinely-unbounded "Add Condition" composition is abandoned; the page
+is back to two fixed condition slots, side by side, exactly the shape the very first correction in
+this whole saga described — *"conitie 1 (element) dan je = of != (en dan andere) en dan conditie 2"*
+— which is why the per-slot **operator** survives the revert even though the two-slot *structure*
+came back: the original ask already had one, it was never a bare field/value pair.
+
+**`conditionRows`/`WorkflowRuleConditions` stay in the model, a second time abandoned rather than
+removed.** The same `cds-deploy` constraint that forced the rename now forces this: dropping an
+entity or a composition is exactly as unsupported as dropping a plain column, and there was no way
+to be certain the freshly-renamed shape had not already reached a live deploy by the time the revert
+was requested. So the composition and its child entity are left in `db/workflow-rules.cds`,
+documented as dead, the identical treatment `conditions: LargeString` already got a few hours
+earlier — `WorkflowRules` now carries **three** abandoned condition mechanisms from the same single
+day (`conditionField`/`conditionValues` never actually went anywhere this time, they are simply live
+again; `conditions: LargeString`; `conditionRows`/`WorkflowRuleConditions`), and none of the newer
+two is read or written by anything.
+
+- **Two new columns, `conditionOperator`/`conditionOperator2`, are the one thing NOT simply restored.**
+  The pre-2026-08-28 shape had no operator concept at all (`legacyConditionPairs` always assumed
+  `eq`) — but the ORIGINAL ask that started this whole feature already wanted one per slot, so
+  reverting the *structure* without also restoring the *operator* would have thrown away something
+  that was asked for from the start, not something introduced by the detour. Both are pure additions
+  (`String(10) default 'eq'`), so restoring them cost nothing at the schema level.
+- **`readConditions` (`srv/checks/workflow-rules.js`) goes straight to the two fixed slots,
+  unconditionally** — no more "prefer the composition, fall back to the legacy pair" branch. A rule
+  that happens to carry rows in the abandoned `conditionRows` from the few hours it was live is read
+  as if those rows do not exist; `CONDITION_PAIRS` (renamed in spirit, not in code — the constant and
+  `legacyConditionPairs` keep their names, since every caller already imports them and there is no
+  behavioural gain in a rename) is once again the live encoding, with `operator` added to each pair.
+- **`validateWorkflowRule` validates both fixed slots directly again**, through the same
+  `validateCondition` a lone condition row always used — one call per `CONDITION_PAIRS` entry instead
+  of looping `rule.conditionRows`. The service's own per-row `guard` on `WorkflowRuleConditions` is
+  gone entirely, and so is that entity's projection in `duplicate-config-service.cds` — nothing
+  exposes it over OData any more, the same reasoning that already applies to every other column
+  nothing reads: leaving a working-but-unreachable API surface around is what the next person
+  mistakes for something still in use.
+- **The view goes back to two plain `HBox` groups** (Field/Operator/Value each), no wrapping
+  `FlexBox`, no "Add Condition"/"Remove Condition" buttons, no `$expand` on the table's own binding —
+  a plain scalar field needs none. `onAddCondition`/`onRemoveCondition`/`_conditionsBinding` are
+  deleted from the controller rather than left dormant, the same call made for `ListCell.js` when
+  token cells were withdrawn: half a mechanism nobody calls is what the next person mistakes for a
+  working one.
+- **Duplicate got simpler, not more complex, from the revert** — see "Copy a rule" below: with every
+  field back to being a plain scalar on the rule itself, one `binding.create(copy)` is the whole job;
+  the second `.create()` per condition row is gone along with the composition it copied.
+
 #### Copy a rule, and bulk-edit the table in Excel (2026-08-28, asked for)
 
 Two more asks landed the same day, both scoped to this one page:
@@ -2315,42 +2426,69 @@ Two more asks landed the same day, both scoped to this one page:
   (`context.getObject()`), strips its identity and managed columns (`STRIP_ON_COPY`: `ID`,
   `@odata.etag`, `createdAt`/`createdBy`/`modifiedAt`/`modifiedBy` — sending any of those back on a
   `POST` is either ignored or rejected depending on the column, never something worth relying on),
-  and feeds the copy into the same `binding.create()` call `onAddRule` already uses. **Its conditions
-  are copied too** — each one individually created as its own new `WorkflowRuleConditions` row
-  against the *fresh* rule's context via `_conditionsBinding`, exactly the way Add Condition creates
-  one, rather than sending the whole nested array back as part of one deep-insert payload (which
-  would depend on model support this app has never needed to trust). Nothing is saved automatically —
-  same as Add Rule, it only populates the (now dirty) table.
-- **Export to Excel / Import from Excel — really a CSV round trip, said so in the UI.** This repo has
-  never taken a dependency on a spreadsheet reader/writer anywhere, front or back end, and real
-  `.xlsx` is a zipped XML format nothing here can hand-parse. CSV needs none of that: Excel opens and
-  saves it natively, and the button labels name the destination a steward actually cares about
-  (“Excel”) while the file on disk is honestly `.csv`. `toCsv`/`fromCsv` are a small, hand-rolled
-  RFC-4180-shaped codec (quoted fields, doubled embedded quotes, a real state machine for `fromCsv`
-  rather than a naive split on `\n`). A UTF-8 BOM is prepended on export so Excel on Windows does not
-  guess the system codepage and mangle a name outside ASCII.
-  - **The columns mirror the page itself, not a packed DSL cell** — asked for directly ("ik wil
-    eigenlijk de structuur hebben die ook zichtbaar is dan in de app"): `ID`, CR Type, Step, then
-    `Condition 1 Field`/`Operator`/`Value` through `Condition 6` (`MAX_EXCEL_CONDITIONS`), then
-    Logic, Approvers, Active. `ID` is the match key on re-import (blank or unrecognised creates a new
-    rule, one matching a currently-loaded row updates its flat fields), so a steward can export,
-    tweak simple fields, append whole new rows with their own conditions, and re-import the file.
-  - **The condition-slot cap is a spreadsheet limitation, not a page one.** A rule can have more than
-    six conditions on the page itself; export only warns and truncates (naming how many rules were
-    affected) rather than failing or silently dropping data past the sixth unannounced.
-  - **An existing rule keeps whatever conditions it already has on import — the file's condition
-    columns are read only for a NEW row.** Replacing an existing rule's conditions on re-import would
-    mean deleting contexts this code path never touched (they live in the page's own nested list
-    bindings, not something `_applyImportedCsv` holds a handle to), and a silent partial replace is
-    worse than a clearly communicated no-op: the toast counts how many existing rows had condition
-    columns filled in anyway, so nothing is dropped unnoticed — edit an existing rule's conditions on
-    the page itself.
+  and feeds the copy into the same `binding.create()` call `onAddRule` already uses. **Simplified by
+  the 2026-08-31 revert to two fixed condition slots**: every field, conditions included, is now a
+  plain scalar on the rule itself, so one `binding.create(copy)` is the whole job — the original
+  version also created each condition as its own new `WorkflowRuleConditions` row against the fresh
+  rule's context, which went with the composition it copied. Nothing is saved automatically — same
+  as Add Rule, it only populates the (now dirty) table.
+- **Export to Excel / Import from Excel — a real `.xlsx`, not CSV** (rewritten 2026-08-31, on direct
+  feedback once conditions reverted to two fixed slots: *"op basis van al die fixed velden ... ervoor
+  te zorgen dat dit ook de .xlsx file wordt (baseer je op hoe BRF+ dit doet)"*). The CSV version
+  reasoned that a real `.xlsx` needed a third-party reader/writer this repo has never taken a
+  dependency on; that conclusion did not have to change, only the assumption that hand-rolling meant
+  giving up on the real format. A `.xlsx` is a ZIP of SpreadsheetML/OOXML parts, and the ZIP container
+  needs only STORE (uncompressed) entries to be valid — which sidesteps implementing DEFLATE for
+  *export*, and inline strings (`t="inlineStr"`) sidestep needing `xl/sharedStrings.xml` on write
+  either. So the write side is genuinely hand-rolled with no new dependency, mirroring BRF+'s own
+  decision-table Excel up/download: one worksheet, a bold + frozen header row, one data row per rule,
+  no packed cells.
+  - **Reading back has to cope with whatever real Excel saves, which is a different shape than what
+    export writes.** Excel always compresses with DEFLATE (method 8, never STORE) and always rewrites
+    inline strings into `xl/sharedStrings.xml` the moment a file is opened and saved again — proven
+    by round-tripping an export through `openpyxl` (a genuine third-party library, used only to
+    generate test fixtures, never as a runtime dependency of the app) and reading the result back.
+    DEFLATE decompression uses the browser's own `DecompressionStream('deflate-raw')` — a Web
+    Platform built-in, not a bundled inflate implementation — so import stays async where export
+    does not.
+  - **A tiny, targeted XML scanner (`matchTags`/`parseAttrs`), not `DOMParser`.** `DOMParser` would
+    do the job too, but every read-path function stays plain string scanning on purpose, the same
+    choice the CSV codec this replaces already made over adding a dependency — and it is what keeps
+    every one of these functions runnable, and testable, outside a browser (`node --test`, no DOM).
+  - **A self-closing empty cell was silently shifting every column after it, found by round-tripping
+    an `openpyxl`-edited file, not by inspection.** Real Excel writes an empty inline-string cell as
+    `<c r="D3" t="inlineStr" />` — note the space before `/>` — and a greedy attribute regex has no
+    way to tell that trailing `/` apart from an ordinary attribute character, so it gets swallowed
+    into the attributes and the tag reads as OPEN, consuming everything up to the next `</c>` it can
+    find (typically the following cell's own close) as this cell's content. Fixed by making the
+    attribute group lazy (`[^>]*?`), which stops expanding the instant `/>` matches. `test/workflow-
+    rules-page.test.js` pins this exact shape as a regression, alongside a full `openpyxl`-produced
+    fixture exercised end-to-end.
+  - **Cell/shared-string text needs unescaping on the way IN, separately from attribute values** — a
+    second real bug found the same way: `&amp;`/`&lt;`/`&gt;`/`&quot;` in a cell's own text content
+    (an approver list with an `&`, say) came back still entity-escaped, because only attribute values
+    were being unescaped. `xmlUnescape` is applied once, at the one place each leaf text node
+    (`<t>...</t>`) is actually read, rather than inside the generic tag scanner — which also returns
+    markup (another tag's own inner XML) that must not be entity-decoded a second time.
+  - **The columns mirror the page itself exactly, one Field/Operator/Value triple per fixed condition
+    slot** — `ID`, CR Type, Step, `Condition 1 Field`/`Operator`/`Value`, Logic, `Condition 2
+    Field`/`Operator`/`Value`, Approvers, Active. No condition-slot cap is needed any more: the page
+    itself is limited to two slots since the revert, so the spreadsheet's own column count and the
+    page's own column count are simply the same number now — `MAX_EXCEL_CONDITIONS` is gone.
+  - **Matched by header LABEL on import, not by fixed column position** — the frozen header row is
+    what makes a reordered or trimmed copy re-importable at all, the same BRF+-style tolerance the
+    original design already had. `ID` is still the match key (blank or unrecognised creates a new
+    rule, one matching a currently-loaded row updates its fields) — and with conditions back to plain
+    scalars, an existing rule's condition columns update exactly like any other field now; the CSV
+    version's "an existing rule keeps its own conditions, ignored on import" caveat existed only
+    because of the child composition, and does not apply any more.
   - **Import never saves by itself.** It only creates/updates rows on the page, exactly like Add
     Rule and Duplicate — the existing Save/Discard flow, and `_localProblems`'s validation, still
     have the last word before anything reaches the service.
-  - **`isActive` is read tolerantly** (`true`/`1`/`yes`/`x`, case-insensitive) rather than matching
-    only the literal word, because a business user filling this in quickly in Excel writes any of
-    those as often as the exact string.
+  - **`isActive` is read tolerantly** (`true`/`1`/`yes`/`x`, case-insensitive, and a real boolean
+    cell `t="b"` from Excel's own checkbox-like values) rather than matching only the literal word,
+    because a business user filling this in quickly in Excel writes any of those as often as the
+    exact string.
 
 #### The approver picker is sourced from the subaccount, not from this app (2026-08-26)
 

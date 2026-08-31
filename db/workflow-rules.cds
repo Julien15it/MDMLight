@@ -28,37 +28,50 @@ entity WorkflowRules : managed {
       step            : String(20) not null;
 
       /**
-       * As many conditions as the rule needs (2026-08-28), each its own row of `WorkflowRuleConditions`
-       * below - "Add Condition" on the page adds one, side by side with whatever the rule already
-       * has, exactly the shape asked for: a 3rd, 4th, etc. rendered the same way the first two always
-       * were, not stacked as lines of text. A real composition, not more scalar columns
-       * (`conditionField3`, ...), because a fixed number of columns is the trap `createsRow` and the
-       * four `cond*` columns on the other rule tables are already stuck in: `cds-deploy` cannot drop
-       * one if the chosen number turns out to be one too few, or too many.
-       *
-       * A condition here is always a statement about the partner - this row targets no section of
-       * its own - so any row of the named section satisfying it is enough. `conditionLogic` below
-       * joins however many condition rows exist, not just two.
+       * **Reverted to two fixed condition slots (2026-08-31)**, on direct feedback: the dynamic,
+       * genuinely-unbounded "Add Condition" composition below was built and deployed-toward the same
+       * week, and turned out not to be what was wanted after all - "ik wil dit naast elkaar zoals het
+       * ervoor was ... niet hoe het nu is" (bring it back to how Condition 1 and Condition 2 originally
+       * were). `conditionRows` and `WorkflowRuleConditions` stay in the model - this codebase's own
+       * standing rule, since `cds-deploy` cannot drop an element any more than it can retype one, and
+       * this table has already paid for that lesson once this same week (see the "lossy type change"
+       * incident on the abandoned `conditions` column below). Nothing reads or writes `conditionRows`
+       * any more; `readConditions` (srv/checks/workflow-rules.js) goes straight to the two scalar pairs
+       * below, unconditionally.
        */
-      conditions      : Composition of many WorkflowRuleConditions on conditions.rule = $self;
+      conditionRows   : Composition of many WorkflowRuleConditions on conditionRows.rule = $self;
 
       /**
-       * Two independent pairs, same meaning as above - an empty pair is "any", both filled is AND -
-       * superseded by the `conditions` composition and never written by anything any more. Kept
-       * because `cds-deploy` cannot drop a column, the same reason `createsRow` and the four `cond*`
-       * columns on the other rule tables are still in the model. `readConditions`
-       * (srv/checks/workflow-rules.js) still reads them, but ONLY for a rule saved before this date
-       * and never re-opened since - the moment such a rule is edited under the new format, its
-       * `conditions` rows are what have the current truth. The PLURAL names are stuck for the same
-       * cds-deploy reason: multiple values were built here first and withdrawn on 2026-08-21 (see
-       * "Multiple values per condition" in CLAUDE.md), and these two columns have read like several
-       * values and held one ever since.
+       * The two fixed condition slots - "Condition 1" and "Condition 2" - each field/operator/value,
+       * joined by `conditionLogic` (AND/OR/NOR). This is what the page actually reads and writes again.
+       * The PLURAL names on the value columns are stuck: `cds-deploy` cannot rename an element, and
+       * multiple values were built here first and withdrawn on 2026-08-21 (see "Multiple values per
+       * condition" in CLAUDE.md) - these two columns have read like several values and held one ever
+       * since. `conditionOperator`/`conditionOperator2` are new (2026-08-31, pure additions, no deploy
+       * risk): the ORIGINAL two-slot layout this reverts to already had an operator per slot ("dan je
+       * = of != en dan andere") - it was never a bare field/value pair, so bringing the layout back
+       * needed these two columns brought back with it, not dropped along with the composition.
        */
-      conditionField  : String(60);
-      conditionValues : String(400);
-      conditionLogic : String(3) default 'AND';
-      conditionField2 : String(60);
-      conditionValues2 : String(400);
+      conditionField     : String(60);
+      conditionOperator  : String(10) default 'eq';
+      conditionValues    : String(400);
+      conditionLogic     : String(3) default 'AND';
+      conditionField2    : String(60);
+      conditionOperator2 : String(10) default 'eq';
+      conditionValues2   : String(400);
+
+      /**
+       * The dynamic-conditions column's own FIRST cut (2026-08-28) - a line-per-condition
+       * `field = value1|value2` text blob, shipped to production, then reworked into `conditionRows`
+       * above the same week once it turned out the ask was "side by side, like the original two
+       * slots", not "stacked lines of text". Dead on arrival for the same reason the two pairs above
+       * are: `cds-deploy` cannot change a deployed column's kind, so this had to stay a String
+       * forever once a live environment had it, and the real mechanism needed a new name instead.
+       * Nothing reads or writes this column any more - and, as of 2026-08-31, neither does
+       * `conditionRows` above: the whole dynamic-conditions detour is abandoned, not only its first
+       * cut.
+       */
+      conditions      : LargeString;
 
       /**
        * ONE approver: an e-mail address or a role name. An entry carrying an `@` is passed on as a
@@ -73,18 +86,16 @@ entity WorkflowRules : managed {
 }
 
 /**
- * One condition of a `WorkflowRules` row - field, operator, value(s) - as many as that rule needs.
- * `operator` reuses the exact vocabulary `srv/checks/rule-engine.js` already offers ValidationRules/
- * DerivationRules for their own comparison column (`eq`/`ne`/`lt`/`le`/`gt`/`ge`/`contains`/`empty`/
- * `notEmpty`), asked for directly ("volgens mij alle mogelijke operatoren") rather than a smaller,
- * WorkflowRules-only set. `values` keeps the plural name and the `|`-delimited multi-value/wildcard
- * encoding every other condition column in this app already uses (`eq`/`ne` only - see
- * conditionHolds), so "Country is one of BE, NL, FR, DE" is still one row, now of this table instead
- * of one packed cell.
+ * **Abandoned (2026-08-31), same day it was built** - see "Reverted to two fixed condition slots"
+ * on `WorkflowRules.conditionRows` above. Stays in the model, permanently unused, because
+ * `cds-deploy` cannot drop an entity any more than it can drop a column. Nothing reads or writes it.
  *
- * No order column, on purpose, like `WorkflowRules` itself: AND/OR/NOR fold over these rows without
- * caring which order they were added in (see `joinConditions` in value-lists.js), so there is
- * nothing here for a `sequence` column to mean.
+ * What it was for, kept for the record: one condition of a `WorkflowRules` row - field, operator,
+ * value(s) - as many as a rule needed, added/removed one row at a time from a wrapping FlexBox on
+ * the page. `operator` reused the exact vocabulary `srv/checks/rule-engine.js` already offers
+ * ValidationRules/DerivationRules for their own comparison column (`eq`/`ne`/`lt`/`le`/`gt`/`ge`/
+ * `contains`/`empty`/`notEmpty`) - that part of the ask ("volgens mij alle mogelijke operatoren")
+ * survived the revert and lives on as `conditionOperator`/`conditionOperator2` above.
  */
 entity WorkflowRuleConditions : managed {
   key ID       : UUID;

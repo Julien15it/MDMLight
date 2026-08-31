@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const zlib = require('node:zlib');
 
 const ROOT = path.join(__dirname, '..');
 const APP = path.join(ROOT, 'app', 'mdmrules', 'webapp');
@@ -25,11 +26,11 @@ const rulesCds = read(ROOT, 'db', 'workflow-rules.cds');
 const changeRequestJs = read(ROOT, 'srv', 'change-request-service.js');
 
 // The columns are the agreed shape of a rule, so they are pinned rather than left to a refactor.
-// Down from nine to six (2026-08-28): the two fixed condition pairs and the titleless AND/OR/NOR
-// column collapsed into one "Conditions" column (as many lines as the rule needs) plus "Logic".
+// Reverted (2026-08-31) to two fixed condition slots, side by side, as it originally was - the
+// single "Conditions" column that briefly replaced them is gone.
 test('the workflow table has the columns a rule needs, in order', () => {
   const columns = [...view.matchAll(/<Column[^>]*>\s*<Text text="([^"]+)"/gu)].map((match) => match[1]);
-  assert.deepEqual(columns, ['CR Type', 'Step', 'Conditions', 'Logic', 'Approvers', 'Active']);
+  assert.deepEqual(columns, ['CR Type', 'Step', 'Condition 1', 'Logic', 'Condition 2', 'Approvers', 'Active']);
 });
 
 test('the fifth tile leads to it, and the route exists', () => {
@@ -60,6 +61,8 @@ test('the page stores its own rows and batches them like the others', () => {
   assert.match(controller, /hasPendingChanges\(UPDATE_GROUP\)/u);
   assert.match(view, /navButtonPress="\.onBackToHub"/u);
   assert.match(controller, /navTo\("MDMRuleHub", \{\}, true\)/u);
+  // No $expand any more - conditions are plain scalars on the rule itself, not a child composition.
+  assert.equal(/\$expand/u.test(view), false, 'nothing needs to be expanded for a plain scalar field');
 });
 
 // The closed lists are served, never hard-coded in the UI - the same rule the other pages follow.
@@ -75,14 +78,19 @@ test('the CR types and steps come from the service, not from the page', () => {
 
 /**
  * A condition names a payload field, so this page shares the quality pages' catalog and their
- * searchable value help - several hundred fields is not a ComboBox. Each condition is its own
- * bound Field `Input` again (2026-08-28, reverted from a free-text TextArea): "naast elkaar zoals
- * het ervoor was" - the value help writes straight into that cell, replacing it, exactly as every
- * other condition cell in this app already works.
+ * searchable value help - several hundred fields is not a ComboBox. Both fixed slots (Condition 1
+ * and Condition 2) wire to the same shared dialog, exactly as every other condition cell in this
+ * app already works.
  */
-test('a condition field is chosen through the shared value help', () => {
-  const fieldCell = view.slice(view.indexOf('value="{dc>field}"'));
-  assert.match(fieldCell.slice(0, fieldCell.indexOf('/>')), /valueHelpRequest="\.onFieldValueHelp"/u);
+test('both condition fields are chosen through the shared value help', () => {
+  for (const fieldName of ['conditionField', 'conditionField2']) {
+    const fieldCell = view.slice(view.indexOf(`value="{dc>${fieldName}}"`));
+    assert.match(
+      fieldCell.slice(0, fieldCell.indexOf('/>')),
+      /valueHelpRequest="\.onFieldValueHelp"/u,
+      `${fieldName} opens the field value help`
+    );
+  }
   assert.match(controller, /ext\.fragment\.FieldValueHelp/u);
   assert.match(controller, /FilterOperator\.Contains/u);
   // The stored value is the qualified code, and it is read off the binding context BEFORE anything
@@ -91,26 +99,27 @@ test('a condition field is chosen through the shared value help', () => {
   const body = chosen.slice(0, chosen.indexOf('\n    },'));
   assert.ok(body.indexOf('getProperty("code")') < body.indexOf('setProperty('));
   assert.equal(/filter\(\[\]\)/u.test(body), false);
-  // A plain replace again - no "append a new line" mode left over from the TextArea design.
-  assert.equal(/mode === "append"/u.test(body), false);
   const open = controller.slice(controller.indexOf('onFieldValueHelp:'));
   assert.match(open.slice(0, open.indexOf('.open("")')), /getBinding\("items"\)[\s\S]{0,80}filter\(\[\]\)/u);
 });
 
 /**
- * The Values cell is disabled once the operator is "is empty"/"is not empty" - those two need no
- * value at all, so offering one would invite a value that is simply never read. Logic stays always
- * enabled: the engine itself ignores it for zero or one condition (see joinConditions in
- * srv/checks/value-lists.js), so there is nothing unsafe about it being set ahead of a second
- * condition being added.
+ * The Value cell is disabled once its own slot's operator is "is empty"/"is not empty" - those two
+ * need no value at all. Logic stays always enabled: the engine ignores it entirely for zero or one
+ * condition (see joinConditions in srv/checks/value-lists.js).
  */
-test('the values cell is disabled for empty/notEmpty; the logic combo is always enabled', () => {
-  const valuesCell = view.slice(view.indexOf('value="{dc>values}"'));
+test('each Value cell is disabled for its own empty/notEmpty, independent of the other slot', () => {
+  const slot1 = view.slice(view.indexOf('value="{dc>conditionValues}"'));
   assert.match(
-    valuesCell.slice(0, valuesCell.indexOf('/>')),
-    /enabled="\{= \$\{dc>operator\} !== 'empty' &amp;&amp; \$\{dc>operator\} !== 'notEmpty' \}"/u
+    slot1.slice(0, slot1.indexOf('/>')),
+    /enabled="\{= \$\{dc>conditionOperator\} !== 'empty' &amp;&amp; \$\{dc>conditionOperator\} !== 'notEmpty' \}"/u
   );
-  const logic = view.slice(view.indexOf("selectedKey=\"{dc>conditionLogic}\""));
+  const slot2 = view.slice(view.indexOf('value="{dc>conditionValues2}"'));
+  assert.match(
+    slot2.slice(0, slot2.indexOf('/>')),
+    /enabled="\{= \$\{dc>conditionOperator2\} !== 'empty' &amp;&amp; \$\{dc>conditionOperator2\} !== 'notEmpty' \}"/u
+  );
+  const logic = view.slice(view.indexOf('selectedKey="{dc>conditionLogic}"'));
   assert.equal(/enabled=/u.test(logic.slice(0, logic.indexOf('</ComboBox>'))), false);
 });
 
@@ -121,13 +130,15 @@ test('the values cell is disabled for empty/notEmpty; the logic combo is always 
  * back in by accident: a plain bound Input is the whole mechanism, and it is the one that works.
  */
 test('every cell is a single bound value, and nothing tokenises', () => {
-  // Each condition is field/operator/values as three plain bound cells - side by side, as many
-  // condition-groups as the rule has, but never several VALUES packed into one cell via a token
-  // control. The `values` cell itself still takes the `|`-delimited encoding every other condition
-  // column in this app already uses (see conditionHolds), same as before.
-  assert.match(view, /value="\{dc>field\}"/u, 'field is a bound Input');
-  assert.match(view, /selectedKey="\{dc>operator\}"/u, 'operator is a bound Select');
-  assert.match(view, /value="\{dc>values\}"/u, 'values is a bound Input');
+  for (const fieldName of ['conditionField', 'conditionField2']) {
+    assert.match(view, new RegExp(`value="\\{dc>${fieldName}\\}"`, 'u'), `${fieldName} is a bound Input`);
+  }
+  for (const operatorName of ['conditionOperator', 'conditionOperator2']) {
+    assert.match(view, new RegExp(`selectedKey="\\{dc>${operatorName}\\}"`, 'u'), `${operatorName} is a bound Select`);
+  }
+  for (const valuesName of ['conditionValues', 'conditionValues2']) {
+    assert.match(view, new RegExp(`value="\\{dc>${valuesName}\\}"`, 'u'), `${valuesName} is a bound Input`);
+  }
   assert.match(view, /value="\{dc>approvers\}"/u, 'approvers is a bound Input');
   assert.equal(/MultiInput/u.test(view), false, 'no token cell is left');
   assert.equal(/app:listPath|app:listSink/u.test(view), false, 'and no custom data driving one');
@@ -147,12 +158,12 @@ test('the row is checked before it is sent, and again on the way in', () => {
   assert.match(controller, /name the approver/u);
   assert.match(controller, /needs a value\."/u);
   assert.match(serviceJs, /guard\('WorkflowRules', WORKFLOW_RULES, validateWorkflowRule/u);
-  // Each condition ALSO validates on its own write, since it is its own entity now - the same
-  // guard() helper, its own validator, its own store invalidation.
-  assert.match(serviceJs, /guard\(\s*'WorkflowRuleConditions', WORKFLOW_RULE_CONDITIONS/u);
-  assert.match(serviceJs, /validateCondition\(data, undefined, 'This condition'\)/u);
   // Its own store, or a write would drop the quality cache and leave the approvers stale.
   assert.match(serviceJs, /workflowRuleStore\.markStale/u);
+  // The WorkflowRuleConditions guard is gone (reverted 2026-08-31, two fixed slots again) - both
+  // slots validate as part of the rule itself now, through validateWorkflowRule alone.
+  assert.equal(/WORKFLOW_RULE_CONDITIONS/u.test(serviceJs), false);
+  assert.equal(/guard\(\s*'WorkflowRuleConditions'/u.test(serviceJs), false);
 });
 
 // Rows not columns, like every other table here: adding a step or an approver must be an INSERT,
@@ -161,19 +172,50 @@ test('the row is checked before it is sent, and again on the way in', () => {
 test('the table is rows, and every column holds one value', () => {
   assert.match(rulesCds, /entity WorkflowRules : managed/u);
   for (const column of [
-    'requestType', 'step', 'conditions', 'conditionField', 'conditionValues', 'conditionField2',
-    'conditionValues2', 'approvers', 'isActive'
+    'requestType', 'step', 'conditions', 'conditionField', 'conditionOperator', 'conditionValues',
+    'conditionField2', 'conditionOperator2', 'conditionValues2', 'approvers', 'isActive'
   ]) {
     // The plural names are stuck: `cds-deploy` cannot rename an element any more than it can drop
     // one, so these hold ONE value under a name that reads like several.
     assert.match(rulesCds, new RegExp(`\\b${column}\\b`, 'u'), `${column} is modelled`);
   }
   // No order column: rows are additive, so every matching row contributes and nothing is ranked.
-  // Neither WorkflowRules nor its own WorkflowRuleConditions declares one - a bare mention of the
-  // WORD "sequence" is fine (it shows up explaining the absence), an actual column is not.
+  // Neither WorkflowRules nor its own (abandoned) WorkflowRuleConditions declares one - a bare
+  // mention of the WORD "sequence" is fine (it shows up explaining the absence), an actual column
+  // is not.
   assert.equal(/\bsequence\s*:/u.test(rulesCds), false, 'no table declares a sequence column');
   assert.equal(/\bsequence\b/u.test(read(ROOT, 'srv', 'checks', 'workflow-rules.js')), false);
   assert.match(serviceCds, /entity WorkflowRules   as projection on workflow\.WorkflowRules/u);
+});
+
+/**
+ * The dynamic-conditions detour, abandoned in two stages the same week, both permanently dead in
+ * the schema because `cds-deploy` cannot drop OR retype an element:
+ *
+ *  1. `conditions` (a `LargeString`) shipped to production as the first cut - a line-per-condition
+ *     text blob. Renaming it to a composition under the SAME name failed every deploy retry:
+ *     "Changed element conditions is a lossy type change from cds.LargeString to cds.Composition
+ *     and is not supported". The composition was given the new name `conditionRows` instead.
+ *  2. `conditionRows`/`WorkflowRuleConditions` themselves are now ALSO abandoned (2026-08-31),
+ *     reverted back to the original two fixed condition slots on direct feedback. Both stay in the
+ *     model, permanently unused, for the identical reason `conditions` does.
+ *
+ * Nothing in the engine or the service reads or writes either dead mechanism any more.
+ */
+test('conditions and conditionRows are both dead; the two fixed slots are the live mechanism', () => {
+  assert.match(rulesCds, /conditions\s+: LargeString;/u);
+  assert.match(rulesCds, /conditionRows\s+: Composition of many WorkflowRuleConditions/u);
+  assert.match(rulesCds, /lossy type change/u);
+  assert.match(rulesCds, /entity WorkflowRuleConditions : managed/u);
+
+  const engineJs = read(ROOT, 'srv', 'checks', 'workflow-rules.js');
+  assert.equal(/rule\.conditions\b/u.test(engineJs), false, 'the engine never reads the dead scalar column');
+  assert.equal(/rule\.conditionRows\b/u.test(engineJs), false, 'the engine never reads the dead composition either');
+  assert.match(engineJs, /rule\[pair\.field\]/u, 'the engine reads the two fixed slots by name');
+
+  // The service no longer even projects the dead entity - nothing depends on it being reachable
+  // over OData any more.
+  assert.equal(/entity WorkflowRuleConditions as projection/u.test(serviceCds), false);
 });
 
 /**
@@ -278,55 +320,37 @@ test('choosing an agent writes it into the cell', () => {
   assert.ok(body.indexOf('getProperty("value")') < body.indexOf('setProperty('));
 });
 
-// --- Dynamic conditions, side by side (2026-08-28, asked for) -----------------------------------
+// --- Two fixed condition slots (reverted 2026-08-31) --------------------------------------------
 
 /**
- * The view side of the composition: a wrapping FlexBox templated over `dc>conditions`, so a rule
- * with three conditions renders three Field/Operator/Value groups side by side (wrapping onto a
- * second line rather than growing the row forever sideways), and a rule with one renders one -
- * genuinely per-row, not a fixed number of always-visible slots.
+ * Condition 1 and Condition 2 each render as their own plain `HBox` of Field/Operator/Value - no
+ * wrapping FlexBox, no Add/Remove Condition button, no child composition. "ik wil dit naast elkaar
+ * zoals het ervoor was" (bring it back to how it originally was, side by side).
  */
-test('conditions render as a wrapping FlexBox of Field/Operator/Value groups, one per condition row', () => {
-  assert.match(
-    view,
-    /<FlexBox wrap="Wrap" items="\{ path: 'dc>conditions', templateShareable: false \}"/u
-  );
-  const conditionsCell = view.slice(view.indexOf('<FlexBox wrap="Wrap"'));
-  const body = conditionsCell.slice(0, conditionsCell.indexOf('</FlexBox>'));
-  assert.match(body, /value="\{dc>field\}"/u);
-  assert.match(body, /items="\{ path: 'opt>\/comparisons', templateShareable: false \}"/u);
-  assert.match(body, /value="\{dc>values\}"/u);
-  assert.match(body, /press="\.onRemoveCondition"/u);
-  assert.match(view, /text="Add Condition"[\s\S]{0,150}press="\.onAddCondition"/u);
+test('Condition 1 and Condition 2 render as two plain HBox groups, not a dynamic list', () => {
+  for (const [fieldName, operatorName, valuesName] of [
+    ['conditionField', 'conditionOperator', 'conditionValues'],
+    ['conditionField2', 'conditionOperator2', 'conditionValues2']
+  ]) {
+    const cell = view.slice(view.indexOf(`value="{dc>${fieldName}}"`));
+    const hboxBody = cell.slice(0, cell.indexOf('</HBox>'));
+    assert.match(hboxBody, new RegExp(`selectedKey="\\{dc>${operatorName}\\}"`, 'u'));
+    assert.match(hboxBody, new RegExp(`value="\\{dc>${valuesName}\\}"`, 'u'));
+    assert.match(hboxBody, /items="\{ path: 'opt>\/comparisons', templateShareable: false \}"/u);
+  }
+  // The dynamic mechanism is gone entirely - no wrapping FlexBox, no per-row Add/Remove.
+  assert.equal(/<FlexBox/u.test(view), false, 'no wrapping FlexBox is left');
+  assert.equal(/onAddCondition|onRemoveCondition/u.test(view), false, 'no Add/Remove Condition button is left');
+  assert.equal(/onAddCondition|onRemoveCondition|_conditionsBinding/u.test(controller), false,
+    'and the handlers are gone from the controller too');
 });
 
-/**
- * "Add Condition" grows THIS rule's own composition - a fresh list binding on its `conditions`
- * navigation, the same mechanism Duplicate and the Excel import share (`_conditionsBinding`) -
- * never a shared, page-wide column. "Remove" reads its OWN binding context (the CONDITION, not the
- * rule, since the button lives inside the per-condition template) and deletes just that one row.
- */
-test('Add Condition and Remove act on one row\'s own conditions, not a shared column', () => {
-  const add = controller.slice(controller.indexOf('onAddCondition: function'));
-  const addBody = add.slice(0, add.indexOf('\n    },'));
-  assert.match(addBody, /event\.getSource\(\)\.getBindingContext\("dc"\)/u);
-  assert.match(addBody, /this\._conditionsBinding\(ruleContext\)\.create\(\{ operator: "eq", values: "" \}\)/u);
-
-  const remove = controller.slice(controller.indexOf('onRemoveCondition: function'));
-  const removeBody = remove.slice(0, remove.indexOf('\n    },'));
-  assert.match(removeBody, /event\.getSource\(\)\.getBindingContext\("dc"\)/u);
-  assert.match(removeBody, /context\.delete\(UPDATE_GROUP\)/u);
-
-  assert.match(controller, /_conditionsBinding: function \(ruleContext\)/u);
-  assert.match(controller, /bindList\(\s*"conditions", ruleContext/u);
-});
-
-// --- Operators (2026-08-28, asked for: "= of !=, en dan andere") --------------------------------
+// --- Operators (kept through the revert: "= of !=, en dan andere" was in the ORIGINAL ask too) ---
 
 /**
  * The exact vocabulary rule-engine.js already offers ValidationRules/DerivationRules for their own
- * comparison column - asked for directly ("volgens mij alle mogelijke operatoren") rather than a
- * smaller, WorkflowRules-only set, and served the same way qualityRuleOptions already does.
+ * comparison column - asked for directly ("volgens mij alle mogelijke operatoren"), and it survives
+ * the revert to two fixed slots because the ORIGINAL layout already had an operator per slot.
  */
 test('the operator picker offers the same comparisons ValidationRules/DerivationRules already use', () => {
   const handler = serviceJs.slice(serviceJs.indexOf("this.on('workflowRuleOptions'"));
@@ -337,21 +361,21 @@ test('the operator picker offers the same comparisons ValidationRules/Derivation
   const workflowRulesJs = read(ROOT, 'srv', 'checks', 'workflow-rules.js');
   assert.match(workflowRulesJs, /require\('\.\/rule-engine'\)/u);
   assert.match(workflowRulesJs, /COMPARISONS\[condition\.operator\]/u);
-  // The composition carries the operator, not the two now-legacy scalar columns.
-  assert.match(rulesCds, /operator : String\(10\) default 'eq';/u);
+  // The two fixed slots carry their own operator column each - new, additive columns (2026-08-31).
+  assert.match(rulesCds, /conditionOperator\s*: String\(10\) default 'eq';/u);
+  assert.match(rulesCds, /conditionOperator2\s*: String\(10\) default 'eq';/u);
 });
 
 // --- Duplicate (2026-08-28, asked for: "copy en paste" for a rule) ------------------------------
 
 /**
  * "Copy and paste" for a rule: the same `binding.create` mechanism Add Rule already uses, just
- * pre-filled from the selected row instead of blank - conditions included, each created as its OWN
- * new WorkflowRuleConditions row against the fresh rule context (see _conditionsBinding), rather
- * than relying on the OData v4 model's create() to support a deep-insert payload. Identity and
- * managed columns are stripped so the copy becomes its OWN row rather than colliding with the
- * original's key - shared with the Excel import via STRIP_ON_COPY.
+ * pre-filled from the selected row instead of blank. Simpler again since the revert to two fixed
+ * condition slots (2026-08-31): every field, condition slots included, is a plain scalar on the
+ * rule itself, so one `binding.create(copy)` is the whole job - there is no child composition left
+ * to copy row by row.
  */
-test('Duplicate copies the selected row, its conditions, and strips their identity', () => {
+test('Duplicate copies the selected row (conditions included, as plain scalars) and strips its identity', () => {
   const button = view.slice(view.indexOf('text="Duplicate"'));
   assert.match(button.slice(0, button.indexOf('/>')), /press="\.onDuplicateRule"/u);
 
@@ -362,121 +386,251 @@ test('Duplicate copies the selected row, its conditions, and strips their identi
   }
 
   const fn = controller.slice(controller.indexOf('onDuplicateRule: function'));
-  const body = fn.slice(0, fn.indexOf('\n    },\n\n    /** A fresh list binding'));
+  const body = fn.slice(0, fn.indexOf('\n    },'));
   assert.match(body, /getSelectedItem\(\)/u);
   assert.match(body, /Object\.assign\(\{\}, context\.getObject\(\)\)/u);
-  assert.match(body, /var newContext = binding\.create\(copy\)/u);
-  // Each of the original rule's conditions becomes its own new row of the fresh rule's own
-  // composition - not a deep-insert payload sent alongside the rule itself.
-  assert.match(body, /this\._conditionsBinding\(newContext\)\.create\(conditionCopy\)/u);
+  assert.match(body, /binding\.create\(copy\)/u);
   assert.match(body, /MessageToast\.show\("Select the rule to duplicate\."\)/u);
+  // No child composition left to copy - the mechanism this replaced needed a second `.create()`
+  // per condition; this one needs none.
+  assert.equal(/_conditionsBinding/u.test(body), false);
 });
 
-// --- Excel (CSV) import / export (2026-08-28, asked for) ------------------------------------------
+// --- Excel import / export - a real .xlsx (2026-08-31, "op basis van al die fixed velden") -------
 
-/**
- * Real .xlsx would need a third-party reader/writer this repo has never taken a dependency on -
- * CSV needs none, and Excel opens/saves it natively. The button labels say "Excel" (what a steward
- * asked for and thinks in); the mechanism is a hand-rolled RFC-4180-shaped CSV codec.
- */
-test('Export/Import buttons exist and drive a CSV round trip, not a new library', () => {
+test('Export/Import buttons exist and drive a real .xlsx, not a new library', () => {
   assert.match(view, /text="Export to Excel"[\s\S]{0,80}press="\.onExportExcel"/u);
   assert.match(view, /text="Import from Excel"[\s\S]{0,80}press="\.onImportExcel"/u);
-  // Not "no mention of .xlsx in a comment" - this file's own comments say why real .xlsx was
-  // rejected - but no actual dependency on one: nothing requires/defines a spreadsheet library.
-  assert.equal(/require\(["'](xlsx|exceljs)|sap\/ui\/export\/Spreadsheet/iu.test(controller), false);
-  assert.match(controller, /function toCsv\(/u);
-  assert.match(controller, /function fromCsv\(/u);
-  assert.match(controller, /new Blob\(/u);
-  assert.match(controller, /type: "text\/csv/u);
+  // No third-party spreadsheet library - the ZIP/OOXML/DEFLATE handling is all hand-rolled, the
+  // same choice the CSV codec this replaces already made, just for a real .xlsx this time.
+  assert.equal(/require\(["'](xlsx|exceljs|jszip|pako)["']/iu.test(controller), false);
+  assert.equal(/sap\/ui\/export\/Spreadsheet/u.test(controller), false);
+  assert.match(controller, /function zipStore\(/u);
+  assert.match(controller, /function readCentralDirectory\(/u);
+  // DEFLATE decompression on import is a browser built-in, not a bundled inflate implementation.
+  assert.match(controller, /new DecompressionStream\("deflate-raw"\)/u);
+  assert.match(controller, /type: "application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet"/u);
+  assert.match(controller, /download = "workflow-agent-determination\.xlsx"/u);
+  assert.match(controller, /accept = "\.xlsx"/u);
 });
 
 /**
- * The columns of the round trip are the rule's own fields plus one Field/Operator/Value column per
- * condition slot - "de structuur die ook zichtbaar is in de app" (asked for), not a DSL packed into
- * one cell. `MAX_EXCEL_CONDITIONS` is the one thing a spreadsheet needs that the page itself does
- * not: a fixed column count, generous rather than tied to what is in use today.
+ * The columns mirror the page itself exactly - "de structuur die ook zichtbaar is in de app"
+ * (asked for) - one Field/Operator/Value column per fixed condition slot, matching BRF+'s own
+ * decision-table Excel up/download shape. No capped/variable column count is needed any more, now
+ * that conditions are two fixed slots rather than an unbounded composition.
  */
-test('the CSV columns match what a WorkflowRules row actually holds, one triple per condition slot', () => {
-  const fn = controller.slice(controller.indexOf('function csvColumns'));
-  const body = fn.slice(0, fn.indexOf('\n  }\n'));
-  for (const key of ['ID', 'requestType', 'step', 'conditionLogic', 'approvers', 'isActive']) {
-    assert.match(body, new RegExp(`key: "${key}"`, 'u'), `${key} is one of the exported columns`);
-  }
-  assert.match(body, /"field" \+ i/u);
-  assert.match(body, /"operator" \+ i/u);
-  assert.match(body, /"values" \+ i/u);
-  assert.match(controller, /var MAX_EXCEL_CONDITIONS = \d+;/u);
-});
-
-/** flattenForExport spreads one rule's conditions array across the fixed slot columns. */
-test('flattenForExport maps a rule\'s conditions onto Condition 1/2/... columns', () => {
-  const fn = controller.slice(controller.indexOf('function flattenForExport'));
-  const body = fn.slice(0, fn.indexOf('\n  }\n'));
-  assert.match(body, /condition\.field \|\| ""/u);
-  assert.match(body, /condition\.operator \|\| ""/u);
-  assert.match(body, /condition\.values \|\| ""/u);
-  assert.match(body, /delete flat\.conditions/u);
+test('xlsxColumns matches exactly what a WorkflowRules row holds', () => {
+  const fn = controller.slice(controller.indexOf('function xlsxColumns'));
+  const body = fn.slice(0, fn.indexOf('\n  }'));
+  const keys = [...body.matchAll(/key: "([^"]+)"/gu)].map((match) => match[1]);
+  assert.deepEqual(keys, [
+    'ID', 'requestType', 'step',
+    'conditionField', 'conditionOperator', 'conditionValues', 'conditionLogic',
+    'conditionField2', 'conditionOperator2', 'conditionValues2',
+    'approvers', 'isActive'
+  ]);
+  const labels = [...body.matchAll(/label: "([^"]+)"/gu)].map((match) => match[1]);
+  assert.deepEqual(labels, [
+    'ID', 'CR Type', 'Step',
+    'Condition 1 Field', 'Condition 1 Operator', 'Condition 1 Value', 'Logic',
+    'Condition 2 Field', 'Condition 2 Operator', 'Condition 2 Value',
+    'Approvers', 'Active'
+  ]);
 });
 
 /**
- * Extracted and evaluated directly (the one exception to this file's own source-pinning style,
- * because a hand-rolled CSV codec is exactly the kind of thing that looks right and is not - a
- * quoted comma, an embedded quote, or a literal newline inside the Conditions cell each broke a
- * naive version of this before it shipped).
+ * Extracted and evaluated directly (the one exception to this file's own source-pinning style),
+ * because a hand-rolled ZIP writer/reader and a hand-rolled XML scanner are exactly the kind of code
+ * that looks right and is not - three real bugs were found writing these tests, not by inspection:
+ * an un-unescaped `&amp;`/`&lt;`/`&gt;`/`&quot;` in cell text, and a self-closing `<c ... />` cell
+ * (exactly what real Excel writes for an empty cell) being misread as an OPEN tag, which silently
+ * shifted every column after it one to the left for the rest of the row.
  */
-function extractCsvFunctions(source) {
-  const names = ['csvEscape', 'toCsv', 'fromCsv'];
+function extractFunctions(source, names) {
   const body = names.map((name) => {
-    const start = source.indexOf(`function ${name}(`);
-    const braceStart = source.indexOf('{', start);
-    let depth = 0;
-    let end = braceStart;
-    for (let i = braceStart; i < source.length; i += 1) {
-      if (source[i] === '{') depth += 1;
-      if (source[i] === '}') {
-        depth -= 1;
-        if (depth === 0) { end = i + 1; break; }
-      }
+    const patterns = [
+      new RegExp(`(?:async\\s+)?function ${name}\\s*\\(`, 'u'),
+      new RegExp(`(?:var|const) ${name}\\s*=`, 'u')
+    ];
+    let start = -1;
+    for (const pattern of patterns) {
+      const match = pattern.exec(source);
+      if (match) { start = match.index; break; }
     }
-    return source.slice(start, end);
+    if (start === -1) throw new Error(`not found in controller source: ${name}`);
+    if (/^(?:async\s+)?function/u.test(source.slice(start))) {
+      const braceStart = source.indexOf('{', start);
+      let depth = 0;
+      let end = braceStart;
+      for (let i = braceStart; i < source.length; i += 1) {
+        if (source[i] === '{') depth += 1;
+        if (source[i] === '}') {
+          depth -= 1;
+          if (depth === 0) { end = i + 1; break; }
+        }
+      }
+      return source.slice(start, end);
+    }
+    // var/const declaration - scan to the matching top-level semicolon, tracking quotes so a `;`
+    // inside a string literal (there are several, in the XML template constants) is not mistaken
+    // for the end of the statement.
+    let i = start;
+    let inString = false;
+    let quote = '';
+    for (; i < source.length; i += 1) {
+      const ch = source[i];
+      if (inString) {
+        if (ch === '\\') { i += 1; continue; }
+        if (ch === quote) inString = false;
+        continue;
+      }
+      if (ch === '"' || ch === "'") { inString = true; quote = ch; continue; }
+      if (ch === ';') { i += 1; break; }
+    }
+    return source.slice(start, i);
   }).join('\n');
-  // eslint-disable-next-line no-new-func
-  return new Function(`${body}\nreturn { csvEscape, toCsv, fromCsv };`)();
+  return new Function(`${body}\nreturn { ${names.join(', ')} };`)();
 }
 
-const { toCsv, fromCsv } = extractCsvFunctions(controller);
+const XLSX_FUNCTION_NAMES = [
+  'crc32', 'utf8Bytes', 'xmlEscape', 'COLUMN_LETTERS', 'columnLetters', 'columnIndexOf',
+  'writeUint32LE', 'writeUint16LE', 'zipStore',
+  'readUint32LE', 'readUint16LE', 'findEndOfCentralDirectory', 'readCentralDirectory', 'extractZipEntry',
+  'xmlUnescape', 'parseAttrs', 'matchTags', 'parseSharedStrings', 'cellText', 'parseWorksheetTable',
+  'resolveFirstSheetPath', 'xlsxColumns', 'STYLES_XML', 'CONTENT_TYPES_XML', 'RELS_XML',
+  'WORKBOOK_XML', 'WORKBOOK_RELS_XML', 'sheetXml', 'buildWorkflowRulesXlsx', 'readWorkflowRulesXlsx',
+  'isTruthyCell'
+];
 
-test('toCsv/fromCsv round-trip a value containing a comma, a quote and a newline', () => {
-  const rows = [{
-    ID: '1', requestType: 'create', step: 'Approve',
-    conditions: 'Addresses.Country = BE|NL\nGeneral.BusinessPartnerCategory = 2',
-    conditionLogic: 'AND', approvers: 'Acme, "big" corp <maarten@alluvion.eu>', isActive: true
-  }];
-  const columns = [
-    { key: 'ID', label: 'ID' }, { key: 'requestType', label: 'CR Type' },
-    { key: 'step', label: 'Step' }, { key: 'conditions', label: 'Conditions' },
-    { key: 'conditionLogic', label: 'Logic' }, { key: 'approvers', label: 'Approvers' },
-    { key: 'isActive', label: 'Active' }
-  ];
-  const csv = toCsv(rows, columns);
-  const table = fromCsv(csv);
-  assert.equal(table.length, 2, 'a header row and one data row');
-  const [, dataRow] = table;
-  assert.equal(dataRow[3], rows[0].conditions, 'the embedded newline stayed inside one cell');
-  assert.equal(dataRow[5], rows[0].approvers, 'the comma and the quote round-tripped exactly');
+const xlsx = extractFunctions(controller, XLSX_FUNCTION_NAMES);
+
+// The ZIP format's own checksum - a standard check value, so a subtly wrong polynomial or a
+// reversed bit order is caught immediately rather than only once a file fails to open.
+test('crc32 matches the standard CRC-32 check values', () => {
+  assert.equal(xlsx.crc32(new TextEncoder().encode('')), 0);
+  assert.equal(xlsx.crc32(new TextEncoder().encode('123456789')), 0xcbf43926);
 });
 
-test('fromCsv drops a wholly blank trailing line', () => {
-  const table = fromCsv('a,b\r\n1,2\r\n');
-  assert.deepEqual(table, [['a', 'b'], ['1', '2']]);
+test('columnLetters/columnIndexOf round-trip through the double-letter boundary', () => {
+  assert.equal(xlsx.columnLetters(0), 'A');
+  assert.equal(xlsx.columnLetters(25), 'Z');
+  assert.equal(xlsx.columnLetters(26), 'AA');
+  assert.equal(xlsx.columnIndexOf('AA7'), 26);
+  assert.equal(xlsx.columnIndexOf('B12'), 1);
+});
+
+test('a rule with every field filled in round-trips through build and read', async () => {
+  const rows = [{
+    ID: '1', requestType: 'create', step: 'Approve',
+    conditionField: 'Addresses.Country', conditionOperator: 'eq', conditionValues: 'BE|NL',
+    conditionLogic: 'AND',
+    conditionField2: 'General.BusinessPartnerCategory', conditionOperator2: 'ge', conditionValues2: '2',
+    approvers: 'maarten@alluvion.eu|DataSteward', isActive: true
+  }];
+  const bytes = xlsx.buildWorkflowRulesXlsx(rows);
+  const table = await xlsx.readWorkflowRulesXlsx(bytes);
+  assert.deepEqual(table[0], xlsx.xlsxColumns().map((column) => column.label));
+  assert.deepEqual(table[1], [
+    '1', 'create', 'Approve',
+    'Addresses.Country', 'eq', 'BE|NL', 'AND',
+    'General.BusinessPartnerCategory', 'ge', '2',
+    'maarten@alluvion.eu|DataSteward', true
+  ]);
+});
+
+// Entity-escaped characters in a value - a comma, a quote, an ampersand, angle brackets, exactly
+// the kind of text an approver's e-mail alias or a company name carries - must come back exactly
+// as typed, not still XML-escaped.
+test('special characters in a value survive the round trip unescaped', async () => {
+  const rows = [{
+    ID: '2', requestType: 'change', step: 'Approve',
+    conditionField: '', conditionOperator: 'eq', conditionValues: '',
+    conditionLogic: 'AND',
+    conditionField2: '', conditionOperator2: 'eq', conditionValues2: '',
+    approvers: 'Acme, "big" corp <x@y.com> & Co', isActive: false
+  }];
+  const bytes = xlsx.buildWorkflowRulesXlsx(rows);
+  const table = await xlsx.readWorkflowRulesXlsx(bytes);
+  assert.equal(table[1][10], 'Acme, "big" corp <x@y.com> & Co');
+  assert.equal(table[1][11], false);
 });
 
 /**
- * A rule that seemed to clear itself, reported 2026-08-21. `hasPendingChanges` answers for one
- * update group, so a create that never travelled leaves it false and the toast claims a save that
- * did not happen - which from the outside is a rule vanishing. So the rows are asked directly.
+ * The regression this whole reading path was rewritten around: real Excel (and any conforming
+ * writer - openpyxl reproduced it in a live round trip while writing this) represents an EMPTY
+ * inlineStr cell as a self-closing tag WITH A SPACE before the slash: `<c r="D3" t="inlineStr" />`.
+ * A naive "greedy attributes, then look for `/>`" regex reads that trailing `/` as part of the
+ * attribute string, so `/>` never matches, the tag reads as OPEN, and everything up to the next
+ * `</c>` it can find - typically the FOLLOWING cell's own closing tag - is swallowed as this cell's
+ * content. Every column after the empty one then lands one position too far left for the rest of
+ * the row. Fixed by making the attribute group lazy so it stops expanding the moment `/>` matches.
  */
+test('a self-closing empty cell does not shift the columns after it', () => {
+  const sheetXmlText = '<?xml version="1.0"?>'
+    + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
+    + '<row r="1"><c r="A1" t="inlineStr"><is><t>ID</t></is></c>'
+    + '<c r="B1" t="inlineStr"><is><t>CR Type</t></is></c></row>'
+    + '<row r="2"><c r="A2" t="inlineStr"><is><t>1</t></is></c>'
+    + '<c r="B2" t="inlineStr" />'
+    + '<c r="C2" t="inlineStr"><is><t>Approve</t></is></c></row>'
+    + '</sheetData></worksheet>';
+  const table = xlsx.parseWorksheetTable(sheetXmlText, []);
+  assert.deepEqual(table[0], ['ID', 'CR Type']);
+  assert.deepEqual(table[1], ['1', '', 'Approve']);
+});
+
+test('isTruthyCell is tolerant of how a business user writes "yes" in Excel', () => {
+  assert.equal(xlsx.isTruthyCell(true), true);
+  assert.equal(xlsx.isTruthyCell(false), false);
+  for (const truthy of ['true', 'TRUE', '1', 'yes', 'Yes', 'x', 'X', ' x ']) {
+    assert.equal(xlsx.isTruthyCell(truthy), true, `"${truthy}" reads as active`);
+  }
+  for (const falsy of ['', 'no', 'false', '0', undefined]) {
+    assert.equal(xlsx.isTruthyCell(falsy), false, `"${falsy}" reads as inactive`);
+  }
+});
+
+/**
+ * The container-level round trip, independent of the worksheet's own XML: build a ZIP with
+ * `zipStore` (what export writes - STORE only), then read it back through
+ * `readCentralDirectory`/`extractZipEntry` (what import reads). Confirms the ZIP structure itself -
+ * local headers, central directory, end-of-central-directory - is self-consistent, not only that
+ * the higher-level xlsx functions happen to agree with each other.
+ */
+test('zipStore/readCentralDirectory/extractZipEntry round-trip a STORE-only archive', async () => {
+  const files = [
+    { name: 'a.txt', data: new TextEncoder().encode('hello world') },
+    { name: 'dir/b.txt', data: new TextEncoder().encode('') }
+  ];
+  const bytes = xlsx.zipStore(files);
+  const entries = xlsx.readCentralDirectory(bytes);
+  assert.deepEqual(entries.map((entry) => entry.name), ['a.txt', 'dir/b.txt']);
+  assert.deepEqual([...entries.map((entry) => entry.method)], [0, 0]);
+  const first = await xlsx.extractZipEntry(bytes, entries[0]);
+  assert.equal(new TextDecoder().decode(first), 'hello world');
+  const second = await xlsx.extractZipEntry(bytes, entries[1]);
+  assert.equal(second.length, 0);
+});
+
+/**
+ * Real Excel always DEFLATEs on save, which export never does but import has to read - proven with
+ * Node's own `zlib.deflateRawSync` standing in for "whatever Excel's own compressor produced",
+ * decompressed here through the identical `DecompressionStream('deflate-raw')` the controller uses.
+ */
+test('extractZipEntry decompresses a DEFLATE (method 8) entry via DecompressionStream', async () => {
+  const uncompressed = Buffer.from('a value only real Excel would have compressed this way');
+  const compressed = zlib.deflateRawSync(uncompressed);
+  const entry = { name: 'xl/worksheets/sheet1.xml', method: 8, compressedSize: compressed.length, localHeaderOffset: 0 };
+  const local = Buffer.alloc(30 + 'xl/worksheets/sheet1.xml'.length);
+  local.writeUInt32LE(0x04034b50, 0);
+  local.writeUInt16LE('xl/worksheets/sheet1.xml'.length, 26);
+  Buffer.from('xl/worksheets/sheet1.xml').copy(local, 30);
+  const bytes = new Uint8Array(Buffer.concat([local, compressed]));
+  const result = await xlsx.extractZipEntry(bytes, entry);
+  assert.equal(new TextDecoder().decode(result), uncompressed.toString());
+});
+
 test('save cannot report success while a row is still local to the page', () => {
   assert.match(controller, /_transientRows: function/u);
   assert.match(controller, /context\.isTransient && context\.isTransient\(\)/u);

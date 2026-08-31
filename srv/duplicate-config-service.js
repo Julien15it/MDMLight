@@ -20,7 +20,7 @@ const {
 const fieldPropertyStore = require('./checks/field-property-store');
 const {
   REQUEST_TYPES: WORKFLOW_REQUEST_TYPES, REQUEST_TYPE_TEXT: WORKFLOW_REQUEST_TYPE_TEXT,
-  STEPS, STEP_TEXT, validateWorkflowRule, validateCondition, runnableWorkflowRules
+  STEPS, STEP_TEXT, validateWorkflowRule, runnableWorkflowRules
 } = require('./checks/workflow-rules');
 const workflowRuleStore = require('./checks/workflow-rule-store');
 const { workflowAgents } = require('./wf/btp-agents');
@@ -31,7 +31,6 @@ const DERIVATIONS = 'mdmlight.config.DerivationRules';
 const PROFILES = 'mdmlight.config.FieldPropertyProfiles';
 const SETTINGS = 'mdmlight.config.FieldPropertySettings';
 const WORKFLOW_RULES = 'mdmlight.config.WorkflowRules';
-const WORKFLOW_RULE_CONDITIONS = 'mdmlight.config.WorkflowRuleConditions';
 
 const SEVERITY_TEXT = Object.freeze({
   error: 'Error — blocks the request',
@@ -107,16 +106,10 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
     guard('DerivationRules', DERIVATIONS, validateDerivationRule);
     // Same treatment again, and for the same reason: by submit time the approvers have already gone
     // to SBPA, so a row that cannot resolve has to be caught at the keyboard. Its own store, though.
+    // Two fixed condition slots per row again (reverted 2026-08-31) - both validate as part of the
+    // rule itself (validateWorkflowRule), so there is no separate WorkflowRuleConditions guard any
+    // more; that entity is no longer even projected by this service (see duplicate-config-service.cds).
     guard('WorkflowRules', WORKFLOW_RULES, validateWorkflowRule, workflowRuleStore.markStale);
-    // A condition is its own row now (2026-08-28, asked for: a rule can have as many as it needs,
-    // added and removed one at a time), so it is validated on its OWN write rather than only as part
-    // of the rule that owns it - `validateCondition` needs no model here, the same permissive
-    // "unloaded model accepts the name" convention every validator in this file already follows.
-    guard(
-      'WorkflowRuleConditions', WORKFLOW_RULE_CONDITIONS,
-      (data) => ({ errors: validateCondition(data, undefined, 'This condition'), warnings: [] }),
-      workflowRuleStore.markStale
-    );
 
     // The payload catalog again - a condition names a payload field, so the two pages offer the same
     // list - plus the two closed lists and the count of rows that would actually run.

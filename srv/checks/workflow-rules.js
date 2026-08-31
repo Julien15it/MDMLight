@@ -35,24 +35,28 @@ const STEP_TEXT = Object.freeze({
   Approve: 'Approve'
 });
 
-/** The default operator for a condition row and for the legacy two-column shape below, which never
- *  had an operator concept at all - "field is one of these values" is exactly what `eq` means here. */
+/** The default operator for a condition slot with nothing chosen - "field is one of these values" is
+ *  exactly what `eq` means here, and it is what every condition meant before an operator existed. */
 const DEFAULT_CONDITION_OPERATOR = 'eq';
 
 /**
- * The legacy two-pair shape (superseded by the `conditions` composition, see db/workflow-rules.cds)
- * - kept only so `legacyConditionPairs` can still read a rule saved before 2026-08-28.
+ * The two fixed condition slots - "Condition 1" and "Condition 2" - reverted to (2026-08-31) after
+ * the dynamic, unbounded `conditionRows` composition (db/workflow-rules.cds) turned out not to be
+ * what was wanted after all: "ik wil dit naast elkaar zoals het ervoor was ... niet hoe het nu is".
+ * Kept named `legacyConditionPairs` even though this is once again the LIVE mechanism, not a legacy
+ * one - the function name is what every caller already imports, and renaming it would touch every
+ * caller for no behavioural gain.
  */
 const CONDITION_PAIRS = Object.freeze([
-  Object.freeze({ field: 'conditionField', values: 'conditionValues' }),
-  Object.freeze({ field: 'conditionField2', values: 'conditionValues2' })
+  Object.freeze({ field: 'conditionField', operator: 'conditionOperator', values: 'conditionValues' }),
+  Object.freeze({ field: 'conditionField2', operator: 'conditionOperator2', values: 'conditionValues2' })
 ]);
 
-/** The two-column shape as a plain array, operator implied `eq`, for a rule with no `conditions` rows. */
+/** The two fixed condition slots as a plain array of `{ field, operator, values }`. */
 function legacyConditionPairs(rule) {
   return CONDITION_PAIRS.map((pair) => ({
     field: trimmed(rule[pair.field]),
-    operator: DEFAULT_CONDITION_OPERATOR,
+    operator: operatorOf(rule[pair.operator]),
     values: parseValueList(rule[pair.values])
   }));
 }
@@ -75,19 +79,11 @@ function operatorOf(raw) {
 
 /**
  * The rule's conditions as `{ field, operator, values, resolved }`, dropping entries with no field.
- * As many as the `conditions` composition holds (each its own row, `WorkflowRuleConditions`); a rule
- * with none there yet falls back to the two legacy columns, so a row saved before 2026-08-28 keeps
- * matching exactly as it did, with no migration.
+ * Always the two fixed slots - `conditionRows` (db/workflow-rules.cds) is abandoned, so this never
+ * reads it, even for a rule that happens to carry rows there from the brief window it was live.
  */
 function readConditions(rule, model) {
-  const rows = Array.isArray(rule.conditions) && rule.conditions.length
-    ? rule.conditions.map((row) => ({
-      field: trimmed(row.field),
-      operator: operatorOf(row.operator),
-      values: parseValueList(row.values)
-    }))
-    : legacyConditionPairs(rule);
-  return rows
+  return legacyConditionPairs(rule)
     .filter((condition) => condition.field)
     .map((condition) => ({ ...condition, resolved: resolvePayloadField(condition.field, model) }));
 }
@@ -135,9 +131,10 @@ function conditionsHold(conditions, payload, model, logic) {
 }
 
 /**
- * One condition row's own problems - field/operator/values consistency - independent of the rule it
- * belongs to. Each `WorkflowRuleConditions` row is its own thing to validate now, not a slice of a
- * fixed pair, so this runs once per row rather than looping a hard-coded `CONDITION_PAIRS.entries()`.
+ * One condition slot's own problems - field/operator/values consistency - independent of which slot
+ * it is. `validateWorkflowRule` calls this once per fixed pair (`CONDITION_PAIRS`); the service's own
+ * per-row `guard` on `WorkflowRuleConditions` called it too while that composition was briefly live,
+ * which is why this stayed a standalone, row-shaped function rather than being inlined.
  */
 function validateCondition(row = {}, model, name) {
   const errors = [];
@@ -206,15 +203,12 @@ function validateWorkflowRule(rule = {}, model) {
     }
   }
 
-  // Only when conditions were sent alongside the rule (a deep read/update, or the courtesy check
-  // that already has them in hand) - the service's own guard on WorkflowRuleConditions validates a
-  // row on its own write regardless, so a rule PATCH that carries no conditions is not penalised for
-  // rows it never touched.
-  if (Array.isArray(rule.conditions)) {
-    rule.conditions.forEach((row, index) => {
-      errors.push(...validateCondition(row, model, `condition ${index + 1}`));
-    });
-  }
+  // Each of the two fixed slots validates the same way a lone condition row always has - half a
+  // condition (a field with no value, or a value with no field) is the dangerous half either way.
+  CONDITION_PAIRS.forEach((pair, index) => {
+    const row = { field: rule[pair.field], operator: rule[pair.operator], values: rule[pair.values] };
+    errors.push(...validateCondition(row, model, `condition ${index + 1}`));
+  });
 
   const logicProblem = conditionLogicError(rule.conditionLogic);
   if (logicProblem) errors.push({ field: 'conditionLogic', message: logicProblem });
