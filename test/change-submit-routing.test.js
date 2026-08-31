@@ -31,7 +31,11 @@ function loadController() {
   return members;
 }
 
-// Just enough around the controller to press a button and record what it sent.
+// Just enough around the controller to press a button and record what it sent. `_executeAction`
+// stands in for the pre-submit check (2026-08-31, onSave calls checkRequest through it before
+// ever reaching _sendChangeRequest) - it always answers "valid, nothing to propose" so these tests
+// stay about ROUTING (does Submit reach submitRequest, never S/4) rather than about the check
+// itself, which has its own coverage in check-triggers.test.js.
 function screen(state) {
   const controller = loadController();
   const sent = [];
@@ -43,6 +47,10 @@ function screen(state) {
       getView: () => ({ getModel: () => model }),
       _renderAll: () => {},
       _validationErrors: () => [],
+      _metadata: [],
+      _executeAction: async () => ({
+        Valid: true, ValidationsJson: '[]', DerivationsJson: '[]', NormalisationsJson: '[]', StandardJson: '[]'
+      }),
       _sendChangeRequest: (action) => { sent.push(action); }
     })
   };

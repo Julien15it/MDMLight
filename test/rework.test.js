@@ -536,7 +536,14 @@ test('rework is the draft view with Resubmit in place of Submit', () => {
   const head = load.slice(0, load.indexOf('maintenanceModel.setData(state)'));
   assert.match(head, /state\.saveButtonText = reworking \? "Resubmit" : "Submit Request"/u);
   assert.match(head, /state\.showSaveButton = editing/u);
-  assert.match(controller, /if \(state\.mode === "rework"\)\s*\{\s*return this\._sendChangeRequest\("resubmitRequest"\)/u);
+  // The if/else-per-mode shape gave way to one ternary computing `action` when the pre-submit
+  // check (2026-08-31) needed a single place to run before whichever action gets sent - rework
+  // still resolves to resubmitRequest, just no longer through its own branch.
+  assert.match(
+    controller,
+    /: \(state\.mode === "rework" \? "resubmitRequest" : null\)/u
+  );
+  assert.match(controller, /return this\._sendChangeRequest\(action\);/u);
   // Check stays, and since 2026-08-21 it is on the approve view too - both buttons only read. The
   // one screen it is off is the read-only view of a request, which re-runs nothing.
   assert.match(head, /state\.showCheckButton = !viewing;/u);
