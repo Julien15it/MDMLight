@@ -3021,6 +3021,26 @@ Three things that were broken or unsafe, found while wiring this and fixed with 
   the number the moment S/4 hands it over — before the child nodes, which can
   still throw — and `isCreate` is `requestType === 'create' && !businessPartner`,
   making the retry an update.
+- **The same partial-post retry could ALSO try to re-create a CHILD node S/4
+  already has** (fixed 2026-08-31, reported live: approving a resubmit failed with
+  *"Error during request to remote service: BP role FLVN01 already exists for
+  partner"*). Only `header.businessPartner` and `ROLE_NODES` (`Customers`/
+  `Suppliers`) were retry-safe — the root record via the bullet above, the role
+  nodes because their own `isCreate` reads `relationValue == null`, which
+  naturally resolves non-null once CVI has created the customer/vendor master.
+  **Every other child section, `BusinessPartnerRoles` included, decided
+  create-vs-update purely from the staged `action` column**, which never learned
+  that its own create had, in fact, already gone through on an earlier partial
+  post — a rework that fixed the node that actually failed still replayed a
+  `saveBusinessPartnerEntity` create for every node that had already succeeded,
+  and S/4 correctly refused all of them as duplicates. `postToS4` now flips a
+  successfully-created row's own `action` to `'U'` right after the save succeeds
+  — the same "persist immediately, because a later node can still throw"
+  reasoning as `header.businessPartner` above, just per row instead of once per
+  request. **The symmetric gap on deletes got the same fix**: a successfully
+  deleted row is removed from staging entirely (there is nothing left to
+  represent once it is gone from both sides), so a retry cannot try to delete it
+  a second time either.
 
 Still open, and Julien's call rather than the code's: a failed post from **My
 Inbox** completes the task anyway. The decision stands and the task is done either
