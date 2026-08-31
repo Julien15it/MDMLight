@@ -12,14 +12,84 @@ sap.ui.define([
 
   var UPDATE_GROUP = "ruleChanges";
 
-  // Mirrors CONDITION_PAIRS in srv/checks/workflow-rules.js. The column names are part of the OData
-  // contract, so this is the one thing the page may hold a copy of. The `values` keys are PLURAL and
-  // hold one value each: multiple values were withdrawn on 2026-08-21 and `cds-deploy` cannot rename
-  // a column - see "Multiple values per condition" in CLAUDE.md.
-  var CONDITION_PAIRS = [
-    { field: "conditionField", values: "conditionValues" },
-    { field: "conditionField2", values: "conditionValues2" }
+  /**
+   * One condition per LINE of the `conditions` column - "field = value1|value2" - mirroring
+   * parseConditionLines/formatConditionLines in srv/checks/workflow-rules.js. Kept as a page-side
+   * copy for the same reason CONDITION_PAIRS used to be: this shape is part of the OData contract,
+   * not an internal detail, so a courtesy client-side check needs to read it the same way the
+   * service does.
+   */
+  function parseConditionLines(raw) {
+    return String(raw === null || raw === undefined ? "" : raw)
+      .split("\n")
+      .map(function (line) { return line.trim(); })
+      .filter(Boolean)
+      .map(function (line) {
+        var at = line.indexOf("=");
+        if (at === -1) return { field: line.trim(), values: "" };
+        return { field: line.slice(0, at).trim(), values: line.slice(at + 1).trim() };
+      });
+  }
+
+  // Columns of the Excel/CSV round trip, in export order. "ID" is the match key on import: a blank
+  // (or unrecognised) one creates a new rule, one matching a currently-loaded row updates it in
+  // place - see _applyImportedCsv.
+  var CSV_COLUMNS = [
+    { key: "ID", label: "ID (leave blank for a new rule)" },
+    { key: "requestType", label: "CR Type" },
+    { key: "step", label: "Step" },
+    { key: "conditions", label: "Conditions" },
+    { key: "conditionLogic", label: "Logic" },
+    { key: "approvers", label: "Approvers" },
+    { key: "isActive", label: "Active" }
   ];
+
+  /** Quotes a field only when it needs it - a bare value stays readable in a plain text editor too. */
+  function csvEscape(value) {
+    var text = value === null || value === undefined ? "" : String(value);
+    if (/["\n\r,]/u.test(text)) return '"' + text.replace(/"/gu, '""') + '"';
+    return text;
+  }
+
+  /** `\r\n` is what Excel itself writes and expects between rows; inside a quoted field (Conditions,
+   *  which is multi-line by design) a bare `\n` still reads as one cell. */
+  function toCsv(rows, columns) {
+    var lines = [columns.map(function (column) { return csvEscape(column.label); }).join(",")];
+    rows.forEach(function (row) {
+      lines.push(columns.map(function (column) { return csvEscape(row[column.key]); }).join(","));
+    });
+    return lines.join("\r\n");
+  }
+
+  /**
+   * A small state machine rather than a split on "\n": a quoted field can itself hold a literal
+   * newline - the Conditions column always will once a rule has more than one condition - and
+   * splitting on every "\n" first would cut such a row in two before the quoting is even read.
+   */
+  function fromCsv(text) {
+    var rows = [];
+    var row = [];
+    var field = "";
+    var inQuotes = false;
+    var i = 0;
+    while (i < text.length) {
+      var ch = text[i];
+      if (inQuotes) {
+        if (ch === '"') {
+          if (text[i + 1] === '"') { field += '"'; i += 2; continue; }
+          inQuotes = false; i += 1; continue;
+        }
+        field += ch; i += 1; continue;
+      }
+      if (ch === '"') { inQuotes = true; i += 1; continue; }
+      if (ch === ",") { row.push(field); field = ""; i += 1; continue; }
+      if (ch === "\r") { i += 1; continue; }
+      if (ch === "\n") { row.push(field); rows.push(row); row = []; field = ""; i += 1; continue; }
+      field += ch; i += 1;
+    }
+    if (field.length || row.length) { row.push(field); rows.push(row); }
+    return rows.filter(function (parsedRow) { return parsedRow.length > 1 || parsedRow[0] !== ""; });
+  }
 
   // Who approves what. Same page shape as the other three rule tables, because a steward should not
   // have to learn two: one value per cell, a field value help on the conditions and a role value
@@ -125,12 +195,155 @@ sap.ui.define([
       });
     },
 
+    // "Copy and paste" for a rule: the same fields as Add Rule, pre-filled from the selected row
+    // rather than blank. Identity and managed columns are stripped so the copy becomes its own row
+    // instead of fighting the original for one - `binding.create` is a POST, and sending an existing
+    // key or a server-assigned timestamp back to it is either ignored or rejected depending on the
+    // column, never something worth relying on either way.
+    onDuplicateRule: function () {
+      var item = this._table().getSelectedItem();
+      if (!item) {
+        MessageToast.show("Select the rule to duplicate.");
+        return;
+      }
+      var context = item.getBindingContext("dc");
+      var binding = this._table().getBinding("items");
+      if (!context || !binding) return;
+      var copy = Object.assign({}, context.getObject());
+      ["ID", "@odata.etag", "createdAt", "createdBy", "modifiedAt", "modifiedBy"].forEach(function (key) {
+        delete copy[key];
+      });
+      binding.create(copy);
+      this._markDirty();
+    },
+
     onCellChange: function () {
       this._markDirty();
     },
 
     _markDirty: function () {
       this.getView().getModel("view").setProperty("/dirty", true);
+    },
+
+    // --- Excel (CSV) import / export ----------------------------------------
+    //
+    // Real .xlsx would need a third-party reader/writer library this repo has never taken a
+    // dependency on anywhere, front or back end - CSV needs none: Excel opens and saves it natively,
+    // and a small RFC-4180-shaped encoder/decoder (top of this file) is standard, low-risk code with
+    // nothing to vendor or keep patched. "Export to Excel" / "Import from Excel" in the UI names the
+    // destination the steward actually cares about; the file on disk is `.csv`.
+
+    /** Every row on the page, in the same shape Save already reads them in. */
+    onExportExcel: function () {
+      var rows = this._draftRules();
+      if (!rows.length) {
+        MessageToast.show("There is nothing to export yet.");
+        return;
+      }
+      var csv = toCsv(rows, CSV_COLUMNS);
+      // A UTF-8 BOM, because Excel on Windows otherwise guesses the system codepage for a plain
+      // .csv and can mangle anything outside ASCII - an approver's name, say.
+      var blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+      var url = URL.createObjectURL(blob);
+      var link = document.createElement("a");
+      link.href = url;
+      link.download = "workflow-agent-determination.csv";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    },
+
+    /** A hidden native file input, reused across presses rather than rebuilt each time. */
+    onImportExcel: function () {
+      if (!this._importInput) {
+        this._importInput = document.createElement("input");
+        this._importInput.type = "file";
+        this._importInput.accept = ".csv,text/csv";
+        this._importInput.style.display = "none";
+        this._importInput.addEventListener("change", this._onImportFileChosen.bind(this));
+        document.body.appendChild(this._importInput);
+      }
+      // Cleared before opening, so re-importing the very same file still fires "change".
+      this._importInput.value = "";
+      this._importInput.click();
+    },
+
+    _onImportFileChosen: function (event) {
+      var file = event.target.files && event.target.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function () {
+        this._applyImportedCsv(String(reader.result || ""));
+      }.bind(this);
+      reader.onerror = function () {
+        MessageBox.error("The file could not be read.");
+      };
+      reader.readAsText(file, "utf-8");
+    },
+
+    /**
+     * Every row becomes either an update to an already-loaded rule (its ID column matches one on
+     * screen) or a new one (blank or unrecognised ID) - so a steward can export, edit existing rows
+     * AND append new ones in the same spreadsheet, and re-import the whole thing in one go. Nothing
+     * is saved here: like Add Rule, this only populates the (now dirty) table, so the existing
+     * Save/Discard flow - and its validation - still has the last word.
+     */
+    _applyImportedCsv: function (text) {
+      var table = fromCsv(text);
+      if (!table.length) {
+        MessageBox.error("The file is empty.");
+        return;
+      }
+      var keyForLabel = {};
+      CSV_COLUMNS.forEach(function (column) { keyForLabel[column.label.trim()] = column.key; });
+      var header = table[0].map(function (label) { return keyForLabel[label.trim()]; });
+      if (header.indexOf("requestType") === -1 || header.indexOf("approvers") === -1) {
+        MessageBox.error("This file's header does not match the Workflow Agent Determination "
+          + "export format. Export the current rules first and edit that file.");
+        return;
+      }
+
+      var binding = this._table().getBinding("items");
+      if (!binding) return;
+      var byId = {};
+      binding.getCurrentContexts().forEach(function (context) {
+        var object = context.getObject();
+        if (object && object.ID) byId[object.ID] = context;
+      });
+
+      var created = 0;
+      var updated = 0;
+      var skipped = 0;
+      table.slice(1).forEach(function (fields) {
+        if (fields.length === 1 && fields[0] === "") return;
+        var record = {};
+        header.forEach(function (key, column) {
+          if (!key || key === "ID") return;
+          record[key] = fields[column] !== undefined ? fields[column] : "";
+        });
+        // Tolerant on purpose: a business user typing quickly in Excel writes "yes"/"Yes"/"TRUE"/
+        // "1"/"x" as often as the literal word, and a strict match would silently read every one of
+        // those as inactive.
+        record.isActive = /^(true|1|yes|x)$/iu.test(String(record.isActive || "").trim());
+        var id = fields[header.indexOf("ID")];
+        var existing = id && byId[id];
+        if (existing) {
+          Object.keys(record).forEach(function (key) { existing.setProperty(key, record[key]); });
+          updated += 1;
+        } else if (record.requestType || record.approvers || record.conditions) {
+          binding.create(record);
+          created += 1;
+        } else {
+          skipped += 1;
+        }
+      });
+      this._markDirty();
+      MessageToast.show(
+        created + " rule(s) added, " + updated + " updated"
+        + (skipped ? ", " + skipped + " blank row(s) skipped" : "")
+        + ". Review and press Save."
+      );
     },
 
     // --- The role value help -----------------------------------------------
@@ -211,15 +424,20 @@ sap.ui.define([
 
     // --- The field value help ----------------------------------------------
 
-    // Opened from either condition field cell. The cell is identified by its own binding rather than
-    // custom data: `getBinding("value").getPath()` already knows what it writes.
+    /**
+     * Two callers, told apart by what pressed it. A bound `Input` (this page has none left today,
+     * but the fragment and this handler stay generic) supplies its own binding and REPLACES its
+     * value, same as always. The "Insert Field" button beside the Conditions `TextArea` has no
+     * value of its own to bind - it names the row through its own binding context instead - and its
+     * chosen field is APPENDED as a new line rather than overwriting whatever is already typed,
+     * since the whole point of this column is to hold more than one condition.
+     */
     onFieldValueHelp: async function (event) {
-      var input = event.getSource();
-      var binding = input.getBinding("value");
-      this._target = {
-        context: input.getBindingContext("dc"),
-        path: binding && binding.getPath()
-      };
+      var source = event.getSource();
+      var binding = source.getBinding && source.getBinding("value");
+      this._target = binding
+        ? { context: source.getBindingContext("dc"), path: binding.getPath(), mode: "replace" }
+        : { context: source.getBindingContext("dc"), path: "conditions", mode: "append" };
       if (!this._target.context || !this._target.path) return;
       if (!this._valueHelp) {
         this._valueHelp = await Fragment.load({
@@ -260,7 +478,13 @@ sap.ui.define([
       // a rule that no longer resolves the moment a label is reworded.
       var code = context && context.getProperty("code");
       if (!code || !this._target) return;
-      this._target.context.setProperty(this._target.path, code);
+      if (this._target.mode === "append") {
+        var current = this._target.context.getProperty(this._target.path) || "";
+        var prefix = current && !/\n$/u.test(current) ? current + "\n" : current;
+        this._target.context.setProperty(this._target.path, prefix + code + " = ");
+      } else {
+        this._target.context.setProperty(this._target.path, code);
+      }
       this._markDirty();
     },
 
@@ -279,13 +503,13 @@ sap.ui.define([
           problems.push(label + "name the approver — an e-mail address or a role.");
         }
         // Half a condition is the dangerous half: a field with no values would match everything.
-        CONDITION_PAIRS.forEach(function (pair, position) {
+        parseConditionLines(rule.conditions).forEach(function (condition, position) {
           var name = "condition " + (position + 1);
-          if (rule[pair.field] && !rule[pair.values]) {
-            problems.push(label + name + " needs a value, or clear its field.");
+          if (condition.field && !condition.values) {
+            problems.push(label + name + ' needs a value after "=", or remove its line.');
           }
-          if (rule[pair.values] && !rule[pair.field]) {
-            problems.push(label + name + " needs a field.");
+          if (!condition.field && condition.values) {
+            problems.push(label + name + ' needs a field before "=".');
           }
         });
       });

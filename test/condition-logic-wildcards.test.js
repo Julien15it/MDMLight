@@ -114,6 +114,20 @@ test('the operator only applies when both conditions are filled', () => {
   assert.equal(joinConditions([], 'NOR'), true, 'no condition means the rule always applies');
 });
 
+/**
+ * The whole reason `joinConditions` was generalised (2026-08-28, for WorkflowRules' dynamic
+ * `conditions` column): three or more results, not just the two every OTHER rule table still has.
+ * AND/OR fold naturally; NOR is "none of them" - `!results.some(Boolean)`, not a pairwise negation.
+ */
+test('AND, OR and NOR fold over three or more conditions, not just two', () => {
+  assert.equal(joinConditions([true, true, true], 'AND'), true);
+  assert.equal(joinConditions([true, true, false], 'AND'), false);
+  assert.equal(joinConditions([false, false, true], 'OR'), true);
+  assert.equal(joinConditions([false, false, false], 'OR'), false);
+  assert.equal(joinConditions([false, false, false, false], 'NOR'), true);
+  assert.equal(joinConditions([false, true, false, false], 'NOR'), false);
+});
+
 test('a rule carrying an unusable operator does not save', () => {
   const model = { definitions: {} };
   const errors = validateValidationRule({ conditionLogic: 'MAYBE' }, model).errors;
