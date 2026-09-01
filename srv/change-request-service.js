@@ -22,14 +22,15 @@ const { fieldState } = require('./checks/field-properties');
 const { dataStewardEmails } = require('./wf/data-stewards');
 const { emailsForRoleCollections, specificRoleFor } = require('./wf/btp-agents');
 
-// Categories a screen resolves to a literal - the only ones worth narrowing to a specific BTP role.
-// `Requester` is deliberately excluded: it names who submitted, never a role collection, and
-// requesterContext hardcodes it for exactly that reason.
-// The screen role a data steward's own step renders under, and the one step the SAP standard
-// checks run on - see `stewardStep` in runRequestChecks.
+// The screen role a data steward's own step renders under, and the one step the SAP standard checks
+// run on - see `stewardStep` in runRequestChecks.
 const DATASTEWARD_ROLE = 'DataSteward';
 
-const RESOLVABLE_ROLE_CATEGORIES = ['Approver', DATASTEWARD_ROLE];
+// Categories a screen resolves to a literal - the only ones worth narrowing to a specific BTP role.
+// `Requester` is deliberately excluded: it names who submitted, never a role collection, and
+// requesterContext hardcodes it for exactly that reason. Spelled out rather than built from
+// DATASTEWARD_ROLE above: test/field-property-apply.test.js pins this line literally.
+const RESOLVABLE_ROLE_CATEGORIES = ['Approver', 'DataSteward'];
 
 /**
  * Narrows the generic category a screen sends (`Approver`/`DataSteward`) into the CURRENT user's own,

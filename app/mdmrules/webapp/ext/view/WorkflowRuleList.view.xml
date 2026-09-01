@@ -64,12 +64,12 @@
           <Column width="24rem"><Text text="Condition 1" /></Column>
           <Column width="6rem"><Text text="Logic" /></Column>
           <Column width="24rem"><Text text="Condition 2" /></Column>
-          <Column width="6rem" visible="{= ${view>/conditions} >= 3 }"><Text text="Logic" /></Column>
-          <Column width="24rem" visible="{= ${view>/conditions} >= 3 }"><Text text="Condition 3" /></Column>
-          <Column width="6rem" visible="{= ${view>/conditions} >= 4 }"><Text text="Logic" /></Column>
-          <Column width="24rem" visible="{= ${view>/conditions} >= 4 }"><Text text="Condition 4" /></Column>
-          <Column width="6rem" visible="{= ${view>/conditions} >= 5 }"><Text text="Logic" /></Column>
-          <Column width="24rem" visible="{= ${view>/conditions} >= 5 }"><Text text="Condition 5" /></Column>
+          <Column width="6rem" visible="{= ${view>/conditions} &gt;= 3 }"><Text text="Logic" /></Column>
+          <Column width="24rem" visible="{= ${view>/conditions} &gt;= 3 }"><Text text="Condition 3" /></Column>
+          <Column width="6rem" visible="{= ${view>/conditions} &gt;= 4 }"><Text text="Logic" /></Column>
+          <Column width="24rem" visible="{= ${view>/conditions} &gt;= 4 }"><Text text="Condition 4" /></Column>
+          <Column width="6rem" visible="{= ${view>/conditions} &gt;= 5 }"><Text text="Logic" /></Column>
+          <Column width="24rem" visible="{= ${view>/conditions} &gt;= 5 }"><Text text="Condition 5" /></Column>
           <Column width="16rem"><Text text="Approvers" /></Column>
           <Column width="4rem" hAlign="Center"><Text text="Active" /></Column>
         </columns>

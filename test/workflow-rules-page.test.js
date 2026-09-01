@@ -28,16 +28,21 @@ const changeRequestJs = read(ROOT, 'srv', 'change-request-service.js');
 // Five condition slots since 2026-09-01, three of them hidden until "Add Condition" reveals them -
 // they are declared here either way, because a hidden column is still a column on every row.
 test('the workflow table has the columns a rule needs, in order', () => {
-  const columns = [...view.matchAll(/<Column[^>]*>\s*<Text text="([^"]+)"/gu)].map((match) => match[1]);
+  // Lazy across the attributes rather than `[^>]*`: a `visible` binding carries `>` twice over -
+  // once as the model-name separator in `${view>/conditions}` and once in the comparison - so an
+  // attribute list cannot be read as "everything up to the first `>`".
+  const columns = [...view.matchAll(/<Column\b[\s\S]*?>\s*<Text text="([^"]+)"/gu)].map((match) => match[1]);
   assert.deepEqual(columns, [
     'CR Type', 'Step',
     'Condition 1', 'Logic', 'Condition 2', 'Logic', 'Condition 3',
     'Logic', 'Condition 4', 'Logic', 'Condition 5',
     'Approvers', 'Active'
   ]);
-  // Only the first two slots are drawn until somebody asks for a third.
-  assert.match(view, /<Column width="6rem" visible="\{= \$\{view>\/conditions\} >= 3 \}">/u);
-  assert.match(view, /<Column width="24rem" visible="\{= \$\{view>\/conditions\} >= 5 \}">/u);
+  // Only the first two slots are drawn until somebody asks for a third. `&gt;` is escaped rather
+  // than left literal: a raw `>` inside an attribute value is legal XML but ends the tag as far as
+  // every `[^>]*` reader is concerned - the regex above included.
+  assert.match(view, /<Column width="6rem" visible="\{= \$\{view>\/conditions\} &gt;= 3 \}">/u);
+  assert.match(view, /<Column width="24rem" visible="\{= \$\{view>\/conditions\} &gt;= 5 \}">/u);
 });
 
 test('the fifth tile leads to it, and the route exists', () => {
