@@ -5,7 +5,7 @@
     "type": "application",
     "i18n": "i18n/i18n.properties",
     "applicationVersion": {
-      "version": "1.5.0"
+      "version": "1.6.0"
     },
     "title": "{{appTitle}}",
     "description": "{{appDescription}}",
@@ -158,6 +158,14 @@
         "prefix": {
           "type": "string",
           "title": "Service Prefix"
+        },
+        "currentapprover": {
+          "type": "integer",
+          "title": "Current Approver"
+        },
+        "totalapprovers": {
+          "type": "integer",
+          "title": "Total Approvers"
         }
       }
     },

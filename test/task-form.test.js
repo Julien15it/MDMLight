@@ -458,7 +458,9 @@ test('the task app version is pinned, so the process keeps pointing at it', () =
   // Raised 1.3.0 -> 1.4.0 -> 1.5.0 (2026-08-26): the data steward task type/outcomes joined
   // sap.bpa.task, then the Reject outcome id changed to reuse "reject" - each is a schema
   // change the Lobby only re-reads when the task is re-pointed.
-  assert.equal(manifest['sap.app'].applicationVersion.version, '1.5.0');
+  // Raised 1.5.0 -> 1.6.0 (2026-09-01): currentapprover/totalapprovers joined sap.bpa.task.inputs
+  // for multiple approvers - another schema change.
+  assert.equal(manifest['sap.app'].applicationVersion.version, '1.6.0');
 });
 
 /**

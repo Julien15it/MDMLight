@@ -394,6 +394,23 @@ sap.ui.define(
             },
 
             /**
+             * Whether THIS task is the last approval BPA's own chain still needs (2026-09-01,
+             * multiple approvers). `currentapprover`/`totalapprovers` are new, optional task inputs -
+             * both 1-indexed integers - that BPA maps onto the task context the same way `prefix`
+             * does; a task built before either existed carries neither, and that (or either value
+             * failing to parse as a number) is read as "the only approver", matching the single-
+             * approver behaviour this app always had. `>=` rather than `===` is deliberately
+             * forgiving of `currentapprover` somehow exceeding `totalapprovers` - still the final
+             * step, not a reason to withhold the decision.
+             */
+            _isFinalApprover: function (context) {
+                var total = Number((context || {}).totalapprovers);
+                var current = Number((context || {}).currentapprover);
+                if (!Number.isFinite(total) || !Number.isFinite(current)) return true;
+                return current >= total;
+            },
+
+            /**
              * Record the decision in CAP first, then complete the task. The order matters: an
              * approve is what creates the business partner in S/4 (changed 2026-08-25 - it used to
              * happen in completeRequest, after the task resumed the workflow), so the post has
@@ -406,10 +423,20 @@ sap.ui.define(
              * task is done either way; the request has gone back to `reworkRequired` and the
              * message below is how the approver learns that. Whether a failed post should instead
              * leave the task open is Julien's call, not this screen's.
+             *
+             * An **approve** that is not yet the last one in BPA's own chain of approvers
+             * (2026-09-01) never reaches `decideRequest` at all: nothing is decided in CAP and
+             * nothing is posted to S/4 yet, only this one task completes - BPA's own routing is what
+             * sends the next approver's task, the same way it already owns every other multi-
+             * approver decision (see CLAUDE.md, "Multiple approvers: decide and post are separate").
+             * Reject is unaffected either way: rejecting at any step still rejects the whole request.
              */
             _completeTask: async function (outcomeId) {
                 try {
-                    var decision = await this._decideOnServer(outcomeId);
+                    var context = (this.getModel("context") && this.getModel("context").getData()) || {};
+                    var isIntermediateApproval = outcomeId === "approve" && !this._isFinalApprover(context);
+
+                    var decision = isIntermediateApproval ? null : await this._decideOnServer(outcomeId);
                     await this._patchTaskInstance(outcomeId);
                     this._startupParameters().inboxAPI.updateTask("NA", this._taskInstanceId());
                     if (decision && decision.ErrorMessage) {

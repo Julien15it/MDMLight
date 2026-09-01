@@ -3212,6 +3212,42 @@ only terminal status**; a withdrawn request is deleted rather than parked in one
 Individual approvals are not stored anywhere in CAP, by decision — the UI cannot
 show "2 of 3 approved" without a new table.
 
+##### Several approvers, sequentially, in BPA's own chain (2026-09-01)
+
+Asked for directly: BPA now routes a change request through **multiple** approvers, one task at a
+time, and only the LAST one should actually decide anything in CAP - an earlier approve in the
+chain must not create the business partner (or even record a decision) before every approver has
+had their turn.
+
+**CAP still knows nothing about this**, by the same design as the paragraph above - no count, no
+sequence, no per-approver record. The task app (`app/bptask`) is where it is decided whether to
+call `decideRequest` at all:
+
+- **BPA maps two new, optional task inputs onto the task context**: `currentapprover` and
+  `totalapprovers` (both 1-indexed integers, `sap.bpa.task.inputs` in `app/bptask`'s
+  `manifest.json` - `applicationVersion` bumped 1.5.0 → 1.6.0 for the schema change, same rule as
+  every earlier addition to that schema). Absent - every task built before this existed, and every
+  single-approver flow - reads as "the only approver", the exact behaviour this app always had.
+  `_isFinalApprover(context)` is `current >= total`, with either value failing to parse as a number
+  treated the same as absent.
+- **`_completeTask(outcomeId)` in `Component.js` is where the gate sits.** An `"approve"` outcome
+  that is not yet final skips `_decideOnServer` entirely - `decideRequest` is never called, so
+  nothing is written in CAP and nothing is posted to S/4 - and only completes this one My Inbox
+  task. Completing the task is what BPA reads to advance its own routing to the next approver's
+  task, the same mechanism that already sends every other multi-step task in this app (rework,
+  data steward review) — CAP does not have to be told to do this, only to stay out of the way while
+  BPA is still collecting approvals.
+- **Reject is never gated on this.** Rejecting at any step in the chain still calls
+  `_decideOnServer("reject")` immediately and sends the whole request back to the requester - a
+  multi-approver chain is a chain of approvals, not a chain of independent decisions each approver
+  could make differently.
+- **The shared screen's own `onApprove`/`_decide` (`BusinessPartnerMaintenance.controller.js`) are
+  untouched and do not need this gate.** Embedded in My Inbox, the screen's own decision buttons
+  hide and `_addInboxActions` wires "Approve"/"Reject" straight to `_completeTask` - the shared
+  controller's `onApprove` is never reached that way. It is only reachable standalone (dev testing,
+  reached from nowhere real per "Rework — the requester's screen"), where single-approver semantics
+  are correct because there is no real BPA chain to be a step of.
+
 #### Rework — the requester's screen (2026-08-19)
 
 A rejection is a **loop, not an end**. The approver rejects, SPA notifies the
