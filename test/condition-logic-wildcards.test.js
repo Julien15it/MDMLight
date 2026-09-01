@@ -128,6 +128,40 @@ test('AND, OR and NOR fold over three or more conditions, not just two', () => {
   assert.equal(joinConditions([false, true, false, false], 'NOR'), false);
 });
 
+/**
+ * `foldConditions` is the same join with ONE LOGIC PER GAP (2026-09-01), for a table that draws a
+ * Logic column between every pair of conditions - WorkflowRules since it gained five slots. It has
+ * to agree with `joinConditions` wherever the logic is uniform, or every rule saved before it
+ * existed would start answering differently.
+ */
+test('foldConditions matches joinConditions whenever one logic covers every gap', () => {
+  const { foldConditions } = require('../srv/checks/value-lists');
+  for (const logic of ['AND', 'OR', null]) {
+    for (const results of [[], [true], [false], [true, false], [false, true], [true, true, false]]) {
+      assert.equal(
+        foldConditions(results, results.map(() => logic)),
+        joinConditions(results, logic),
+        `${logic} ${JSON.stringify(results)}`
+      );
+    }
+  }
+  // NOR too, up to the two-condition case the pairwise version was written for.
+  assert.equal(foldConditions([true], [null]), true, 'a lone condition is itself, never inverted');
+  assert.equal(foldConditions([false, false], [null, 'NOR']), true);
+  assert.equal(foldConditions([false, true], [null, 'NOR']), false);
+});
+
+// Left to right, no precedence: `A OR B AND C` is `(A OR B) AND C`, which is how the row reads.
+test('foldConditions applies each gap its own logic, left to right', () => {
+  const { foldConditions } = require('../srv/checks/value-lists');
+  assert.equal(foldConditions([true, false, true], [null, 'OR', 'AND']), true);
+  assert.equal(foldConditions([true, false, false], [null, 'OR', 'AND']), false);
+  assert.equal(foldConditions([false, false, true], [null, 'AND', 'OR']), true);
+  // An unrecognised or missing logic still reads as AND, the same fallback every stored row gets.
+  assert.equal(foldConditions([true, true], [null, 'XOR']), true);
+  assert.equal(foldConditions([true, false], [null, undefined]), false);
+});
+
 test('a rule carrying an unusable operator does not save', () => {
   const model = { definitions: {} };
   const errors = validateValidationRule({ conditionLogic: 'MAYBE' }, model).errors;

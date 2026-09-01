@@ -20,7 +20,7 @@ const {
 const fieldPropertyStore = require('./checks/field-property-store');
 const {
   REQUEST_TYPES: WORKFLOW_REQUEST_TYPES, REQUEST_TYPE_TEXT: WORKFLOW_REQUEST_TYPE_TEXT,
-  STEPS, STEP_TEXT, validateWorkflowRule, runnableWorkflowRules
+  STEPS, STEP_TEXT, MAX_CONDITIONS, symbolOnly, validateWorkflowRule, runnableWorkflowRules
 } = require('./checks/workflow-rules');
 const workflowRuleStore = require('./checks/workflow-rule-store');
 const { workflowAgents } = require('./wf/btp-agents');
@@ -133,10 +133,12 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
         conditionLogics: CONDITION_LOGIC_OPTIONS,
         // The exact same operator vocabulary qualityRuleOptions already offers ValidationRules/
         // DerivationRules for their own comparison column - asked for directly ("volgens mij alle
-        // mogelijke operatoren") rather than a smaller, WorkflowRules-only set.
+        // mogelijke operatoren") rather than a smaller, WorkflowRules-only set. Shown here by its
+        // SYMBOL alone - see `symbolOnly`.
         comparisons: Object.entries(COMPARISONS).map(([code, comparison]) => ({
-          code, text: comparison.text.trim(), needsValue: comparison.needsValue
+          code, text: symbolOnly(comparison.text), needsValue: comparison.needsValue
         })),
+        conditionSlots: MAX_CONDITIONS,
         // The subaccount's own role collections (MDMLIGHT* only) and users - see srv/wf/btp-agents.js
         // and CLAUDE.md "Workflow Agent Determination". Not this app's own Requester/Approver/
         // DataSteward roles: those are what the Field Property Profiles page still conditions on

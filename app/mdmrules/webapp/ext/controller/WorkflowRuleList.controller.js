@@ -20,8 +20,31 @@ sap.ui.define([
   var STRIP_ON_COPY = ["ID", "@odata.etag", "createdAt", "createdBy", "modifiedAt", "modifiedBy"];
 
   /**
+   * The five fixed condition slots, in the order the table draws them - the client-side mirror of
+   * `CONDITION_PAIRS` in srv/checks/workflow-rules.js, `logic` naming the column that joins a slot
+   * to the one before it. Two are shown by default and "Add Condition" reveals the next pair of
+   * columns (2026-09-01, asked for); the schema carries all five either way, because `cds-deploy`
+   * can add a column and can never drop one - see db/workflow-rules.cds.
+   */
+  var CONDITION_SLOTS = [
+    { field: "conditionField", operator: "conditionOperator", values: "conditionValues", logic: null, name: "condition 1" },
+    { field: "conditionField2", operator: "conditionOperator2", values: "conditionValues2", logic: "conditionLogic", name: "condition 2" },
+    { field: "conditionField3", operator: "conditionOperator3", values: "conditionValues3", logic: "conditionLogic2", name: "condition 3" },
+    { field: "conditionField4", operator: "conditionOperator4", values: "conditionValues4", logic: "conditionLogic3", name: "condition 4" },
+    { field: "conditionField5", operator: "conditionOperator5", values: "conditionValues5", logic: "conditionLogic4", name: "condition 5" }
+  ];
+
+  // Two columns are the shape this table has always had; nothing is revealed until asked for.
+  var DEFAULT_CONDITIONS = 2;
+
+  /**
    * The rule's own fields, one column per fixed condition slot - "de structuur die ook zichtbaar is
-   * in de app" (asked for): this mirrors the table on screen exactly. No `ID` column (dropped
+   * in de app" (asked for): this mirrors the table on screen exactly, all five slots included
+   * (2026-09-01), so a workbook can fill in a condition the page has not been asked to reveal yet.
+   * The later Logic columns are numbered ("Logic 2" joins Condition 2 to Condition 3) because a
+   * header row is matched by LABEL and four columns called "Logic" could not be told apart.
+   *
+   * No `ID` column (dropped
    * 2026-08-31 along with the ID-matching import ever did with it - see `_applyImportedXlsx`): a
    * generated key a requester cannot type in for a new row is not worth exporting once import no
    * longer reads it either. The ZIP/OOXML mechanics behind export/import are shared with the other
@@ -40,6 +63,18 @@ sap.ui.define([
       { key: "conditionField2", label: "Condition 2 Field" },
       { key: "conditionOperator2", label: "Condition 2 Operator" },
       { key: "conditionValues2", label: "Condition 2 Value" },
+      { key: "conditionLogic2", label: "Logic 2" },
+      { key: "conditionField3", label: "Condition 3 Field" },
+      { key: "conditionOperator3", label: "Condition 3 Operator" },
+      { key: "conditionValues3", label: "Condition 3 Value" },
+      { key: "conditionLogic3", label: "Logic 3" },
+      { key: "conditionField4", label: "Condition 4 Field" },
+      { key: "conditionOperator4", label: "Condition 4 Operator" },
+      { key: "conditionValues4", label: "Condition 4 Value" },
+      { key: "conditionLogic4", label: "Logic 4" },
+      { key: "conditionField5", label: "Condition 5 Field" },
+      { key: "conditionOperator5", label: "Condition 5 Operator" },
+      { key: "conditionValues5", label: "Condition 5 Value" },
       { key: "approvers", label: "Approvers" },
       { key: "isActive", label: "Active" }
     ];
@@ -55,10 +90,51 @@ sap.ui.define([
         busy: false,
         dirty: false,
         skipped: 0,
-        skippedText: ""
+        skippedText: "",
+        // How many condition columns are drawn, and the ceiling the schema imposes. The ceiling is
+        // replaced by the service's own `conditionSlots` once the options load, so the button and
+        // the table cannot disagree with the columns that actually exist.
+        conditions: DEFAULT_CONDITIONS,
+        maxConditions: CONDITION_SLOTS.length
       }), "view");
       this._router = UIComponent.getRouterFor(this);
+      // A saved rule that already uses more than two conditions has to show them without anyone
+      // pressing Add Condition first, and rows arrive after this runs - so the count is recomputed
+      // every time the table finishes rendering its items.
+      if (this._table()) this._table().attachUpdateFinished(this._syncConditionColumns, this);
       this._loadOptions();
+    },
+
+    /**
+     * Reveals one more Logic/Condition column pair, for every row at once - "an extra Logic and an
+     * extra Condition column into our table", not a per-row list. Nothing is written: the columns
+     * are already on every row, so this only decides how many of them are drawn, and a column that
+     * goes back to being hidden keeps whatever was typed into it (which is why it is only ever
+     * revealed here, never hidden again by the same button).
+     */
+    onAddCondition: function () {
+      var view = this.getView().getModel("view");
+      var max = view.getProperty("/maxConditions") || CONDITION_SLOTS.length;
+      var shown = view.getProperty("/conditions") || DEFAULT_CONDITIONS;
+      if (shown >= max) {
+        MessageToast.show("A rule can hold " + max + " conditions.");
+        return;
+      }
+      view.setProperty("/conditions", shown + 1);
+    },
+
+    // The highest slot any row actually fills, never fewer than what is already on screen: a steward
+    // who revealed a column and left it empty should not have it taken away on the next render.
+    _syncConditionColumns: function () {
+      var view = this.getView().getModel("view");
+      var shown = view.getProperty("/conditions") || DEFAULT_CONDITIONS;
+      this._draftRules().forEach(function (rule) {
+        CONDITION_SLOTS.forEach(function (slot, index) {
+          if (rule[slot.field] && index + 1 > shown) shown = index + 1;
+        });
+      });
+      var max = view.getProperty("/maxConditions") || CONDITION_SLOTS.length;
+      view.setProperty("/conditions", Math.min(shown, max));
     },
 
     onBackToHub: function () {
@@ -92,7 +168,11 @@ sap.ui.define([
       try {
         var options = await this._callAction("workflowRuleOptions", {});
         this.getView().setModel(new JSONModel(options || {}), "opt");
+        if (options && options.conditionSlots) {
+          this.getView().getModel("view").setProperty("/maxConditions", options.conditionSlots);
+        }
         this._reportSkipped(options);
+        this._syncConditionColumns();
         if (!options || !options.fields || !options.fields.length) {
           MessageBox.error("The field catalog came back empty, so no condition can be written. "
             + "The staging model could not be read.");
@@ -123,12 +203,13 @@ sap.ui.define([
       // The step is the only honest default: there is one, and it is what every row is for today.
       // Request type and approvers are left empty - a row arriving pre-pointed at a CR type would be
       // a routing rule nobody wrote.
-      binding.create({
-        step: "Approve",
-        approvers: "",
-        conditionLogic: "AND",
-        isActive: true
+      var row = { step: "Approve", approvers: "", isActive: true };
+      // Every Logic column defaults to AND, not only the first: a revealed column with nothing
+      // chosen would otherwise render blank while the engine reads it as AND anyway.
+      CONDITION_SLOTS.forEach(function (slot) {
+        if (slot.logic) row[slot.logic] = "AND";
       });
+      binding.create(row);
       this._markDirty();
     },
 
@@ -295,6 +376,8 @@ sap.ui.define([
       });
 
       this._markDirty();
+      // An imported row may fill in a condition the page was not drawing yet.
+      this._syncConditionColumns();
       MessageToast.show(
         existingRows.length + " existing rule(s) replaced by " + created + " from the file"
         + (skipped ? ", " + skipped + " blank row(s) skipped" : "")
@@ -450,12 +533,10 @@ sap.ui.define([
         }
         // Half a condition is the dangerous half: a field with no values would match everything -
         // unless the operator is one of the two that need no value at all ("is empty"/"is not
-        // empty"). The two fixed slots also validate server-side (validateCondition, through
-        // validateWorkflowRule); this is the same check done at the keyboard.
-        [
-          { field: "conditionField", operator: "conditionOperator", values: "conditionValues", name: "condition 1" },
-          { field: "conditionField2", operator: "conditionOperator2", values: "conditionValues2", name: "condition 2" }
-        ].forEach(function (slot) {
+        // empty"). Every fixed slot also validates server-side (validateCondition, through
+        // validateWorkflowRule); this is the same check done at the keyboard. Checked on all five
+        // whatever the page is drawing - an Excel import can fill in a hidden one.
+        CONDITION_SLOTS.forEach(function (slot) {
           var field = rule[slot.field];
           var values = rule[slot.values];
           var needsValue = rule[slot.operator] !== "empty" && rule[slot.operator] !== "notEmpty";

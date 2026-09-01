@@ -122,6 +122,87 @@ test('both pairs are ANDed, and an empty pair means any', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Five slots, one Logic per gap (2026-09-01, asked for): "provide an 'add condition' button next to
+// 'add rule' ... pressing this should add an extra Logic and an extra Condition column". Columns,
+// not a composition - see db/workflow-rules.cds for why that route is closed permanently.
+// ---------------------------------------------------------------------------
+
+test('a rule can carry five conditions, each with its own field, operator and value', () => {
+  const five = readConditions(rule({
+    conditionField: 'Addresses.Country', conditionValues: 'BE',
+    conditionField2: 'Addresses.Region', conditionOperator2: 'notEmpty',
+    conditionField3: 'General.BusinessPartnerCategory', conditionValues3: '2',
+    conditionField4: 'General.Language', conditionValues4: 'NL',
+    conditionField5: 'General.OrganizationBPName1', conditionOperator5: 'contains', conditionValues5: 'alluvion'
+  }), model);
+  assert.equal(five.length, 5);
+  const all = payload(
+    { BusinessPartnerCategory: '2', Language: 'NL', OrganizationBPName1: 'Alluvion BV' },
+    { Addresses: [{ Country: 'BE', Region: 'VAN' }] }
+  );
+  assert.equal(conditionsHold(five, all, model), true);
+  // One of the five failing is enough, because they are ANDed by default.
+  assert.equal(conditionsHold(five, payload(
+    { BusinessPartnerCategory: '2', Language: 'NL', OrganizationBPName1: 'Somebody Else' },
+    { Addresses: [{ Country: 'BE', Region: 'VAN' }] }
+  ), model), false);
+});
+
+// Left to right, no precedence: `A OR B AND C` is `(A OR B) AND C`, which is how the row reads.
+test('each Logic column joins its own pair, folded left to right', () => {
+  const conditions = readConditions(rule({
+    conditionField: 'Addresses.Country', conditionValues: 'BE',
+    conditionLogic: 'OR',
+    conditionField2: 'Addresses.Country', conditionValues2: 'NL',
+    conditionLogic2: 'AND',
+    conditionField3: 'General.BusinessPartnerCategory', conditionValues3: '2'
+  }), model);
+  const dutchOrg = payload({ BusinessPartnerCategory: '2' }, { Addresses: [{ Country: 'NL' }] });
+  assert.equal(conditionsHold(conditions, dutchOrg, model), true, 'NL satisfies the OR, category the AND');
+  const dutchPerson = payload({ BusinessPartnerCategory: '1' }, { Addresses: [{ Country: 'NL' }] });
+  assert.equal(conditionsHold(conditions, dutchPerson, model), false, 'the trailing AND still has to hold');
+  const frenchOrg = payload({ BusinessPartnerCategory: '2' }, { Addresses: [{ Country: 'FR' }] });
+  assert.equal(conditionsHold(conditions, frenchOrg, model), false, 'neither side of the OR holds');
+});
+
+// A blank slot takes its own Logic with it, so what survives is joined by the logic written
+// immediately before it - never by a column with nothing left beside it.
+test('a blank middle slot leaves the surviving conditions joined by their own Logic', () => {
+  const conditions = readConditions(rule({
+    conditionField: 'Addresses.Country', conditionValues: 'BE',
+    conditionLogic: 'AND',
+    conditionLogic2: 'OR',
+    conditionField3: 'General.BusinessPartnerCategory', conditionValues3: '2'
+  }), model);
+  assert.equal(conditions.length, 2);
+  assert.equal(conditions[1].logic, 'OR');
+  assert.equal(conditionsHold(conditions, payload({ BusinessPartnerCategory: '2' }, {}), model), true);
+  assert.equal(conditionsHold(conditions, payload({}, { Addresses: [{ Country: 'BE' }] }), model), true);
+  assert.equal(conditionsHold(conditions, payload({ BusinessPartnerCategory: '1' }, { Addresses: [{ Country: 'FR' }] }), model), false);
+});
+
+// A rule saved with two slots has no later column filled in at all - it must read exactly as it did.
+test('a rule saved before the extra slots existed is unchanged', () => {
+  const two = readConditions(rule({
+    conditionField: 'Addresses.Country', conditionValues: 'BE',
+    conditionField2: 'General.BusinessPartnerCategory', conditionValues2: '2'
+  }), model);
+  assert.equal(two.length, 2);
+  assert.equal(conditionsHold(two, payload({ BusinessPartnerCategory: '2' }, { Addresses: [{ Country: 'BE' }] }), model), true);
+  assert.equal(conditionsHold(two, payload({ BusinessPartnerCategory: '2' }, { Addresses: [{ Country: 'FR' }] }), model), false);
+});
+
+// Half a condition is the dangerous half in the new slots too, and so is a logic nothing recognises.
+test('every slot validates, and so does every Logic column', () => {
+  const errors = validateWorkflowRule(rule({
+    conditionField5: 'Addresses.Country',
+    conditionLogic3: 'MAYBE'
+  }), model).errors;
+  assert.equal(errors.some((error) => /condition 5 needs at least one value/u.test(error.message)), true);
+  assert.equal(errors.some((error) => error.field === 'conditionLogic3'), true);
+});
+
+// ---------------------------------------------------------------------------
 // Two fixed condition slots (reverted 2026-08-31), on direct feedback: "ik wil dit naast elkaar
 // zoals het ervoor was ... niet hoe het nu is" - a dynamic, unbounded `conditionRows` composition
 // (db/workflow-rules.cds) was built and briefly deployed-toward, and turned out not to be what was

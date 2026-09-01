@@ -25,11 +25,19 @@ const rulesCds = read(ROOT, 'db', 'workflow-rules.cds');
 const changeRequestJs = read(ROOT, 'srv', 'change-request-service.js');
 
 // The columns are the agreed shape of a rule, so they are pinned rather than left to a refactor.
-// Reverted (2026-08-31) to two fixed condition slots, side by side, as it originally was - the
-// single "Conditions" column that briefly replaced them is gone.
+// Five condition slots since 2026-09-01, three of them hidden until "Add Condition" reveals them -
+// they are declared here either way, because a hidden column is still a column on every row.
 test('the workflow table has the columns a rule needs, in order', () => {
   const columns = [...view.matchAll(/<Column[^>]*>\s*<Text text="([^"]+)"/gu)].map((match) => match[1]);
-  assert.deepEqual(columns, ['CR Type', 'Step', 'Condition 1', 'Logic', 'Condition 2', 'Approvers', 'Active']);
+  assert.deepEqual(columns, [
+    'CR Type', 'Step',
+    'Condition 1', 'Logic', 'Condition 2', 'Logic', 'Condition 3',
+    'Logic', 'Condition 4', 'Logic', 'Condition 5',
+    'Approvers', 'Active'
+  ]);
+  // Only the first two slots are drawn until somebody asks for a third.
+  assert.match(view, /<Column width="6rem" visible="\{= \$\{view>\/conditions\} >= 3 \}">/u);
+  assert.match(view, /<Column width="24rem" visible="\{= \$\{view>\/conditions\} >= 5 \}">/u);
 });
 
 test('the fifth tile leads to it, and the route exists', () => {
@@ -106,7 +114,7 @@ test('both condition fields are chosen through the shared value help', () => {
 /**
  * The Value cell is disabled once its own slot's operator is "is empty"/"is not empty" - those two
  * need no value at all. Logic stays always enabled: the engine ignores it entirely for zero or one
- * condition (see joinConditions in srv/checks/value-lists.js).
+ * condition (see foldConditions in srv/checks/value-lists.js).
  */
 test('each Value cell is disabled for its own empty/notEmpty, independent of the other slot', () => {
   const slot1 = view.slice(view.indexOf('value="{dc>conditionValues}"'));
@@ -173,7 +181,11 @@ test('the table is rows, and every column holds one value', () => {
   assert.match(rulesCds, /entity WorkflowRules : managed/u);
   for (const column of [
     'requestType', 'step', 'conditions', 'conditionField', 'conditionOperator', 'conditionValues',
-    'conditionField2', 'conditionOperator2', 'conditionValues2', 'approvers', 'isActive'
+    'conditionField2', 'conditionOperator2', 'conditionValues2',
+    'conditionLogic2', 'conditionField3', 'conditionOperator3', 'conditionValues3',
+    'conditionLogic3', 'conditionField4', 'conditionOperator4', 'conditionValues4',
+    'conditionLogic4', 'conditionField5', 'conditionOperator5', 'conditionValues5',
+    'approvers', 'isActive'
   ]) {
     // The plural names are stuck: `cds-deploy` cannot rename an element any more than it can drop
     // one, so these hold ONE value under a name that reads like several.
@@ -320,17 +332,20 @@ test('choosing an agent writes it into the cell', () => {
   assert.ok(body.indexOf('getProperty("value")') < body.indexOf('setProperty('));
 });
 
-// --- Two fixed condition slots (reverted 2026-08-31) --------------------------------------------
+// --- Five fixed condition slots, two of them drawn by default (2026-09-01) -----------------------
 
 /**
- * Condition 1 and Condition 2 each render as their own plain `HBox` of Field/Operator/Value - no
- * wrapping FlexBox, no Add/Remove Condition button, no child composition. "ik wil dit naast elkaar
- * zoals het ervoor was" (bring it back to how it originally was, side by side).
+ * Every condition slot renders as its own plain `HBox` of Field/Operator/Value - five of them now,
+ * still side by side, still plain scalars. "ik wil dit naast elkaar zoals het ervoor was" holds:
+ * what Add Condition adds is a COLUMN, not a per-row child list.
  */
-test('Condition 1 and Condition 2 render as two plain HBox groups, not a dynamic list', () => {
+test('every condition slot renders as a plain HBox group, not a dynamic list', () => {
   for (const [fieldName, operatorName, valuesName] of [
     ['conditionField', 'conditionOperator', 'conditionValues'],
-    ['conditionField2', 'conditionOperator2', 'conditionValues2']
+    ['conditionField2', 'conditionOperator2', 'conditionValues2'],
+    ['conditionField3', 'conditionOperator3', 'conditionValues3'],
+    ['conditionField4', 'conditionOperator4', 'conditionValues4'],
+    ['conditionField5', 'conditionOperator5', 'conditionValues5']
   ]) {
     const cell = view.slice(view.indexOf(`value="{dc>${fieldName}}"`));
     const hboxBody = cell.slice(0, cell.indexOf('</HBox>'));
@@ -338,11 +353,41 @@ test('Condition 1 and Condition 2 render as two plain HBox groups, not a dynamic
     assert.match(hboxBody, new RegExp(`value="\\{dc>${valuesName}\\}"`, 'u'));
     assert.match(hboxBody, /items="\{ path: 'opt>\/comparisons', templateShareable: false \}"/u);
   }
-  // The dynamic mechanism is gone entirely - no wrapping FlexBox, no per-row Add/Remove.
+  // Still no wrapping FlexBox and still no child composition: the columns are on the rule itself.
   assert.equal(/<FlexBox/u.test(view), false, 'no wrapping FlexBox is left');
-  assert.equal(/onAddCondition|onRemoveCondition/u.test(view), false, 'no Add/Remove Condition button is left');
-  assert.equal(/onAddCondition|onRemoveCondition|_conditionsBinding/u.test(controller), false,
-    'and the handlers are gone from the controller too');
+  assert.equal(/onRemoveCondition/u.test(view), false, 'nothing removes a condition row');
+  assert.equal(/onRemoveCondition|_conditionsBinding/u.test(controller), false,
+    'and no per-row condition binding is left in the controller either');
+});
+
+/**
+ * "Add Condition" beside "Add Rule" (2026-09-01, asked for): it reveals the next Logic/Condition
+ * column pair for the WHOLE table, writes nothing, and stops at the number of slots the schema
+ * actually has - which the service serves rather than the page assuming it.
+ */
+test('Add Condition reveals a column pair and cannot go past what the schema carries', () => {
+  const button = view.slice(view.indexOf('text="Add Condition"'));
+  const head = button.slice(0, button.indexOf('/>'));
+  assert.match(head, /press="\.onAddCondition"/u);
+  assert.match(head, /enabled="\{= \$\{view>\/conditions\} &lt; \$\{view>\/maxConditions\} \}"/u);
+
+  const handler = controller.slice(controller.indexOf('onAddCondition: function'));
+  const body = handler.slice(0, handler.indexOf('\n    },'));
+  assert.match(body, /setProperty\("\/conditions", shown \+ 1\)/u);
+  assert.equal(/binding\.create/u.test(body), false, 'it writes no data');
+
+  // The ceiling comes from the service, so the button and db/workflow-rules.cds cannot disagree.
+  assert.match(controller, /options\.conditionSlots/u);
+  assert.match(serviceJs, /conditionSlots: MAX_CONDITIONS/u);
+  assert.match(serviceCds, /conditionSlots : Integer;/u);
+
+  // A saved rule using more than two slots shows them without anyone pressing the button.
+  assert.match(controller, /attachUpdateFinished\(this\._syncConditionColumns, this\)/u);
+  const sync = controller.slice(controller.indexOf('_syncConditionColumns: function'));
+  assert.match(
+    sync.slice(0, sync.indexOf('\n    },')),
+    /if \(rule\[slot\.field\] && index \+ 1 > shown\) shown = index \+ 1;/u
+  );
 });
 
 // --- Operators (kept through the revert: "= of !=, en dan andere" was in the ORIGINAL ask too) ---
@@ -361,9 +406,33 @@ test('the operator picker offers the same comparisons ValidationRules/Derivation
   const workflowRulesJs = read(ROOT, 'srv', 'checks', 'workflow-rules.js');
   assert.match(workflowRulesJs, /require\('\.\/rule-engine'\)/u);
   assert.match(workflowRulesJs, /COMPARISONS\[condition\.operator\]/u);
-  // The two fixed slots carry their own operator column each - new, additive columns (2026-08-31).
-  assert.match(rulesCds, /conditionOperator\s*: String\(10\) default 'eq';/u);
-  assert.match(rulesCds, /conditionOperator2\s*: String\(10\) default 'eq';/u);
+  // Every fixed slot carries its own operator column - additive columns, 2026-08-31 and 2026-09-01.
+  for (const suffix of ['', '2', '3', '4', '5']) {
+    assert.match(rulesCds, new RegExp(`conditionOperator${suffix}\\s*: String\\(10\\) default 'eq';`, 'u'));
+  }
+});
+
+/**
+ * Shown by SYMBOL alone on this page (2026-09-01, asked for): "= equal" should be "=". The wordy
+ * half explains a symbol that already says it; `contains`/`is empty`/`is not empty` are words to
+ * begin with and come back whole. Scoped to this page - the other three still get the long text.
+ */
+test('the workflow operator picker drops the descriptive half of a symbolic operator', () => {
+  const { symbolOnly } = require('../srv/checks/workflow-rules');
+  const { COMPARISONS } = require('../srv/checks/rule-engine');
+  assert.equal(symbolOnly(COMPARISONS.eq.text), '=');
+  assert.equal(symbolOnly(COMPARISONS.ne.text), '!=');
+  assert.equal(symbolOnly(COMPARISONS.le.text), '<=');
+  // The three that are words rather than symbols keep every word they have.
+  assert.equal(symbolOnly(COMPARISONS.contains.text), 'contains');
+  assert.equal(symbolOnly(COMPARISONS.empty.text), 'is empty');
+  assert.equal(symbolOnly(COMPARISONS.notEmpty.text), 'is not empty');
+
+  // This page only. qualityRuleOptions still serves the long text to the other three.
+  const workflow = serviceJs.slice(serviceJs.indexOf("this.on('workflowRuleOptions'"));
+  assert.match(workflow.slice(0, workflow.indexOf('\n    });')), /text: symbolOnly\(comparison\.text\)/u);
+  const quality = serviceJs.slice(serviceJs.indexOf("this.on('qualityRuleOptions'"));
+  assert.match(quality.slice(0, quality.indexOf('\n    });')), /text: comparison\.text\.trim\(\)/u);
 });
 
 // --- Duplicate (2026-08-28, asked for: "copy en paste" for a rule) ------------------------------
@@ -437,16 +506,25 @@ test('xlsxColumns matches exactly what a WorkflowRules row holds, minus the gene
   assert.deepEqual(keys, [
     'requestType', 'step',
     'conditionField', 'conditionOperator', 'conditionValues', 'conditionLogic',
-    'conditionField2', 'conditionOperator2', 'conditionValues2',
+    'conditionField2', 'conditionOperator2', 'conditionValues2', 'conditionLogic2',
+    'conditionField3', 'conditionOperator3', 'conditionValues3', 'conditionLogic3',
+    'conditionField4', 'conditionOperator4', 'conditionValues4', 'conditionLogic4',
+    'conditionField5', 'conditionOperator5', 'conditionValues5',
     'approvers', 'isActive'
   ]);
   const labels = [...body.matchAll(/label: "([^"]+)"/gu)].map((match) => match[1]);
   assert.deepEqual(labels, [
     'CR Type', 'Step',
     'Condition 1 Field', 'Condition 1 Operator', 'Condition 1 Value', 'Logic',
-    'Condition 2 Field', 'Condition 2 Operator', 'Condition 2 Value',
+    'Condition 2 Field', 'Condition 2 Operator', 'Condition 2 Value', 'Logic 2',
+    'Condition 3 Field', 'Condition 3 Operator', 'Condition 3 Value', 'Logic 3',
+    'Condition 4 Field', 'Condition 4 Operator', 'Condition 4 Value', 'Logic 4',
+    'Condition 5 Field', 'Condition 5 Operator', 'Condition 5 Value',
     'Approvers', 'Active'
   ]);
+  // Matched by label, so the four joins cannot all be called "Logic" - only the first stays bare,
+  // because a file exported before the extra slots existed still has to import.
+  assert.equal(new Set(labels).size, labels.length, 'every header label is unique');
   assert.equal(keys.includes('ID'), false);
 });
 
@@ -543,7 +621,8 @@ test('import deletes every existing row and creates one for every row in the fil
 
   const fakeThis = {
     _table: () => ({ getBinding: () => binding }),
-    _markDirty: () => {}
+    _markDirty: () => {},
+    _syncConditionColumns: () => {}
   };
 
   const applyImportedXlsx = new Function(
@@ -554,8 +633,8 @@ test('import deletes every existing row and creates one for every row in the fil
   // The file names only two rows - one of them data-identical to "first".
   const table = [
     xlsxColumns().map((column) => column.label),
-    ['create', 'Approve', '', '', '', 'AND', '', '', '', 'a@b.com', 'true'],
-    ['change', 'Approve', '', '', '', 'AND', '', '', '', 'c@d.com', 'true']
+    ['create', 'Approve', '', '', '', 'AND', '', '', '', 'AND', '', '', '', 'AND', '', '', '', 'AND', '', '', '', 'a@b.com', 'true'],
+    ['change', 'Approve', '', '', '', 'AND', '', '', '', 'AND', '', '', '', 'AND', '', '', '', 'AND', '', '', '', 'c@d.com', 'true']
   ];
   applyImportedXlsx.call(fakeThis, table);
 
@@ -582,7 +661,11 @@ test('a header-only import clears every currently-loaded rule and creates none',
 
   const only = mockContext({ requestType: 'create', approvers: 'a@b.com' });
   const binding = { getCurrentContexts: () => [only], create: () => {} };
-  const fakeThis = { _table: () => ({ getBinding: () => binding }), _markDirty: () => {} };
+  const fakeThis = {
+    _table: () => ({ getBinding: () => binding }),
+    _markDirty: () => {},
+    _syncConditionColumns: () => {}
+  };
 
   const applyImportedXlsx = new Function(
     'MessageBox', 'MessageToast', 'xlsxColumns', 'XlsxCodec', 'UPDATE_GROUP',

@@ -129,8 +129,16 @@ service DuplicateConfigService {
     /** The same operator vocabulary ValidationRules/DerivationRules already offer for their own
      *  comparison column (`eq`/`ne`/`lt`/`le`/`gt`/`ge`/`contains`/`empty`/`notEmpty`) - asked for
      *  directly rather than a smaller, WorkflowRules-only set. `needsValue: false` for the two that
-     *  take no value at all ("is empty"/"is not empty"), so the page can hide that cell. */
+     *  take no value at all ("is empty"/"is not empty"), so the page can hide that cell.
+     *
+     *  **Symbols only on this page** (2026-09-01, asked for): `=` rather than `=  equal to`. The
+     *  wordy half explains a symbol that already says it, and the cell is narrow; `contains`,
+     *  `is empty` and `is not empty` are words to begin with and are untouched. The other three
+     *  rule pages still get the long text - this was scoped to Workflow Agent Determination. */
     comparisons  : array of ComparisonOption;
+    /** How many condition slots a rule may hold - the page's own Add Condition ceiling, served so
+     *  the button and the schema cannot disagree about it. */
+    conditionSlots : Integer;
     /** Rules that would actually run, so the page can say when a saved row is being skipped. */
     ruleCount    : Integer;
   }

@@ -877,6 +877,29 @@ set rather than merging: it is a real check of the new payload, and its declined
 dropped rather than offered a second time inside one press, because pressing Check again is how a
 requester asks for those. A re-run that fails says so as a warning, never as silence.
 
+##### And they only run on the DATA STEWARD step (2026-09-01)
+
+Asked for directly: *"when a requestor presses 'check' or 'submit' I don't want our standard S4
+checks to be triggered, only in a Data Steward step"*. Same checks, same ordering, same
+`systemDerived` payload and same hold-back-until-the-proposals-are-answered behaviour — only the
+step they run on narrowed.
+
+- **`stewardStep` in `runRequestChecks`** (`srv/change-request-service.js`) reads the SCREEN's own
+  role, `req.data.Role`, and `checkStandard` is now `standard && !scope && stewardStep`. Matched
+  with `startsWith(DATASTEWARD_ROLE)` rather than an equality, so a narrowed
+  `DataSteward Customer` (see `resolveEffectiveRole`) still gates them.
+- **The screen's role, not the caller's BTP role, and deliberately so.** This is the same trust
+  level as the `renderRole` half of `runRequestChecks` — which fields a derivation may propose —
+  not the `requesterContext(req)` half, which is a security boundary and stays hardcoded. Nothing
+  is written or approved on the strength of `Role`; what it decides here is whether a remote
+  dry-run costs a round trip and a vendor number, so a client that lied would only spend its own.
+- **A requester's Check still checks.** Validations, derivations, normalisation proposals and the
+  duplicate check are untouched — what a requester no longer sees is S/4's own message list.
+  Submit and Resubmit go through the same `checkRequest` (`_runPreActionCheck`), so they lose it
+  by the same gate; `runSubmitValidations` never ran the standard checks to begin with.
+- **`_rerunStandardChecks` now sends `Role` too.** It re-runs the check over an accepted proposal
+  for its messages; without the role it would refresh everything except the findings it exists for.
+
 #### SPRO derivations: nine gaps, one open mechanism (2026-08-27)
 
 The app derives the CVI account group, VIES/GLEIF addresses and the steward's own rules. **Nine
@@ -2423,6 +2446,68 @@ two is read or written by anything.
 - **Duplicate got simpler, not more complex, from the revert** — see "Copy a rule" below: with every
   field back to being a plain scalar on the rule itself, one `binding.create(copy)` is the whole job;
   the second `.create()` per condition row is gone along with the composition it copied.
+
+#### Five condition slots, and an "Add Condition" that adds a COLUMN (2026-09-01)
+
+Asked for the day after the revert above: *"is it possible that we provide an 'add condition' button
+next to 'add rule'... pressing this should add an extra 'Logic' and an extra 'Condition' column into
+our table. Is this something that's possible? It might not be as our conditions are part of our
+postgres db of course."* It is possible, and the postgres caveat is exactly what decides the shape.
+
+`cds-deploy` can **add** an element; it can neither drop nor retype one — the lesson this table has
+now paid for three times (`createsRow`, `conditions: LargeString`, `conditionRows`). So the schema
+carries a **fixed five slots** and the PAGE decides how many of them to draw. Adding a condition is
+therefore a rendering decision with zero deploy risk, and raising the cap later is another purely
+additive change. What is *not* available this way is a genuinely unbounded count — that needs the
+composition, which was built, deployed-toward and abandoned twice, and is not being tried a third
+time.
+
+- **The new columns are `conditionField3..5` / `conditionOperator3..5` / `conditionValues3..5`, plus
+  `conditionLogic2..4`.** `conditionLogicN` joins slot N to slot N+1, so the unnumbered
+  `conditionLogic` stays the 1-to-2 join it has always been and the numbering starts at 2. All
+  twelve are pure additions.
+- **The button is table-wide, not per row** — "an extra column into our table". `onAddCondition`
+  raises `view>/conditions`; every Column and its cells carry `visible="{= ${view>/conditions} >= N }"`,
+  and `sap.m.Table` hides a hidden column's cells with it, so there is no second gate on the cell.
+  Nothing is written: the columns exist on every row already.
+- **The ceiling comes from the service** (`conditionSlots` on `workflowRuleOptions`, from
+  `MAX_CONDITIONS`), so the button and `db/workflow-rules.cds` cannot disagree about how many slots
+  there are.
+- **A saved rule reveals its own columns.** `_syncConditionColumns` runs on the table's
+  `updateFinished` and after an import, and raises the count to the highest slot any row fills. It
+  never lowers it: a column somebody revealed and left empty is not taken away on the next render.
+  There is no Remove Condition, deliberately — reloading the page is what collapses it back, and a
+  button that hides a column with a value in it would hide a condition that still evaluates.
+- **The widths went from percentages to rem.** A hidden column contributes no share of 100%, so
+  percentages re-flowed the whole row every time a condition was revealed.
+- **The engine folds LEFT TO RIGHT, one logic per gap** — `foldConditions` in
+  `srv/checks/value-lists.js`, alongside the unchanged `joinConditions` the other three tables still
+  use. `A OR B AND C` is `(A OR B) AND C`; there is no precedence to remember, and the row reads the
+  way it is written. Zero and one condition behave exactly as before (a lone condition is itself,
+  logic bypassed, so NOR cannot silently invert it) and two conditions under one logic give the
+  identical answer — which is what makes every rule saved before this keep matching unchanged.
+- **A blank slot takes its own Logic with it.** `readConditions` drops a slot with no field and
+  carries each surviving condition's own preceding logic, so Condition 2 left blank joins Condition 3
+  to Condition 1 by Condition 3's Logic — never by a column with nothing left beside it.
+- **Every slot and every Logic column validates**, through the same `validateCondition` a single
+  condition always used: half a condition is the dangerous half in slot 5 as much as in slot 1, and
+  a Logic value the dropdown cannot produce is still refused rather than read as AND.
+- **Excel carries all five slots**, and the later joins are labelled `Logic 2`/`Logic 3`/`Logic 4` —
+  a header row is matched by LABEL, and four columns called "Logic" could not be told apart. Only the
+  first stays bare, so a workbook exported before this still imports.
+
+##### The operators are symbols again, on this page only (2026-09-01)
+
+Asked in the same breath: *"the descriptive text can be removed, '= equal' should be '='. 'Contain'
+or 'is empty' only contain text, so they can stay as is."* `symbolOnly`
+(`srv/checks/workflow-rules.js`) takes everything before the double space `COMPARISONS` already uses
+to separate the symbol from its gloss — `=  equal to` → `=`, `<=  at most` → `<=` — and returns the
+three word-shaped operators (`contains`, `is empty`, `is not empty`) whole, since they carry no
+symbol and no double space.
+
+**Scoped to `workflowRuleOptions`.** `qualityRuleOptions` and the duplicate page still serve
+`comparison.text` in full: the ask named this table, and `COMPARISONS[code].text` stays the one
+definition either way — this is a label chosen at the boundary, not a second vocabulary.
 
 #### Copy a rule, and bulk-edit the table in Excel (2026-08-28, asked for)
 

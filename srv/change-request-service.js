@@ -25,7 +25,11 @@ const { emailsForRoleCollections, specificRoleFor } = require('./wf/btp-agents')
 // Categories a screen resolves to a literal - the only ones worth narrowing to a specific BTP role.
 // `Requester` is deliberately excluded: it names who submitted, never a role collection, and
 // requesterContext hardcodes it for exactly that reason.
-const RESOLVABLE_ROLE_CATEGORIES = ['Approver', 'DataSteward'];
+// The screen role a data steward's own step renders under, and the one step the SAP standard
+// checks run on - see `stewardStep` in runRequestChecks.
+const DATASTEWARD_ROLE = 'DataSteward';
+
+const RESOLVABLE_ROLE_CATEGORIES = ['Approver', DATASTEWARD_ROLE];
 
 /**
  * Narrows the generic category a screen sends (`Approver`/`DataSteward`) into the CURRENT user's own,
@@ -798,6 +802,9 @@ class ChangeRequestService extends cds.ApplicationService {
       // profile in the table. Nothing is sent -> role stays null -> only `*` profiles apply, same as
       // before this existed.
       const renderRole = await resolveEffectiveRole(req, req.data.Role || null);
+      // The screen the button was pressed on, before that narrowing: the SAP standard checks run on
+      // the data steward step alone, so a specific "DataSteward Customer" must gate them too.
+      const stewardStep = String(req.data.Role || '').startsWith(DATASTEWARD_ROLE);
       const renderResolved = await resolvedProperties({
         requestType: req.data.RequestType || null,
         role: renderRole
@@ -833,11 +840,12 @@ class ChangeRequestService extends cds.ApplicationService {
               aiEnabled: await aiAssistanceEnabled()
             })
             : undefined,
-          // Only where a human is looking and only for the whole record. A scoped call must not
-          // pay for a remote round trip, and the submit
-          // path has its own stage list. Roles and relations ARE sent, so the customer and vendor
-          // tiers run and each press costs a vendor number -- see INCLUDE_ROLES in bp-check.js.
-          checkStandard: standard && !scope
+          // Only where a human is looking, only for the whole record, and only on the DATA STEWARD
+          // step (2026-09-01, asked for): a requester's Check and Submit no longer pay for them. A
+          // scoped call must not pay for a remote round trip either, and the submit path has its own
+          // stage list. Roles and relations ARE sent, so the customer and vendor tiers run and each
+          // press costs a vendor number -- see INCLUDE_ROLES in bp-check.js.
+          checkStandard: standard && !scope && stewardStep
             ? createBpCheckStage({ requestId: req.data.ChangeRequest || null })
             : undefined,
           checkDuplicates: duplicates ? async (payload) => {
