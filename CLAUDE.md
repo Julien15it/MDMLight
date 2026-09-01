@@ -2535,6 +2535,17 @@ time.
 - **Condition 1 is never removable.** The button is disabled at one condition and `onDeleteCondition`
   refuses anyway. A rule with no condition is written by leaving Condition 1 blank — an empty
   condition already means "matches anything", so taking the column away would say nothing new.
+- **The Value cell's `enabled` expression needs `targetType: 'any'`, and never had it** (found
+  2026-09-01 in the deployed app's console, while looking at something else). Inside an expression
+  binding, a referenced property is formatted into the type of the BOUND CONTROL property unless
+  told otherwise — so `${dc>conditionOperator}` on a Boolean `enabled` was asked to become a
+  boolean, and every row logged `FormatException in property 'enabled' ... eq is not a valid boolean
+  value`. The binding then fell back to the default, so the cell was **never actually disabled for
+  `is empty`/`is not empty`** — a silently dead feature, not a visibly broken one, which is why it
+  survived from the original two slots. Written as
+  `${path: 'dc>conditionOperator', targetType: 'any'}`. The same trap applies to any expression
+  binding over the `dc` model here; the `view>` model is a JSONModel and carries no types, so its
+  own expressions are unaffected.
 - **`_setConditionColumns` is the only writer of `view>/conditions`**, which is what keeps the
   table's width and the number of columns drawn from ever disagreeing. `_syncConditionColumns` still
   only ever raises the count; a deletion lowers it, and it stays lowered because the slot was

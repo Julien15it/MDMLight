@@ -135,7 +135,7 @@
                   width="7rem"
                   value="{dc>conditionValues}"
                   placeholder="Value1|Value2"
-                  enabled="{= ${dc>conditionOperator} !== 'empty' &amp;&amp; ${dc>conditionOperator} !== 'notEmpty' }"
+                  enabled="{= ${path: 'dc>conditionOperator', targetType: 'any'} !== 'empty' &amp;&amp; ${path: 'dc>conditionOperator', targetType: 'any'} !== 'notEmpty' }"
                   change=".onCellChange" />
               </HBox>
               <!-- Always enabled: with one condition blank the engine ignores this column entirely
@@ -169,7 +169,7 @@
                   width="7rem"
                   value="{dc>conditionValues2}"
                   placeholder="Value1|Value2"
-                  enabled="{= ${dc>conditionOperator2} !== 'empty' &amp;&amp; ${dc>conditionOperator2} !== 'notEmpty' }"
+                  enabled="{= ${path: 'dc>conditionOperator2', targetType: 'any'} !== 'empty' &amp;&amp; ${path: 'dc>conditionOperator2', targetType: 'any'} !== 'notEmpty' }"
                   change=".onCellChange" />
               </HBox>
               <!-- Logic joining Condition 2 to Condition 3, and the two pairs after it. A cell whose
@@ -201,7 +201,7 @@
                   width="7rem"
                   value="{dc>conditionValues3}"
                   placeholder="Value1|Value2"
-                  enabled="{= ${dc>conditionOperator3} !== 'empty' &amp;&amp; ${dc>conditionOperator3} !== 'notEmpty' }"
+                  enabled="{= ${path: 'dc>conditionOperator3', targetType: 'any'} !== 'empty' &amp;&amp; ${path: 'dc>conditionOperator3', targetType: 'any'} !== 'notEmpty' }"
                   change=".onCellChange" />
               </HBox>
               <ComboBox
@@ -231,7 +231,7 @@
                   width="7rem"
                   value="{dc>conditionValues4}"
                   placeholder="Value1|Value2"
-                  enabled="{= ${dc>conditionOperator4} !== 'empty' &amp;&amp; ${dc>conditionOperator4} !== 'notEmpty' }"
+                  enabled="{= ${path: 'dc>conditionOperator4', targetType: 'any'} !== 'empty' &amp;&amp; ${path: 'dc>conditionOperator4', targetType: 'any'} !== 'notEmpty' }"
                   change=".onCellChange" />
               </HBox>
               <ComboBox
@@ -261,7 +261,7 @@
                   width="7rem"
                   value="{dc>conditionValues5}"
                   placeholder="Value1|Value2"
-                  enabled="{= ${dc>conditionOperator5} !== 'empty' &amp;&amp; ${dc>conditionOperator5} !== 'notEmpty' }"
+                  enabled="{= ${path: 'dc>conditionOperator5', targetType: 'any'} !== 'empty' &amp;&amp; ${path: 'dc>conditionOperator5', targetType: 'any'} !== 'notEmpty' }"
                   change=".onCellChange" />
               </HBox>
               <!-- ONE approver: an e-mail address or a role. An entry carrying an `@` goes to SBPA

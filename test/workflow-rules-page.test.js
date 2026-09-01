@@ -120,18 +120,28 @@ test('both condition fields are chosen through the shared value help', () => {
  * The Value cell is disabled once its own slot's operator is "is empty"/"is not empty" - those two
  * need no value at all. Logic stays always enabled: the engine ignores it entirely for zero or one
  * condition (see foldConditions in srv/checks/value-lists.js).
+ *
+ * **`targetType: 'any'` is what makes it work at all** (2026-09-01, found in the deployed app's
+ * console): inside an expression binding, a referenced property is formatted into the type of the
+ * BOUND CONTROL PROPERTY unless told otherwise - so `${dc>conditionOperator}` on a Boolean
+ * `enabled` was being asked to become a boolean, and every row logged
+ * `FormatException ... eq is not a valid boolean value`. The binding then fell back to the default,
+ * so the cell was never actually disabled. Bound with an explicit `any` it stays the string the
+ * comparison needs. Pinned per slot, because it is silently wrong rather than visibly broken.
  */
 test('each Value cell is disabled for its own empty/notEmpty, independent of the other slot', () => {
-  const slot1 = view.slice(view.indexOf('value="{dc>conditionValues}"'));
-  assert.match(
-    slot1.slice(0, slot1.indexOf('/>')),
-    /enabled="\{= \$\{dc>conditionOperator\} !== 'empty' &amp;&amp; \$\{dc>conditionOperator\} !== 'notEmpty' \}"/u
-  );
-  const slot2 = view.slice(view.indexOf('value="{dc>conditionValues2}"'));
-  assert.match(
-    slot2.slice(0, slot2.indexOf('/>')),
-    /enabled="\{= \$\{dc>conditionOperator2\} !== 'empty' &amp;&amp; \$\{dc>conditionOperator2\} !== 'notEmpty' \}"/u
-  );
+  for (const suffix of ['', '2', '3', '4', '5']) {
+    const cell = view.slice(view.indexOf(`value="{dc>conditionValues${suffix}}"`));
+    const reference = `\\$\\{path: 'dc>conditionOperator${suffix}', targetType: 'any'\\}`;
+    assert.match(
+      cell.slice(0, cell.indexOf('/>')),
+      new RegExp(`enabled="\\{= ${reference} !== 'empty' &amp;&amp; ${reference} !== 'notEmpty' \\}"`, 'u'),
+      `condition ${suffix || '1'} reads its own operator as a string`
+    );
+  }
+  // No bare `${dc>...}` is left inside an expression binding on a Boolean property.
+  assert.equal(/enabled="\{=[^"]*\$\{dc>[^,}]*\}/u.test(view), false, 'no untyped reference is left');
+
   const logic = view.slice(view.indexOf('selectedKey="{dc>conditionLogic}"'));
   assert.equal(/enabled=/u.test(logic.slice(0, logic.indexOf('</ComboBox>'))), false);
 });
