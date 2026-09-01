@@ -19,7 +19,7 @@ const { createNodeRequiredStages } = require('./checks/node-required');
 const { configuredStages } = require('./checks/rule-store');
 const { fieldPropertyStages, resolvedProperties } = require('./checks/field-property-store');
 const { fieldState } = require('./checks/field-properties');
-const { dataStewardEmails } = require('./wf/data-stewards');
+const { dataStewardEmails, dataStewardRoles } = require('./wf/data-stewards');
 const { specificRoleFor } = require('./wf/btp-agents');
 
 // The screen role a data steward's own step renders under, and the one step the SAP standard checks
@@ -521,11 +521,13 @@ class ChangeRequestService extends cds.ApplicationService {
       } catch (error) {
         console.error(`Could not resolve the critical fields for change request ${changeRequest}:`, error);
       }
-      // Every BTP subaccount user holding this app's own DataSteward role template, read straight
-      // from the subaccount's role collections - not through the WorkflowRules table, unlike
-      // `approvers`. `dataStewardEmails` is already best-effort (see srv/wf/data-stewards.js): never
+      // The names of every BTP role collection carrying this app's own DataSteward role template -
+      // not resolved to member e-mails (reverted 2026-08-31, same conversation with Arthur as
+      // `approvers` above: SBPA resolves BTP role collection membership itself now). Read straight
+      // from the subaccount's role collections, not through the WorkflowRules table, unlike
+      // `approvers`. `dataStewardRoles` is already best-effort (see srv/wf/data-stewards.js): never
       // throws, resolves to `[]` when nothing matches or the subaccount API is unreachable.
-      const datastewards = await dataStewardEmails();
+      const datastewards = await dataStewardRoles();
 
       return {
         changerequestid: changeRequest,

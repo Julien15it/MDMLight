@@ -90,16 +90,58 @@ async function dataStewardEmails({ force = false } = {}) {
   return inFlight;
 }
 
+let cachedRoles = null;
+let rolesLoadedAt = 0;
+let rolesInFlight = null;
+
+async function loadRoles() {
+  try {
+    return await fetchDataStewardCollections();
+  } catch (error) {
+    console.warn('[data-stewards] Could not resolve data steward role collections:', error.message);
+    return [];
+  }
+}
+
+/**
+ * Names of the role collections themselves (`string[]`, cached for TTL_MS) - what `workflowContext`
+ * sends as `datastewards` now (2026-08-31, same reasoning and the same confirmation from Arthur as
+ * `approvers`' own reversion): SBPA resolves BTP role collection membership itself, so there is no
+ * more reason to expand this HERE than there is for a `WorkflowRules` role entry. `dataStewardEmails`
+ * stays exactly as it was for its other caller, `processorsFor`'s "who has it now" strip - a
+ * rendering answer for a human reader, not a wire payload SBPA has to act on, so it still wants real
+ * names/e-mails rather than a role collection name nobody reading that strip would recognise.
+ */
+async function dataStewardRoles({ force = false } = {}) {
+  if (!force && cachedRoles && (Date.now() - rolesLoadedAt) < TTL_MS) {
+    return cachedRoles;
+  }
+  if (!rolesInFlight) {
+    rolesInFlight = loadRoles()
+      .then((roles) => {
+        cachedRoles = roles;
+        rolesLoadedAt = Date.now();
+        return roles;
+      })
+      .finally(() => { rolesInFlight = null; });
+  }
+  return rolesInFlight;
+}
+
 function reset() {
   cachedEmails = null;
   loadedAt = 0;
   inFlight = null;
+  cachedRoles = null;
+  rolesLoadedAt = 0;
+  rolesInFlight = null;
 }
 
 module.exports = {
   ROLE_TEMPLATE,
   TTL_MS,
   dataStewardEmails,
+  dataStewardRoles,
   reset,
   // Exported for tests only, same convention as btp-agents.js's _internals.
   _internals: { fetchDataStewardCollections, fetchStewardEmails }

@@ -265,13 +265,15 @@ test('criticalfield is X only when a critical entity was actually filled in on t
 /**
  * `datastewards` is read straight from the BTP subaccount's role collections (srv/wf/data-stewards.js),
  * the same way `approvers` is fetched fresh at submit time - not through the WorkflowRules table.
+ * Sent as the role collection NAMES since 2026-08-31 (reverted, same as `approvers`), not resolved
+ * to member e-mails - SBPA resolves BTP role collection membership itself now.
  */
 test('datastewards is fetched from BTP role collections, the same way approvers is fetched', () => {
-  assert.match(serviceJs, /const \{ dataStewardEmails \} = require\('\.\/wf\/data-stewards'\)/u);
+  assert.match(serviceJs, /const \{ dataStewardEmails, dataStewardRoles \} = require\('\.\/wf\/data-stewards'\)/u);
   const builder = serviceJs.slice(
     serviceJs.indexOf('const workflowContext ='), serviceJs.indexOf('const persist =')
   );
-  assert.match(builder, /const datastewards = await dataStewardEmails\(\);/u);
+  assert.match(builder, /const datastewards = await dataStewardRoles\(\);/u);
   assert.match(builder, /datastewards$/mu);
 });
 

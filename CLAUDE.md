@@ -2912,14 +2912,36 @@ entry's e-mail both sent exactly as `resolveApprovers` returned them, undifferen
 same way the very first version of this table worked.
 
 - **`emailsForRoleCollections` is untouched in `srv/wf/btp-agents.js`** and stays imported by
-  `srv/wf/data-stewards.js` - `datastewards` is a genuinely different field or this table would have
-  needed the same conversation with Arthur before it could revert too, and nothing suggests it did.
-  `change-request-service.js` simply stopped importing the function for this one purpose.
+  `srv/wf/data-stewards.js`, which still uses it for `dataStewardEmails` - the resolved-to-e-mails
+  version did not go away, it just stopped being what `workflowContext` sends (see `datastewards`
+  below).
 - **Do not read this as "roles never need resolving here" as a general rule.** It is true only
   because of a specific fact about Arthur's process today; if that process is ever rebuilt to NOT
   resolve role collections again (or a different process definition is swapped in that doesn't),
   this reverts back to the 2026-08-27 shape. The tell either way is a task landing with an approver
   list of one unresolvable string - see that section's own diagnosis for what that looks like live.
+
+**`datastewards` got the identical reversion the same day, asked for separately.** It used to be
+`dataStewardEmails()` - every BTP subaccount user holding this app's own `DataSteward` role
+template, resolved to e-mails via the exact `emailsForRoleCollections` lookup `approvers` used to
+share. `workflowContext` now sends `dataStewardRoles()` instead: the **names** of the role
+collections carrying that template (`srv/wf/data-stewards.js`'s own `fetchDataStewardCollections`,
+already used internally but not previously exposed as a first-class export), unresolved, for the
+same reason and the same confirmation from Arthur as `approvers` above.
+
+- **`dataStewardEmails` was not deleted, and still has a live caller**: `processorsFor`'s own "who
+  has it now" strip (`header.status === 'checkAndEnrich'`) reads it unchanged. That is a rendering
+  answer for a human, not a wire payload SBPA has to act on - a role collection name shown there
+  would read as `datastewards` sending nobody understandable, the same reasoning that already kept
+  `processorsFor`'s own `approvers` list unresolved throughout the `approvers` story above. So this
+  module now genuinely needs both shapes, permanently, one per caller - not a transitional state.
+- **`dataStewardRoles` is its own cached function, not a parameter on `dataStewardEmails`.** The two
+  answer different questions (member e-mails vs. collection names) and are read by different
+  callers, so collapsing them into one function with a flag would have made the caller responsible
+  for knowing which shape it wanted - the same reasoning `fieldState`/`entityProperty` split apart
+  rather than merged. Same TTL, same best-effort discipline (never throws, empty list on any
+  failure), separate cache slot so a warm e-mail cache does not answer for a first call asking for
+  role names.
 
 **Save cannot claim what it did not do (2026-08-21).** A rule appeared to clear itself
 after being created. `hasPendingChanges` answers for **one update group**, so a create
@@ -3959,8 +3981,9 @@ diagnosable where a 404 is not. The intent must match the `BusinessPartner-manag
 - `criticalfield` (lowercase on the wire, like every other key here) is a
   **scalar `'X'`/`' '` flag**, never a list — see "Critical
   fields, entity-level only, and who to notify". `datastewards` is an **array of
-  strings**, resolved fresh from BTP role collections, the same shape discipline
-  as `approvers` for the same reason.
+  strings** — role collection NAMES since 2026-08-31 (`dataStewardRoles`), not
+  resolved member e-mails — read fresh from BTP role collections, the same shape
+  discipline and the same reversion as `approvers` for the same reason.
 
 **Not built on Arthur's side yet — rework needs three things from his definition,
 and the loop does not close without them:**

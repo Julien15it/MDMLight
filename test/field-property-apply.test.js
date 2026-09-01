@@ -479,10 +479,16 @@ test('workflowContext resolves criticalField from resolvedProperties, not a dedi
   assert.match(serviceJs, /let criticalField = ' ';/u);
 });
 
-/** `datastewards` is read straight from BTP role collections, the same way `approvers` is fetched. */
+/**
+ * `datastewards` is read straight from BTP role collections, the same way `approvers` is fetched -
+ * and, since 2026-08-31, sent as the role collection NAMES rather than resolved member e-mails
+ * (same reversion, same conversation with Arthur, as `approvers`' own role entries).
+ * `dataStewardEmails` stays imported too - `processorsFor`'s own "who has it now" strip still wants
+ * resolved e-mails, a display answer rather than a wire payload.
+ */
 test('datastewards comes from the BTP role collections directly, not the WorkflowRules table', () => {
-  assert.match(serviceJs, /const \{ dataStewardEmails \} = require\('\.\/wf\/data-stewards'\)/u);
-  assert.match(serviceJs, /const datastewards = await dataStewardEmails\(\);/u);
+  assert.match(serviceJs, /const \{ dataStewardEmails, dataStewardRoles \} = require\('\.\/wf\/data-stewards'\)/u);
+  assert.match(serviceJs, /const datastewards = await dataStewardRoles\(\);/u);
 });
 
 // --- Gating what a derivation may propose by role/field-property (2026-08-31) ---------------------
