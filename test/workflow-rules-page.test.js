@@ -388,7 +388,8 @@ test('Add Condition reveals a column pair and cannot go past what the schema car
 
   const handler = controller.slice(controller.indexOf('onAddCondition: function'));
   const body = handler.slice(0, handler.indexOf('\n    },'));
-  assert.match(body, /setProperty\("\/conditions", shown \+ 1\)/u);
+  // Through the one setter, so the count and the table width cannot drift apart.
+  assert.match(body, /this\._setConditionColumns\(shown \+ 1\)/u);
   assert.equal(/binding\.create/u.test(body), false, 'it writes no data');
 
   // The ceiling comes from the service, so the button and db/workflow-rules.cds cannot disagree.

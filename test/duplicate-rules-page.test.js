@@ -112,8 +112,10 @@ test('the field, comparison and indicator lists come from the service', () => {
   assert.match(controllerSource, /_callAction\("ruleOptions"/u);
   // Bare-string arrays do not bind inside a table cell; every list is code/text for that reason.
   assert.equal(/<core:Item key="\{opt>\}"/u.test(view), false);
-  // Six since 2026-08-27: the AND/OR/NOR cell between the two conditions is the sixth.
-  assert.equal((view.match(/<core:Item key="\{opt>code\}" text="\{opt>text\}"/gu) || []).length, 6);
+  // Twelve since 2026-09-01, when the table went to five condition slots: five condition-field
+  // pickers, the four AND/OR/NOR cells between them, and the rule's own Field, Comparison and
+  // Indicator. (Six before that: two conditions, one logic, and the same three.)
+  assert.equal((view.match(/<core:Item key="\{opt>code\}" text="\{opt>text\}"/gu) || []).length, 12);
   // `key` is a CDS keyword and prefixes a key element, so the property cannot be called that.
   const serviceCds = fs.readFileSync(
     path.join(__dirname, '..', 'srv', 'duplicate-config-service.cds'), 'utf8'
@@ -146,13 +148,19 @@ test('the grid asks only for what a steward has to decide', () => {
 test('the grid fills the page and carries no permanent info strip', () => {
   assert.equal(view.includes('type="Information"'), false, 'the info strip is gone');
   assert.equal(view.includes('Rows are additive'), false);
-  // 11%/9% since 2026-08-27, shaved from 12%/10% to make room for the titleless AND/OR/NOR
-  // column between the two conditions.
-  for (const width of ['11%', '9%', '18%', '17%', '5%']) {
+  // Rem, not percentages, since 2026-09-01: a hidden condition column contributes no share of
+  // 100%, so percentages re-flowed the whole row every time a condition was revealed - and a
+  // fixed-layout table needs a real width to overflow with rather than redistributing into
+  // whatever space it has. See the scrolling test below for the arithmetic.
+  for (const width of ['14rem', '9rem', '6rem', '18rem', '15rem', '4rem']) {
     assert.ok(view.includes(`width="${width}"`), `no column at ${width}`);
   }
-  // A ComboBox left at its default width is what put the gaps between the cells.
-  assert.equal((view.match(/<ComboBox\s+width="100%"/gu) || []).length, 6);
+  // Scoped to the COLUMNS: the cell controls inside them are still `width="100%"`, which is what
+  // fills the column rather than sizing it.
+  assert.equal(/<Column\b[^>]*width="\d+%"/u.test(view), false, 'no percentage column widths are left');
+  // A ComboBox left at its default width is what put the gaps between the cells. Twelve of them
+  // now - see the core:Item count above for what they are.
+  assert.equal((view.match(/<ComboBox\s+width="100%"/gu) || []).length, 12);
 });
 
 // The permission model is unchanged by the move to a tile: a tile cannot be hidden from the app,
@@ -304,10 +312,14 @@ test('import deletes every existing row and creates one for every row in the fil
   const binding = { getCurrentContexts: () => [first, second], create: (record) => created.push(record) };
   const fakeThis = { _table: () => ({ getBinding: () => binding }), _markDirty: () => {}, _syncConditionColumns: () => {} };
 
-  // The file names only one row - data-identical to "first".
+  // The file names only one row - data-identical to "first". Built BY KEY rather than by position:
+  // the row went from 9 cells to 18 when the extra condition slots landed (2026-09-01), and a
+  // positional fixture silently stopped filling Field/Comparison at all, so nothing was created.
+  const columns = xlsxColumns();
+  const values = { field: 'Name', comparison: 'exact', indicator: 'strong', isActive: 'true' };
   const table = [
-    xlsxColumns().map((column) => column.label),
-    ['', '', 'AND', '', '', 'Name', 'exact', 'strong', 'true']
+    columns.map((column) => column.label),
+    columns.map((column) => values[column.key] || (column.key === 'conditionLogic' ? 'AND' : ''))
   ];
   members._applyImportedXlsx.call(fakeThis, table);
 

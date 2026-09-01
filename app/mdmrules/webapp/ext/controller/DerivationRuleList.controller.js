@@ -37,7 +37,7 @@ sap.ui.define([
    * there is one fewer than there are conditions. Kept here rather than as an expression binding in
    * the view so the arithmetic and the column widths it mirrors can be read in one place.
    */
-  var FIXED_REM = 36;
+  var FIXED_REM = 42;
 
   function tableWidthFor(conditions) {
     return (FIXED_REM + (23 * conditions) + (6 * (conditions - 1))) + "rem";

@@ -20,7 +20,7 @@ const changeRequestJs = read(ROOT, 'srv', 'change-request-service.js');
 
 // The columns are the agreed shape of a rule, so they are pinned rather than left to a refactor.
 test('the validation table has the columns a rule needs, in order', () => {
-  const columns = [...view('ValidationRuleList').matchAll(/<Column[\s\S]*?>\s*<Text text="([^"]+)"/gu)]
+  const columns = [...view('ValidationRuleList').matchAll(/<Column\b[\s\S]*?>\s*<Text text="([^"]+)"/gu)]
     .map((match) => match[1]);
   assert.deepEqual(columns, [
     'Condition 1 Field', 'Condition 1 Value', 'Condition 2 Field', 'Condition 2 Value',
@@ -31,7 +31,7 @@ test('the validation table has the columns a rule needs, in order', () => {
 });
 
 test('the derivation table has the columns a rule needs, in order', () => {
-  const columns = [...view('DerivationRuleList').matchAll(/<Column[\s\S]*?>\s*<Text text="([^"]+)"/gu)]
+  const columns = [...view('DerivationRuleList').matchAll(/<Column\b[\s\S]*?>\s*<Text text="([^"]+)"/gu)]
     .map((match) => match[1]);
   assert.deepEqual(columns, [
     'Condition 1 Field', 'Condition 1 Value', 'Condition 2 Field', 'Condition 2 Value',
@@ -50,7 +50,10 @@ test('the conditions are the duplicate table conditions', () => {
     }
     assert.match(source, /placeholder="any"/u);
     // A value with no field would be half a condition; the cell is disabled until there is one.
-    assert.match(source, /enabled="\{= !!\$\{dc>conditionField\} \}"/u);
+    // `targetType: 'any'` since 2026-09-01 - without it UI5 formats the referenced String into the
+    // Boolean `enabled` is declared as, throws a FormatException, and leaves the cell at its
+    // default, so the guard silently never applied. See CLAUDE.md.
+    assert.match(source, /enabled="\{= !!\$\{path: 'dc>conditionField', targetType: 'any'\} \}"/u);
   }
   assert.match(rulesCds, /aspect ruleConditions/u);
 });
@@ -60,7 +63,11 @@ test('the conditions are the duplicate table conditions', () => {
  * a value the engine ignores is how a steward comes to believe a rule says something it does not.
  */
 test('the validation Value cell switches itself off where a value is meaningless', () => {
-  assert.match(view('ValidationRuleList'), /enabled="\{= \$\{view>\/needsValue\}\[\$\{dc>comparison\}\] !== false \}"/u);
+  // The `view>` half needs no targetType - a JSONModel carries no types - but the `dc>` half does.
+  assert.match(
+    view('ValidationRuleList'),
+    /enabled="\{= \$\{view>\/needsValue\}\[\$\{path: 'dc>comparison', targetType: 'any'\}\] !== false \}"/u
+  );
   assert.match(serviceCds, /needsValue : Boolean/u);
   assert.match(controller('ValidationRuleList'), /needsValue\[entry\.code\] = entry\.needsValue !== false/u);
 });
@@ -352,15 +359,15 @@ function mockContext(object) {
  * mask one in the code being tested.
  */
 test('import deletes every existing row and creates one for every row in the file, on both pages', () => {
+  // Keyed, not positional: the row went from 10 cells to 19 when the extra condition slots landed
+  // (2026-09-01), and a positional fixture silently stopped filling Field/Comparison at all, so
+  // nothing was created and the failure named the import rather than the fixture.
   const cases = {
     ValidationRuleList: {
-      // Condition1Field, Condition1Value, Logic, Condition2Field, Condition2Value, Field,
-      // Comparison, Value, Severity, Active
-      row: () => ['', '', 'AND', '', '', 'General.Language', 'eq', 'NL', 'error', 'true']
+      values: { field: 'General.Language', comparison: 'eq', value: 'NL', severity: 'error', isActive: 'true' }
     },
     DerivationRuleList: {
-      // Condition1Field, Condition1Value, Logic, Condition2Field, Condition2Value, Field, Value, Active
-      row: () => ['', '', 'AND', '', '', 'General.Language', 'NL', 'true']
+      values: { field: 'General.Language', value: 'NL', isActive: 'true' }
     }
   };
 
@@ -377,8 +384,12 @@ test('import deletes every existing row and creates one for every row in the fil
     const binding = { getCurrentContexts: () => [first, second], create: (record) => created.push(record) };
     const fakeThis = { _table: () => ({ getBinding: () => binding }), _markDirty: () => {}, _syncConditionColumns: () => {} };
 
-    const header = xlsxColumns().map((column) => column.label);
-    members._applyImportedXlsx.call(fakeThis, [header, cases[name].row()]);
+    const columns = xlsxColumns();
+    const header = columns.map((column) => column.label);
+    const values = cases[name].values;
+    const row = columns.map((column) => values[column.key]
+      || (column.key === 'conditionLogic' ? 'AND' : ''));
+    members._applyImportedXlsx.call(fakeThis, [header, row]);
 
     assert.equal(first.deleted, true, `${name}: first row deleted`);
     assert.equal(first.deleteGroup, 'ruleChanges');
