@@ -71,8 +71,9 @@ test('the CR types and steps come from the service, not from the page', () => {
   assert.match(controller, /_callAction\("workflowRuleOptions", \{\}\)/u);
   assert.match(serviceCds, /function workflowRuleOptions\(\) returns WorkflowRuleOptions/u);
   assert.match(serviceJs, /this\.on\('workflowRuleOptions'/u);
-  // No `*` in the type list: an approver list is not something to default.
-  assert.equal(require('../srv/checks/workflow-rules').REQUEST_TYPES.includes('*'), false);
+  // `*` ("Any") joined the type list 2026-08-31, asked for directly, so one rule can cover every
+  // CR type - an explicit choice a steward makes on a row, not a silent default.
+  assert.equal(require('../srv/checks/workflow-rules').REQUEST_TYPES.includes('*'), true);
 });
 
 /**

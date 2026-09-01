@@ -59,7 +59,8 @@
         <items>
           <ColumnListItem>
             <cells>
-              <!-- All four CR types, and no "any": an approver list is not something to default. -->
+              <!-- All four CR types plus "Any" (2026-08-31, asked for) - an explicit choice a steward
+                   picks on a row, so one rule can cover every type instead of four copies of it. -->
               <ComboBox
                 width="100%"
                 selectedKey="{dc>requestType}"

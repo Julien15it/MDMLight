@@ -242,20 +242,47 @@ test('a rule needs a CR type, a step and somebody to approve it', () => {
   assert.deepEqual(fields({ requestType: '' }), ['requestType']);
   assert.deepEqual(fields({ step: '' }), ['step']);
   assert.deepEqual(fields({ approvers: '' }), ['approvers']);
-  // No `*` on the CR type: an approver list is not something to default.
-  assert.deepEqual(fields({ requestType: '*' }), ['requestType']);
+  // `*` ("Any") is a valid, explicit CR type since 2026-08-31 - asked for directly, so one rule can
+  // cover every type. `archive` is still not a real type.
+  assert.deepEqual(fields({ requestType: '*' }), []);
   assert.deepEqual(fields({ requestType: 'archive' }), ['requestType']);
   assert.deepEqual(fields({ step: 'Review' }), ['step']);
 });
 
-// All four types, unlike the field property profiles' list: this table is where a steward says who
-// approves a block or a delete, and saying it before the app processes those types is harmless.
-test('all four CR types can be configured, and one step exists', () => {
-  assert.deepEqual([...REQUEST_TYPES], ['create', 'change', 'block', 'delete']);
+// All four types plus `*`, unlike the field property profiles' list (which uses `*` as a condition,
+// not a fifth value): this table is where a steward says who approves a block or a delete, and
+// saying it before the app processes those types is harmless.
+test('all four CR types plus Any can be configured, and one step exists', () => {
+  assert.deepEqual([...REQUEST_TYPES], ['*', 'create', 'change', 'block', 'delete']);
   assert.deepEqual([...STEPS], ['Approve']);
   for (const requestType of REQUEST_TYPES) {
     assert.deepEqual(validateWorkflowRule(rule({ requestType }), model).errors, []);
   }
+});
+
+/**
+ * The whole point of "Any": one rule reaches every request type, so a steward is not copying the
+ * same approver list onto four rows.
+ */
+test('a rule with requestType "*" resolves approvers for every CR type', () => {
+  const rules = [rule({ requestType: '*', approvers: 'maarten@alluvion.eu' })];
+  for (const requestType of ['create', 'change', 'block', 'delete']) {
+    const approvers = resolveApprovers({ rules, requestType, payload: payload(), model });
+    assert.deepEqual(approvers.map((entry) => entry.value), ['maarten@alluvion.eu']);
+  }
+});
+
+// A `*` rule and a specific-type rule both contribute, additively, exactly like two specific rules
+// already do.
+test('a "*" rule and a specific-type rule both contribute for a matching request', () => {
+  const rules = [
+    rule({ requestType: '*', approvers: 'general@alluvion.eu' }),
+    rule({ requestType: 'create', approvers: 'create-only@alluvion.eu' })
+  ];
+  const forCreate = resolveApprovers({ rules, requestType: 'create', payload: payload(), model });
+  assert.deepEqual(forCreate.map((entry) => entry.value).sort(), ['create-only@alluvion.eu', 'general@alluvion.eu']);
+  const forChange = resolveApprovers({ rules, requestType: 'change', payload: payload(), model });
+  assert.deepEqual(forChange.map((entry) => entry.value), ['general@alluvion.eu']);
 });
 
 // Half a condition is the dangerous half: a field with no values would match every request. Both
