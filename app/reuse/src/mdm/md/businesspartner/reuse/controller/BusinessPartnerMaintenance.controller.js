@@ -2426,11 +2426,42 @@ sap.ui.define([
       },
 
       /**
+       * S/4's own standard checks are capped at `warning` server-side (`bp-check.js`'s
+       * `MAX_SEVERITY`) - not because a warning is safe to ignore, but because that stage's own
+       * findings had not yet been seen to be right on real data when that cap was written, and a
+       * wrong `error` would block a request nothing was actually wrong with. `Valid` on the check
+       * result never reflects them either way (see `runChecks` in `srv/checks/pipeline.js`) - they
+       * "join the validation list" for display, not for the pass/fail verdict. So checking `Valid`
+       * alone, as the check strips on screen already do, lets Submit/Resubmit/Approve go through
+       * with an S/4 finding still standing - only visible if a proposal happened to be on screen to
+       * show it. Asked for directly (2026-08-31): treat anything above `info` here as blocking for
+       * the pre-action check specifically, so pressing Submit/Resubmit/Approve cannot succeed while
+       * S/4 itself still objects. This is a stricter LOCAL gate on top of the existing data, not a
+       * change to `bp-check.js`'s own cap - the Check button's own strips are untouched, still
+       * warnings a requester can read and keep working past.
+       */
+      _standardBlocks: function (findings) {
+        // Not an array at all (the re-run below failed) is treated the same as "found something" -
+        // a check that could not be confirmed must not read as one that passed.
+        if (!Array.isArray(findings)) return true;
+        return findings.some(function (entry) { return entry.severity !== "info"; });
+      },
+
+      _standardBlockMessage: function (findings) {
+        var named = (findings || []).filter(function (entry) { return entry.severity !== "info"; });
+        return "S/4HANA reports this data is not valid yet:\n\n"
+          + (named.length
+            ? named.map(function (entry) { return "  • " + entry.message; }).join("\n")
+            : "The SAP standard checks could not be confirmed. Please try again.");
+      },
+
+      /**
        * Runs the same check as the Check button before Submit/Resubmit/Approve actually happen
        * (2026-08-31, "heel belangrijk" - the silent, validation-only gate CAP already ran on those
        * three did not read as "a check happened", because nothing visible occurred when the data
-       * was fine). Resolves `true` to let the caller proceed, `false` to stop - a blocked payload or
-       * a check that could not run at all.
+       * was fine). Resolves `true` to let the caller proceed, `false` to stop - a blocked payload,
+       * an S/4 standard-check objection (see `_standardBlocks` above), or a check that could not
+       * run at all.
        *
        * Still a check run from a button press, never from typing - this is Submit/Resubmit/Approve
        * ASKING for one, the same as pressing Check itself, not a background trigger.
@@ -2438,10 +2469,13 @@ sap.ui.define([
        * `forApprove` skips the AI normalisation call (nothing on that screen is editable, so there
        * is nothing to reformat towards) and never opens the proposals dialog even if a derivation
        * found something: decideRequest takes no DataJson, so an approver "accepting" a proposal here
-       * would have nowhere for that acceptance to go. Submit/Resubmit, where a proposal DOES reach
-       * the payload, show the same dialog the Check button shows and wait for it to close - the
-       * requester has to have seen what they are asking for, the same rule that keeps a derivation
-       * from ever auto-applying anywhere else in this screen.
+       * would have nowhere for that acceptance to go. It still runs and blocks on the SAME standard
+       * check, though - "niks mag aanpassen" is the reason to skip proposals, not a reason to let an
+       * S/4 objection through unchecked. Submit/Resubmit, where a proposal DOES reach the payload,
+       * show the same dialog the Check button shows and wait for it to close - the requester has to
+       * have seen what they are asking for, the same rule that keeps a derivation from ever
+       * auto-applying anywhere else in this screen - and the standard findings are re-evaluated
+       * AFTER that dialog closes, since accepting a proposal can itself clear (or newly raise) one.
        */
       _runPreActionCheck: function (state, forApprove) {
         var self = this;
@@ -2463,16 +2497,25 @@ sap.ui.define([
             );
             return false;
           }
-          if (forApprove) return true;
+
+          var standard = self._parseJsonArray(result && result.StandardJson);
+          var blockOnStandard = function (findings) {
+            if (!self._standardBlocks(findings)) return true;
+            MessageBox.error(self._standardBlockMessage(findings));
+            return false;
+          };
+
+          if (forApprove) return blockOnStandard(standard);
 
           var derivations = self._parseJsonArray(result && result.DerivationsJson);
           var normalisations = self._parseJsonArray(result && result.NormalisationsJson);
-          var standard = self._parseJsonArray(result && result.StandardJson);
           var proposals = self._proposalRows(derivations, normalisations);
-          if (!proposals.length) return true;
+          if (!proposals.length) return blockOnStandard(standard);
 
           return new Promise(function (resolve) {
-            self._offerProposals(proposals, standard, function () { resolve(true); });
+            self._offerProposals(proposals, standard, function (effectiveStandard) {
+              resolve(blockOnStandard(effectiveStandard));
+            });
           });
         }).catch(function (error) {
           MessageBox.error(errorMessage(error, "The check could not be run."));
@@ -3190,24 +3233,29 @@ sap.ui.define([
       },
 
       // S/4's findings, once the dialog is answered: nothing accepted shows what was held (no second
-      // vendor number), something accepted re-runs. Why not filtering them: CLAUDE.md.
+      // vendor number), something accepted re-runs. Why not filtering them: CLAUDE.md. Resolves to
+      // the EFFECTIVE findings either way (2026-08-31) - the held list unchanged, or the fresh
+      // result of the re-run - so _runPreActionCheck can still judge whether Submit/Resubmit/Approve
+      // may proceed after this dialog closes, not only whether something was shown on screen.
       _resolveStandardChecks: function (standard, rerun) {
         if (rerun) return this._rerunStandardChecks();
         var held = standard || [];
-        if (!held.length) return Promise.resolve();
+        if (!held.length) return Promise.resolve(held);
         var maintenanceModel = this.getView().getModel("maintenance");
         var state = maintenanceModel.getData();
         state.messages = (state.messages || []).concat(this._validationMessages(held));
         // `refresh` too: _renderAll never touches the model, and afterClose has no finally to do it.
         this._renderAll();
         maintenanceModel.refresh(true);
-        return Promise.resolve();
+        return Promise.resolve(held);
       },
 
       // The same check on the accepted payload, for its messages only. `Propose: false`: declined
       // proposals are not re-offered inside one press - pressing Check again is how those are asked.
-      // `Role` travels too: the SAP standard checks only run on the data steward step, so leaving it
-      // off would re-run everything EXCEPT the findings this exists to refresh.
+      // Returns the fresh StandardJson (or `null` on failure) so the caller can judge it - see
+      // _resolveStandardChecks above. `Role` travels too: the SAP standard checks only run on the
+      // data steward step, so leaving it off would re-run everything EXCEPT the findings this
+      // exists to refresh - and _runPreActionCheck would then judge a blank list as a clean one.
       _rerunStandardChecks: async function () {
         var maintenanceModel = this.getView().getModel("maintenance");
         var state = maintenanceModel.getData();
@@ -3228,6 +3276,7 @@ sap.ui.define([
             this._parseJsonArray(result && result.StandardJson)
           );
           this._renderAll();
+          return this._parseJsonArray(result && result.StandardJson);
         } catch (error) {
           // A check that could not run must never read as one that passed - the same rule the
           // pipeline applies server-side.
@@ -3237,6 +3286,7 @@ sap.ui.define([
               + errorMessage(error, "unknown error")
           }]);
           this._renderAll();
+          return null;
         } finally {
           state.busy = false;
           maintenanceModel.refresh(true);

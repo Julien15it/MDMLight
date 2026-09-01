@@ -171,20 +171,25 @@ test('a proposal only ever reaches the screen through the one vetted dialog func
   const pre = CONTROLLER.slice(
     CONTROLLER.indexOf('_runPreActionCheck: function'), CONTROLLER.indexOf('onCheck: async function')
   );
-  assert.match(pre, /self\._offerProposals\(proposals, standard, function \(\) \{ resolve\(true\); \}\)/u);
+  assert.match(
+    pre,
+    /self\._offerProposals\(proposals, standard, function \(effectiveStandard\) \{\s*resolve\(blockOnStandard\(effectiveStandard\)\);\s*\}\)/u
+  );
   assert.equal(/_applyProposals/u.test(pre), false, 'it never applies anything itself either');
 });
 
 /**
  * Approve never opens the dialog even when a derivation finds something: nothing on that screen is
  * editable and decideRequest takes no DataJson, so an accepted proposal there would have nowhere to
- * go - see CLAUDE.md, "Derivations/Proposals... geblocked... in Approval stap".
+ * go - see CLAUDE.md, "Derivations/Proposals... geblocked... in Approval stap". It still runs and
+ * blocks on the SAME S/4 standard check though (2026-08-31, asked for) - skipping proposals is about
+ * having nothing to apply one into, not a reason to let an S/4 objection through unchecked.
  */
-test('_runPreActionCheck never offers a proposal on the approve path', () => {
+test('_runPreActionCheck never offers a proposal on the approve path, but still blocks on S/4', () => {
   const fn = CONTROLLER.slice(CONTROLLER.indexOf('_runPreActionCheck: function'));
   const body = fn.slice(0, fn.indexOf('\n      },\n\n      onCheck'));
-  assert.match(body, /if \(forApprove\) return true;/u);
-  const beforeGuard = body.slice(0, body.indexOf('if (forApprove) return true;'));
+  assert.match(body, /if \(forApprove\) return blockOnStandard\(standard\);/u);
+  const beforeGuard = body.slice(0, body.indexOf('if (forApprove) return blockOnStandard(standard);'));
   assert.equal(/_offerProposals/u.test(beforeGuard), false, 'no dialog reachable before the guard');
   assert.match(body, /Propose: !forApprove/u, 'no AI normalisation call for approve either');
 });
@@ -260,4 +265,72 @@ test('every way out of the proposals dialog records what was not applied', () =>
   assert.match(body, /applied = true;/u, 'Apply Selected says so, and afterClose reads it');
   assert.match(body, /this\._proposalsOpen = true;/u);
   assert.match(body, /this\._proposalsOpen = false;/u);
+});
+
+// --- The S/4 standard check actually blocks Submit/Resubmit/Approve now (2026-08-31) --------------
+
+/** Extracts a plain object-literal method (`name: function (...) {...}`) as a callable function -
+ *  same technique as change-highlighting.test.js's extractMethod, for a method with no `this`. */
+function extractMethod(source, name) {
+  const label = name + ': function';
+  const labelAt = source.indexOf(label);
+  const fnStart = labelAt + name.length + 2;
+  const braceStart = source.indexOf('{', fnStart);
+  let depth = 0;
+  let end = braceStart;
+  for (let i = braceStart; i < source.length; i += 1) {
+    if (source[i] === '{') depth += 1;
+    if (source[i] === '}') {
+      depth -= 1;
+      if (depth === 0) { end = i + 1; break; }
+    }
+  }
+  const code = source.slice(fnStart, end);
+  // eslint-disable-next-line no-new-func
+  return new Function('return (' + code + ')')();
+}
+
+/**
+ * `runChecks` caps a standard finding at `warning`, never `error` (see bp-check.js's own
+ * MAX_SEVERITY) - so gating on `severity === 'error'`, as the local ValidationsJson check does,
+ * would never actually fire. `_standardBlocks` treats anything above `info` as blocking instead,
+ * which is the practical threshold given that cap.
+ */
+test('_standardBlocks: a warning blocks, info does not, and an unreadable result blocks too', () => {
+  const standardBlocks = extractMethod(CONTROLLER, '_standardBlocks');
+  assert.equal(standardBlocks([]), false, 'nothing found is not a block');
+  assert.equal(standardBlocks([{ severity: 'info', message: 'FYI' }]), false);
+  assert.equal(standardBlocks([{ severity: 'warning', message: 'City is required' }]), true);
+  assert.equal(standardBlocks([{ severity: 'error', message: 'should not occur, but still blocks' }]), true);
+  // A re-run that failed reports `null` (see _rerunStandardChecks) - not an array, so it cannot be
+  // read as "nothing found". A check that could not be confirmed must not read as one that passed.
+  assert.equal(standardBlocks(null), true);
+  assert.equal(standardBlocks(undefined), true);
+});
+
+test('_standardBlockMessage names only the findings that actually block', () => {
+  const standardBlockMessage = extractMethod(CONTROLLER, '_standardBlockMessage');
+  const message = standardBlockMessage([
+    { severity: 'info', message: 'ignored' },
+    { severity: 'warning', message: 'City is required' }
+  ]);
+  assert.match(message, /City is required/u);
+  assert.equal(/ignored/u.test(message), false);
+  // No findings survive the filter (e.g. a re-run returned null and blockOnStandard was still
+  // asked to explain why) - a message with nothing named is still an honest one, not blank.
+  assert.match(standardBlockMessage(null), /could not be confirmed/u);
+});
+
+/**
+ * The whole point of this feature: an S/4 warning that survives to the end (no proposal touched it,
+ * or a re-run still reports it) stops the button's own action from ever being called - it is not
+ * merely displayed as before.
+ */
+test('_runPreActionCheck resolves false, without proceeding, when S/4 still objects', () => {
+  const fn = CONTROLLER.slice(CONTROLLER.indexOf('_runPreActionCheck: function'));
+  const body = fn.slice(0, fn.indexOf('\n      },\n\n      onCheck'));
+  // Checked in every branch: approve, no-proposals, and after the proposals dialog closes.
+  assert.match(body, /if \(forApprove\) return blockOnStandard\(standard\);/u);
+  assert.match(body, /if \(!proposals\.length\) return blockOnStandard\(standard\);/u);
+  assert.match(body, /resolve\(blockOnStandard\(effectiveStandard\)\);/u);
 });

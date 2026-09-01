@@ -1530,6 +1530,43 @@ three actions regardless of what the client did or did not check first - belt an
 direct service call, and the actual security-relevant gate (`requesterContext` is still hardcoded on
 every write path).
 
+##### An S/4 standard-check finding blocks the button too, not only the local validations (2026-08-31)
+
+Asked for directly: "Validaties/SAP standard checks op Submit button doublechecken (Geen Proposals
+voorstellen) bij de approver. Omdat die dus niks mag aanpassen" - validations/SAP standard checks
+should be double-checked on Submit (and Resubmit/Approve), with no proposals for the approver,
+because they cannot change anything anyway. The "no proposals for approve" half was already true;
+the "double-checked" half was not, for a specific reason: `runChecks` in `srv/checks/pipeline.js`
+never lets a standard-check finding flip its own `valid` flag - `bp-check.js`'s findings only "join
+the validation list" for **display**, and `_runPreActionCheck` was checking `result.Valid`, which
+answers only for the LOCAL validations. So a genuine S/4 objection (a required field S/4 itself
+refuses, say) could sit on screen as a strip while Submit/Resubmit/Approve went ahead anyway -
+visible only by accident, when a proposal happened to be on offer at the same time.
+
+`_standardBlocks(findings)` is the new, stricter LOCAL gate: anything with `severity !== 'info'`
+blocks. Not `=== 'error'` - `bp-check.js`'s own `MAX_SEVERITY` caps every standard finding at
+`'warning'` on purpose (see "The S/4 standard checks only see accepted values" above), so gating on
+`'error'` here would never fire. This does **not** loosen or touch that cap - the Check button's own
+strips still show these as ordinary warnings a requester can read and keep working past; only the
+pre-action check that decides whether Submit/Resubmit/Approve may actually proceed treats them as a
+stop sign. A findings value that is not an array at all (a re-run that itself failed - see below)
+blocks too, on the same "a check that could not be confirmed must not read as one that passed" rule
+`_rerunStandardChecks`'s own catch block already followed for its warning strip.
+
+Checked in **every** branch `_runPreActionCheck` can take, not only the common one:
+
+- **Approve** (`forApprove`) - checked right after the local-validation gate, before the function
+  returns at all. Approve still never opens the proposals dialog (nothing there is editable, and
+  `decideRequest` takes no `DataJson` for an accepted proposal to reach), but that is a reason to
+  skip the DIALOG, not a reason to skip the CHECK.
+- **No proposals to offer** - `standard` from the initial `checkRequest` call is judged directly.
+- **Something to propose** - judged only AFTER the proposals dialog closes, against the EFFECTIVE
+  findings that dialog settles on, not the stale initial ones: accepting a proposal can itself clear
+  a standard-check objection (the exact case "The S/4 standard checks only see accepted values"
+  exists for), or a re-run can surface a new one. `_resolveStandardChecks`/`_rerunStandardChecks`
+  both now RETURN the effective findings (previously they only had the side effect of setting
+  `state.messages`) precisely so `_offerProposals`'s `onResolved` callback has something to judge.
+
 ##### `loadStagedPayload` fed a shape the validation pipeline could not see through (fixed 2026-08-31)
 
 Reported live, the same day the approve gate above shipped: approving a genuine supplier create
