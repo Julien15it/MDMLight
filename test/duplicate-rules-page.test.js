@@ -390,7 +390,7 @@ test('the condition logic travels to the engine, per slot', () => {
 test('every condition value cell offers a list, not just one value', () => {
   for (const suffix of ['', '2', '3', '4', '5']) {
     const cell = view.slice(view.indexOf(`value="{dc>conditionValue${suffix}}"`));
-    assert.match(cell.slice(0, cell.indexOf('/>')), /placeholder="any, or A[|]B"/u);
+    assert.match(cell.slice(0, cell.indexOf('/>')), /placeholder="any, or Value1[|]Value2"/u);
   }
   // The read path is what makes that true, and it is the shared one.
   const { conditionsMatch } = require('../srv/ai/duplicate-engine');

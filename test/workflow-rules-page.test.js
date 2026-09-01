@@ -809,3 +809,13 @@ test('every rule page waits on context.created() before trusting a create actual
     assert.ok(pendingAt > -1 && pendingAt < waitAt, `${name} checks for a rejected row before waiting on the rest`);
   }
 });
+
+// One wording for the same cell on all four rule tables (2026-09-01): the workflow page said
+// "Value1|Value2" and the other three said "any", so neither told the whole story. An empty value
+// means "any" and a filled one may be a list, and the cell now says both.
+test('the condition value cell says both that it may be empty and that it takes a list', () => {
+  for (const suffix of ['', '2', '3', '4', '5']) {
+    const cell = view.slice(view.indexOf(`value="{dc>conditionValues${suffix}}"`));
+    assert.match(cell.slice(0, cell.indexOf('/>')), /placeholder="any, or Value1[|]Value2"/u);
+  }
+});

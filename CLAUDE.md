@@ -2634,8 +2634,15 @@ well"*. Two halves, and only one of them is a schema question:
   `BE|NL|FR` has always been one condition on all four tables: `listMatches` for the quality engine,
   `holds` for the duplicate one, both ORing across the list, both treating a single value as a
   one-entry list. What was missing was any sign of it on the three pages, whose value cells said
-  only `any`. They now say `any, or A|B`, the same affordance WorkflowRules' `Value1|Value2`
-  placeholder already gave.
+  only `any`.
+
+**One wording for that cell on all four tables: `any, or Value1|Value2`.** The workflow page said
+`Value1|Value2` and the other three said `any`, and neither told the whole story — an empty value
+means "any" *and* a filled one may be a list. Settled by asking rather than guessing ("Do all these
+fields show value1|value2 as an inputguide?" — they did not, and that was the point). The cell is
+7–9rem so it truncates to about "any, or Value1…", which still reads correctly. The condition FIELD
+cells are deliberately left as they were (`Field` on workflow, `any` on the other three): that
+column has no list semantics to explain.
 
 This is the READ path the withdrawn token-cell feature left behind, finally surfaced — not a second
 attempt at that feature. The cell is still a plain bound `Input`, which is the version that works.

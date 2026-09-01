@@ -134,7 +134,7 @@
                 <Input
                   width="7rem"
                   value="{dc>conditionValues}"
-                  placeholder="Value1|Value2"
+                  placeholder="any, or Value1|Value2"
                   enabled="{= ${path: 'dc>conditionOperator', targetType: 'any'} !== 'empty' &amp;&amp; ${path: 'dc>conditionOperator', targetType: 'any'} !== 'notEmpty' }"
                   change=".onCellChange" />
               </HBox>
@@ -168,7 +168,7 @@
                 <Input
                   width="7rem"
                   value="{dc>conditionValues2}"
-                  placeholder="Value1|Value2"
+                  placeholder="any, or Value1|Value2"
                   enabled="{= ${path: 'dc>conditionOperator2', targetType: 'any'} !== 'empty' &amp;&amp; ${path: 'dc>conditionOperator2', targetType: 'any'} !== 'notEmpty' }"
                   change=".onCellChange" />
               </HBox>
@@ -200,7 +200,7 @@
                 <Input
                   width="7rem"
                   value="{dc>conditionValues3}"
-                  placeholder="Value1|Value2"
+                  placeholder="any, or Value1|Value2"
                   enabled="{= ${path: 'dc>conditionOperator3', targetType: 'any'} !== 'empty' &amp;&amp; ${path: 'dc>conditionOperator3', targetType: 'any'} !== 'notEmpty' }"
                   change=".onCellChange" />
               </HBox>
@@ -230,7 +230,7 @@
                 <Input
                   width="7rem"
                   value="{dc>conditionValues4}"
-                  placeholder="Value1|Value2"
+                  placeholder="any, or Value1|Value2"
                   enabled="{= ${path: 'dc>conditionOperator4', targetType: 'any'} !== 'empty' &amp;&amp; ${path: 'dc>conditionOperator4', targetType: 'any'} !== 'notEmpty' }"
                   change=".onCellChange" />
               </HBox>
@@ -260,7 +260,7 @@
                 <Input
                   width="7rem"
                   value="{dc>conditionValues5}"
-                  placeholder="Value1|Value2"
+                  placeholder="any, or Value1|Value2"
                   enabled="{= ${path: 'dc>conditionOperator5', targetType: 'any'} !== 'empty' &amp;&amp; ${path: 'dc>conditionOperator5', targetType: 'any'} !== 'notEmpty' }"
                   change=".onCellChange" />
               </HBox>

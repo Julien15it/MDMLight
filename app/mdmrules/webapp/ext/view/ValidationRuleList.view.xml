@@ -113,7 +113,7 @@
               <Input
                 width="100%"
                 value="{dc>conditionValue}"
-                placeholder="any, or A|B"
+                placeholder="any, or Value1|Value2"
                 enabled="{= !!${path: 'dc>conditionField', targetType: 'any'} }"
                 change=".onCellChange" />
               <!-- Only enabled once BOTH of the conditions it joins are filled: there is nothing to
@@ -136,7 +136,7 @@
               <Input
                 width="100%"
                 value="{dc>conditionValue2}"
-                placeholder="any, or A|B"
+                placeholder="any, or Value1|Value2"
                 enabled="{= !!${path: 'dc>conditionField2', targetType: 'any'} }"
                 change=".onCellChange" />
               <ComboBox
@@ -157,7 +157,7 @@
               <Input
                 width="100%"
                 value="{dc>conditionValue3}"
-                placeholder="any, or A|B"
+                placeholder="any, or Value1|Value2"
                 enabled="{= !!${path: 'dc>conditionField3', targetType: 'any'} }"
                 change=".onCellChange" />
               <ComboBox
@@ -178,7 +178,7 @@
               <Input
                 width="100%"
                 value="{dc>conditionValue4}"
-                placeholder="any, or A|B"
+                placeholder="any, or Value1|Value2"
                 enabled="{= !!${path: 'dc>conditionField4', targetType: 'any'} }"
                 change=".onCellChange" />
               <ComboBox
@@ -199,7 +199,7 @@
               <Input
                 width="100%"
                 value="{dc>conditionValue5}"
-                placeholder="any, or A|B"
+                placeholder="any, or Value1|Value2"
                 enabled="{= !!${path: 'dc>conditionField5', targetType: 'any'} }"
                 change=".onCellChange" />
               <!-- The field being validated. The value help lists the whole staging model, so a

@@ -496,7 +496,7 @@ test('every condition value cell offers a list, not just one value', () => {
       const cell = source.slice(source.indexOf(`value="{dc>conditionValue${suffix}}"`));
       assert.match(
         cell.slice(0, cell.indexOf('/>')),
-        /placeholder="any, or A[|]B"/u,
+        /placeholder="any, or Value1[|]Value2"/u,
         `${name} condition ${suffix || '1'} says a list is allowed`
       );
     }
