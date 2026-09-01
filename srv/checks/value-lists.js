@@ -130,6 +130,29 @@ function joinConditions(results, logic) {
   return results.every(Boolean);
 }
 
+/**
+ * The same join with ONE LOGIC PER GAP, for a table that draws a Logic column between every pair of
+ * conditions (WorkflowRules since 2026-09-01). `logics[i]` is the logic written BEFORE condition
+ * `i`, so `logics[0]` is never read - the first condition has nothing to its left.
+ *
+ * It folds LEFT TO RIGHT with no precedence: `A OR B AND C` is `(A OR B) AND C`, which is how the
+ * row reads on screen. Zero and one condition behave exactly as `joinConditions` - one condition is
+ * itself, logic bypassed, which is what keeps NOR from silently inverting a lone condition - and
+ * two conditions under one logic give the identical answer, so nothing that used the pairwise
+ * version had to change.
+ */
+function foldConditions(results, logics = []) {
+  if (!results.length) return true;
+  let held = Boolean(results[0]);
+  for (let index = 1; index < results.length; index += 1) {
+    const key = conditionLogicOf(logics[index]);
+    if (key === 'OR') held = held || Boolean(results[index]);
+    else if (key === 'NOR') held = !(held || Boolean(results[index]));
+    else held = held && Boolean(results[index]);
+  }
+  return held;
+}
+
 const trimmed = (value) => String(value === null || value === undefined ? '' : value).trim();
 
 const dedupe = (values) => [...new Set(values)];
@@ -141,6 +164,7 @@ module.exports = {
   conditionLogicOf,
   conditionLogicError,
   joinConditions,
+  foldConditions,
   WILDCARD,
   hasWildcard,
   normalisePattern,

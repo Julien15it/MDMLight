@@ -3,7 +3,7 @@
 const { DUPLICATE_THRESHOLD, scoreFingerprint, diceSimilarity } = require('./name-match');
 const { CONDITION_FIELDS, buildCandidate, resolveField } = require('./duplicate-fields');
 const {
-  parseValueList, hasWildcard, normalisePattern, wildcardMatches, joinConditions
+  parseValueList, hasWildcard, normalisePattern, wildcardMatches, foldConditions
 } = require('../checks/value-lists');
 
 // `disqualifying` is negative evidence and never competes for strongest-per-field, so it has no
@@ -44,12 +44,20 @@ const CONDITION_COLUMNS = Object.freeze({
   Role: 'condRole'
 });
 
-// Two independent condition pairs, joined by `conditionLogic` when both are filled: "Role = Vendor
-// AND Country = BE". Either may be left empty, which means "any" — an empty pair never narrows.
+// Five independent condition slots (two until 2026-09-01), joined by the Logic column sitting
+// between each pair: "Role = Vendor AND Country = BE". Any may be left empty, which means "any" -
+// an empty slot never narrows. `logic` names the column joining a slot to the one BEFORE it, null
+// on the first; the fold is left to right, see foldConditions in srv/checks/value-lists.js.
 const CONDITION_PAIRS = Object.freeze([
-  Object.freeze({ field: 'conditionField', value: 'conditionValue' }),
-  Object.freeze({ field: 'conditionField2', value: 'conditionValue2' })
+  Object.freeze({ field: 'conditionField', value: 'conditionValue', logic: null }),
+  Object.freeze({ field: 'conditionField2', value: 'conditionValue2', logic: 'conditionLogic' }),
+  Object.freeze({ field: 'conditionField3', value: 'conditionValue3', logic: 'conditionLogic2' }),
+  Object.freeze({ field: 'conditionField4', value: 'conditionValue4', logic: 'conditionLogic3' }),
+  Object.freeze({ field: 'conditionField5', value: 'conditionValue5', logic: 'conditionLogic4' })
 ]);
+
+/** How many slots the schema carries - the page's own Add Condition ceiling. */
+const MAX_CONDITIONS = CONDITION_PAIRS.length;
 
 const COMPARISONS = Object.freeze({
   exact: (left, right) => (left === right ? 1 : 0),
@@ -130,7 +138,10 @@ function conditionsMatch(rule, bag) {
   const filled = CONDITION_PAIRS
     .filter((pair) => rule[pair.field] && parseValueList(rule[pair.value]).length);
   const results = filled.map((pair) => holds(rule[pair.field], rule[pair.value], bag));
-  if (!joinConditions(results, rule.conditionLogic)) return false;
+  // Each surviving slot brings its OWN preceding Logic column, so dropping an empty slot drops the
+  // join that sat beside it rather than shifting the next one onto the wrong pair.
+  const logics = filled.map((pair) => (pair.logic ? rule[pair.logic] : null) || rule.conditionLogic);
+  if (!foldConditions(results, logics)) return false;
   // The four superseded cond* columns are always ANDed onto the result: they predate the pairs and
   // the logic column describes the pairs, not them.
   for (const field of CONDITION_FIELDS) {
@@ -268,6 +279,7 @@ module.exports = {
   DEFAULT_RULES,
   COMPARISONS,
   CONDITION_PAIRS,
+  MAX_CONDITIONS,
   requiredFields,
   bagOf,
   conditionsMatch,

@@ -61,6 +61,34 @@ entity WorkflowRules : managed {
       conditionValues2   : String(400);
 
       /**
+       * **Three more fixed slots (2026-09-01, asked for)**: "provide an 'add condition' button next
+       * to 'add rule' ... pressing this should add an extra Logic and an extra Condition column".
+       * Columns, not a composition - the composition was built and abandoned twice already (see
+       * `conditionRows` above), and `cds-deploy` can ADD an element while it can neither drop nor
+       * retype one. So the schema carries five slots permanently and the PAGE decides how many of
+       * them to draw: Add Condition reveals the next column pair, and a rule that uses two looks
+       * exactly as it always did. Five is the cap for that reason - raising it later is another
+       * additive change, lowering it is not a change at all.
+       *
+       * `conditionLogicN` joins slot N to slot N+1, so `conditionLogic` (unnumbered, above) is the
+       * 1-to-2 join it has always been and the numbering starts at 2 for the 2-to-3 join. The
+       * conditions fold LEFT TO RIGHT under those joins - see `foldConditions` in
+       * srv/checks/value-lists.js; there is no operator precedence to remember.
+       */
+      conditionLogic2    : String(3) default 'AND';
+      conditionField3    : String(60);
+      conditionOperator3 : String(10) default 'eq';
+      conditionValues3   : String(400);
+      conditionLogic3    : String(3) default 'AND';
+      conditionField4    : String(60);
+      conditionOperator4 : String(10) default 'eq';
+      conditionValues4   : String(400);
+      conditionLogic4    : String(3) default 'AND';
+      conditionField5    : String(60);
+      conditionOperator5 : String(10) default 'eq';
+      conditionValues5   : String(400);
+
+      /**
        * The dynamic-conditions column's own FIRST cut (2026-08-28) - a line-per-condition
        * `field = value1|value2` text blob, shipped to production, then reworked into `conditionRows`
        * above the same week once it turned out the ask was "side by side, like the original two

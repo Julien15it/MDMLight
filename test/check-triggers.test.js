@@ -73,7 +73,28 @@ test('the action declares Propose and Scope, and the runner threads both', () =>
   // The SAP standard checks are the Check button's, and only for the whole record: a scoped call
   // must not pay for a remote round trip.
   assert.match(js, /standard: true/u);
-  assert.match(js, /checkStandard: standard && !scope/u);
+  assert.match(js, /checkStandard: standard && !scope && stewardStep/u);
+});
+
+/**
+ * The SAP standard checks moved to the data steward step (2026-09-01, asked for): "when a requestor
+ * presses check or submit I don't want our standard S4 checks to be triggered, only in a Data
+ * Steward step". Everything else about both buttons is unchanged - the validations, the derivations
+ * and the proposals still run for a requester exactly as before.
+ */
+test('only the data steward step pays for the SAP standard checks', () => {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'srv', 'change-request-service.js'), 'utf8');
+  assert.match(js, /const DATASTEWARD_ROLE = 'DataSteward';/u);
+  // The screen's own role, not the narrowed one: `startsWith` so a specific "DataSteward Customer"
+  // still gates them.
+  assert.match(js, /const stewardStep = String\(req\.data\.Role \|\| ''\)\.startsWith\(DATASTEWARD_ROLE\)/u);
+
+  // The screen names the step it is rendering, and the requester screen names Requester.
+  assert.match(CONTROLLER, /state\.mode === "approve" \? "Approver" : \(state\.mode === "datasteward" \? "DataSteward" : "Requester"\)/u);
+  // Every call that wants the standard findings sends it - the re-run after proposals included, or
+  // it would refresh everything except the findings it exists for.
+  const rerun = CONTROLLER.slice(CONTROLLER.indexOf('_rerunStandardChecks: async function'));
+  assert.match(rerun.slice(0, rerun.indexOf('\n      },')), /Role: this\._checkRole\(state\)/u);
 });
 
 const CONTROLLER = fs.readFileSync(

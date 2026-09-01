@@ -4,7 +4,7 @@ const {
   resolvePayloadField, sectionRows, targetFor, isEmptyValue, humanise, ROOT_TARGET
 } = require('./payload-fields');
 const {
-  parseValueList, listMatches, joinConditions, conditionLogicOf, conditionLogicError, CONDITION_LOGIC
+  parseValueList, listMatches, foldConditions, conditionLogicOf, conditionLogicError, CONDITION_LOGIC
 } = require('./value-lists');
 
 /**
@@ -13,11 +13,22 @@ const {
  * checks, so no rule may depend on a network call - the registries stay in registry-checks.js.
  */
 
-/** Mirrors CONDITION_PAIRS in srv/ai/duplicate-engine.js, over the same column names. */
+/**
+ * Mirrors CONDITION_PAIRS in srv/ai/duplicate-engine.js, over the same column names. Five slots
+ * since 2026-09-01, the same rollout WorkflowRules got - `logic` names the column joining a slot to
+ * the one BEFORE it, null on the first, which has nothing to its left. A rule saved with two
+ * conditions reads exactly as it did: the extra slots are empty and get dropped.
+ */
 const CONDITION_PAIRS = Object.freeze([
-  Object.freeze({ field: 'conditionField', value: 'conditionValue' }),
-  Object.freeze({ field: 'conditionField2', value: 'conditionValue2' })
+  Object.freeze({ field: 'conditionField', value: 'conditionValue', logic: null }),
+  Object.freeze({ field: 'conditionField2', value: 'conditionValue2', logic: 'conditionLogic' }),
+  Object.freeze({ field: 'conditionField3', value: 'conditionValue3', logic: 'conditionLogic2' }),
+  Object.freeze({ field: 'conditionField4', value: 'conditionValue4', logic: 'conditionLogic3' }),
+  Object.freeze({ field: 'conditionField5', value: 'conditionValue5', logic: 'conditionLogic4' })
 ]);
+
+/** How many slots the schema carries - the pages' own Add Condition ceiling. */
+const MAX_CONDITIONS = CONDITION_PAIRS.length;
 
 const SEVERITIES = Object.freeze(['error', 'warning', 'info']);
 
@@ -34,6 +45,17 @@ const COMPARISONS = Object.freeze({
   empty:    { text: 'is empty',                    needsValue: false, apply: (a) => isEmptyValue(a) },
   notEmpty: { text: 'is not empty',                needsValue: false, apply: (a) => !isEmptyValue(a) }
 });
+
+/**
+ * The operator label every rule page shows: "=  equal to" -> "=" (2026-09-01, asked for on the
+ * Workflow Agent Determination page, then on the other three). The symbol already says it and the
+ * cell is narrow; `contains`, `is empty` and `is not empty` carry no symbol and no double space, so
+ * they come back whole. It lives here because this is where COMPARISONS itself lives - the text is
+ * still defined once, and this only chooses which half of it a picker shows.
+ */
+function symbolOnly(text) {
+  return String(text === null || text === undefined ? '' : text).trim().split('  ')[0].trim();
+}
 
 /** The two that answer a question *about* emptiness, so they still fire on an empty field. */
 const EMPTINESS_COMPARISONS = Object.freeze(['empty', 'notEmpty']);
@@ -108,7 +130,8 @@ function readConditions(rule, model) {
       names: pair,
       field: trimmed(rule[pair.field]),
       value: trimmed(rule[pair.value]),
-      values: parseValueList(rule[pair.value])
+      values: parseValueList(rule[pair.value]),
+      logic: pair.logic ? trimmed(rule[pair.logic]) : null
     }))
     .filter((condition) => condition.field)
     .map((condition) => ({
@@ -128,12 +151,13 @@ function conditionHolds(condition, payload, ownSection, row, model) {
   return sectionRows(payload, section).some(({ record }) => matches(record[element]));
 }
 
-// `logic` joins the two pairs when both are filled; one condition is itself and no condition holds.
-// A stored row has no logic column and reads as AND, which is what `.every()` did before it existed.
+// Folded left to right under each condition's own preceding Logic column; one condition is itself
+// and no condition holds. A slot with no logic stored falls back to the rule's first one, and an
+// unset column reads as AND - which is what `.every()` did before any of this existed.
 function conditionsHold(conditions, payload, ownSection, row, model, logic) {
-  return joinConditions(
+  return foldConditions(
     conditions.map((condition) => conditionHolds(condition, payload, ownSection, row, model)),
-    logic
+    conditions.map((condition) => condition.logic || logic)
   );
 }
 
@@ -154,10 +178,25 @@ function describeCondition(conditions, logic) {
     // list it matched against rather than the delimiter it happens to be stored with.
     .map((condition) => `${condition.field} = ${condition.values.join(', ')}`);
   if (clauses.length === 1) return ` (rule applies where ${clauses[0]})`;
-  const key = conditionLogicOf(logic);
-  // NOR is the one that cannot be written as a join, so it is said as what it means.
-  if (key === 'NOR') return ` (rule applies where neither ${clauses[0]} nor ${clauses[1]})`;
-  return ` (rule applies where ${clauses.join(` ${CONDITION_LOGIC[key].text.toLowerCase()} `)})`;
+  // Each gap has its own Logic column since 2026-09-01; `logic` is the fallback for a slot that
+  // stored none, exactly as it is in conditionsHold.
+  const wordAt = (index) => conditionLogicOf(conditions[index].logic || logic);
+  // NOR is the one that cannot be written as a join, so it is said as what it means. Only for the
+  // two-clause case, which is what every row stored before there were five slots means.
+  if (clauses.length === 2 && wordAt(1) === 'NOR') {
+    return ` (rule applies where neither ${clauses[0]} nor ${clauses[1]})`;
+  }
+  // Left to right, the way the row reads and the way foldConditions evaluates it. Bracketed from
+  // the third clause on: the fold has no precedence, and a flat "A or B and C" would read as if it
+  // did.
+  let sentence = clauses[0];
+  for (let index = 1; index < clauses.length; index += 1) {
+    const word = CONDITION_LOGIC[wordAt(index)].text.toLowerCase();
+    sentence = index === 1
+      ? `${sentence} ${word} ${clauses[index]}`
+      : `(${sentence}) ${word} ${clauses[index]}`;
+  }
+  return ` (rule applies where ${sentence})`;
 }
 
 // --- Validation ------------------------------------------------------------
@@ -336,9 +375,12 @@ function conditionProblems(rule, model) {
     if (values.length && !field) {
       errors.push({ field: pair.field, message: 'A condition value needs a field.' });
     }
+    // Every Logic column, not only the first: a slot the page never revealed carries nothing and
+    // reads as AND, so this only ever fires on a value a direct call invented.
+    if (!pair.logic) continue;
+    const logicProblem = conditionLogicError(rule[pair.logic]);
+    if (logicProblem) errors.push({ field: pair.logic, message: logicProblem });
   }
-  const logicProblem = conditionLogicError(rule.conditionLogic);
-  if (logicProblem) errors.push({ field: 'conditionLogic', message: logicProblem });
   return errors;
 }
 
@@ -456,7 +498,9 @@ function createConfiguredStages({ validations = [], derivations = [], model } = 
 
 module.exports = {
   CONDITION_PAIRS,
+  MAX_CONDITIONS,
   COMPARISONS,
+  symbolOnly,
   EMPTINESS_COMPARISONS,
   SEVERITIES,
   OPERATOR_TEXT,

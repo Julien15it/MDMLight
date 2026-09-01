@@ -20,19 +20,23 @@ const changeRequestJs = read(ROOT, 'srv', 'change-request-service.js');
 
 // The columns are the agreed shape of a rule, so they are pinned rather than left to a refactor.
 test('the validation table has the columns a rule needs, in order', () => {
-  const columns = [...view('ValidationRuleList').matchAll(/<Column[^>]*>\s*<Text text="([^"]+)"/gu)]
+  const columns = [...view('ValidationRuleList').matchAll(/<Column\b[\s\S]*?>\s*<Text text="([^"]+)"/gu)]
     .map((match) => match[1]);
   assert.deepEqual(columns, [
     'Condition 1 Field', 'Condition 1 Value', 'Condition 2 Field', 'Condition 2 Value',
+    'Condition 3 Field', 'Condition 3 Value', 'Condition 4 Field', 'Condition 4 Value',
+    'Condition 5 Field', 'Condition 5 Value',
     'Field', 'Comparison', 'Value', 'Severity', 'Active'
   ]);
 });
 
 test('the derivation table has the columns a rule needs, in order', () => {
-  const columns = [...view('DerivationRuleList').matchAll(/<Column[^>]*>\s*<Text text="([^"]+)"/gu)]
+  const columns = [...view('DerivationRuleList').matchAll(/<Column\b[\s\S]*?>\s*<Text text="([^"]+)"/gu)]
     .map((match) => match[1]);
   assert.deepEqual(columns, [
     'Condition 1 Field', 'Condition 1 Value', 'Condition 2 Field', 'Condition 2 Value',
+    'Condition 3 Field', 'Condition 3 Value', 'Condition 4 Field', 'Condition 4 Value',
+    'Condition 5 Field', 'Condition 5 Value',
     'Field', 'Value', 'Active'
   ]);
 });
@@ -46,7 +50,10 @@ test('the conditions are the duplicate table conditions', () => {
     }
     assert.match(source, /placeholder="any"/u);
     // A value with no field would be half a condition; the cell is disabled until there is one.
-    assert.match(source, /enabled="\{= !!\$\{dc>conditionField\} \}"/u);
+    // `targetType: 'any'` since 2026-09-01 - without it UI5 formats the referenced String into the
+    // Boolean `enabled` is declared as, throws a FormatException, and leaves the cell at its
+    // default, so the guard silently never applied. See CLAUDE.md.
+    assert.match(source, /enabled="\{= !!\$\{path: 'dc>conditionField', targetType: 'any'\} \}"/u);
   }
   assert.match(rulesCds, /aspect ruleConditions/u);
 });
@@ -56,7 +63,11 @@ test('the conditions are the duplicate table conditions', () => {
  * a value the engine ignores is how a steward comes to believe a rule says something it does not.
  */
 test('the validation Value cell switches itself off where a value is meaningless', () => {
-  assert.match(view('ValidationRuleList'), /enabled="\{= \$\{view>\/needsValue\}\[\$\{dc>comparison\}\] !== false \}"/u);
+  // The `view>` half needs no targetType - a JSONModel carries no types - but the `dc>` half does.
+  assert.match(
+    view('ValidationRuleList'),
+    /enabled="\{= \$\{view>\/needsValue\}\[\$\{path: 'dc>comparison', targetType: 'any'\}\] !== false \}"/u
+  );
   assert.match(serviceCds, /needsValue : Boolean/u);
   assert.match(controller('ValidationRuleList'), /needsValue\[entry\.code\] = entry\.needsValue !== false/u);
 });
@@ -288,6 +299,9 @@ test('xlsxColumns mirrors each page\'s own table exactly, minus the generated ID
   const validationKeys = loadXlsxColumns('ValidationRuleList')().map((c) => c.key);
   assert.deepEqual(validationKeys, [
     'conditionField', 'conditionValue', 'conditionLogic', 'conditionField2', 'conditionValue2',
+    'conditionLogic2', 'conditionField3', 'conditionValue3',
+    'conditionLogic3', 'conditionField4', 'conditionValue4',
+    'conditionLogic4', 'conditionField5', 'conditionValue5',
     'field', 'comparison', 'value', 'severity', 'isActive'
   ]);
   assert.equal(validationKeys.includes('ID'), false);
@@ -295,6 +309,9 @@ test('xlsxColumns mirrors each page\'s own table exactly, minus the generated ID
   const derivationKeys = loadXlsxColumns('DerivationRuleList')().map((c) => c.key);
   assert.deepEqual(derivationKeys, [
     'conditionField', 'conditionValue', 'conditionLogic', 'conditionField2', 'conditionValue2',
+    'conditionLogic2', 'conditionField3', 'conditionValue3',
+    'conditionLogic3', 'conditionField4', 'conditionValue4',
+    'conditionLogic4', 'conditionField5', 'conditionValue5',
     'field', 'value', 'isActive'
   ]);
   assert.equal(derivationKeys.includes('ID'), false);
@@ -342,15 +359,15 @@ function mockContext(object) {
  * mask one in the code being tested.
  */
 test('import deletes every existing row and creates one for every row in the file, on both pages', () => {
+  // Keyed, not positional: the row went from 10 cells to 19 when the extra condition slots landed
+  // (2026-09-01), and a positional fixture silently stopped filling Field/Comparison at all, so
+  // nothing was created and the failure named the import rather than the fixture.
   const cases = {
     ValidationRuleList: {
-      // Condition1Field, Condition1Value, Logic, Condition2Field, Condition2Value, Field,
-      // Comparison, Value, Severity, Active
-      row: () => ['', '', 'AND', '', '', 'General.Language', 'eq', 'NL', 'error', 'true']
+      values: { field: 'General.Language', comparison: 'eq', value: 'NL', severity: 'error', isActive: 'true' }
     },
     DerivationRuleList: {
-      // Condition1Field, Condition1Value, Logic, Condition2Field, Condition2Value, Field, Value, Active
-      row: () => ['', '', 'AND', '', '', 'General.Language', 'NL', 'true']
+      values: { field: 'General.Language', value: 'NL', isActive: 'true' }
     }
   };
 
@@ -365,15 +382,134 @@ test('import deletes every existing row and creates one for every row in the fil
     const second = mockContext({});
     const created = [];
     const binding = { getCurrentContexts: () => [first, second], create: (record) => created.push(record) };
-    const fakeThis = { _table: () => ({ getBinding: () => binding }), _markDirty: () => {} };
+    const fakeThis = { _table: () => ({ getBinding: () => binding }), _markDirty: () => {}, _syncConditionColumns: () => {} };
 
-    const header = xlsxColumns().map((column) => column.label);
-    members._applyImportedXlsx.call(fakeThis, [header, cases[name].row()]);
+    const columns = xlsxColumns();
+    const header = columns.map((column) => column.label);
+    const values = cases[name].values;
+    const row = columns.map((column) => values[column.key]
+      || (column.key === 'conditionLogic' ? 'AND' : ''));
+    members._applyImportedXlsx.call(fakeThis, [header, row]);
 
     assert.equal(first.deleted, true, `${name}: first row deleted`);
     assert.equal(first.deleteGroup, 'ruleChanges');
     assert.equal(second.deleted, true, `${name}: second row deleted`);
     assert.equal(created.length, 1, `${name}: one new row for the one non-blank row in the file`);
     assert.match(toasts[0], /2 existing rule\(s\) replaced by 1 from the file/u, name);
+  }
+});
+
+// --- Five condition slots, Add/Delete Condition and the scrollbar (2026-09-01) -------------------
+//
+// Rolled out from Workflow Agent Determination onto these two pages and the duplicate one, asked
+// for directly. Field Properties is deliberately untouched: it conditions through profiles, not
+// through a condition row, so there is nothing here for it to take over.
+
+const CONDITION_PAGES = ['ValidationRuleList', 'DerivationRuleList'];
+
+test('both quality pages carry five condition slots, three of them hidden until asked for', () => {
+  for (const name of CONDITION_PAGES) {
+    const source = view(name);
+    for (const suffix of ['3', '4', '5']) {
+      assert.match(source, new RegExp(`\\{dc>conditionField${suffix}\\}`, 'u'), `${name} binds field ${suffix}`);
+      assert.match(source, new RegExp(`\\{dc>conditionValue${suffix}\\}`, 'u'), `${name} binds value ${suffix}`);
+    }
+    // One Logic column per gap, so four of them across five conditions.
+    for (const suffix of ['', '2', '3', '4']) {
+      assert.match(source, new RegExp(`selectedKey="\\{dc>conditionLogic${suffix}\\}"`, 'u'), `${name} binds logic ${suffix}`);
+    }
+    assert.match(source, /visible="\{= \$\{view>\/conditions\} &gt;= 3 \}"/u, `${name} hides slot 3 by default`);
+    assert.match(source, /visible="\{= \$\{view>\/conditions\} &gt;= 5 \}"/u, `${name} hides slot 5 by default`);
+  }
+});
+
+test('both quality pages scroll sideways rather than squeezing their cells', () => {
+  for (const name of CONDITION_PAGES) {
+    const source = view(name);
+    const scroller = source.slice(source.indexOf('<ScrollContainer'));
+    assert.match(scroller.slice(0, scroller.indexOf('>')), /horizontal="true"[\s\S]*vertical="false"/u);
+    assert.ok(source.indexOf('<ScrollContainer') < source.indexOf('<Table'), `${name} puts the table inside it`);
+    assert.match(source, /<\/Table>\s*<\/ScrollContainer>/u, `${name} closes it around the table`);
+    // A real width, not 100%: a fixed-layout table redistributes its columns into whatever space it
+    // has, which is the squashing this exists to stop.
+    assert.match(source, /width="\{view>\/tableWidth\}"/u, `${name} gives the table a real width`);
+
+    // The arithmetic mirrors the declared column widths, so the two cannot drift.
+    const controllerSource = controller(name);
+    const fixed = Number(/var FIXED_REM = (\d+);/u.exec(controllerSource)[1]);
+    const declared = [...source.matchAll(/<Column width="(\d+)rem"/gu)]
+      .map((match) => Number(match[1]))
+      .reduce((sum, each) => sum + each, 0);
+    assert.equal(declared, fixed + (23 * 5) + (6 * 4), `${name}'s widths add up to its own formula`);
+  }
+});
+
+test('Add and Delete Condition are wired on both quality pages, and Condition 1 is never removable', () => {
+  for (const name of CONDITION_PAGES) {
+    const source = view(name);
+    const add = source.slice(source.indexOf('text="Add Condition"'));
+    assert.match(add.slice(0, add.indexOf('/>')), /press="\.onAddCondition"/u);
+    assert.match(
+      add.slice(0, add.indexOf('/>')),
+      /enabled="\{= \$\{view>\/conditions\} &lt; \$\{view>\/maxConditions\} \}"/u
+    );
+    const remove = source.slice(source.indexOf('text="Delete Condition"'));
+    assert.match(remove.slice(0, remove.indexOf('/>')), /press="\.onDeleteCondition"/u);
+    assert.match(remove.slice(0, remove.indexOf('/>')), /enabled="\{= \$\{view>\/conditions\} &gt; 1 \}"/u);
+
+    const controllerSource = controller(name);
+    assert.match(controllerSource, /var MIN_CONDITIONS = 1;/u);
+    // Disabled is not the only guard: a direct call refuses too.
+    assert.match(controllerSource, /if \(shown <= MIN_CONDITIONS\) return;/u);
+    // Removing a column CLEARS the slot, or the engine would go on matching on a condition nobody
+    // can see - which is the whole point of the button clearing rather than only hiding.
+    assert.match(controllerSource, /that\._clearConditionSlot\(slot, filled\)/u);
+    assert.match(controllerSource, /context\.setProperty\(slot\.field, null\)/u);
+    assert.match(controllerSource, /context\.setProperty\(slot\.value, null\)/u);
+    // The ceiling is served, never assumed by the page.
+    assert.match(controllerSource, /options\.conditionSlots/u);
+    assert.match(serviceJs, /conditionSlots: QUALITY_MAX_CONDITIONS/u);
+  }
+});
+
+/**
+ * `targetType: 'any'` on every `dc>` reference inside an expression binding. Without it UI5 formats
+ * the referenced property into the type of the BOUND control property - a Boolean here - and a
+ * String value throws a FormatException, leaving the cell at its default. Found in the deployed
+ * app's console on the workflow page (2026-09-01); these three pages carried the same latent bug.
+ */
+test('no expression binding on a Boolean property reads a dc property untyped', () => {
+  for (const name of [...CONDITION_PAGES, 'DuplicateRuleList']) {
+    const source = view(name);
+    assert.equal(
+      /enabled="\{=[^"]*\$\{dc>[^,}]*\}/u.test(source),
+      false,
+      `${name} has no untyped reference in an enabled binding`
+    );
+    assert.match(source, /\$\{path: 'dc>conditionField', targetType: 'any'\}/u, `${name} types its references`);
+  }
+});
+
+/**
+ * Several values per condition, on every rule table (2026-09-01, asked for: "the plural
+ * conditionvalue can be reused on the other tables as well").
+ *
+ * The COLUMN NAMES cannot follow WorkflowRules plural conditionValues - cds-deploy refuses to
+ * rename a deployed element as firmly as it refuses to drop one, and naming only slots 3-5 plural
+ * would leave each table disagreeing with itself. What the plural NAME stands for does apply
+ * everywhere, and always did: parseValueList is shared, so BE|NL|FR is one condition on all four
+ * tables. What was missing was any sign of it on these pages, which said only "any".
+ */
+test('every condition value cell offers a list, not just one value', () => {
+  for (const name of CONDITION_PAGES) {
+    const source = view(name);
+    for (const suffix of ['', '2', '3', '4', '5']) {
+      const cell = source.slice(source.indexOf(`value="{dc>conditionValue${suffix}}"`));
+      assert.match(
+        cell.slice(0, cell.indexOf('/>')),
+        /placeholder="any, or Value1[|]Value2"/u,
+        `${name} condition ${suffix || '1'} says a list is allowed`
+      );
+    }
   }
 });

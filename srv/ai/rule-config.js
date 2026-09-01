@@ -85,8 +85,13 @@ function validateRule(row = {}) {
     warnings.push({ field: 'threshold', message: `A ${comparison || 'non-fuzzy'} comparison ignores its threshold.` });
   }
 
-  const logicProblem = conditionLogicError(row.conditionLogic);
-  if (logicProblem) errors.push({ field: 'conditionLogic', message: logicProblem });
+  // Every Logic column, not only the first: a slot the page never revealed carries nothing and reads
+  // as AND, so this only ever fires on a value a direct call invented.
+  for (const pair of CONDITION_PAIRS) {
+    if (!pair.logic) continue;
+    const logicProblem = conditionLogicError(row[pair.logic]);
+    if (logicProblem) errors.push({ field: pair.logic, message: logicProblem });
+  }
 
   return { errors, warnings };
 }
@@ -115,6 +120,10 @@ function toEngineRule(row = {}) {
     if (field && values.length) {
       rule[pair.field] = field;
       rule[pair.value] = value;
+      // The Logic column travels WITH its slot. It never did before (found 2026-09-01 while adding
+      // the extra slots): `conditionsMatch` reads `rule.conditionLogic`, `toEngineRule` never
+      // copied it, so every duplicate rule was ANDed however the grid was set.
+      if (pair.logic && row[pair.logic]) rule[pair.logic] = String(row[pair.logic]).trim();
     }
   }
   for (const column of CONDITION_COLUMNS) {

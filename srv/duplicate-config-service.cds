@@ -58,6 +58,9 @@ service DuplicateConfigService {
     /** 'configured' or 'defaults'. The page must say which: an empty grid reads as "check is off". */
     source      : String(12);
     ruleCount   : Integer;
+    /** How many condition slots a rule may hold - the page's own Add Condition ceiling,
+     *  served so the button and the schema cannot disagree about it. */
+    conditionSlots : Integer;
   }
 
   /** Everything the admin grid needs to offer valid choices, straight from the
@@ -92,11 +95,16 @@ service DuplicateConfigService {
 
   type QualityRuleOptions {
     fields          : array of PayloadField;
+    /** By SYMBOL alone, the same as the workflow page - see `symbolOnly` in
+     *  srv/checks/rule-engine.js. */
     comparisons     : array of ComparisonOption;
     conditionLogics : array of Option;
     severities      : array of Option;
     validationCount : Integer;
     derivationCount : Integer;
+    /** How many condition slots a rule may hold - the page's own Add Condition ceiling,
+     *  served so the button and the schema cannot disagree about it. */
+    conditionSlots : Integer;
   }
 
   /** Generated from the staging model and the engine, never a hand-kept UI copy. The counts are of
@@ -129,8 +137,17 @@ service DuplicateConfigService {
     /** The same operator vocabulary ValidationRules/DerivationRules already offer for their own
      *  comparison column (`eq`/`ne`/`lt`/`le`/`gt`/`ge`/`contains`/`empty`/`notEmpty`) - asked for
      *  directly rather than a smaller, WorkflowRules-only set. `needsValue: false` for the two that
-     *  take no value at all ("is empty"/"is not empty"), so the page can hide that cell. */
+     *  take no value at all ("is empty"/"is not empty"), so the page can hide that cell.
+     *
+     *  **Symbols only** (2026-09-01, asked for): `=` rather than `=  equal to`. The wordy half
+     *  explains a symbol that already says it, and the cell is narrow; `contains`, `is empty` and
+     *  `is not empty` are words to begin with and are untouched. Asked for on this page first and
+     *  then on the others, so `symbolOnly` lives in srv/checks/rule-engine.js beside the
+     *  COMPARISONS it formats - the text is still defined once. */
     comparisons  : array of ComparisonOption;
+    /** How many condition slots a rule may hold - the page's own Add Condition ceiling, served so
+     *  the button and the schema cannot disagree about it. */
+    conditionSlots : Integer;
     /** Rules that would actually run, so the page can say when a saved row is being skipped. */
     ruleCount    : Integer;
   }

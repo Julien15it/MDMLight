@@ -3,7 +3,7 @@
 const { compare, COMPARISONS, EMPTINESS_COMPARISONS } = require('./rule-engine');
 const { sectionRows, isEmptyValue, resolvePayloadField } = require('./payload-fields');
 const {
-  parseValueList, listMatches, joinConditions, conditionLogicError
+  parseValueList, listMatches, foldConditions, conditionLogicError
 } = require('./value-lists');
 
 /**
@@ -48,24 +48,34 @@ const STEP_TEXT = Object.freeze({
 const DEFAULT_CONDITION_OPERATOR = 'eq';
 
 /**
- * The two fixed condition slots - "Condition 1" and "Condition 2" - reverted to (2026-08-31) after
- * the dynamic, unbounded `conditionRows` composition (db/workflow-rules.cds) turned out not to be
- * what was wanted after all: "ik wil dit naast elkaar zoals het ervoor was ... niet hoe het nu is".
- * Kept named `legacyConditionPairs` even though this is once again the LIVE mechanism, not a legacy
- * one - the function name is what every caller already imports, and renaming it would touch every
- * caller for no behavioural gain.
+ * The fixed condition slots, side by side - "Condition 1", "Condition 2", and since 2026-09-01
+ * three more the page reveals on demand ("provide an 'add condition' button next to 'add rule'").
+ * Columns rather than the `conditionRows` composition (db/workflow-rules.cds), which was built and
+ * abandoned twice: `cds-deploy` can add an element but can neither drop nor retype one, so a fixed
+ * cap that the UI draws only as much of as a rule uses is the shape that survives a deploy.
+ *
+ * `logic` names the column joining a slot to the one BEFORE it - null on the first, which has
+ * nothing to its left. Kept named `legacyConditionPairs` even though this is once again the LIVE
+ * mechanism: the function name is what every caller already imports.
  */
 const CONDITION_PAIRS = Object.freeze([
-  Object.freeze({ field: 'conditionField', operator: 'conditionOperator', values: 'conditionValues' }),
-  Object.freeze({ field: 'conditionField2', operator: 'conditionOperator2', values: 'conditionValues2' })
+  Object.freeze({ field: 'conditionField', operator: 'conditionOperator', values: 'conditionValues', logic: null }),
+  Object.freeze({ field: 'conditionField2', operator: 'conditionOperator2', values: 'conditionValues2', logic: 'conditionLogic' }),
+  Object.freeze({ field: 'conditionField3', operator: 'conditionOperator3', values: 'conditionValues3', logic: 'conditionLogic2' }),
+  Object.freeze({ field: 'conditionField4', operator: 'conditionOperator4', values: 'conditionValues4', logic: 'conditionLogic3' }),
+  Object.freeze({ field: 'conditionField5', operator: 'conditionOperator5', values: 'conditionValues5', logic: 'conditionLogic4' })
 ]);
 
-/** The two fixed condition slots as a plain array of `{ field, operator, values }`. */
+/** How many slots the schema carries - the page's own Add Condition ceiling. */
+const MAX_CONDITIONS = CONDITION_PAIRS.length;
+
+/** The fixed condition slots as a plain array of `{ field, operator, values, logic }`. */
 function legacyConditionPairs(rule) {
   return CONDITION_PAIRS.map((pair) => ({
     field: trimmed(rule[pair.field]),
     operator: operatorOf(rule[pair.operator]),
-    values: parseValueList(rule[pair.values])
+    values: parseValueList(rule[pair.values]),
+    logic: pair.logic ? trimmed(rule[pair.logic]) : null
   }));
 }
 
@@ -86,9 +96,13 @@ function operatorOf(raw) {
 }
 
 /**
- * The rule's conditions as `{ field, operator, values, resolved }`, dropping entries with no field.
- * Always the two fixed slots - `conditionRows` (db/workflow-rules.cds) is abandoned, so this never
- * reads it, even for a rule that happens to carry rows there from the brief window it was live.
+ * The rule's conditions as `{ field, operator, values, logic, resolved }`, dropping entries with no
+ * field. A dropped slot takes its own Logic with it, so the surviving conditions stay joined by the
+ * logic written immediately before each of them - Condition 2 left blank means Condition 3 is joined
+ * to Condition 1 by Condition 3's own Logic, never by a logic column nothing sits beside any more.
+ *
+ * Always the fixed slots - `conditionRows` (db/workflow-rules.cds) is abandoned, so this never reads
+ * it, even for a rule that happens to carry rows there from the brief window it was live.
  */
 function readConditions(rule, model) {
   return legacyConditionPairs(rule)
@@ -129,12 +143,12 @@ function conditionHolds(condition, payload, model) {
   return actual.some((value) => condition.values.some((expected) => comparison.apply(value, expected)));
 }
 
-// Joined by `conditionLogic` across however many conditions the rule has; zero still means "any". A
-// stored row has no logic column and reads as AND, as before.
+// Folded left to right under each condition's own preceding Logic column; zero still means "any". A
+// slot with no logic stored falls back to the rule's first one, and an unset column reads as AND.
 function conditionsHold(conditions, payload, model, logic) {
-  return joinConditions(
+  return foldConditions(
     conditions.map((condition) => conditionHolds(condition, payload, model)),
-    logic
+    conditions.map((condition) => condition.logic || logic)
   );
 }
 
@@ -211,15 +225,17 @@ function validateWorkflowRule(rule = {}, model) {
     }
   }
 
-  // Each of the two fixed slots validates the same way a lone condition row always has - half a
-  // condition (a field with no value, or a value with no field) is the dangerous half either way.
+  // Each fixed slot validates the same way a lone condition row always has - half a condition (a
+  // field with no value, or a value with no field) is the dangerous half either way.
   CONDITION_PAIRS.forEach((pair, index) => {
     const row = { field: rule[pair.field], operator: rule[pair.operator], values: rule[pair.values] };
     errors.push(...validateCondition(row, model, `condition ${index + 1}`));
+    // Every Logic column, not only the first: a slot the page never revealed carries nothing and
+    // reads as AND, so this only ever fires on a value a direct call invented.
+    if (!pair.logic) return;
+    const logicProblem = conditionLogicError(rule[pair.logic]);
+    if (logicProblem) errors.push({ field: pair.logic, message: logicProblem });
   });
-
-  const logicProblem = conditionLogicError(rule.conditionLogic);
-  if (logicProblem) errors.push({ field: 'conditionLogic', message: logicProblem });
 
   return { errors, warnings };
 }
@@ -266,6 +282,7 @@ module.exports = {
   STEPS,
   STEP_TEXT,
   CONDITION_PAIRS,
+  MAX_CONDITIONS,
   DEFAULT_CONDITION_OPERATOR,
   operatorOf,
   legacyConditionPairs,

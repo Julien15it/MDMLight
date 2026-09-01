@@ -3253,7 +3253,9 @@ sap.ui.define([
       // The same check on the accepted payload, for its messages only. `Propose: false`: declined
       // proposals are not re-offered inside one press - pressing Check again is how those are asked.
       // Returns the fresh StandardJson (or `null` on failure) so the caller can judge it - see
-      // _resolveStandardChecks above.
+      // _resolveStandardChecks above. `Role` travels too: the SAP standard checks only run on the
+      // data steward step, so leaving it off would re-run everything EXCEPT the findings this
+      // exists to refresh - and _runPreActionCheck would then judge a blank list as a clean one.
       _rerunStandardChecks: async function () {
         var maintenanceModel = this.getView().getModel("maintenance");
         var state = maintenanceModel.getData();
@@ -3264,7 +3266,9 @@ sap.ui.define([
             ChangeRequest: state.changeRequest || null,
             BusinessPartner: state.businessPartner || null,
             DataJson: this._requestDataJson(state),
-            Propose: false
+            Propose: false,
+            RequestType: state.requestType || null,
+            Role: this._checkRole(state)
           }, "cr");
           state.messages = this._checkMessages(
             this._parseJsonArray(result && result.ValidationsJson),

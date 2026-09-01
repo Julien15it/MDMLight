@@ -13,9 +13,33 @@ sap.ui.define([
   // Mirrors CONDITION_PAIRS in srv/ai/duplicate-engine.js. The column names are part of the OData
   // contract, so this is the one thing the page may hold a copy of.
   var CONDITION_PAIRS = [
-    { field: "conditionField", value: "conditionValue" },
-    { field: "conditionField2", value: "conditionValue2" }
+    { field: "conditionField", value: "conditionValue", logic: null },
+    { field: "conditionField2", value: "conditionValue2", logic: "conditionLogic" },
+    { field: "conditionField3", value: "conditionValue3", logic: "conditionLogic2" },
+    { field: "conditionField4", value: "conditionValue4", logic: "conditionLogic3" },
+    { field: "conditionField5", value: "conditionValue5", logic: "conditionLogic4" }
   ];
+
+  // Condition 1 is not removable: a rule with no condition at all is written by leaving it blank,
+  // not by taking the column away.
+  var MIN_CONDITIONS = 1;
+
+  // Two columns are the shape this table has always had; nothing is revealed until asked for.
+  var DEFAULT_CONDITIONS = 2;
+
+  /**
+   * The table's own width, in rem, for the horizontal ScrollContainer to overflow. A fixed-layout
+   * table at `width="100%"` redistributes its columns into whatever space it has - which is the
+   * squashing this exists to stop - so it needs a real width instead. FIXED_REM is the columns that
+   * are always there; a condition is 23rem (field 14 + value 9) and a Logic column 6rem, of which
+   * there is one fewer than there are conditions. Kept here rather than as an expression binding in
+   * the view so the arithmetic and the column widths it mirrors can be read in one place.
+   */
+  var FIXED_REM = 52;
+
+  function tableWidthFor(conditions) {
+    return (FIXED_REM + (23 * conditions) + (6 * (conditions - 1))) + "rem";
+  }
 
   // Identity/managed columns that must never travel back on a create - `binding.create` is a POST,
   // and sending an existing key or a server-assigned timestamp is either ignored or rejected
@@ -39,6 +63,15 @@ sap.ui.define([
       { key: "conditionLogic", label: "Logic" },
       { key: "conditionField2", label: "Condition 2 Field" },
       { key: "conditionValue2", label: "Condition 2 Value" },
+      { key: "conditionLogic2", label: "Logic 2" },
+      { key: "conditionField3", label: "Condition 3 Field" },
+      { key: "conditionValue3", label: "Condition 3 Value" },
+      { key: "conditionLogic3", label: "Logic 3" },
+      { key: "conditionField4", label: "Condition 4 Field" },
+      { key: "conditionValue4", label: "Condition 4 Value" },
+      { key: "conditionLogic4", label: "Logic 4" },
+      { key: "conditionField5", label: "Condition 5 Field" },
+      { key: "conditionValue5", label: "Condition 5 Value" },
       { key: "field", label: "Field" },
       { key: "comparison", label: "Comparison" },
       { key: "indicator", label: "Indicator" },
@@ -52,12 +85,122 @@ sap.ui.define([
       this.getView().setModel(new JSONModel({
         busy: false,
         dirty: false,
+        // How many condition columns are drawn, and the ceiling the schema imposes. The ceiling is
+        // replaced by the service's own `conditionSlots` once the options load, so the button and
+        // the table cannot disagree with the columns that actually exist.
+        conditions: DEFAULT_CONDITIONS,
+        maxConditions: CONDITION_PAIRS.length,
+        tableWidth: tableWidthFor(DEFAULT_CONDITIONS),
         source: "",
         unindexed: {}
       }), "view");
       this._router = UIComponent.getRouterFor(this);
+      // A saved rule that already uses more than two conditions has to show them without anyone
+      // pressing Add Condition first, and rows arrive after this runs - so the count is recomputed
+      // every time the table finishes rendering its items.
+      if (this._table()) this._table().attachUpdateFinished(this._syncConditionColumns, this);
       this._loadOptions();
     },
+
+    /**
+     * Reveals one more Logic/Condition column pair, for every row at once - "an extra Logic and an
+     * extra Condition column into our table", the same mechanism the Workflow Agent Determination
+     * table uses. Nothing is written: the columns are already on every row, so this only decides how
+     * many of them are drawn.
+     */
+    onAddCondition: function () {
+      var max = this._maxConditions();
+      var shown = this._shownConditions();
+      if (shown >= max) {
+        MessageToast.show("A rule can hold " + max + " conditions.");
+        return;
+      }
+      this._setConditionColumns(shown + 1);
+    },
+
+    /**
+     * Removes the LAST shown condition and CLEARS that slot on every row. Hiding the column alone is
+     * not enough: the values stay on the row and the engine keeps evaluating them, so a rule would
+     * go on matching on a condition nobody can see. Confirmed first when any row actually holds
+     * something - it is a real edit, undoable only by Discard until Save. Condition 1 is never
+     * removable (the button is disabled, and this refuses anyway).
+     */
+    onDeleteCondition: function () {
+      var shown = this._shownConditions();
+      if (shown <= MIN_CONDITIONS) return;
+      var slot = CONDITION_PAIRS[shown - 1];
+      var filled = this._rowsUsingSlot(slot);
+      if (!filled.length) {
+        this._setConditionColumns(shown - 1);
+        return;
+      }
+      var that = this;
+      MessageBox.confirm(
+        "Condition " + shown + " is filled in on " + filled.length + " rule(s). Removing the column "
+          + "clears it on those rules, so nothing is left matching on a condition nobody can see.",
+        {
+          onClose: function (action) {
+            if (action !== MessageBox.Action.OK) return;
+            that._clearConditionSlot(slot, filled);
+            that._markDirty();
+            that._setConditionColumns(shown - 1);
+          }
+        }
+      );
+    },
+
+    // The rows carrying anything in this slot - the ones a removal would actually change. The Logic
+    // column is not asked about: it is not a condition on its own.
+    _rowsUsingSlot: function (slot) {
+      var binding = this._table() && this._table().getBinding("items");
+      if (!binding) return [];
+      return (binding.getCurrentContexts() || []).filter(function (context) {
+        var row = context && context.getObject();
+        return Boolean(row && (row[slot.field] || row[slot.value]));
+      });
+    },
+
+    // Only the rows that hold something are written to, so removing an empty column costs no PATCH
+    // and does not mark the page dirty. The Logic column goes back to AND rather than to blank: it
+    // is the value a fresh row carries, so re-adding the column later renders a chosen join.
+    _clearConditionSlot: function (slot, contexts) {
+      contexts.forEach(function (context) {
+        context.setProperty(slot.field, null);
+        context.setProperty(slot.value, null);
+        if (slot.logic) context.setProperty(slot.logic, "AND");
+      });
+    },
+
+    _shownConditions: function () {
+      return this.getView().getModel("view").getProperty("/conditions") || DEFAULT_CONDITIONS;
+    },
+
+    _maxConditions: function () {
+      return this.getView().getModel("view").getProperty("/maxConditions") || CONDITION_PAIRS.length;
+    },
+
+    // The one place the count changes, so the table's own width can never drift from the number of
+    // columns actually drawn.
+    _setConditionColumns: function (count) {
+      var view = this.getView().getModel("view");
+      var bounded = Math.min(Math.max(count, MIN_CONDITIONS), this._maxConditions());
+      view.setProperty("/conditions", bounded);
+      view.setProperty("/tableWidth", tableWidthFor(bounded));
+    },
+
+    // The highest slot any row actually fills, never fewer than what is already on screen: a steward
+    // who revealed a column and left it empty should not have it taken away on the next render.
+    // Deleting a condition clears the slot first, which is what stops this putting it straight back.
+    _syncConditionColumns: function () {
+      var shown = this._shownConditions();
+      this._draftRules().forEach(function (rule) {
+        CONDITION_PAIRS.forEach(function (slot, index) {
+          if (rule[slot.field] && index + 1 > shown) shown = index + 1;
+        });
+      });
+      this._setConditionColumns(shown);
+    },
+
 
     onBackToList: function () {
       if (this._model().hasPendingChanges(UPDATE_GROUP)) {
@@ -98,6 +241,10 @@ sap.ui.define([
       try {
         var options = await this._callAction("ruleOptions", {});
         this.getView().setModel(new JSONModel(options || {}), "opt");
+        if (options && options.conditionSlots) {
+          view.setProperty("/maxConditions", options.conditionSlots);
+        }
+        this._syncConditionColumns();
         view.setProperty("/source", (options && options.source) || "");
         var unindexed = {};
         (options && options.fields ? options.fields : []).forEach(function (entry) {
@@ -122,7 +269,12 @@ sap.ui.define([
         field: "Name",
         comparison: "fuzzy",
         indicator: "strong",
+        // Every Logic column defaults to AND, not only the first: a revealed column with
+        // nothing chosen would otherwise render blank while the engine reads it as AND anyway.
         conditionLogic: "AND",
+        conditionLogic2: "AND",
+        conditionLogic3: "AND",
+        conditionLogic4: "AND",
         isActive: true
       });
       this._markDirty();
@@ -261,6 +413,8 @@ sap.ui.define([
       });
 
       this._markDirty();
+      // An imported row may fill in a condition the page was not drawing yet.
+      this._syncConditionColumns();
       MessageToast.show(
         existingRows.length + " existing rule(s) replaced by " + created + " from the file"
         + (skipped ? ", " + skipped + " blank row(s) skipped" : "")

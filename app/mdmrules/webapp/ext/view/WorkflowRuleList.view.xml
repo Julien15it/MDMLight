@@ -11,9 +11,11 @@
     <content>
       <!--
         A decision table like the other three, and read the same way left to right - "a create
-        request whose Country is BE, NL, FR or DE is approved by these three people". Two fixed
-        condition slots (reverted 2026-08-31, back to how it originally was), each field/operator/
-        value, joined by one Logic combo - not the dynamic, unbounded composition this briefly became.
+        request whose Country is BE, NL, FR or DE is approved by these three people". Five fixed
+        condition slots, each field/operator/value, joined by a Logic combo to the slot before it.
+        Two are drawn by default and "Add Condition" reveals the next pair of columns (2026-09-01,
+        asked for) - the slots are real columns on the row, so this is a rendering decision, not a
+        schema one; see db/workflow-rules.cds for why they can never be a composition.
         Approvers stay a list of ROWS: several approvers is several rules, which is what "Duplicate"
         is for.
       -->
@@ -23,8 +25,19 @@
         text="{view>/skippedText}"
         type="Warning"
         showIcon="true" />
+      <!--
+        Horizontal scrolling, so revealing a condition widens the table instead of squeezing every
+        cell (2026-09-01, asked for). Two halves, and both are needed: the ScrollContainer supplies
+        the scrollbar, and `view>/tableWidth` gives the table a real width to overflow WITH - at
+        `width="100%"` a fixed-layout table just redistributes its columns into whatever space it
+        has, which is the squashing itself. Vertical scrolling stays the Page's, so the rows still
+        scroll the way they always did; `growingScrollToLoad` is off, so the More button is
+        unaffected by the nesting.
+      -->
+      <ScrollContainer horizontal="true" vertical="false" width="100%">
       <Table
         id="ruleTable"
+        width="{view>/tableWidth}"
         items="{ path: 'dc>/WorkflowRules', parameters: { $orderby: 'createdAt', $$updateGroupId: 'ruleChanges' } }"
         mode="SingleSelectMaster"
         busy="{view>/busy}"
@@ -35,6 +48,23 @@
             <Title text="Rules" level="H2" />
             <ToolbarSpacer />
             <Button text="Add Rule" icon="sap-icon://add" type="Transparent" press=".onAddRule" />
+            <!-- Table-wide, not per row: it reveals the next Logic/Condition COLUMN pair for every
+                 rule at once, which is what "add an extra column into our table" asks for. -->
+            <Button
+              text="Add Condition"
+              icon="sap-icon://add-filter"
+              type="Transparent"
+              enabled="{= ${view>/conditions} &lt; ${view>/maxConditions} }"
+              press=".onAddCondition" />
+            <!-- Removes the LAST shown condition, and clears that slot on every row on the way out
+                 so nothing is left evaluating in a column nobody can see. Condition 1 can never be
+                 removed - a rule with no condition at all is written by leaving it blank. -->
+            <Button
+              text="Delete Condition"
+              icon="sap-icon://less"
+              type="Transparent"
+              enabled="{= ${view>/conditions} &gt; 1 }"
+              press=".onDeleteCondition" />
             <Button text="Duplicate" icon="sap-icon://copy" type="Transparent" press=".onDuplicateRule" />
             <Button text="Delete" icon="sap-icon://delete" type="Transparent" press=".onDeleteRule" />
             <ToolbarSeparator />
@@ -45,15 +75,22 @@
             <Button text="Discard" icon="sap-icon://undo" type="Transparent" press=".onDiscard" enabled="{view>/dirty}" />
           </OverflowToolbar>
         </headerToolbar>
-        <!-- Percentage widths: without them every cell shrinks to its content and the row reads as
-             scattered controls with gaps between them. -->
+        <!-- Fixed widths in rem, not percentages: a hidden column contributes no share of 100%, so
+             percentages would have re-flowed the whole row every time a condition was revealed. The
+             condition width is what its three controls actually need. -->
         <columns>
-          <Column width="9%"><Text text="CR Type" /></Column>
-          <Column width="7%"><Text text="Step" /></Column>
-          <Column width="26%"><Text text="Condition 1" /></Column>
-          <Column width="8%"><Text text="Logic" /></Column>
-          <Column width="26%"><Text text="Condition 2" /></Column>
-          <Column width="20%"><Text text="Approvers" /></Column>
+          <Column width="9rem"><Text text="CR Type" /></Column>
+          <Column width="8rem"><Text text="Step" /></Column>
+          <Column width="24rem"><Text text="Condition 1" /></Column>
+          <Column width="6rem"><Text text="Logic" /></Column>
+          <Column width="24rem"><Text text="Condition 2" /></Column>
+          <Column width="6rem" visible="{= ${view>/conditions} &gt;= 3 }"><Text text="Logic" /></Column>
+          <Column width="24rem" visible="{= ${view>/conditions} &gt;= 3 }"><Text text="Condition 3" /></Column>
+          <Column width="6rem" visible="{= ${view>/conditions} &gt;= 4 }"><Text text="Logic" /></Column>
+          <Column width="24rem" visible="{= ${view>/conditions} &gt;= 4 }"><Text text="Condition 4" /></Column>
+          <Column width="6rem" visible="{= ${view>/conditions} &gt;= 5 }"><Text text="Logic" /></Column>
+          <Column width="24rem" visible="{= ${view>/conditions} &gt;= 5 }"><Text text="Condition 5" /></Column>
+          <Column width="16rem"><Text text="Approvers" /></Column>
           <Column width="4rem" hAlign="Center"><Text text="Active" /></Column>
         </columns>
         <items>
@@ -77,7 +114,7 @@
                 <core:Item key="{opt>code}" text="{opt>text}" />
               </ComboBox>
               <!-- Condition 1: field (value help), operator, value - a plain bound scalar triple,
-                   nothing dynamic. -->
+                   nothing dynamic. Every slot below is the same three controls over its own columns. -->
               <HBox alignItems="Center">
                 <Input
                   width="9rem"
@@ -97,13 +134,13 @@
                 <Input
                   width="7rem"
                   value="{dc>conditionValues}"
-                  placeholder="Value1|Value2"
-                  enabled="{= ${dc>conditionOperator} !== 'empty' &amp;&amp; ${dc>conditionOperator} !== 'notEmpty' }"
+                  placeholder="any, or Value1|Value2"
+                  enabled="{= ${path: 'dc>conditionOperator', targetType: 'any'} !== 'empty' &amp;&amp; ${path: 'dc>conditionOperator', targetType: 'any'} !== 'notEmpty' }"
                   change=".onCellChange" />
               </HBox>
               <!-- Always enabled: with one condition blank the engine ignores this column entirely
-                   (see joinConditions in srv/checks/value-lists.js), so there is nothing unsafe about
-                   it being set ahead of the second condition being filled in. -->
+                   (see foldConditions in srv/checks/value-lists.js), so there is nothing unsafe about
+                   it being set ahead of the next condition being filled in. -->
               <ComboBox
                 width="100%"
                 selectedKey="{dc>conditionLogic}"
@@ -131,8 +168,100 @@
                 <Input
                   width="7rem"
                   value="{dc>conditionValues2}"
-                  placeholder="Value1|Value2"
-                  enabled="{= ${dc>conditionOperator2} !== 'empty' &amp;&amp; ${dc>conditionOperator2} !== 'notEmpty' }"
+                  placeholder="any, or Value1|Value2"
+                  enabled="{= ${path: 'dc>conditionOperator2', targetType: 'any'} !== 'empty' &amp;&amp; ${path: 'dc>conditionOperator2', targetType: 'any'} !== 'notEmpty' }"
+                  change=".onCellChange" />
+              </HBox>
+              <!-- Logic joining Condition 2 to Condition 3, and the two pairs after it. A cell whose
+                   column is hidden is hidden with it, so nothing extra gates these. -->
+              <ComboBox
+                width="100%"
+                selectedKey="{dc>conditionLogic2}"
+                items="{ path: 'opt>/conditionLogics', templateShareable: false }"
+                change=".onCellChange">
+                <core:Item key="{opt>code}" text="{opt>text}" />
+              </ComboBox>
+              <HBox alignItems="Center">
+                <Input
+                  width="9rem"
+                  value="{dc>conditionField3}"
+                  placeholder="Field"
+                  showValueHelp="true"
+                  valueHelpRequest=".onFieldValueHelp"
+                  change=".onCellChange" />
+                <Select
+                  width="6.5rem"
+                  class="sapUiTinyMarginBeginEnd"
+                  selectedKey="{dc>conditionOperator3}"
+                  items="{ path: 'opt>/comparisons', templateShareable: false }"
+                  change=".onCellChange">
+                  <core:Item key="{opt>code}" text="{opt>text}" />
+                </Select>
+                <Input
+                  width="7rem"
+                  value="{dc>conditionValues3}"
+                  placeholder="any, or Value1|Value2"
+                  enabled="{= ${path: 'dc>conditionOperator3', targetType: 'any'} !== 'empty' &amp;&amp; ${path: 'dc>conditionOperator3', targetType: 'any'} !== 'notEmpty' }"
+                  change=".onCellChange" />
+              </HBox>
+              <ComboBox
+                width="100%"
+                selectedKey="{dc>conditionLogic3}"
+                items="{ path: 'opt>/conditionLogics', templateShareable: false }"
+                change=".onCellChange">
+                <core:Item key="{opt>code}" text="{opt>text}" />
+              </ComboBox>
+              <HBox alignItems="Center">
+                <Input
+                  width="9rem"
+                  value="{dc>conditionField4}"
+                  placeholder="Field"
+                  showValueHelp="true"
+                  valueHelpRequest=".onFieldValueHelp"
+                  change=".onCellChange" />
+                <Select
+                  width="6.5rem"
+                  class="sapUiTinyMarginBeginEnd"
+                  selectedKey="{dc>conditionOperator4}"
+                  items="{ path: 'opt>/comparisons', templateShareable: false }"
+                  change=".onCellChange">
+                  <core:Item key="{opt>code}" text="{opt>text}" />
+                </Select>
+                <Input
+                  width="7rem"
+                  value="{dc>conditionValues4}"
+                  placeholder="any, or Value1|Value2"
+                  enabled="{= ${path: 'dc>conditionOperator4', targetType: 'any'} !== 'empty' &amp;&amp; ${path: 'dc>conditionOperator4', targetType: 'any'} !== 'notEmpty' }"
+                  change=".onCellChange" />
+              </HBox>
+              <ComboBox
+                width="100%"
+                selectedKey="{dc>conditionLogic4}"
+                items="{ path: 'opt>/conditionLogics', templateShareable: false }"
+                change=".onCellChange">
+                <core:Item key="{opt>code}" text="{opt>text}" />
+              </ComboBox>
+              <HBox alignItems="Center">
+                <Input
+                  width="9rem"
+                  value="{dc>conditionField5}"
+                  placeholder="Field"
+                  showValueHelp="true"
+                  valueHelpRequest=".onFieldValueHelp"
+                  change=".onCellChange" />
+                <Select
+                  width="6.5rem"
+                  class="sapUiTinyMarginBeginEnd"
+                  selectedKey="{dc>conditionOperator5}"
+                  items="{ path: 'opt>/comparisons', templateShareable: false }"
+                  change=".onCellChange">
+                  <core:Item key="{opt>code}" text="{opt>text}" />
+                </Select>
+                <Input
+                  width="7rem"
+                  value="{dc>conditionValues5}"
+                  placeholder="any, or Value1|Value2"
+                  enabled="{= ${path: 'dc>conditionOperator5', targetType: 'any'} !== 'empty' &amp;&amp; ${path: 'dc>conditionOperator5', targetType: 'any'} !== 'notEmpty' }"
                   change=".onCellChange" />
               </HBox>
               <!-- ONE approver: an e-mail address or a role. An entry carrying an `@` goes to SBPA
@@ -151,6 +280,7 @@
           </ColumnListItem>
         </items>
       </Table>
+      </ScrollContainer>
     </content>
   </Page>
 </mvc:View>
