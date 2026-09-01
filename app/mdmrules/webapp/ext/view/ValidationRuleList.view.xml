@@ -29,11 +29,14 @@
            cell. `view>/tableWidth` is the other half of it: a fixed-layout table at `width="100%"`
            redistributes its columns into whatever space it has, which is the squashing itself. -->
       <ScrollContainer horizontal="true" vertical="false" width="100%">
+      <!-- MultiSelect since 2026-09-02 (asked for): a checkbox as column 1, and the header's
+           own checkbox selects every loaded row - Delete and Duplicate act on all of them.
+           `sap.m.Table` draws both itself; there is no column to declare for it. -->
       <Table
         id="ruleTable"
         width="{view>/tableWidth}"
         items="{ path: 'dc>/ValidationRules', parameters: { $orderby: 'sequence,createdAt', $$updateGroupId: 'ruleChanges' } }"
-        mode="SingleSelectMaster"
+        mode="MultiSelect"
         busy="{view>/busy}"
         growing="true"
         growingThreshold="100">
@@ -59,6 +62,10 @@
               press=".onDeleteCondition" />
             <Button text="Duplicate" icon="sap-icon://copy" type="Transparent" press=".onDuplicateRule" />
             <Button text="Delete" icon="sap-icon://delete" type="Transparent" press=".onDeleteRule" />
+            <!-- The duplicate page's "Test Against Current BPs", for validations: how much of the
+                 data that already exists these rules would flag. Runs the rules ON SCREEN, unsaved
+                 ones included, because seeing that before switching a rule on is the whole point. -->
+            <Button text="Check Current Data" icon="sap-icon://lab" type="Transparent" press=".onCheckCurrentData" />
             <ToolbarSeparator />
             <Button text="Export to Excel" icon="sap-icon://excel-attachment" type="Transparent" press=".onExportExcel" />
             <Button text="Import from Excel" icon="sap-icon://upload" type="Transparent" press=".onImportExcel" />

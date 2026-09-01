@@ -4,8 +4,9 @@ sap.ui.define([
   "sap/ui/core/Fragment",
   "sap/ui/model/json/JSONModel",
   "sap/m/MessageBox",
-  "sap/m/MessageToast"
-], function (Controller, UIComponent, Fragment, JSONModel, MessageBox, MessageToast) {
+  "sap/m/MessageToast",
+  "mdm/md/mdmrules/manage/ext/util/ColumnResizer"
+], function (Controller, UIComponent, Fragment, JSONModel, MessageBox, MessageToast, ColumnResizer) {
   "use strict";
 
   var UPDATE_GROUP = "ruleChanges";
@@ -26,6 +27,11 @@ sap.ui.define([
         counts: {}
       }), "view");
       this._router = UIComponent.getRouterFor(this);
+      // Resize a column by dragging the BORDER between two header cells (2026-09-02, asked for),
+      // the same shared grips the four rule tables get; nothing is reordered. No width delta to
+      // report back: this table is 100% wide with no horizontal scroll of its own, so a resized
+      // column simply takes its space from the fixed-layout row.
+      ColumnResizer.enable(this._table());
       this._loadOptions();
       this._loadCounts();
     },
@@ -114,20 +120,30 @@ sap.ui.define([
     },
 
     onDeleteProfile: function () {
-      var item = this._table().getSelectedItem();
-      if (!item) {
-        MessageToast.show("Select the profile to delete.");
+      // Every selected row since 2026-09-02: the table is MultiSelect, and Delete acting on one of
+      // several ticked profiles would be the wrong half of what was asked for.
+      var items = this._table().getSelectedItems();
+      if (!items.length) {
+        MessageToast.show("Select the profile(s) to delete.");
         return;
       }
-      var context = item.getBindingContext("dc");
-      if (!context) return;
-      MessageBox.confirm("Delete this profile and everything it says about the fields?", {
-        onClose: function (action) {
-          if (action !== MessageBox.Action.OK) return;
-          context.delete(UPDATE_GROUP);
-          this._markDirty();
-        }.bind(this)
-      });
+      var contexts = items
+        .map(function (item) { return item.getBindingContext("dc"); })
+        .filter(Boolean);
+      if (!contexts.length) return;
+      MessageBox.confirm(
+        contexts.length === 1
+          ? "Delete this profile and everything it says about the fields?"
+          : "Delete these " + contexts.length + " profiles and everything they say about the fields?",
+        {
+          onClose: function (action) {
+            if (action !== MessageBox.Action.OK) return;
+            contexts.forEach(function (context) { context.delete(UPDATE_GROUP); });
+            this._table().removeSelections(true);
+            this._markDirty();
+          }.bind(this)
+        }
+      );
     },
 
     onCellChange: function () {

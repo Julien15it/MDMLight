@@ -5,7 +5,7 @@
     "type": "application",
     "i18n": "i18n/i18n.properties",
     "applicationVersion": {
-      "version": "1.14.0"
+      "version": "1.15.0"
     },
     "title": "{{appTitle}}",
     "description": "{{appDescription}}",
@@ -73,6 +73,11 @@
     "contentDensities": {
       "compact": true,
       "cozy": true
+    },
+    "resources": {
+      "css": [
+        { "uri": "css/style.css" }
+      ]
     },
     "models": {
       "i18n": {

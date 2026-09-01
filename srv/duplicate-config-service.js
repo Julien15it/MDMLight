@@ -353,6 +353,16 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
       });
     });
 
+    // Same delegation, same reason: the validation scan reads live business partners, and this
+    // service has no S/4 connection of its own.
+    this.on('testValidationRuleset', async (req) => {
+      const bp = await cds.connect.to('BusinessPartnerService');
+      return bp.send('testValidationRuleset', {
+        RulesJson: req.data.RulesJson || null,
+        SampleSize: req.data.SampleSize || null
+      });
+    });
+
     return super.init();
   }
 };

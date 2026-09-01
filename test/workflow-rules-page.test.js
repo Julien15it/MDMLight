@@ -422,15 +422,18 @@ test('revealing a condition widens the table inside a horizontal scroll containe
 
   // The arithmetic mirrors the column widths declared above it, so the two cannot drift.
   const widthFn = controller.slice(controller.indexOf('function tableWidthFor'));
-  assert.match(widthFn.slice(0, widthFn.indexOf('\n  }')), /37 \+ \(24 \* conditions\) \+ \(6 \* \(conditions - 1\)\)/u);
+  assert.match(widthFn.slice(0, widthFn.indexOf('\n  }')), /SELECT_REM \+ 37 \+ \(24 \* conditions\) \+ \(6 \* \(conditions - 1\)\)/u);
   const columnRem = [...view.matchAll(/<Column width="(\d+)rem"/gu)].map((match) => Number(match[1]));
   const total = columnRem.reduce((sum, each) => sum + each, 0);
   assert.equal(total, 37 + (24 * 5) + (6 * 4), 'five conditions drawn adds up to the same number');
+  // The MultiSelect checkbox column is drawn by the table and declares no <Column> of its own, so
+  // SELECT_REM is the only place its width is accounted for.
+  assert.match(controller, /var SELECT_REM = \d+;/u);
 
   // One setter, so the width can never disagree with the number of columns actually drawn.
   assert.equal((controller.match(/setProperty\("\/conditions"/gu) || []).length, 1);
   const setter = controller.slice(controller.indexOf('_setConditionColumns: function'));
-  assert.match(setter.slice(0, setter.indexOf('\n    },')), /setProperty\("\/tableWidth", tableWidthFor\(bounded\)\)/u);
+  assert.match(setter.slice(0, setter.indexOf('\n    },')), /this\._applyTableWidth\(\)/u);
 });
 
 /**
@@ -543,10 +546,11 @@ test('Duplicate copies the selected row (conditions included, as plain scalars) 
 
   const fn = controller.slice(controller.indexOf('onDuplicateRule: function'));
   const body = fn.slice(0, fn.indexOf('\n    },'));
-  assert.match(body, /getSelectedItem\(\)/u);
+  // Every ticked row since 2026-09-02, not only the one focused row - the table is MultiSelect.
+  assert.match(body, /getSelectedItems\(\)/u);
   assert.match(body, /Object\.assign\(\{\}, context\.getObject\(\)\)/u);
   assert.match(body, /binding\.create\(copy\)/u);
-  assert.match(body, /MessageToast\.show\("Select the rule to duplicate\."\)/u);
+  assert.match(body, /MessageToast\.show\("Select the rule\(s\) to duplicate\."\)/u);
   // No child composition left to copy - the mechanism this replaced needed a second `.create()`
   // per condition; this one needs none.
   assert.equal(/_conditionsBinding/u.test(body), false);

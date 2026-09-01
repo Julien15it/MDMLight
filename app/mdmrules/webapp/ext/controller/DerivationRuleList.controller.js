@@ -7,8 +7,9 @@ sap.ui.define([
   "sap/ui/model/FilterOperator",
   "sap/m/MessageBox",
   "sap/m/MessageToast",
-  "mdm/md/mdmrules/manage/ext/util/XlsxCodec"
-], function (Controller, UIComponent, Fragment, JSONModel, Filter, FilterOperator, MessageBox, MessageToast, XlsxCodec) {
+  "mdm/md/mdmrules/manage/ext/util/XlsxCodec",
+  "mdm/md/mdmrules/manage/ext/util/ColumnResizer"
+], function (Controller, UIComponent, Fragment, JSONModel, Filter, FilterOperator, MessageBox, MessageToast, XlsxCodec, ColumnResizer) {
   "use strict";
 
   var UPDATE_GROUP = "ruleChanges";
@@ -39,8 +40,16 @@ sap.ui.define([
    */
   var FIXED_REM = 42;
 
+  /**
+   * The MultiSelect checkbox column (2026-09-02) is drawn by the table itself and carries no
+   * `<Column>` to declare a width on, so the arithmetic has to allow for it - otherwise a
+   * fixed-layout table makes room for it by squeezing every real column, which is the squashing
+   * the width above exists to stop.
+   */
+  var SELECT_REM = 3;
+
   function tableWidthFor(conditions) {
-    return (FIXED_REM + (23 * conditions) + (6 * (conditions - 1))) + "rem";
+    return (SELECT_REM + FIXED_REM + (23 * conditions) + (6 * (conditions - 1))) + "rem";
   }
 
   // Identity/managed columns that must never travel back on a create - see WorkflowRuleList's own
@@ -85,6 +94,8 @@ sap.ui.define([
         conditions: DEFAULT_CONDITIONS,
         maxConditions: CONDITION_PAIRS.length,
         tableWidth: tableWidthFor(DEFAULT_CONDITIONS),
+        // Pixels the header drags have added to, or taken off, the table's own width.
+        widthAdjust: 0,
         // Qualified name -> label, so a Value that names a field can say so under the cell. This is
         // the one place the page tells a steward which of the Value column's two meanings it read.
         fieldText: {},
@@ -96,6 +107,10 @@ sap.ui.define([
       // pressing Add Condition first, and rows arrive after this runs - so the count is recomputed
       // every time the table finishes rendering its items.
       if (this._table()) this._table().attachUpdateFinished(this._syncConditionColumns, this);
+      // Resize a column by dragging the BORDER between two header cells (2026-09-02, asked for).
+      // Nothing is reordered; sap.m.Table has no resizing of its own, so the grips are real DOM -
+      // see ext/util/ColumnResizer.js.
+      ColumnResizer.enable(this._table(), { onResize: this._onColumnResized.bind(this) });
       this._loadOptions();
     },
 
@@ -182,7 +197,30 @@ sap.ui.define([
       var view = this.getView().getModel("view");
       var bounded = Math.min(Math.max(count, MIN_CONDITIONS), this._maxConditions());
       view.setProperty("/conditions", bounded);
-      view.setProperty("/tableWidth", tableWidthFor(bounded));
+      this._applyTableWidth();
+    },
+
+    /**
+     * The table's width: the columns it draws, plus whatever the header drags have added or taken
+     * away. One setter, so revealing a condition can never silently undo a resize; written as
+     * `calc()` rather than resolved to pixels, because the rem half still has to follow the page's
+     * own font size.
+     */
+    _applyTableWidth: function () {
+      var view = this.getView().getModel("view");
+      var rem = tableWidthFor(view.getProperty("/conditions") || DEFAULT_CONDITIONS);
+      var adjust = Math.round(view.getProperty("/widthAdjust") || 0);
+      view.setProperty("/tableWidth", adjust
+        ? "calc(" + rem + (adjust > 0 ? " + " : " - ") + Math.abs(adjust) + "px)"
+        : rem);
+    },
+
+    // A header drag resized ONE column, so the table grows (or shrinks) by exactly that much - which
+    // is what stops a widened column taking its space from the column beside it.
+    _onColumnResized: function (delta) {
+      var view = this.getView().getModel("view");
+      view.setProperty("/widthAdjust", (view.getProperty("/widthAdjust") || 0) + delta);
+      this._applyTableWidth();
     },
 
     // The highest slot any row actually fills, never fewer than what is already on screen: a steward
@@ -283,20 +321,29 @@ sap.ui.define([
     },
 
     onDeleteRule: function () {
-      var item = this._table().getSelectedItem();
-      if (!item) {
-        MessageToast.show("Select the rule to delete.");
+      // Every selected row since 2026-09-02: the table is MultiSelect, and Delete acting on one of
+      // several ticked rules would be the wrong half of what was asked for.
+      var items = this._table().getSelectedItems();
+      if (!items.length) {
+        MessageToast.show("Select the rule(s) to delete.");
         return;
       }
-      var context = item.getBindingContext("dc");
-      if (!context) return;
-      MessageBox.confirm("Delete this rule?", {
-        onClose: function (action) {
-          if (action !== MessageBox.Action.OK) return;
-          context.delete(UPDATE_GROUP);
-          this._markDirty();
-        }.bind(this)
-      });
+      var contexts = items
+        .map(function (item) { return item.getBindingContext("dc"); })
+        .filter(Boolean);
+      if (!contexts.length) return;
+      MessageBox.confirm(
+        contexts.length === 1 ? "Delete this rule?" : "Delete these " + contexts.length + " rules?",
+        {
+          onClose: function (action) {
+            if (action !== MessageBox.Action.OK) return;
+            contexts.forEach(function (context) { context.delete(UPDATE_GROUP); });
+            // The rows are gone; a selection pointing at them is not a selection any more.
+            this._table().removeSelections(true);
+            this._markDirty();
+          }.bind(this)
+        }
+      );
     },
 
     /**
@@ -324,17 +371,21 @@ sap.ui.define([
 
     /** "Copy and paste" for a rule - see WorkflowRuleList.controller.js's own copy for the reasoning. */
     onDuplicateRule: function () {
-      var item = this._table().getSelectedItem();
-      if (!item) {
-        MessageToast.show("Select the rule to duplicate.");
+      var items = this._table().getSelectedItems();
+      if (!items.length) {
+        MessageToast.show("Select the rule(s) to duplicate.");
         return;
       }
-      var context = item.getBindingContext("dc");
       var binding = this._table().getBinding("items");
-      if (!context || !binding) return;
-      var copy = Object.assign({}, context.getObject());
-      STRIP_ON_COPY.forEach(function (key) { delete copy[key]; });
-      binding.create(copy);
+      if (!binding) return;
+      items.forEach(function (item) {
+        var context = item.getBindingContext("dc");
+        if (!context) return;
+        var copy = Object.assign({}, context.getObject());
+        STRIP_ON_COPY.forEach(function (key) { delete copy[key]; });
+        binding.create(copy);
+      });
+      this._table().removeSelections(true);
       this._markDirty();
     },
 

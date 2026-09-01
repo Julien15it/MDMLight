@@ -262,6 +262,16 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
     SampleSize : Integer
   ) returns LargeString;
 
+  /** Runs a VALIDATION ruleset over the partners that already exist, for the steward's
+   *  "check current data" button - how much of the estate a rule would flag before it is
+   *  switched on. Lives here because this is where the S/4 connection lives; the scanning
+   *  itself is in srv/checks/data-scan.js. `RulesJson` takes unsaved grid state, and its
+   *  absence means "run what is stored". */
+  action testValidationRuleset(
+    RulesJson  : LargeString,
+    SampleSize : Integer
+  ) returns LargeString;
+
   // Core business-partner details shown as sections on the object page.
   @readonly entity Addresses            as projection on S4.A_BusinessPartnerAddress;
   @readonly entity BusinessPartnerRoles as projection on S4.A_BusinessPartnerRole;

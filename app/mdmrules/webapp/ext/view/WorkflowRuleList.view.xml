@@ -35,11 +35,14 @@
         unaffected by the nesting.
       -->
       <ScrollContainer horizontal="true" vertical="false" width="100%">
+      <!-- MultiSelect since 2026-09-02 (asked for): a checkbox as column 1, and the header's
+           own checkbox selects every loaded row - Delete and Duplicate act on all of them.
+           `sap.m.Table` draws both itself; there is no column to declare for it. -->
       <Table
         id="ruleTable"
         width="{view>/tableWidth}"
         items="{ path: 'dc>/WorkflowRules', parameters: { $orderby: 'createdAt', $$updateGroupId: 'ruleChanges' } }"
-        mode="SingleSelectMaster"
+        mode="MultiSelect"
         busy="{view>/busy}"
         growing="true"
         growingThreshold="100">

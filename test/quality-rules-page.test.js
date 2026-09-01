@@ -441,6 +441,11 @@ test('both quality pages scroll sideways rather than squeezing their cells', () 
       .map((match) => Number(match[1]))
       .reduce((sum, each) => sum + each, 0);
     assert.equal(declared, fixed + (23 * 5) + (6 * 4), `${name}'s widths add up to its own formula`);
+    // The MultiSelect checkbox column (2026-09-02) has no <Column> to carry a width, so SELECT_REM
+    // is the only place it is accounted for - and the formula has to include it, or the real
+    // columns get squeezed to make room for it.
+    assert.match(controllerSource, /var SELECT_REM = \d+;/u, `${name} allows for the select column`);
+    assert.match(controllerSource, /SELECT_REM \+ FIXED_REM \+ \(23 \* conditions\)/u);
   }
 });
 

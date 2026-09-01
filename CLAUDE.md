@@ -1800,13 +1800,10 @@ what the page actually read rather than restating the concept.
 
 Still open on these tables, and not built:
 
-- **A "Test Against Current Data" button — on Validation Rules only** (scoped
-  2026-08-19). The duplicate page has one because a duplicate rule's effect is
-  invisible until you run it against the population. A validation is worth the same
-  treatment: a steward wants to know how many existing partners a new rule would
-  have blocked before switching it on. A derivation does **not** need it — it fills
-  empty fields on the request in front of you, and there is no population-wide
-  verdict to preview.
+- ~~A "Test Against Current Data" button — on Validation Rules only~~ — **built
+  2026-09-02**, see "Check Current Data" below. The scoping stands: Derivation still
+  does not get one, because it fills empty fields on the request in front of you and
+  there is no population-wide verdict to preview.
 - A custom message per validation row; a generated one is what ships.
 - Rules for object types other than the Business Partner. When MM arrives, **copy
   the tables** rather than adding an object-type column.
@@ -2646,6 +2643,96 @@ column has no list semantics to explain.
 
 This is the READ path the withdrawn token-cell feature left behind, finally surfaced — not a second
 attempt at that feature. The cell is still a plain bound `Input`, which is the version that works.
+
+#### Resizable columns and multi-select, on every rule tile (2026-09-02, asked for)
+
+Two asks about the tables themselves rather than about any rule in them: *"We added a scrollbar, but
+it should also be possible to make columns wider/smaller, aka making the column header draggable"*
+and *"A checkbox at the left, as column 1, to allow us to select multiple rule lines at the same
+time... actions like 'delete' or 'copy' should then be executed on all selected lines"*. Both apply
+to **all five** tiles — Field Properties included this time, unlike the condition-column rollout: it
+has rows to tick and columns to widen, it simply has no conditions.
+
+- **Multi-select is `mode="MultiSelect"` and nothing else.** `sap.m.Table` draws the per-row
+  checkbox as column 1 *and* the select-all checkbox in the header itself, which is exactly what was
+  asked for — so no page declares a `<Column>` for it, and `growingThreshold` still decides what
+  "all" means (the loaded rows).
+- **The width arithmetic had to learn about a column it cannot see.** That checkbox column has no
+  `<Column>` to carry a width, and the four scrolling tables are fixed-layout at an explicit width —
+  so without allowing for it, the table makes room by squeezing every real column, which is the
+  squashing `tableWidthFor` exists to stop. Hence `SELECT_REM = 3` on each of the four, inside the
+  formula rather than beside it. The tests that add the declared `<Column width>`s up assert it
+  separately, since it is deliberately not one of them.
+- **Delete and Duplicate read `getSelectedItems()`**, delete/create every one of them in the same
+  `ruleChanges` group (so one Save still writes them together), and then call
+  `removeSelections(true)` — a selection pointing at rows that no longer exist is not a selection.
+  The confirmation counts what it is about to delete, because "delete these 7 rules" reads very
+  differently from "delete this rule".
+- **Column resizing is `ext/util/ColumnResizer.js`, a shared module** — the same call `XlsxCodec`
+  made: heavy, identical machinery is extracted, per-page wiring is not. `sap.m.Table` has no
+  resizing of its own (that is `sap.ui.table.Table`, which these pages do not use), so the grip is a
+  real `<div>` on the right-hand edge of each `<th>`, dragged with plain `mousedown`/`mousemove`
+  listeners.
+  - **What is draggable is the BORDER between two columns, never the column itself.** Clarified the
+    day it was built ("I did not mean to be able to drag columns around, but resize them by dragging
+    their borders closer together") — which is what it already did, but "draggable column headers"
+    is a phrase that reads as reordering, so the code says *border* everywhere now. There is no
+    reordering on these tables and no `dragDropConfig` anywhere near them; a test pins that.
+  - **The drag ends in `Column#setWidth`, not in an inline style.** The live `header.style.width` is
+    feedback only; every keystroke in a bound cell can re-render the table, and a DOM-only width
+    would go with it. The handles are re-installed on `onAfterRendering` for the same reason.
+  - **Header cell → column is by id first, by POSITION second.** The renderer stamps the column's own
+    id onto its `<th>`, which is the mapping a hidden column cannot throw off; the positional
+    fallback keeps this working if it ever stops doing so, zipped against the **visible** columns
+    since a hidden column renders no cell at all. The select/navigation/filler cells are filtered out
+    by class first — there is nothing to resize on any of them.
+  - **A resize widens the TABLE by the same delta** (`_onColumnResized` → `/widthAdjust` →
+    `_applyTableWidth`), or a widened column would simply take its space from the column beside it.
+    The width stays a `calc(<n>rem ± <n>px)` rather than being resolved to pixels, so the rem half
+    still follows the page's own font size. `_applyTableWidth` is the single setter, which is what
+    stops Add Condition silently undoing a resize. Field Properties passes no `onResize`: it is 100%
+    wide with no horizontal scroll, so its fixed-layout row redistributes on its own.
+  - **The handle needs a stylesheet**, registered as `sap.ui5/resources/css` in the manifest
+    (`webapp/css/style.css`, the app's first). `position: relative` on the `<th>` is set from JS
+    instead — matching a header cell by its theme class would be a guess about a private class name.
+
+#### Check Current Data — the validation rules against the partners that exist (2026-09-02)
+
+The Validation Rules page's counterpart to the duplicate tile's "Test Against Current BPs", and the
+item the "Still open on these tables" list has carried since 2026-08-19: *"Execute to see how much of
+our current data is triggering warnings/errors that we just created."* Same button, same unsaved-rules
+reasoning — a test that can only run the SAVED ruleset cannot show anyone what a change does before
+they commit to it.
+
+- **`srv/checks/data-scan.js` owns the scanning and knows nothing about S/4.** The readers are handed
+  in, exactly like `srv/ai/name-index.js`: `readPartners()` returns the General rows and
+  `readSection(section, partners)` returns `partner id -> rows`, because only the caller knows which
+  column a section is filtered on. That is what makes the whole thing testable with plain objects.
+- **It runs `runValidationRule` — the engine, not a copy of it.** A scan that judged the data by its
+  own reimplementation of the rules would be a second answer to the same question, which is the one
+  thing this button must not produce.
+- **Only the sections the ruleset actually reads are fetched.** A rule about an address country is no
+  reason to read every bank detail in the system; `sectionsUsedBy` walks each rule's own field and
+  its five condition fields. `General` is never a section read — it arrives with the partner.
+- **The customer/supplier tree is read by the number `A_BusinessPartner` itself carries**, never by
+  the partner number: CVI does not guarantee `Customer`/`Supplier` == `BusinessPartner` (the same
+  reason `resolveRelationNumber` exists). `scanKeyFieldFor` derives the key column from
+  `MAINTENANCE_ENTITIES`' own `parentKeyField`/`parentKeyFields`, so all 31 payload sections are
+  covered without a second hand-kept map.
+- **Every column of `A_BusinessPartner`, no projection.** A validation rule may name any General
+  field, and a fixed column list here would silently make those rules report nothing.
+- **A section that could not be read is NAMED in the report**, never treated as empty — a rule
+  reporting nothing because its data never arrived would read as a clean bill of health, which is
+  the wrong answer this codebase refuses everywhere.
+- **Findings and flagged partners are counted separately.** A rule that flags five addresses of one
+  partner is not the same news as one that flags five partners, so the report carries both, and
+  orders the rules loudest first.
+- **Capped at `MAX_PARTNERS` (2000) and refused above it**, rather than answered on a slice of the
+  population — the same call `testRuleset` makes at 5000 for its own, pairwise, cost. This scan is
+  linear in partners but pays a remote read per section per batch of 50.
+- **Delegated to `BusinessPartnerService`** from `DuplicateConfigService`, like `testRuleset`: one
+  S/4 connection, and no second one by the back door. With no `RulesJson` it runs what is stored, so
+  the action still answers on a page nobody has edited.
 
 #### Copy a rule, and bulk-edit the table in Excel (2026-08-28, asked for)
 

@@ -1,0 +1,28 @@
+/* The resize grip ext/util/ColumnResizer.js appends to the right-hand border of every rule table's
+   header cells. It is a real DOM element because sap.m.Table has no column resizing of its own.
+   Narrow and edge-anchored on purpose: it is the border between two columns that is draggable, not
+   the header itself - dragging a header does not move the column anywhere. */
+
+.mdmColumnResizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0.5rem;
+  height: 100%;
+  cursor: col-resize;
+  /* Above the header text, so the last few pixels of a long heading do not swallow the drag. */
+  z-index: 1;
+  user-select: none;
+}
+
+.mdmColumnResizer:hover {
+  background: var(--sapContent_ForegroundBorderColor, #8c8c8c);
+  opacity: 0.6;
+}
+
+/* Held on <body> for the length of a drag: the cursor has to stay col-resize wherever the pointer
+   travels, and a drag that starts a text selection leaves the whole page highlighted. */
+body.mdmColumnResizing {
+  cursor: col-resize;
+  user-select: none;
+}

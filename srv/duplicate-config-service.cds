@@ -73,6 +73,14 @@ service DuplicateConfigService {
     SampleSize : Integer
   ) returns LargeString;
 
+  /** How much of the CURRENT data the validation rules on screen would flag - counts per severity
+   *  and per rule, with sample messages. `RulesJson` takes unsaved grid state; leaving it out runs
+   *  what is stored. Delegated to BusinessPartnerService, which owns the S/4 connection. */
+  action testValidationRuleset(
+    RulesJson  : LargeString,
+    SampleSize : Integer
+  ) returns LargeString;
+
   /** A qualified payload field. Wider than `CatalogField.code` (it carries the section) and separate
    *  from it, because `indexed` is a duplicate-index concern that means nothing here. */
   type PayloadField {

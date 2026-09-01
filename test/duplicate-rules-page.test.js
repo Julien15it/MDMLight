@@ -358,6 +358,11 @@ test('the duplicate table scrolls sideways rather than squeezing its cells', () 
     .map((match) => Number(match[1]))
     .reduce((sum, each) => sum + each, 0);
   assert.equal(declared, fixed + (23 * 5) + (6 * 4), 'the widths add up to the formula');
+  // The MultiSelect checkbox column (2026-09-02) has no <Column> to carry a width, so SELECT_REM is
+  // the only place it is accounted for - and the formula has to include it or the real columns are
+  // squeezed to make room.
+  assert.match(controllerSource, /var SELECT_REM = \d+;/u);
+  assert.match(controllerSource, /SELECT_REM \+ FIXED_REM \+ \(23 \* conditions\)/u);
 });
 
 test('Add and Delete Condition are wired, and Condition 1 is never removable', () => {

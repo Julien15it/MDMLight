@@ -14,10 +14,13 @@
         the properties behind Modify - putting several hundred fields in this table would bury the
         two dropdowns that decide whether any of them apply.
       -->
+      <!-- MultiSelect since 2026-09-02 (asked for): a checkbox as column 1, and the header's
+           own checkbox selects every loaded row - Delete and Duplicate act on all of them.
+           `sap.m.Table` draws both itself; there is no column to declare for it. -->
       <Table
         id="profileTable"
         items="{ path: 'dc>/FieldPropertyProfiles', parameters: { $orderby: 'name,createdAt', $$updateGroupId: 'ruleChanges' } }"
-        mode="SingleSelectMaster"
+        mode="MultiSelect"
         busy="{view>/busy}"
         growing="true"
         growingThreshold="100">

@@ -19,6 +19,7 @@ const { createNameIndex } = require('./ai/name-index');
 const { createCapReaders, createMcpPartnerReader } = require('./ai/partner-readers');
 const { createMcpToolCaller } = require('./ai/mcp-client');
 const { checkMetadataDrift } = require('./metadata-drift');
+const { scanValidationRules, MAX_PARTNERS: SCAN_MAX_PARTNERS } = require('./checks/data-scan');
 const {
   IN_PROGRESS_REQUEST_STATUSES, REQUEST_TYPE_LABELS, STATUS_LABELS, PARTNER_FIELDS,
   pendingCreateEntry, partnerEntry, matchesWhere, matchesTerms, referencedFields, pageSplit,
@@ -945,6 +946,89 @@ async function readAssistantAddresses(s4, partners = []) {
       .limit(top, skip)
   )));
   return pages.flat();
+}
+
+// --- Reading the live population for the Validation Rules scan (2026-09-02) -------------------
+//
+// The readers behind `scanValidationRules` (srv/checks/data-scan.js), which owns the scanning and
+// knows nothing about S/4. They live here because this service owns the connection and the
+// `MAINTENANCE_ENTITIES` map that says which remote entity a payload section is.
+
+// Which column a section is filtered on. CVI does not guarantee Customer/Supplier == BusinessPartner
+// (see resolveRelationNumber in change-request-service.js), so the customer/supplier tree is read by
+// the number A_BusinessPartner itself carries rather than by the partner number.
+const SCAN_KEY_OVERRIDES = Object.freeze({ Customers: 'Customer', Suppliers: 'Supplier' });
+
+const SCAN_CHUNK = 50;
+
+function scanKeyFieldFor(section) {
+  if (SCAN_KEY_OVERRIDES[section]) return SCAN_KEY_OVERRIDES[section];
+  const config = MAINTENANCE_ENTITIES[section] || {};
+  const parentKey = config.parentKeyField
+    || (Array.isArray(config.parentKeyFields) ? config.parentKeyFields[0] : null);
+  return parentKey === 'Customer' || parentKey === 'Supplier' ? parentKey : 'BusinessPartner';
+}
+
+// Stops on an EMPTY page rather than a short one, and caps: the remote service may cap a page below
+// what was asked for, and a read that stopped early would report on a slice of the population while
+// reading as the whole of it. Same reasoning as readAllOf in srv/checks/config-reader.js.
+async function readScanPages(s4, buildQuery, cap, pageSize = ASSISTANT_PAGE_SIZE) {
+  const rows = [];
+  for (let skip = 0; rows.length < cap; skip += pageSize) {
+    const page = await s4.run(buildQuery(Math.min(pageSize, cap - rows.length), skip));
+    if (!Array.isArray(page) || page.length === 0) break;
+    rows.push(...page);
+  }
+  return rows;
+}
+
+// Every column, not a fixed list: a validation rule may name any General field, and a projection
+// chosen here would silently make those rules report nothing.
+function readScanPartners(s4, { limit }) {
+  const entity = remoteEntity(s4, 'A_BusinessPartner');
+  return readScanPages(s4, (top, skip) => cds.ql.SELECT.from(entity).limit(top, skip), limit);
+}
+
+/**
+ * One section's rows for the partners in hand, as `partner id -> rows`. Chunked so the generated
+ * `$filter` stays a sane length, exactly like readAssistantAddresses.
+ */
+async function readScanSection(s4, section, partners = []) {
+  const config = MAINTENANCE_ENTITIES[section];
+  const grouped = new Map();
+  if (!config) return grouped;
+  const keyField = scanKeyFieldFor(section);
+
+  // A partner with no customer number contributes nothing to a customer-keyed section, rather than
+  // being read under its own partner number - which would be a different record.
+  const partnerOf = new Map();
+  for (const partner of partners) {
+    const key = String(partner?.[keyField] ?? '').trim();
+    if (key) partnerOf.set(key, String(partner.BusinessPartner ?? ''));
+  }
+  const keys = [...partnerOf.keys()];
+  if (!keys.length) return grouped;
+
+  const entity = remoteEntity(s4, config.remote);
+  for (let index = 0; index < keys.length; index += SCAN_CHUNK) {
+    const chunk = keys.slice(index, index + SCAN_CHUNK);
+    const filter = joinExpressions(
+      chunk.map((key) => ({ xpr: [{ ref: [keyField] }, '=', { val: key }] })),
+      'or'
+    );
+    const rows = await readScanPages(
+      s4,
+      (top, skip) => cds.ql.SELECT.from(entity).where(filter).limit(top, skip),
+      ASSISTANT_MAX_ROWS
+    );
+    for (const row of rows) {
+      const id = partnerOf.get(String(row?.[keyField] ?? '').trim());
+      if (!id) continue;
+      if (!grouped.has(id)) grouped.set(id, []);
+      grouped.get(id).push(row);
+    }
+  }
+  return grouped;
 }
 
 // Selected by config so the same index can be fed by either transport. Deliberately not under
@@ -2326,6 +2410,35 @@ class BusinessPartnerService extends cds.ApplicationService {
         rules,
         ...(sampleSize ? { samplesPerVerdict: sampleSize } : {})
       }));
+    });
+
+    /**
+     * "Check Current Data" on the Validation Rules page - how much of the population the rules on
+     * screen would flag. Unsaved rules on purpose, the same reasoning as testDuplicateRuleset: a
+     * test that can only run the saved ruleset cannot show anyone what a change does first.
+     *
+     * With no `RulesJson` it runs what is stored, so the button still answers on a page nobody has
+     * edited.
+     */
+    this.on('testValidationRuleset', async (req) => {
+      const s4 = await cds.connect.to('API_BUSINESS_PARTNER');
+      let rules;
+      if (req.data.RulesJson) {
+        rules = JSON.parse(req.data.RulesJson);
+      } else {
+        const db = await cds.connect.to('db');
+        rules = await db.run(cds.ql.SELECT.from('mdmlight.config.ValidationRules'));
+      }
+      if (!Array.isArray(rules)) return req.reject(400, 'RulesJson must be an array of rules.');
+      const sampleSize = Number(req.data.SampleSize) > 0 ? Number(req.data.SampleSize) : undefined;
+      const report = await scanValidationRules({
+        rules,
+        readPartners: ({ limit }) => readScanPartners(s4, { limit }),
+        readSection: (section, partners) => readScanSection(s4, section, partners),
+        maxPartners: SCAN_MAX_PARTNERS,
+        ...(sampleSize ? { samplesPerRule: sampleSize } : {})
+      });
+      return JSON.stringify(report);
     });
 
     this.on('askBusinessPartnerAssistant', async (req) => {
