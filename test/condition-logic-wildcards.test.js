@@ -317,3 +317,21 @@ test('every slot validates, and so does every Logic column', () => {
   assert.equal(errors.some((error) => error.field === 'conditionValue5'), true, 'a field with no value is refused');
   assert.equal(errors.some((error) => error.field === 'conditionLogic3'), true, 'and so is an unusable logic');
 });
+
+// A condition value is a LIST on every rule table, not only on WorkflowRules (2026-09-01: "the
+// plural conditionvalue can be reused on the other tables as well"). The column names stay
+// singular - cds-deploy cannot rename one - but parseValueList is shared, so the behaviour is not.
+test('a quality condition ORs across a delimited list', () => {
+  const rule = {
+    conditionField: 'Addresses.Country',
+    conditionValue: 'BE|NL|FR',
+    field: 'General.CorrespondenceLanguage',
+    comparison: 'notEmpty',
+    severity: 'error'
+  };
+  const request = (country) => payload({}, { Addresses: [{ Country: country }] });
+  assert.equal(runValidationRule(rule, request('NL'), model).length, 1, 'any listed value fires it');
+  assert.equal(runValidationRule(rule, request('DE'), model).length, 0, 'an unlisted one does not');
+  // A single value is a one-entry list, so a rule saved before this reads exactly as it did.
+  assert.equal(runValidationRule({ ...rule, conditionValue: 'BE' }, request('BE'), model).length, 1);
+});

@@ -2603,18 +2603,42 @@ because it is heavy, shared machinery, and this is per-page wiring that reads be
 it wires. **If a fifth table ever needs it, extract it then** — four copies of a delete-with-confirm
 is the point at which the reasoning flips.
 
-##### The operators are symbols again, on this page only (2026-09-01)
+##### The operators are symbols, on every rule page (2026-09-01)
 
-Asked in the same breath: *"the descriptive text can be removed, '= equal' should be '='. 'Contain'
-or 'is empty' only contain text, so they can stay as is."* `symbolOnly`
-(`srv/checks/workflow-rules.js`) takes everything before the double space `COMPARISONS` already uses
-to separate the symbol from its gloss — `=  equal to` → `=`, `<=  at most` → `<=` — and returns the
-three word-shaped operators (`contains`, `is empty`, `is not empty`) whole, since they carry no
-symbol and no double space.
+Asked in the same breath as the five slots: *"the descriptive text can be removed, '= equal' should
+be '='. 'Contain' or 'is empty' only contain text, so they can stay as is."* — first for this page,
+then, once the rollout landed, *"operator labels can be changed as well"*. `symbolOnly` takes
+everything before the double space `COMPARISONS` already uses to separate the symbol from its gloss
+— `=  equal to` → `=`, `<=  at most` → `<=` — and returns the three word-shaped operators
+(`contains`, `is empty`, `is not empty`) whole, since they carry no symbol and no double space.
 
-**Scoped to `workflowRuleOptions`.** `qualityRuleOptions` and the duplicate page still serve
-`comparison.text` in full: the ask named this table, and `COMPARISONS[code].text` stays the one
-definition either way — this is a label chosen at the boundary, not a second vocabulary.
+**It lives in `srv/checks/rule-engine.js`, beside the `COMPARISONS` it formats** (moved there from
+`workflow-rules.js` when the second ask landed), and both `workflowRuleOptions` and
+`qualityRuleOptions` call it. `COMPARISONS[code].text` is still the one definition of what an
+operator is called — this only chooses which half of it a picker shows. The duplicate page's own
+`COMPARISON_TEXT` (`Exact — equal after normalisation`) is untouched and unaffected: those are words
+rather than symbols, and carry no double space for `symbolOnly` to split on anyway.
+
+##### Several values per condition, on every table (2026-09-01)
+
+Asked alongside the operator labels: *"the plural conditionvalue can be reused on the other tables as
+well"*. Two halves, and only one of them is a schema question:
+
+- **The column NAMES cannot follow.** WorkflowRules' `conditionValues` is plural by accident — a
+  stuck name from the withdrawn multi-value feature (see "Multiple values per condition"). Renaming
+  the other tables' `conditionValue`/`conditionValue2` is the one thing `cds-deploy` refuses as
+  firmly as dropping them, and naming *only* the new slots 3–5 plural would leave each table
+  disagreeing with itself. So they stay singular, and the mapping in each `CONDITION_PAIRS` names
+  its own column per slot — nothing reads a name by convention.
+- **What the plural name STANDS FOR already applied everywhere.** `parseValueList` is shared, so
+  `BE|NL|FR` has always been one condition on all four tables: `listMatches` for the quality engine,
+  `holds` for the duplicate one, both ORing across the list, both treating a single value as a
+  one-entry list. What was missing was any sign of it on the three pages, whose value cells said
+  only `any`. They now say `any, or A|B`, the same affordance WorkflowRules' `Value1|Value2`
+  placeholder already gave.
+
+This is the READ path the withdrawn token-cell feature left behind, finally surfaced — not a second
+attempt at that feature. The cell is still a plain bound `Input`, which is the version that works.
 
 #### Copy a rule, and bulk-edit the table in Excel (2026-08-28, asked for)
 

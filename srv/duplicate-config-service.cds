@@ -95,6 +95,8 @@ service DuplicateConfigService {
 
   type QualityRuleOptions {
     fields          : array of PayloadField;
+    /** By SYMBOL alone, the same as the workflow page - see `symbolOnly` in
+     *  srv/checks/rule-engine.js. */
     comparisons     : array of ComparisonOption;
     conditionLogics : array of Option;
     severities      : array of Option;
@@ -137,10 +139,11 @@ service DuplicateConfigService {
      *  directly rather than a smaller, WorkflowRules-only set. `needsValue: false` for the two that
      *  take no value at all ("is empty"/"is not empty"), so the page can hide that cell.
      *
-     *  **Symbols only on this page** (2026-09-01, asked for): `=` rather than `=  equal to`. The
-     *  wordy half explains a symbol that already says it, and the cell is narrow; `contains`,
-     *  `is empty` and `is not empty` are words to begin with and are untouched. The other three
-     *  rule pages still get the long text - this was scoped to Workflow Agent Determination. */
+     *  **Symbols only** (2026-09-01, asked for): `=` rather than `=  equal to`. The wordy half
+     *  explains a symbol that already says it, and the cell is narrow; `contains`, `is empty` and
+     *  `is not empty` are words to begin with and are untouched. Asked for on this page first and
+     *  then on the others, so `symbolOnly` lives in srv/checks/rule-engine.js beside the
+     *  COMPARISONS it formats - the text is still defined once. */
     comparisons  : array of ComparisonOption;
     /** How many condition slots a rule may hold - the page's own Add Condition ceiling, served so
      *  the button and the schema cannot disagree about it. */

@@ -6,7 +6,7 @@ const { ruleStore, refreshRules } = require('./ai/duplicate-check');
 const { INDICATORS, MAX_CONDITIONS: DUPLICATE_MAX_CONDITIONS } = require('./ai/duplicate-engine');
 const { payloadFields } = require('./checks/payload-fields');
 const {
-  COMPARISONS, SEVERITIES, MAX_CONDITIONS: QUALITY_MAX_CONDITIONS,
+  COMPARISONS, SEVERITIES, symbolOnly, MAX_CONDITIONS: QUALITY_MAX_CONDITIONS,
   validateValidationRule, validateDerivationRule
 } = require('./checks/rule-engine');
 const qualityRules = require('./checks/rule-store');
@@ -21,7 +21,7 @@ const {
 const fieldPropertyStore = require('./checks/field-property-store');
 const {
   REQUEST_TYPES: WORKFLOW_REQUEST_TYPES, REQUEST_TYPE_TEXT: WORKFLOW_REQUEST_TYPE_TEXT,
-  STEPS, STEP_TEXT, MAX_CONDITIONS, symbolOnly, validateWorkflowRule, runnableWorkflowRules
+  STEPS, STEP_TEXT, MAX_CONDITIONS, validateWorkflowRule, runnableWorkflowRules
 } = require('./checks/workflow-rules');
 const workflowRuleStore = require('./checks/workflow-rule-store');
 const { workflowAgents } = require('./wf/btp-agents');
@@ -134,8 +134,8 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
         conditionLogics: CONDITION_LOGIC_OPTIONS,
         // The exact same operator vocabulary qualityRuleOptions already offers ValidationRules/
         // DerivationRules for their own comparison column - asked for directly ("volgens mij alle
-        // mogelijke operatoren") rather than a smaller, WorkflowRules-only set. Shown here by its
-        // SYMBOL alone - see `symbolOnly`.
+        // mogelijke operatoren") rather than a smaller, WorkflowRules-only set. Shown by its SYMBOL
+        // alone, as it now is on every rule page - see `symbolOnly` in rule-engine.js.
         comparisons: Object.entries(COMPARISONS).map(([code, comparison]) => ({
           code, text: symbolOnly(comparison.text), needsValue: comparison.needsValue
         })),
@@ -187,8 +187,10 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
         fields: payloadFields().map(({ field, text, section, type }) => ({
           code: field, text, section, type
         })),
+        // By SYMBOL alone, the same as the workflow page (2026-09-01, asked for): "=  equal to"
+        // explains a symbol that already says it, and the cell is narrow.
         comparisons: Object.entries(COMPARISONS).map(([code, comparison]) => ({
-          code, text: comparison.text.trim(), needsValue: comparison.needsValue
+          code, text: symbolOnly(comparison.text), needsValue: comparison.needsValue
         })),
         conditionLogics: CONDITION_LOGIC_OPTIONS,
         conditionSlots: QUALITY_MAX_CONDITIONS,

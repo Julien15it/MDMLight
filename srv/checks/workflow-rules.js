@@ -88,16 +88,6 @@ const approverKind = (entry) => (looksLikeEmail(entry) ? 'user' : 'role');
 
 const trimmed = (value) => String(value === null || value === undefined ? '' : value).trim();
 
-/**
- * The operator label this page shows: "=  equal to" -> "=" (2026-09-01, asked for). The symbol
- * already says it and the cell is narrow; `contains`, `is empty` and `is not empty` carry no symbol
- * and no double space, so they come back whole. Scoped to this table - the other three rule pages
- * still offer `COMPARISONS[code].text` in full.
- */
-function symbolOnly(text) {
-  return String(text === null || text === undefined ? '' : text).trim().split('  ')[0].trim();
-}
-
 /** A known operator, defaulting a blank or unusable one to `eq` - the read side always has one to
  *  apply, exactly like `conditionLogicOf` never leaves the AND/OR/NOR column unresolved. */
 function operatorOf(raw) {
@@ -294,7 +284,6 @@ module.exports = {
   CONDITION_PAIRS,
   MAX_CONDITIONS,
   DEFAULT_CONDITION_OPERATOR,
-  symbolOnly,
   operatorOf,
   legacyConditionPairs,
   approverKind,

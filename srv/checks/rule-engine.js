@@ -46,6 +46,17 @@ const COMPARISONS = Object.freeze({
   notEmpty: { text: 'is not empty',                needsValue: false, apply: (a) => !isEmptyValue(a) }
 });
 
+/**
+ * The operator label every rule page shows: "=  equal to" -> "=" (2026-09-01, asked for on the
+ * Workflow Agent Determination page, then on the other three). The symbol already says it and the
+ * cell is narrow; `contains`, `is empty` and `is not empty` carry no symbol and no double space, so
+ * they come back whole. It lives here because this is where COMPARISONS itself lives - the text is
+ * still defined once, and this only chooses which half of it a picker shows.
+ */
+function symbolOnly(text) {
+  return String(text === null || text === undefined ? '' : text).trim().split('  ')[0].trim();
+}
+
 /** The two that answer a question *about* emptiness, so they still fire on an empty field. */
 const EMPTINESS_COMPARISONS = Object.freeze(['empty', 'notEmpty']);
 
@@ -489,6 +500,7 @@ module.exports = {
   CONDITION_PAIRS,
   MAX_CONDITIONS,
   COMPARISONS,
+  symbolOnly,
   EMPTINESS_COMPARISONS,
   SEVERITIES,
   OPERATOR_TEXT,

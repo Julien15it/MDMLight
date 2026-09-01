@@ -486,13 +486,14 @@ test('the operator picker offers the same comparisons ValidationRules/Derivation
 });
 
 /**
- * Shown by SYMBOL alone on this page (2026-09-01, asked for): "= equal" should be "=". The wordy
- * half explains a symbol that already says it; `contains`/`is empty`/`is not empty` are words to
- * begin with and come back whole. Scoped to this page - the other three still get the long text.
+ * Shown by SYMBOL alone (2026-09-01, asked for): "= equal" should be "=". The wordy half explains a
+ * symbol that already says it; `contains`/`is empty`/`is not empty` are words to begin with and come
+ * back whole. Scoped to the workflow page first, then to every picker offering this vocabulary
+ * ("operator labels can be changed as well"), which is why `symbolOnly` lives in rule-engine.js
+ * beside the COMPARISONS it formats rather than on one table's own engine.
  */
-test('the workflow operator picker drops the descriptive half of a symbolic operator', () => {
-  const { symbolOnly } = require('../srv/checks/workflow-rules');
-  const { COMPARISONS } = require('../srv/checks/rule-engine');
+test('every operator picker drops the descriptive half of a symbolic operator', () => {
+  const { symbolOnly, COMPARISONS } = require('../srv/checks/rule-engine');
   assert.equal(symbolOnly(COMPARISONS.eq.text), '=');
   assert.equal(symbolOnly(COMPARISONS.ne.text), '!=');
   assert.equal(symbolOnly(COMPARISONS.le.text), '<=');
@@ -500,12 +501,22 @@ test('the workflow operator picker drops the descriptive half of a symbolic oper
   assert.equal(symbolOnly(COMPARISONS.contains.text), 'contains');
   assert.equal(symbolOnly(COMPARISONS.empty.text), 'is empty');
   assert.equal(symbolOnly(COMPARISONS.notEmpty.text), 'is not empty');
+  // The text itself is still defined once; this only chooses which half of it a picker shows.
+  assert.equal(COMPARISONS.eq.text.trim(), '=  equal to');
 
-  // This page only. qualityRuleOptions still serves the long text to the other three.
-  const workflow = serviceJs.slice(serviceJs.indexOf("this.on('workflowRuleOptions'"));
-  assert.match(workflow.slice(0, workflow.indexOf('\n    });')), /text: symbolOnly\(comparison\.text\)/u);
-  const quality = serviceJs.slice(serviceJs.indexOf("this.on('qualityRuleOptions'"));
-  assert.match(quality.slice(0, quality.indexOf('\n    });')), /text: comparison\.text\.trim\(\)/u);
+  for (const handler of ["this.on('workflowRuleOptions'", "this.on('qualityRuleOptions'"]) {
+    const body = serviceJs.slice(serviceJs.indexOf(handler));
+    assert.match(
+      body.slice(0, body.indexOf('\n    });')),
+      /text: symbolOnly\(comparison\.text\)/u,
+      handler
+    );
+  }
+  assert.equal(
+    /comparison\.text\.trim\(\)/u.test(serviceJs),
+    false,
+    'no picker serves the long text any more'
+  );
 });
 
 // --- Duplicate (2026-08-28, asked for: "copy en paste" for a rule) ------------------------------

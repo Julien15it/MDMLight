@@ -385,3 +385,17 @@ test('the condition logic travels to the engine, per slot', () => {
   // A slot that carries no condition carries no logic either - there is nothing for it to join.
   assert.equal(rule.conditionLogic2, undefined);
 });
+
+// The duplicate page advertises the list its engine has always accepted, same as the other three.
+test('every condition value cell offers a list, not just one value', () => {
+  for (const suffix of ['', '2', '3', '4', '5']) {
+    const cell = view.slice(view.indexOf(`value="{dc>conditionValue${suffix}}"`));
+    assert.match(cell.slice(0, cell.indexOf('/>')), /placeholder="any, or A[|]B"/u);
+  }
+  // The read path is what makes that true, and it is the shared one.
+  const { conditionsMatch } = require('../srv/ai/duplicate-engine');
+  const { buildCandidate } = require('../srv/ai/duplicate-fields');
+  const rule = { field: 'Name', comparison: 'fuzzy', indicator: 'strong', conditionField: 'Country', conditionValue: 'BE|NL' };
+  assert.equal(conditionsMatch(rule, buildCandidate({ Country: 'NL' })), true);
+  assert.equal(conditionsMatch(rule, buildCandidate({ Country: 'DE' })), false);
+});

@@ -478,3 +478,27 @@ test('no expression binding on a Boolean property reads a dc property untyped', 
     assert.match(source, /\$\{path: 'dc>conditionField', targetType: 'any'\}/u, `${name} types its references`);
   }
 });
+
+/**
+ * Several values per condition, on every rule table (2026-09-01, asked for: "the plural
+ * conditionvalue can be reused on the other tables as well").
+ *
+ * The COLUMN NAMES cannot follow WorkflowRules plural conditionValues - cds-deploy refuses to
+ * rename a deployed element as firmly as it refuses to drop one, and naming only slots 3-5 plural
+ * would leave each table disagreeing with itself. What the plural NAME stands for does apply
+ * everywhere, and always did: parseValueList is shared, so BE|NL|FR is one condition on all four
+ * tables. What was missing was any sign of it on these pages, which said only "any".
+ */
+test('every condition value cell offers a list, not just one value', () => {
+  for (const name of CONDITION_PAGES) {
+    const source = view(name);
+    for (const suffix of ['', '2', '3', '4', '5']) {
+      const cell = source.slice(source.indexOf(`value="{dc>conditionValue${suffix}}"`));
+      assert.match(
+        cell.slice(0, cell.indexOf('/>')),
+        /placeholder="any, or A[|]B"/u,
+        `${name} condition ${suffix || '1'} says a list is allowed`
+      );
+    }
+  }
+});
