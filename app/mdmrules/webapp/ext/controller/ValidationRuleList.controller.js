@@ -17,12 +17,26 @@ sap.ui.define([
   // Mirrors CONDITION_PAIRS in srv/checks/rule-engine.js. The column names are part of the OData
   // contract, so this is the one thing the page may hold a copy of.
   var CONDITION_PAIRS = [
-    { field: "conditionField", value: "conditionValue", logic: null },
-    { field: "conditionField2", value: "conditionValue2", logic: "conditionLogic" },
-    { field: "conditionField3", value: "conditionValue3", logic: "conditionLogic2" },
-    { field: "conditionField4", value: "conditionValue4", logic: "conditionLogic3" },
-    { field: "conditionField5", value: "conditionValue5", logic: "conditionLogic4" }
+    { field: "conditionField", operator: "conditionOperator", value: "conditionValue", logic: null },
+    { field: "conditionField2", operator: "conditionOperator2", value: "conditionValue2", logic: "conditionLogic" },
+    { field: "conditionField3", operator: "conditionOperator3", value: "conditionValue3", logic: "conditionLogic2" },
+    { field: "conditionField4", operator: "conditionOperator4", value: "conditionValue4", logic: "conditionLogic3" },
+    { field: "conditionField5", operator: "conditionOperator5", value: "conditionValue5", logic: "conditionLogic4" }
   ];
+
+  /** What a condition slot means with no comparator chosen, and what every condition on this table
+   *  meant before there was one - see DEFAULT_CONDITION_OPERATOR in srv/checks/rule-engine.js. */
+  var DEFAULT_CONDITION_OPERATOR = "eq";
+
+  /**
+   * The two comparisons that compare against NOTHING - EMPTINESS_COMPARISONS in
+   * srv/checks/rule-engine.js. Named here rather than read out of the served `needsValue` map
+   * (2026-09-02): the map was the only thing saying `is not empty` takes no value, so when the flag
+   * did not arrive the page read it as "needs a value" and refused a correct rule - "Row 2: this
+   * comparison needs a value" on a `PostalCode is not empty` row. A closed, engine-defined pair is
+   * not something a page has to be told over the wire; the Workflow page already names them too.
+   */
+  var EMPTINESS_COMPARISONS = ["empty", "notEmpty"];
 
   // Condition 1 is not removable: a rule with no condition at all is written by leaving it blank,
   // not by taking the column away.
@@ -35,7 +49,8 @@ sap.ui.define([
    * The table's own width, in rem, for the horizontal ScrollContainer to overflow. A fixed-layout
    * table at `width="100%"` redistributes its columns into whatever space it has - which is the
    * squashing this exists to stop - so it needs a real width instead. FIXED_REM is the columns that
-   * are always there; a condition is 23rem (field 14 + value 9) and a Logic column 6rem, of which
+   * are always there; a condition is 24rem (field, comparator and value side by side, the shape
+   * the Workflow page uses) and a Logic column 6rem, of which
    * there is one fewer than there are conditions. Kept here rather than as an expression binding in
    * the view so the arithmetic and the column widths it mirrors can be read in one place.
    */
@@ -50,7 +65,7 @@ sap.ui.define([
   var SELECT_REM = 3;
 
   function tableWidthFor(conditions) {
-    return (SELECT_REM + FIXED_REM + (23 * conditions) + (6 * (conditions - 1))) + "rem";
+    return (SELECT_REM + FIXED_REM + (24 * conditions) + (6 * (conditions - 1))) + "rem";
   }
 
   // Identity/managed columns that must never travel back on a create - see WorkflowRuleList's own
@@ -64,18 +79,23 @@ sap.ui.define([
   function xlsxColumns() {
     return [
       { key: "conditionField", label: "Condition 1 Field" },
+      { key: "conditionOperator", label: "Condition 1 Operator" },
       { key: "conditionValue", label: "Condition 1 Value" },
       { key: "conditionLogic", label: "Logic" },
       { key: "conditionField2", label: "Condition 2 Field" },
+      { key: "conditionOperator2", label: "Condition 2 Operator" },
       { key: "conditionValue2", label: "Condition 2 Value" },
       { key: "conditionLogic2", label: "Logic 2" },
       { key: "conditionField3", label: "Condition 3 Field" },
+      { key: "conditionOperator3", label: "Condition 3 Operator" },
       { key: "conditionValue3", label: "Condition 3 Value" },
       { key: "conditionLogic3", label: "Logic 3" },
       { key: "conditionField4", label: "Condition 4 Field" },
+      { key: "conditionOperator4", label: "Condition 4 Operator" },
       { key: "conditionValue4", label: "Condition 4 Value" },
       { key: "conditionLogic4", label: "Logic 4" },
       { key: "conditionField5", label: "Condition 5 Field" },
+      { key: "conditionOperator5", label: "Condition 5 Operator" },
       { key: "conditionValue5", label: "Condition 5 Value" },
       { key: "field", label: "Field" },
       { key: "comparison", label: "Comparison" },
@@ -101,9 +121,6 @@ sap.ui.define([
         tableWidth: tableWidthFor(DEFAULT_CONDITIONS),
         // Pixels the header drags have added to, or taken off, the table's own width.
         widthAdjust: 0,
-        // code -> false for the comparisons that compare against nothing, so the Value cell can
-        // disable itself rather than accept a value the engine will ignore.
-        needsValue: {},
         skipped: 0,
         skippedText: ""
       }), "view");
@@ -183,6 +200,10 @@ sap.ui.define([
     _clearConditionSlot: function (slot, contexts) {
       contexts.forEach(function (context) {
         context.setProperty(slot.field, null);
+        // The comparator goes back to `eq` rather than to blank, for the same reason the Logic
+        // column goes back to AND: it is what a fresh row carries, so re-adding the column later
+        // renders a chosen comparator instead of an empty cell the engine reads as `eq` anyway.
+        context.setProperty(slot.operator, DEFAULT_CONDITION_OPERATOR);
         context.setProperty(slot.value, null);
         if (slot.logic) context.setProperty(slot.logic, "AND");
       });
@@ -278,11 +299,6 @@ sap.ui.define([
           view.setProperty("/maxConditions", options.conditionSlots);
         }
         this._syncConditionColumns();
-        var needsValue = {};
-        (options && options.comparisons ? options.comparisons : []).forEach(function (entry) {
-          needsValue[entry.code] = entry.needsValue !== false;
-        });
-        view.setProperty("/needsValue", needsValue);
         this._reportSkipped(options);
         if (!options || !options.fields || !options.fields.length) {
           MessageBox.error("The field catalog came back empty, so no rule can be written. "
@@ -322,6 +338,13 @@ sap.ui.define([
         conditionLogic2: "AND",
         conditionLogic3: "AND",
         conditionLogic4: "AND",
+        // Every comparator defaults to `eq` for the same reason: a blank cell the engine reads as
+        // equality anyway is a cell that does not say what the rule does.
+        conditionOperator: DEFAULT_CONDITION_OPERATOR,
+        conditionOperator2: DEFAULT_CONDITION_OPERATOR,
+        conditionOperator3: DEFAULT_CONDITION_OPERATOR,
+        conditionOperator4: DEFAULT_CONDITION_OPERATOR,
+        conditionOperator5: DEFAULT_CONDITION_OPERATOR,
         severity: "error",
         isActive: true
       });
@@ -550,19 +573,20 @@ sap.ui.define([
     // The same checks the service makes, so a steward is told at the keyboard rather than by a
     // rejected batch. The service still validates: this is a courtesy, not the guard.
     _localProblems: function (rows) {
-      var needsValue = this.getView().getModel("view").getProperty("/needsValue");
       var problems = [];
       rows.forEach(function (rule, index) {
         var label = "Row " + (index + 1) + ": ";
         if (!rule.field) problems.push(label + "choose the field to validate.");
         if (!rule.comparison) problems.push(label + "choose a comparison.");
-        if (rule.comparison && needsValue[rule.comparison] !== false && !rule.value) {
+        if (rule.comparison && EMPTINESS_COMPARISONS.indexOf(rule.comparison) === -1 && !rule.value) {
           problems.push(label + "this comparison needs a value.");
         }
         // Half a condition is the dangerous half: a field with no value would match everything.
         CONDITION_PAIRS.forEach(function (pair, position) {
           var name = "condition " + (position + 1);
-          if (rule[pair.field] && !rule[pair.value]) {
+          // Except under `is empty` / `is not empty`, which are a whole condition with no value.
+          var wantsValue = EMPTINESS_COMPARISONS.indexOf(rule[pair.operator] || DEFAULT_CONDITION_OPERATOR) === -1;
+          if (rule[pair.field] && wantsValue && !rule[pair.value]) {
             problems.push(label + name + " needs a value, or clear its field.");
           }
           if (rule[pair.value] && !rule[pair.field]) {

@@ -386,3 +386,63 @@ test('a duplicate rule saved before the extra slots existed is unchanged', () =>
   assert.equal(conditionsMatch(rule, buildCandidate({ Country: 'BE' })), true);
   assert.equal(conditionsMatch(rule, buildCandidate({ Country: 'DE' })), false);
 });
+
+// The comparator (2026-09-02, asked for): a condition on this table is field/comparator/values,
+// the same as one on the Workflow Agent Determination page.
+test('a duplicate condition is evaluated under its own comparator', () => {
+  const rules = (conditionOperator) => [{
+    conditionField: 'Country',
+    conditionOperator,
+    conditionValue: 'BE',
+    field: 'Name',
+    comparison: 'exact',
+    indicator: 'definitive'
+  }];
+  const belgian = partner('40', { Country: 'BE' });
+  const german = partner('41', { Country: 'DE' });
+  const candidate = { Name: 'Alluvion NV', Country: 'BE' };
+
+  // The rule has to hold on BOTH records of the pair, so a `!=` rule with a Belgian candidate
+  // participates for nobody - which is the honest answer, not a silently widened rule.
+  assert.deepEqual(
+    evaluate(candidate, entries(belgian, german), { rules: rules('eq') })
+      .map((row) => row.partner.BusinessPartner),
+    ['40']
+  );
+  assert.deepEqual(
+    evaluate({ Name: 'Alluvion NV', Country: 'DE' }, entries(belgian, german), { rules: rules('ne') })
+      .map((row) => row.partner.BusinessPartner),
+    ['41']
+  );
+  // Blank is what every row stored before the column existed carries, and it still means equality.
+  assert.deepEqual(
+    evaluate(candidate, entries(belgian, german), { rules: rules(undefined) })
+      .map((row) => row.partner.BusinessPartner),
+    ['40']
+  );
+});
+
+// `is empty` / `is not empty` are answered on the BAG - "this partner has no value for that field
+// at all" - and are a complete condition with no value, so they must not be dropped as half-written.
+test('a duplicate condition can ask about emptiness', () => {
+  const rules = (conditionOperator) => [{
+    conditionField: 'Country',
+    conditionOperator,
+    field: 'Name',
+    comparison: 'exact',
+    indicator: 'definitive'
+  }];
+  const noCountry = partner('42', {});
+  const belgian = partner('43', { Country: 'BE' });
+
+  assert.deepEqual(
+    evaluate({ Name: 'Alluvion NV' }, entries(noCountry, belgian), { rules: rules('empty') })
+      .map((row) => row.partner.BusinessPartner),
+    ['42']
+  );
+  assert.deepEqual(
+    evaluate({ Name: 'Alluvion NV', Country: 'BE' }, entries(noCountry, belgian), { rules: rules('notEmpty') })
+      .map((row) => row.partner.BusinessPartner),
+    ['43']
+  );
+});

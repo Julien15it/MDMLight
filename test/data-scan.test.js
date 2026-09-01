@@ -59,6 +59,18 @@ test('a rule is named by the sentence it reads as, since a validation rule has n
     describeRule(requiredRegion),
     'where Addresses.Country = BE: Addresses.Region notEmpty'
   );
+  // The condition's own comparator since 2026-09-02, not a hardcoded `=`: a report naming a `!=`
+  // rule as `=` would be describing a rule nobody wrote. A blank operator still reads as `=`.
+  assert.equal(
+    describeRule({ ...requiredRegion, conditionOperator: 'ne' }),
+    'where Addresses.Country != BE: Addresses.Region notEmpty'
+  );
+  assert.equal(
+    describeRule({
+      ...requiredRegion, conditionOperator: 'notEmpty', conditionValue: ''
+    }),
+    'where Addresses.Country is not empty: Addresses.Region notEmpty'
+  );
 });
 
 test('the scan reports findings per rule, and how many partners each one flags', async () => {

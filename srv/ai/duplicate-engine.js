@@ -5,6 +5,12 @@ const { CONDITION_FIELDS, buildCandidate, resolveField } = require('./duplicate-
 const {
   parseValueList, hasWildcard, normalisePattern, wildcardMatches, foldConditions
 } = require('../checks/value-lists');
+// The CONDITION comparators, not this file's own `COMPARISONS` (which is how two RECORDS are
+// matched - exact, fuzzy, raw_dice). One vocabulary for every rule table's condition column, so a
+// steward reading `!=` on one page cannot get a different answer on another.
+const {
+  COMPARISONS: CONDITION_COMPARISONS, EMPTINESS_COMPARISONS, DEFAULT_CONDITION_OPERATOR, operatorOf
+} = require('../checks/rule-engine');
 
 // `disqualifying` is negative evidence and never competes for strongest-per-field, so it has no
 // rank. Without it, escalating a name-only match would rate a sparse candidate above a rich one.
@@ -49,11 +55,11 @@ const CONDITION_COLUMNS = Object.freeze({
 // an empty slot never narrows. `logic` names the column joining a slot to the one BEFORE it, null
 // on the first; the fold is left to right, see foldConditions in srv/checks/value-lists.js.
 const CONDITION_PAIRS = Object.freeze([
-  Object.freeze({ field: 'conditionField', value: 'conditionValue', logic: null }),
-  Object.freeze({ field: 'conditionField2', value: 'conditionValue2', logic: 'conditionLogic' }),
-  Object.freeze({ field: 'conditionField3', value: 'conditionValue3', logic: 'conditionLogic2' }),
-  Object.freeze({ field: 'conditionField4', value: 'conditionValue4', logic: 'conditionLogic3' }),
-  Object.freeze({ field: 'conditionField5', value: 'conditionValue5', logic: 'conditionLogic4' })
+  Object.freeze({ field: 'conditionField', operator: 'conditionOperator', value: 'conditionValue', logic: null }),
+  Object.freeze({ field: 'conditionField2', operator: 'conditionOperator2', value: 'conditionValue2', logic: 'conditionLogic' }),
+  Object.freeze({ field: 'conditionField3', operator: 'conditionOperator3', value: 'conditionValue3', logic: 'conditionLogic2' }),
+  Object.freeze({ field: 'conditionField4', operator: 'conditionOperator4', value: 'conditionValue4', logic: 'conditionLogic3' }),
+  Object.freeze({ field: 'conditionField5', operator: 'conditionOperator5', value: 'conditionValue5', logic: 'conditionLogic4' })
 ]);
 
 /** How many slots the schema carries - the page's own Add Condition ceiling. */
@@ -102,8 +108,17 @@ function bagOf(record, fields) {
  * (2026-08-21) and the entries are OR: "Country is BE, NL, FR or DE" is one rule. A single stored
  * value parses as a one-entry list, so rows written before that change behave exactly as they did.
  */
-function holds(field, wanted, bag) {
+function holds(field, wanted, bag, operator = DEFAULT_CONDITION_OPERATOR) {
   const values = parseValueList(wanted);
+  const comparison = CONDITION_COMPARISONS[operator] || CONDITION_COMPARISONS[DEFAULT_CONDITION_OPERATOR];
+  // The comparator (2026-09-02, asked for): a condition here is field/comparator/values, the same
+  // as one on the Workflow Agent Determination page. The bag holds NORMALISED values, so
+  // "is empty" is "this partner has no value for that field at all" - it is answered on the bag
+  // rather than on any one value, and needs no listed value to compare against.
+  if (EMPTINESS_COMPARISONS.includes(operator)) {
+    const held = (bag[field] || []).filter((entry) => entry !== '' && entry !== null && entry !== undefined);
+    return operator === 'empty' ? !held.length : held.length > 0;
+  }
   // An empty pair means "any", which is the whole reason both halves are optional.
   if (!values.length) return true;
   const resolved = resolveField(field);
@@ -121,9 +136,18 @@ function holds(field, wanted, bag) {
   // nothing rather than ruling the rule out.
   if (!normalised.length) return true;
   const held = bag[field] || [];
-  return normalised.some((value) => (hasWildcard(value)
-    ? held.some((entry) => wildcardMatches(value, entry))
-    : held.includes(value)));
+  // `eq` keeps the wildcard matching every condition column in this app has - `*` only ever meant
+  // "equal to, loosely", so it stays scoped to the operator that means equality.
+  if (operator === DEFAULT_CONDITION_OPERATOR) {
+    return normalised.some((value) => (hasWildcard(value)
+      ? held.some((entry) => wildcardMatches(value, entry))
+      : held.includes(value)));
+  }
+  // Any other comparator compares the NORMALISED values, because normalised is all the bag holds:
+  // comparing a raw `BE 0123` against a bag entry of `BE0123` would answer about a value the index
+  // does not carry. OR across the listed values, and any held value satisfying it is enough - the
+  // same "any value, any listed value" shape a condition on this table has always had.
+  return held.some((entry) => normalised.some((value) => comparison.apply(entry, value)));
 }
 
 /**
@@ -136,8 +160,13 @@ function conditionsMatch(rule, bag) {
   // Only the pairs that actually say something take part in the join. A pair with a field and no
   // value means "any" and would make NOR read as "neither, and also not anything", which is never.
   const filled = CONDITION_PAIRS
-    .filter((pair) => rule[pair.field] && parseValueList(rule[pair.value]).length);
-  const results = filled.map((pair) => holds(rule[pair.field], rule[pair.value], bag));
+    .filter((pair) => rule[pair.field] && (parseValueList(rule[pair.value]).length
+      // `is empty`/`is not empty` are a COMPLETE condition with no value (2026-09-02): they would
+      // otherwise be dropped here as half-written and the rule would stop narrowing at all.
+      || EMPTINESS_COMPARISONS.includes(operatorOf(rule[pair.operator]))));
+  const results = filled.map((pair) => holds(
+    rule[pair.field], rule[pair.value], bag, operatorOf(rule[pair.operator])
+  ));
   // Each surviving slot brings its OWN preceding Logic column, so dropping an empty slot drops the
   // join that sat beside it rather than shifting the next one onto the wrong pair.
   const logics = filled.map((pair) => (pair.logic ? rule[pair.logic] : null) || rule.conditionLogic);

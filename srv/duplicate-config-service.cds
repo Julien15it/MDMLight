@@ -50,7 +50,12 @@ service DuplicateConfigService {
 
   type RuleOptions {
     fields      : array of CatalogField;
+    /** How two RECORDS are matched - exact, fuzzy, raw_dice. Not the condition comparators below. */
     comparisons : array of Option;
+    /** What a CONDITION asks of one partner's field: `=`, `!=`, `contains`, `is empty`... The same
+     *  vocabulary the other three rule pages offer, so a steward reading `!=` on one page cannot
+     *  get a different answer on another. See COMPARISONS in srv/checks/rule-engine.js. */
+    conditionComparisons : array of ComparisonOption;
     indicators  : array of Option;
     /** AND / OR / NOR - how the two condition pairs are joined. One list for all four rule tables;
      *  see CONDITION_LOGIC in srv/checks/value-lists.js. */

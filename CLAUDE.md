@@ -2701,6 +2701,44 @@ has rows to tick and columns to widen, it simply has no conditions.
   next to the button that adds one makes the pair read as a pair. Field Properties says "Delete
   Profile" for the same reason: it adds profiles, not rules.
 
+#### One "Condition N" column: field, comparator, values (2026-09-02, asked for)
+
+*"Make it so our Condition combinations are built the same way as in Workflow Agent Determination.
+Condition 1 contains the field, the comparator, the values. The other tiles should have the exact
+same way of working."* Workflow Agent Determination has drawn a condition that way since it was
+built; the other three drew a **Field** column and a **Value** column with equality implied between
+them, and no way to say `!=`, `contains` or `is not empty` in a condition at all.
+
+- **A new column per slot, not a new table.** `conditionOperator`, `conditionOperator2`..`5` on the
+  `ruleConditions` aspect (db/quality-rules.cds, so Validation and Derivation get them together) and
+  on `DuplicateRules`. `String(12) default 'eq'`, additive - `cds-deploy` can add an element and can
+  neither drop nor retype one, which is the same reason the slots are columns at all.
+- **A blank comparator reads as `eq`, and that is load-bearing.** Every row stored before the column
+  existed meant equality, so nothing was migrated and no stored rule changed meaning. `operatorOf`
+  in srv/checks/rule-engine.js is the one place that decides it, the way `conditionLogicOf` already
+  decides a blank Logic column.
+- **The evaluation is workflow-rules.js's, moved into rule-engine.js.** `empty`/`notEmpty` are read
+  on the RAW value (an empty value is the thing they exist to notice, so it must not be filtered out
+  before they see it); `eq` keeps the wildcard and multi-value matching every condition column has,
+  because `*` only ever meant "equal to, loosely"; every other operator is OR across the listed
+  values. Same shape for the duplicate engine, except that its bag holds NORMALISED values, so
+  `is empty` there means "this partner has no value for that field at all" and the other comparators
+  compare normalised against normalised - comparing a raw `BE 0123` against a bag entry of `BE0123`
+  would answer about a value the index does not carry.
+- **`is empty` / `is not empty` are a COMPLETE condition with no value.** Three places had to learn
+  that, or a perfectly good condition would have been refused as half-written and the rule would
+  have stopped narrowing: `conditionProblems` (rule-engine.js), `validateRule` and `toEngineRule`
+  (srv/ai/rule-config.js), and each page's own `_localProblems`.
+- **The reason a rule fired says which comparator it used.** `describeCondition` used to write
+  `Country = BE` whatever the condition was; a requester told "where Country = BE" about a `!=` rule
+  has been told something untrue.
+- **The duplicate page needed its own list.** Its `ruleOptions.comparisons` are how two RECORDS are
+  matched (exact, fuzzy, raw_dice) - a different question entirely - so the condition vocabulary is
+  served alongside it as `conditionComparisons`. The quality pages reuse `comparisons`, which is
+  already the engine's list.
+- **The table is 24rem per condition now**, one column instead of 14 + 9, and every width formula
+  and the tests that add the declared `<Column width>`s up moved with it.
+
 #### Check Current Data — the validation rules against the partners that exist (2026-09-02)
 
 The Validation Rules page's counterpart to the duplicate tile's "Test Against Current BPs", and the
@@ -2739,11 +2777,28 @@ they commit to it.
   S/4 connection, and no second one by the back door. With no `RulesJson` it runs what is stored, so
   the action still answers on a page nobody has edited.
 
+##### A served flag that did not arrive read as "this needs a value"
+
+Reported the day after it shipped: *"Checking current validation rules gives error: Row 2: this
+comparison needs a value"* on a row whose comparison was **is not empty** - which compares against
+nothing. `_localProblems` and the Value cell's `enabled` binding both asked a `/needsValue` map,
+built on the page from the `needsValue` flag on each served comparison. A flag that does not arrive
+is `undefined`, `undefined !== false` is true, and the page read that as "this needs a value" and
+refused the rule.
+
+The fix is the shape the Workflow page already used: **name the two operators**
+(`EMPTINESS_COMPARISONS = ["empty", "notEmpty"]`, the engine's own constant) rather than be told
+over the wire which comparisons take a value. The vocabulary is closed and defined in
+srv/checks/rule-engine.js; a page does not have to be told. The `/needsValue` model property went
+with it - nothing else read it.
+
+
 #### Copy a rule, and bulk-edit the table in Excel (2026-08-28, asked for)
 
 Two more asks landed the same day, both scoped to this one page:
 
-- **Duplicate.** A "Duplicate" button beside Delete reads the selected row
+- **Duplicate.** A "Duplicate" button on the toolbar (beside Delete until Delete Rule moved up next
+  to Add Rule on 2026-09-02) reads the selected row
   (`context.getObject()`), strips its identity and managed columns (`STRIP_ON_COPY`: `ID`,
   `@odata.etag`, `createdAt`/`createdBy`/`modifiedAt`/`modifiedBy` — sending any of those back on a
   `POST` is either ignored or rejected depending on the column, never something worth relying on),

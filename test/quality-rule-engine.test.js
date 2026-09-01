@@ -535,3 +535,86 @@ test('a configured derivation is labelled in three words', async () => {
   assert.equal(applied[0].label, 'Derivation rule');
   assert.equal(applied[0].system, false);
 });
+
+// ---------------------------------------------------------------------------
+// The condition comparator (2026-09-02, asked for: "Condition 1 contains the field, the
+// comparator, the values" - the shape Workflow Agent Determination already had)
+// ---------------------------------------------------------------------------
+
+// The whole point of the column: a condition is no longer forced to mean equality.
+test('a condition is evaluated under its own comparator', () => {
+  const rule = (operator, value) => ({
+    conditionField: 'Addresses.Country', conditionOperator: operator, conditionValue: value,
+    field: 'General.Language', comparison: 'eq', value: 'NL', severity: 'error'
+  });
+  const be = payload({ Language: 'FR' }, { Addresses: [{ Country: 'BE' }] });
+
+  // `!=` fires on a partner whose country is anything but BE, and stays quiet on one that is BE.
+  assert.equal(runValidationRule(rule('ne', 'BE'), be, model).length, 0);
+  assert.equal(runValidationRule(rule('ne', 'DE'), be, model).length, 1);
+  assert.equal(runValidationRule(rule('contains', 'B'), be, model).length, 1);
+  assert.equal(runValidationRule(rule('eq', 'BE'), be, model).length, 1);
+});
+
+// A blank operator is what every row stored before the column existed carries, and it has to go on
+// meaning exactly what it meant then - equality - or a deploy would rewrite the rules silently.
+test('a condition with no comparator still means equality', () => {
+  const rule = {
+    conditionField: 'Addresses.Country', conditionValue: 'BE',
+    field: 'General.Language', comparison: 'eq', value: 'NL', severity: 'error'
+  };
+  const be = payload({ Language: 'FR' }, { Addresses: [{ Country: 'BE' }] });
+  assert.equal(runValidationRule(rule, be, model).length, 1);
+  assert.equal(runValidationRule({ ...rule, conditionOperator: '' }, be, model).length, 1);
+  // An operator nothing recognises falls back the same way rather than matching nothing: the read
+  // side always has one to apply. Saving one is refused, which is where a typo is caught.
+  assert.equal(runValidationRule({ ...rule, conditionOperator: 'nonsense' }, be, model).length, 1);
+});
+
+// `is empty` / `is not empty` are read on the RAW value: an empty value is exactly the thing they
+// exist to notice, so filtering it out first would make them answer about nothing.
+test('a condition can ask about emptiness, and needs no value to do it', () => {
+  const rule = (operator) => ({
+    conditionField: 'Addresses.Region', conditionOperator: operator,
+    field: 'General.Language', comparison: 'eq', value: 'NL', severity: 'error'
+  });
+  const noRegion = payload({ Language: 'FR' }, { Addresses: [{ Country: 'BE', Region: '' }] });
+  const region = payload({ Language: 'FR' }, { Addresses: [{ Country: 'BE', Region: 'VBR' }] });
+
+  assert.equal(runValidationRule(rule('empty'), noRegion, model).length, 1);
+  assert.equal(runValidationRule(rule('empty'), region, model).length, 0);
+  assert.equal(runValidationRule(rule('notEmpty'), region, model).length, 1);
+  assert.equal(runValidationRule(rule('notEmpty'), noRegion, model).length, 0);
+
+  // And it is a COMPLETE condition with no value, so save-time validation must not refuse it.
+  for (const validate of [validateValidationRule, validateDerivationRule]) {
+    const base = validate === validateValidationRule
+      ? { field: 'General.Language', comparison: 'eq', value: 'NL' }
+      : { field: 'General.Language', value: 'NL' };
+    assert.deepEqual(
+      validate({ ...base, conditionField: 'Addresses.Region', conditionOperator: 'notEmpty' }, model).errors,
+      []
+    );
+    // An operator outside the vocabulary is refused rather than quietly read as equality.
+    assert.ok(validate({ ...base, conditionField: 'Addresses.Region', conditionOperator: 'nope' }, model)
+      .errors.some((problem) => problem.field === 'conditionOperator'));
+  }
+});
+
+// A requester told "where Country = BE" about a `!=` rule has been told something untrue.
+test('the reason a rule fired says which comparator it used', () => {
+  const fired = (operator, value) => runValidationRule({
+    conditionField: 'Addresses.Country', conditionOperator: operator, conditionValue: value,
+    field: 'General.Language', comparison: 'eq', value: 'NL', severity: 'error'
+  }, payload({ Language: 'FR' }, { Addresses: [{ Country: 'BE' }] }), model)[0].message;
+  assert.match(fired('ne', 'DE'), /Addresses\.Country != DE/u);
+  assert.match(fired('contains', 'B'), /Addresses\.Country contains B/u);
+  // The two that compare against nothing say what they asked, not an empty value list.
+  assert.match(
+    runValidationRule({
+      conditionField: 'Addresses.Region', conditionOperator: 'notEmpty',
+      field: 'General.Language', comparison: 'eq', value: 'NL', severity: 'error'
+    }, payload({ Language: 'FR' }, { Addresses: [{ Country: 'BE', Region: 'VBR' }] }), model)[0].message,
+    /Addresses\.Region is not empty/u
+  );
+});

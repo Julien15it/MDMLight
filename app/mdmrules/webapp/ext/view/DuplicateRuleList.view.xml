@@ -67,22 +67,17 @@
         </headerToolbar>
         <!-- Fixed widths in rem, not percentages: a hidden column contributes no share of 100%. -->
         <columns>
-          <Column width="14rem"><Text text="Condition 1 Field" /></Column>
-          <Column width="9rem"><Text text="Condition 1 Value" /></Column>
+          <Column width="24rem"><Text text="Condition 1" /></Column>
           <!-- Titleless on purpose: AND / OR / NOR reads as the joining word between the two
                conditions it sits between, and a heading would only repeat what the cell says. -->
           <Column width="6rem" hAlign="Center"><Text text="" /></Column>
-          <Column width="14rem"><Text text="Condition 2 Field" /></Column>
-          <Column width="9rem"><Text text="Condition 2 Value" /></Column>
+          <Column width="24rem"><Text text="Condition 2" /></Column>
           <Column width="6rem" hAlign="Center" visible="{= ${view>/conditions} &gt;= 3 }"><Text text="" /></Column>
-          <Column width="14rem" visible="{= ${view>/conditions} &gt;= 3 }"><Text text="Condition 3 Field" /></Column>
-          <Column width="9rem" visible="{= ${view>/conditions} &gt;= 3 }"><Text text="Condition 3 Value" /></Column>
+          <Column width="24rem" visible="{= ${view>/conditions} &gt;= 3 }"><Text text="Condition 3" /></Column>
           <Column width="6rem" hAlign="Center" visible="{= ${view>/conditions} &gt;= 4 }"><Text text="" /></Column>
-          <Column width="14rem" visible="{= ${view>/conditions} &gt;= 4 }"><Text text="Condition 4 Field" /></Column>
-          <Column width="9rem" visible="{= ${view>/conditions} &gt;= 4 }"><Text text="Condition 4 Value" /></Column>
+          <Column width="24rem" visible="{= ${view>/conditions} &gt;= 4 }"><Text text="Condition 4" /></Column>
           <Column width="6rem" hAlign="Center" visible="{= ${view>/conditions} &gt;= 5 }"><Text text="" /></Column>
-          <Column width="14rem" visible="{= ${view>/conditions} &gt;= 5 }"><Text text="Condition 5 Field" /></Column>
-          <Column width="9rem" visible="{= ${view>/conditions} &gt;= 5 }"><Text text="Condition 5 Value" /></Column>
+          <Column width="24rem" visible="{= ${view>/conditions} &gt;= 5 }"><Text text="Condition 5" /></Column>
           <Column width="18rem"><Text text="Field" /></Column>
           <Column width="15rem"><Text text="Comparison" /></Column>
           <Column width="15rem"><Text text="Indicator" /></Column>
@@ -91,7 +86,12 @@
         <items>
           <ColumnListItem>
             <cells>
-              <!-- Conditions over any catalog field: Role = Vendor and Country = BE, then compare
+              <!-- Condition 1: field, comparator, values, side by side in one column - the shape
+                   Workflow Agent Determination uses (2026-09-02, asked for). Every slot below is the
+                   same three controls. A blank comparator reads as `=`, which is what every
+                   condition on this table meant before there was one to pick.
+
+                   Conditions over any catalog field: Role = Vendor and Country = BE, then compare
                    Tax Number. All are optional and independent; leave them empty and the rule
                    applies to every partner.
 
@@ -99,20 +99,30 @@
                    it UI5 formats the referenced property into the type of the BOUND property - a
                    Boolean here - and a String value throws a FormatException, leaving the cell at
                    its default. See CLAUDE.md, "Workflow Agent Determination". -->
-              <ComboBox
-                width="100%"
-                selectedKey="{dc>conditionField}"
-                placeholder="any"
-                items="{ path: 'opt>/fields', templateShareable: false }"
-                change=".onCellChange">
-                <core:Item key="{opt>code}" text="{opt>text}" />
-              </ComboBox>
-              <Input
-                width="100%"
-                value="{dc>conditionValue}"
-                placeholder="any, or Value1|Value2"
-                enabled="{= !!${path: 'dc>conditionField', targetType: 'any'} }"
-                change=".onCellChange" />
+              <HBox alignItems="Center">
+                <ComboBox
+                  width="9rem"
+                  selectedKey="{dc>conditionField}"
+                  placeholder="any"
+                  items="{ path: 'opt>/fields', templateShareable: false }"
+                  change=".onCellChange">
+                  <core:Item key="{opt>code}" text="{opt>text}" />
+                </ComboBox>
+                <Select
+                  width="6.5rem"
+                  class="sapUiTinyMarginBeginEnd"
+                  selectedKey="{dc>conditionOperator}"
+                  items="{ path: 'opt>/conditionComparisons', templateShareable: false }"
+                  change=".onCellChange">
+                  <core:Item key="{opt>code}" text="{opt>text}" />
+                </Select>
+                <Input
+                  width="7rem"
+                  value="{dc>conditionValue}"
+                  placeholder="any, or Value1|Value2"
+                  enabled="{= !!${path: 'dc>conditionField', targetType: 'any'} &amp;&amp; ${path: 'dc>conditionOperator', targetType: 'any'} !== 'empty' &amp;&amp; ${path: 'dc>conditionOperator', targetType: 'any'} !== 'notEmpty' }"
+                  change=".onCellChange" />
+              </HBox>
               <!-- Only enabled once BOTH of the conditions it joins are filled: there is nothing to
                    join otherwise, and NOR on a single condition would silently invert it. -->
               <ComboBox
@@ -123,20 +133,30 @@
                 change=".onCellChange">
                 <core:Item key="{opt>code}" text="{opt>text}" />
               </ComboBox>
-              <ComboBox
-                width="100%"
-                selectedKey="{dc>conditionField2}"
-                placeholder="any"
-                items="{ path: 'opt>/fields', templateShareable: false }"
-                change=".onCellChange">
-                <core:Item key="{opt>code}" text="{opt>text}" />
-              </ComboBox>
-              <Input
-                width="100%"
-                value="{dc>conditionValue2}"
-                placeholder="any, or Value1|Value2"
-                enabled="{= !!${path: 'dc>conditionField2', targetType: 'any'} }"
-                change=".onCellChange" />
+              <HBox alignItems="Center">
+                <ComboBox
+                  width="9rem"
+                  selectedKey="{dc>conditionField2}"
+                  placeholder="any"
+                  items="{ path: 'opt>/fields', templateShareable: false }"
+                  change=".onCellChange">
+                  <core:Item key="{opt>code}" text="{opt>text}" />
+                </ComboBox>
+                <Select
+                  width="6.5rem"
+                  class="sapUiTinyMarginBeginEnd"
+                  selectedKey="{dc>conditionOperator2}"
+                  items="{ path: 'opt>/conditionComparisons', templateShareable: false }"
+                  change=".onCellChange">
+                  <core:Item key="{opt>code}" text="{opt>text}" />
+                </Select>
+                <Input
+                  width="7rem"
+                  value="{dc>conditionValue2}"
+                  placeholder="any, or Value1|Value2"
+                  enabled="{= !!${path: 'dc>conditionField2', targetType: 'any'} &amp;&amp; ${path: 'dc>conditionOperator2', targetType: 'any'} !== 'empty' &amp;&amp; ${path: 'dc>conditionOperator2', targetType: 'any'} !== 'notEmpty' }"
+                  change=".onCellChange" />
+              </HBox>
               <ComboBox
                 width="100%"
                 selectedKey="{dc>conditionLogic2}"
@@ -145,20 +165,30 @@
                 change=".onCellChange">
                 <core:Item key="{opt>code}" text="{opt>text}" />
               </ComboBox>
-              <ComboBox
-                width="100%"
-                selectedKey="{dc>conditionField3}"
-                placeholder="any"
-                items="{ path: 'opt>/fields', templateShareable: false }"
-                change=".onCellChange">
-                <core:Item key="{opt>code}" text="{opt>text}" />
-              </ComboBox>
-              <Input
-                width="100%"
-                value="{dc>conditionValue3}"
-                placeholder="any, or Value1|Value2"
-                enabled="{= !!${path: 'dc>conditionField3', targetType: 'any'} }"
-                change=".onCellChange" />
+              <HBox alignItems="Center">
+                <ComboBox
+                  width="9rem"
+                  selectedKey="{dc>conditionField3}"
+                  placeholder="any"
+                  items="{ path: 'opt>/fields', templateShareable: false }"
+                  change=".onCellChange">
+                  <core:Item key="{opt>code}" text="{opt>text}" />
+                </ComboBox>
+                <Select
+                  width="6.5rem"
+                  class="sapUiTinyMarginBeginEnd"
+                  selectedKey="{dc>conditionOperator3}"
+                  items="{ path: 'opt>/conditionComparisons', templateShareable: false }"
+                  change=".onCellChange">
+                  <core:Item key="{opt>code}" text="{opt>text}" />
+                </Select>
+                <Input
+                  width="7rem"
+                  value="{dc>conditionValue3}"
+                  placeholder="any, or Value1|Value2"
+                  enabled="{= !!${path: 'dc>conditionField3', targetType: 'any'} &amp;&amp; ${path: 'dc>conditionOperator3', targetType: 'any'} !== 'empty' &amp;&amp; ${path: 'dc>conditionOperator3', targetType: 'any'} !== 'notEmpty' }"
+                  change=".onCellChange" />
+              </HBox>
               <ComboBox
                 width="100%"
                 selectedKey="{dc>conditionLogic3}"
@@ -167,20 +197,30 @@
                 change=".onCellChange">
                 <core:Item key="{opt>code}" text="{opt>text}" />
               </ComboBox>
-              <ComboBox
-                width="100%"
-                selectedKey="{dc>conditionField4}"
-                placeholder="any"
-                items="{ path: 'opt>/fields', templateShareable: false }"
-                change=".onCellChange">
-                <core:Item key="{opt>code}" text="{opt>text}" />
-              </ComboBox>
-              <Input
-                width="100%"
-                value="{dc>conditionValue4}"
-                placeholder="any, or Value1|Value2"
-                enabled="{= !!${path: 'dc>conditionField4', targetType: 'any'} }"
-                change=".onCellChange" />
+              <HBox alignItems="Center">
+                <ComboBox
+                  width="9rem"
+                  selectedKey="{dc>conditionField4}"
+                  placeholder="any"
+                  items="{ path: 'opt>/fields', templateShareable: false }"
+                  change=".onCellChange">
+                  <core:Item key="{opt>code}" text="{opt>text}" />
+                </ComboBox>
+                <Select
+                  width="6.5rem"
+                  class="sapUiTinyMarginBeginEnd"
+                  selectedKey="{dc>conditionOperator4}"
+                  items="{ path: 'opt>/conditionComparisons', templateShareable: false }"
+                  change=".onCellChange">
+                  <core:Item key="{opt>code}" text="{opt>text}" />
+                </Select>
+                <Input
+                  width="7rem"
+                  value="{dc>conditionValue4}"
+                  placeholder="any, or Value1|Value2"
+                  enabled="{= !!${path: 'dc>conditionField4', targetType: 'any'} &amp;&amp; ${path: 'dc>conditionOperator4', targetType: 'any'} !== 'empty' &amp;&amp; ${path: 'dc>conditionOperator4', targetType: 'any'} !== 'notEmpty' }"
+                  change=".onCellChange" />
+              </HBox>
               <ComboBox
                 width="100%"
                 selectedKey="{dc>conditionLogic4}"
@@ -189,20 +229,30 @@
                 change=".onCellChange">
                 <core:Item key="{opt>code}" text="{opt>text}" />
               </ComboBox>
-              <ComboBox
-                width="100%"
-                selectedKey="{dc>conditionField5}"
-                placeholder="any"
-                items="{ path: 'opt>/fields', templateShareable: false }"
-                change=".onCellChange">
-                <core:Item key="{opt>code}" text="{opt>text}" />
-              </ComboBox>
-              <Input
-                width="100%"
-                value="{dc>conditionValue5}"
-                placeholder="any, or Value1|Value2"
-                enabled="{= !!${path: 'dc>conditionField5', targetType: 'any'} }"
-                change=".onCellChange" />
+              <HBox alignItems="Center">
+                <ComboBox
+                  width="9rem"
+                  selectedKey="{dc>conditionField5}"
+                  placeholder="any"
+                  items="{ path: 'opt>/fields', templateShareable: false }"
+                  change=".onCellChange">
+                  <core:Item key="{opt>code}" text="{opt>text}" />
+                </ComboBox>
+                <Select
+                  width="6.5rem"
+                  class="sapUiTinyMarginBeginEnd"
+                  selectedKey="{dc>conditionOperator5}"
+                  items="{ path: 'opt>/conditionComparisons', templateShareable: false }"
+                  change=".onCellChange">
+                  <core:Item key="{opt>code}" text="{opt>text}" />
+                </Select>
+                <Input
+                  width="7rem"
+                  value="{dc>conditionValue5}"
+                  placeholder="any, or Value1|Value2"
+                  enabled="{= !!${path: 'dc>conditionField5', targetType: 'any'} &amp;&amp; ${path: 'dc>conditionOperator5', targetType: 'any'} !== 'empty' &amp;&amp; ${path: 'dc>conditionOperator5', targetType: 'any'} !== 'notEmpty' }"
+                  change=".onCellChange" />
+              </HBox>
               <VBox>
                 <!-- Options come from ruleOptions(); the UI never keeps its own copy of the
                      catalog, because that copy is what goes stale. -->

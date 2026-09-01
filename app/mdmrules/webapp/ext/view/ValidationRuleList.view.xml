@@ -77,22 +77,17 @@
         <!-- Fixed widths in rem, not percentages: a hidden column contributes no share of 100%, so
              percentages would re-flow the whole row every time a condition was revealed. -->
         <columns>
-          <Column width="14rem"><Text text="Condition 1 Field" /></Column>
-          <Column width="9rem"><Text text="Condition 1 Value" /></Column>
+          <Column width="24rem"><Text text="Condition 1" /></Column>
           <!-- Titleless on purpose: AND / OR / NOR reads as the joining word between the two
                conditions it sits between, and a heading over it would only repeat the values. -->
           <Column width="6rem" hAlign="Center"><Text text="" /></Column>
-          <Column width="14rem"><Text text="Condition 2 Field" /></Column>
-          <Column width="9rem"><Text text="Condition 2 Value" /></Column>
+          <Column width="24rem"><Text text="Condition 2" /></Column>
           <Column width="6rem" hAlign="Center" visible="{= ${view>/conditions} &gt;= 3 }"><Text text="" /></Column>
-          <Column width="14rem" visible="{= ${view>/conditions} &gt;= 3 }"><Text text="Condition 3 Field" /></Column>
-          <Column width="9rem" visible="{= ${view>/conditions} &gt;= 3 }"><Text text="Condition 3 Value" /></Column>
+          <Column width="24rem" visible="{= ${view>/conditions} &gt;= 3 }"><Text text="Condition 3" /></Column>
           <Column width="6rem" hAlign="Center" visible="{= ${view>/conditions} &gt;= 4 }"><Text text="" /></Column>
-          <Column width="14rem" visible="{= ${view>/conditions} &gt;= 4 }"><Text text="Condition 4 Field" /></Column>
-          <Column width="9rem" visible="{= ${view>/conditions} &gt;= 4 }"><Text text="Condition 4 Value" /></Column>
+          <Column width="24rem" visible="{= ${view>/conditions} &gt;= 4 }"><Text text="Condition 4" /></Column>
           <Column width="6rem" hAlign="Center" visible="{= ${view>/conditions} &gt;= 5 }"><Text text="" /></Column>
-          <Column width="14rem" visible="{= ${view>/conditions} &gt;= 5 }"><Text text="Condition 5 Field" /></Column>
-          <Column width="9rem" visible="{= ${view>/conditions} &gt;= 5 }"><Text text="Condition 5 Value" /></Column>
+          <Column width="24rem" visible="{= ${view>/conditions} &gt;= 5 }"><Text text="Condition 5" /></Column>
           <Column width="16rem"><Text text="Field" /></Column>
           <Column width="13rem"><Text text="Comparison" /></Column>
           <Column width="11rem"><Text text="Value" /></Column>
@@ -102,27 +97,42 @@
         <items>
           <ColumnListItem>
             <cells>
-              <!-- Every condition is optional and independent: leave a pair empty and it means
-                   "any". A condition on the same section as the Field narrows the rule to the rows
-                   that match, rather than to every row of a partner that has one.
+              <!-- Condition 1: field, comparator, values, side by side in one column - the shape
+                   Workflow Agent Determination uses (2026-09-02, asked for: "the other tiles should
+                   have the exact same way of working"). Every slot below is the same three controls.
+
+                   Every condition is optional and independent: leave one empty and it means "any".
+                   A condition on the same section as the Field narrows the rule to the rows that
+                   match, rather than to every row of a partner that has one. A blank comparator
+                   reads as `=`, which is what every condition meant before there was one to pick.
 
                    `targetType: 'any'` on every `dc>` reference inside an expression binding: without
                    it UI5 formats the referenced property into the type of the BOUND property - a
                    Boolean here - and a String value throws a FormatException, leaving the cell at
                    its default. See CLAUDE.md, "Workflow Agent Determination". -->
-              <Input
-                width="100%"
-                value="{dc>conditionField}"
-                placeholder="any"
-                showValueHelp="true"
-                valueHelpRequest=".onFieldValueHelp"
-                change=".onCellChange" />
-              <Input
-                width="100%"
-                value="{dc>conditionValue}"
-                placeholder="any, or Value1|Value2"
-                enabled="{= !!${path: 'dc>conditionField', targetType: 'any'} }"
-                change=".onCellChange" />
+              <HBox alignItems="Center">
+                <Input
+                  width="9rem"
+                  value="{dc>conditionField}"
+                  placeholder="any"
+                  showValueHelp="true"
+                  valueHelpRequest=".onFieldValueHelp"
+                  change=".onCellChange" />
+                <Select
+                  width="6.5rem"
+                  class="sapUiTinyMarginBeginEnd"
+                  selectedKey="{dc>conditionOperator}"
+                  items="{ path: 'opt>/comparisons', templateShareable: false }"
+                  change=".onCellChange">
+                  <core:Item key="{opt>code}" text="{opt>text}" />
+                </Select>
+                <Input
+                  width="7rem"
+                  value="{dc>conditionValue}"
+                  placeholder="any, or Value1|Value2"
+                  enabled="{= !!${path: 'dc>conditionField', targetType: 'any'} &amp;&amp; ${path: 'dc>conditionOperator', targetType: 'any'} !== 'empty' &amp;&amp; ${path: 'dc>conditionOperator', targetType: 'any'} !== 'notEmpty' }"
+                  change=".onCellChange" />
+              </HBox>
               <!-- Only enabled once BOTH of the conditions it joins are filled: there is nothing to
                    join otherwise, and NOR on a single condition would silently invert it. -->
               <ComboBox
@@ -133,19 +143,29 @@
                 change=".onCellChange">
                 <core:Item key="{opt>code}" text="{opt>text}" />
               </ComboBox>
-              <Input
-                width="100%"
-                value="{dc>conditionField2}"
-                placeholder="any"
-                showValueHelp="true"
-                valueHelpRequest=".onFieldValueHelp"
-                change=".onCellChange" />
-              <Input
-                width="100%"
-                value="{dc>conditionValue2}"
-                placeholder="any, or Value1|Value2"
-                enabled="{= !!${path: 'dc>conditionField2', targetType: 'any'} }"
-                change=".onCellChange" />
+              <HBox alignItems="Center">
+                <Input
+                  width="9rem"
+                  value="{dc>conditionField2}"
+                  placeholder="any"
+                  showValueHelp="true"
+                  valueHelpRequest=".onFieldValueHelp"
+                  change=".onCellChange" />
+                <Select
+                  width="6.5rem"
+                  class="sapUiTinyMarginBeginEnd"
+                  selectedKey="{dc>conditionOperator2}"
+                  items="{ path: 'opt>/comparisons', templateShareable: false }"
+                  change=".onCellChange">
+                  <core:Item key="{opt>code}" text="{opt>text}" />
+                </Select>
+                <Input
+                  width="7rem"
+                  value="{dc>conditionValue2}"
+                  placeholder="any, or Value1|Value2"
+                  enabled="{= !!${path: 'dc>conditionField2', targetType: 'any'} &amp;&amp; ${path: 'dc>conditionOperator2', targetType: 'any'} !== 'empty' &amp;&amp; ${path: 'dc>conditionOperator2', targetType: 'any'} !== 'notEmpty' }"
+                  change=".onCellChange" />
+              </HBox>
               <ComboBox
                 width="100%"
                 selectedKey="{dc>conditionLogic2}"
@@ -154,19 +174,29 @@
                 change=".onCellChange">
                 <core:Item key="{opt>code}" text="{opt>text}" />
               </ComboBox>
-              <Input
-                width="100%"
-                value="{dc>conditionField3}"
-                placeholder="any"
-                showValueHelp="true"
-                valueHelpRequest=".onFieldValueHelp"
-                change=".onCellChange" />
-              <Input
-                width="100%"
-                value="{dc>conditionValue3}"
-                placeholder="any, or Value1|Value2"
-                enabled="{= !!${path: 'dc>conditionField3', targetType: 'any'} }"
-                change=".onCellChange" />
+              <HBox alignItems="Center">
+                <Input
+                  width="9rem"
+                  value="{dc>conditionField3}"
+                  placeholder="any"
+                  showValueHelp="true"
+                  valueHelpRequest=".onFieldValueHelp"
+                  change=".onCellChange" />
+                <Select
+                  width="6.5rem"
+                  class="sapUiTinyMarginBeginEnd"
+                  selectedKey="{dc>conditionOperator3}"
+                  items="{ path: 'opt>/comparisons', templateShareable: false }"
+                  change=".onCellChange">
+                  <core:Item key="{opt>code}" text="{opt>text}" />
+                </Select>
+                <Input
+                  width="7rem"
+                  value="{dc>conditionValue3}"
+                  placeholder="any, or Value1|Value2"
+                  enabled="{= !!${path: 'dc>conditionField3', targetType: 'any'} &amp;&amp; ${path: 'dc>conditionOperator3', targetType: 'any'} !== 'empty' &amp;&amp; ${path: 'dc>conditionOperator3', targetType: 'any'} !== 'notEmpty' }"
+                  change=".onCellChange" />
+              </HBox>
               <ComboBox
                 width="100%"
                 selectedKey="{dc>conditionLogic3}"
@@ -175,19 +205,29 @@
                 change=".onCellChange">
                 <core:Item key="{opt>code}" text="{opt>text}" />
               </ComboBox>
-              <Input
-                width="100%"
-                value="{dc>conditionField4}"
-                placeholder="any"
-                showValueHelp="true"
-                valueHelpRequest=".onFieldValueHelp"
-                change=".onCellChange" />
-              <Input
-                width="100%"
-                value="{dc>conditionValue4}"
-                placeholder="any, or Value1|Value2"
-                enabled="{= !!${path: 'dc>conditionField4', targetType: 'any'} }"
-                change=".onCellChange" />
+              <HBox alignItems="Center">
+                <Input
+                  width="9rem"
+                  value="{dc>conditionField4}"
+                  placeholder="any"
+                  showValueHelp="true"
+                  valueHelpRequest=".onFieldValueHelp"
+                  change=".onCellChange" />
+                <Select
+                  width="6.5rem"
+                  class="sapUiTinyMarginBeginEnd"
+                  selectedKey="{dc>conditionOperator4}"
+                  items="{ path: 'opt>/comparisons', templateShareable: false }"
+                  change=".onCellChange">
+                  <core:Item key="{opt>code}" text="{opt>text}" />
+                </Select>
+                <Input
+                  width="7rem"
+                  value="{dc>conditionValue4}"
+                  placeholder="any, or Value1|Value2"
+                  enabled="{= !!${path: 'dc>conditionField4', targetType: 'any'} &amp;&amp; ${path: 'dc>conditionOperator4', targetType: 'any'} !== 'empty' &amp;&amp; ${path: 'dc>conditionOperator4', targetType: 'any'} !== 'notEmpty' }"
+                  change=".onCellChange" />
+              </HBox>
               <ComboBox
                 width="100%"
                 selectedKey="{dc>conditionLogic4}"
@@ -196,19 +236,29 @@
                 change=".onCellChange">
                 <core:Item key="{opt>code}" text="{opt>text}" />
               </ComboBox>
-              <Input
-                width="100%"
-                value="{dc>conditionField5}"
-                placeholder="any"
-                showValueHelp="true"
-                valueHelpRequest=".onFieldValueHelp"
-                change=".onCellChange" />
-              <Input
-                width="100%"
-                value="{dc>conditionValue5}"
-                placeholder="any, or Value1|Value2"
-                enabled="{= !!${path: 'dc>conditionField5', targetType: 'any'} }"
-                change=".onCellChange" />
+              <HBox alignItems="Center">
+                <Input
+                  width="9rem"
+                  value="{dc>conditionField5}"
+                  placeholder="any"
+                  showValueHelp="true"
+                  valueHelpRequest=".onFieldValueHelp"
+                  change=".onCellChange" />
+                <Select
+                  width="6.5rem"
+                  class="sapUiTinyMarginBeginEnd"
+                  selectedKey="{dc>conditionOperator5}"
+                  items="{ path: 'opt>/comparisons', templateShareable: false }"
+                  change=".onCellChange">
+                  <core:Item key="{opt>code}" text="{opt>text}" />
+                </Select>
+                <Input
+                  width="7rem"
+                  value="{dc>conditionValue5}"
+                  placeholder="any, or Value1|Value2"
+                  enabled="{= !!${path: 'dc>conditionField5', targetType: 'any'} &amp;&amp; ${path: 'dc>conditionOperator5', targetType: 'any'} !== 'empty' &amp;&amp; ${path: 'dc>conditionOperator5', targetType: 'any'} !== 'notEmpty' }"
+                  change=".onCellChange" />
+              </HBox>
               <!-- The field being validated. The value help lists the whole staging model, so a
                    rule can only ever name a field a request can actually hold. -->
               <Input
@@ -227,12 +277,17 @@
               </ComboBox>
               <!-- Disabled for `is empty` / `is not empty`, which compare against nothing: a value
                    that would be silently ignored is worse than no cell at all. A value that names a
-                   catalog field compares the two fields instead. -->
+                   catalog field compares the two fields instead.
+
+                   The two operators are NAMED here rather than looked up in a served `needsValue`
+                   map (2026-09-02): a flag that fails to arrive read as "this needs a value" and
+                   made Check Current Data refuse a perfectly good `is not empty` rule. This is the
+                   shape the Workflow page already uses. -->
               <Input
                 width="100%"
                 value="{dc>value}"
                 placeholder="value or field"
-                enabled="{= ${view>/needsValue}[${path: 'dc>comparison', targetType: 'any'}] !== false }"
+                enabled="{= ${path: 'dc>comparison', targetType: 'any'} !== 'empty' &amp;&amp; ${path: 'dc>comparison', targetType: 'any'} !== 'notEmpty' }"
                 showValueHelp="true"
                 valueHelpRequest=".onFieldValueHelp"
                 change=".onCellChange" />

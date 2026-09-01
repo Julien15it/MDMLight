@@ -1,7 +1,10 @@
 'use strict';
 
 const { resolvePayloadField, PAYLOAD_NODES, ROOT_SECTION } = require('./payload-fields');
-const { CONDITION_PAIRS, runValidationRule, validateValidationRule } = require('./rule-engine');
+const {
+  CONDITION_PAIRS, COMPARISONS, symbolOnly, operatorOf,
+  runValidationRule, validateValidationRule
+} = require('./rule-engine');
 
 /**
  * Runs a validation ruleset over the business partners that already exist, so a steward can see how
@@ -50,7 +53,14 @@ function runnableRules(rules = [], model) {
 function describeRule(rule) {
   const conditions = CONDITION_PAIRS
     .filter((pair) => trimmed(rule[pair.field]))
-    .map((pair) => `${trimmed(rule[pair.field])} = ${trimmed(rule[pair.value])}`);
+    .map((pair) => {
+      // The condition's own comparator since 2026-09-02, not a hardcoded `=`: a report that said
+      // "where Country = BE" about a `!=` rule would be naming a rule nobody wrote.
+      const comparison = COMPARISONS[operatorOf(rule[pair.operator])];
+      return comparison.needsValue === false
+        ? `${trimmed(rule[pair.field])} ${comparison.text}`
+        : `${trimmed(rule[pair.field])} ${symbolOnly(comparison.text)} ${trimmed(rule[pair.value])}`;
+    });
   const rest = `${trimmed(rule.field)} ${trimmed(rule.comparison)}${rule.value ? ` ${trimmed(rule.value)}` : ''}`;
   return conditions.length ? `where ${conditions.join(' / ')}: ${rest}` : rest;
 }

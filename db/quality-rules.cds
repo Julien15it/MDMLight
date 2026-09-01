@@ -17,11 +17,20 @@ aspect ruleConditions {
        *  evaluated per row, so it narrows to the matching rows. `conditionLogic` joins them when
        *  both are filled - AND, OR or NOR - and a null reads as AND, which is what every row
        *  stored before 2026-08-27 means. A value may carry `*` as a wildcard. */
-      conditionField  : String(60);
-      conditionValue  : String(120);
-      conditionLogic  : String(3) default 'AND';
-      conditionField2 : String(60);
-      conditionValue2 : String(120);
+      conditionField     : String(60);
+      /**
+       * **The comparator (2026-09-02, asked for)** - "Condition 1 contains the field, the
+       * comparator, the values", the shape `WorkflowRules` already had. Additive, and null reads as
+       * `eq`: every row stored before this column existed meant equality, so nothing was migrated
+       * and nothing changed meaning. The vocabulary is COMPARISONS in srv/checks/rule-engine.js,
+       * the one place it is defined.
+       */
+      conditionOperator  : String(12) default 'eq';
+      conditionValue     : String(120);
+      conditionLogic     : String(3) default 'AND';
+      conditionField2    : String(60);
+      conditionOperator2 : String(12) default 'eq';
+      conditionValue2    : String(120);
 
       /**
        * **Three more fixed slots (2026-09-01)**, the same rollout `WorkflowRules` got the same day
@@ -33,15 +42,18 @@ aspect ruleConditions {
        * the 1-to-2 join it has always been and the numbering starts at 2. The conditions fold LEFT
        * TO RIGHT under those joins - see `foldConditions` in srv/checks/value-lists.js.
        */
-      conditionLogic2 : String(3) default 'AND';
-      conditionField3 : String(60);
-      conditionValue3 : String(120);
-      conditionLogic3 : String(3) default 'AND';
-      conditionField4 : String(60);
-      conditionValue4 : String(120);
-      conditionLogic4 : String(3) default 'AND';
-      conditionField5 : String(60);
-      conditionValue5 : String(120);
+      conditionLogic2    : String(3) default 'AND';
+      conditionField3    : String(60);
+      conditionOperator3 : String(12) default 'eq';
+      conditionValue3    : String(120);
+      conditionLogic3    : String(3) default 'AND';
+      conditionField4    : String(60);
+      conditionOperator4 : String(12) default 'eq';
+      conditionValue4    : String(120);
+      conditionLogic4    : String(3) default 'AND';
+      conditionField5    : String(60);
+      conditionOperator5 : String(12) default 'eq';
+      conditionValue5    : String(120);
 
       isActive        : Boolean default true;
 }

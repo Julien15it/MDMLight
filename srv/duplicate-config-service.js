@@ -160,6 +160,12 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
           indexed
         })),
         comparisons: OFFERED_COMPARISONS.map((code) => ({ code, text: COMPARISON_TEXT[code] || code })),
+        // The CONDITION comparators, which are NOT the record-matching ones above: a condition asks
+        // "= / != / is empty" of one partner's field, a comparison asks how two records are matched.
+        // Same list, by symbol alone, as the other three rule pages - see srv/checks/rule-engine.js.
+        conditionComparisons: Object.entries(COMPARISONS).map(([code, comparison]) => ({
+          code, text: symbolOnly(comparison.text), needsValue: comparison.needsValue
+        })),
         indicators: INDICATORS.map((code) => ({ code, text: INDICATOR_TEXT[code] || code })),
         conditionLogics: CONDITION_LOGIC_OPTIONS,
         conditionSlots: DUPLICATE_MAX_CONDITIONS,

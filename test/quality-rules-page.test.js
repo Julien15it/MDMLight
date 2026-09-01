@@ -23,9 +23,7 @@ test('the validation table has the columns a rule needs, in order', () => {
   const columns = [...view('ValidationRuleList').matchAll(/<Column\b[\s\S]*?>\s*<Text text="([^"]+)"/gu)]
     .map((match) => match[1]);
   assert.deepEqual(columns, [
-    'Condition 1 Field', 'Condition 1 Value', 'Condition 2 Field', 'Condition 2 Value',
-    'Condition 3 Field', 'Condition 3 Value', 'Condition 4 Field', 'Condition 4 Value',
-    'Condition 5 Field', 'Condition 5 Value',
+    'Condition 1', 'Condition 2', 'Condition 3', 'Condition 4', 'Condition 5',
     'Field', 'Comparison', 'Value', 'Severity', 'Active'
   ]);
 });
@@ -34,9 +32,7 @@ test('the derivation table has the columns a rule needs, in order', () => {
   const columns = [...view('DerivationRuleList').matchAll(/<Column\b[\s\S]*?>\s*<Text text="([^"]+)"/gu)]
     .map((match) => match[1]);
   assert.deepEqual(columns, [
-    'Condition 1 Field', 'Condition 1 Value', 'Condition 2 Field', 'Condition 2 Value',
-    'Condition 3 Field', 'Condition 3 Value', 'Condition 4 Field', 'Condition 4 Value',
-    'Condition 5 Field', 'Condition 5 Value',
+    'Condition 1', 'Condition 2', 'Condition 3', 'Condition 4', 'Condition 5',
     'Field', 'Value', 'Active'
   ]);
 });
@@ -45,7 +41,8 @@ test('the derivation table has the columns a rule needs, in order', () => {
 test('the conditions are the duplicate table conditions', () => {
   for (const name of ['ValidationRuleList', 'DerivationRuleList']) {
     const source = view(name);
-    for (const column of ['conditionField', 'conditionValue', 'conditionField2', 'conditionValue2']) {
+    for (const column of ['conditionField', 'conditionOperator', 'conditionValue',
+      'conditionField2', 'conditionOperator2', 'conditionValue2']) {
       assert.match(source, new RegExp(`\\{dc>${column}\\}`, 'u'), `${name} binds ${column}`);
     }
     assert.match(source, /placeholder="any"/u);
@@ -53,7 +50,7 @@ test('the conditions are the duplicate table conditions', () => {
     // `targetType: 'any'` since 2026-09-01 - without it UI5 formats the referenced String into the
     // Boolean `enabled` is declared as, throws a FormatException, and leaves the cell at its
     // default, so the guard silently never applied. See CLAUDE.md.
-    assert.match(source, /enabled="\{= !!\$\{path: 'dc>conditionField', targetType: 'any'\} \}"/u);
+    assert.match(source, /enabled="\{= !!\$\{path: 'dc>conditionField', targetType: 'any'\}/u);
   }
   assert.match(rulesCds, /aspect ruleConditions/u);
 });
@@ -298,20 +295,22 @@ function loadXlsxColumns(name) {
 test('xlsxColumns mirrors each page\'s own table exactly, minus the generated ID', () => {
   const validationKeys = loadXlsxColumns('ValidationRuleList')().map((c) => c.key);
   assert.deepEqual(validationKeys, [
-    'conditionField', 'conditionValue', 'conditionLogic', 'conditionField2', 'conditionValue2',
-    'conditionLogic2', 'conditionField3', 'conditionValue3',
-    'conditionLogic3', 'conditionField4', 'conditionValue4',
-    'conditionLogic4', 'conditionField5', 'conditionValue5',
+    'conditionField', 'conditionOperator', 'conditionValue', 'conditionLogic',
+    'conditionField2', 'conditionOperator2', 'conditionValue2', 'conditionLogic2',
+    'conditionField3', 'conditionOperator3', 'conditionValue3', 'conditionLogic3',
+    'conditionField4', 'conditionOperator4', 'conditionValue4', 'conditionLogic4',
+    'conditionField5', 'conditionOperator5', 'conditionValue5',
     'field', 'comparison', 'value', 'severity', 'isActive'
   ]);
   assert.equal(validationKeys.includes('ID'), false);
 
   const derivationKeys = loadXlsxColumns('DerivationRuleList')().map((c) => c.key);
   assert.deepEqual(derivationKeys, [
-    'conditionField', 'conditionValue', 'conditionLogic', 'conditionField2', 'conditionValue2',
-    'conditionLogic2', 'conditionField3', 'conditionValue3',
-    'conditionLogic3', 'conditionField4', 'conditionValue4',
-    'conditionLogic4', 'conditionField5', 'conditionValue5',
+    'conditionField', 'conditionOperator', 'conditionValue', 'conditionLogic',
+    'conditionField2', 'conditionOperator2', 'conditionValue2', 'conditionLogic2',
+    'conditionField3', 'conditionOperator3', 'conditionValue3', 'conditionLogic3',
+    'conditionField4', 'conditionOperator4', 'conditionValue4', 'conditionLogic4',
+    'conditionField5', 'conditionOperator5', 'conditionValue5',
     'field', 'value', 'isActive'
   ]);
   assert.equal(derivationKeys.includes('ID'), false);
@@ -440,12 +439,12 @@ test('both quality pages scroll sideways rather than squeezing their cells', () 
     const declared = [...source.matchAll(/<Column width="(\d+)rem"/gu)]
       .map((match) => Number(match[1]))
       .reduce((sum, each) => sum + each, 0);
-    assert.equal(declared, fixed + (23 * 5) + (6 * 4), `${name}'s widths add up to its own formula`);
+    assert.equal(declared, fixed + (24 * 5) + (6 * 4), `${name}'s widths add up to its own formula`);
     // The MultiSelect checkbox column (2026-09-02) has no <Column> to carry a width, so SELECT_REM
     // is the only place it is accounted for - and the formula has to include it, or the real
     // columns get squeezed to make room for it.
     assert.match(controllerSource, /var SELECT_REM = \d+;/u, `${name} allows for the select column`);
-    assert.match(controllerSource, /SELECT_REM \+ FIXED_REM \+ \(23 \* conditions\)/u);
+    assert.match(controllerSource, /SELECT_REM \+ FIXED_REM \+ \(24 \* conditions\)/u);
   }
 });
 
@@ -514,6 +513,67 @@ test('every condition value cell offers a list, not just one value', () => {
         cell.slice(0, cell.indexOf('/>')),
         /placeholder="any, or Value1[|]Value2"/u,
         `${name} condition ${suffix || '1'} says a list is allowed`
+      );
+    }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// One "Condition N" column: field, comparator, values (2026-09-02, asked for)
+// ---------------------------------------------------------------------------
+
+/**
+ * "Make it so our Condition combinations are built the same way as in Workflow Agent Determination -
+ * Condition 1 contains the field, the comparator, the values. The other tiles should have the exact
+ * same way of working." So all three of the remaining rule tables draw ONE column per slot holding
+ * the three controls side by side, where they used to draw a Field column and a Value column with
+ * equality implied between them.
+ */
+test('every rule tile builds a condition the way the workflow tile does', () => {
+  for (const name of ['ValidationRuleList', 'DerivationRuleList', 'DuplicateRuleList', 'WorkflowRuleList']) {
+    const source = view(name);
+    for (const suffix of ['', '2', '3', '4', '5']) {
+      // The comparator sits between the field and the value, in that order, inside one HBox.
+      const slot = source.slice(source.indexOf(`dc>conditionField${suffix}}`));
+      const operator = slot.indexOf(`dc>conditionOperator${suffix}}`);
+      assert.ok(operator > 0, `${name} condition ${suffix || '1'} has a comparator`);
+      assert.ok(
+        operator < slot.indexOf(`dc>condition${name === 'WorkflowRuleList' ? 'Values' : 'Value'}${suffix}}`),
+        `${name} puts the comparator before the value`
+      );
+    }
+    // One column per slot, titled by the slot alone - the field and value are inside it now.
+    assert.match(source, /<Column width="24rem"[^>]*><Text text="Condition 1" \/><\/Column>/u,
+      `${name} draws one 24rem Condition 1 column`);
+    assert.equal(source.includes('Condition 1 Field" /></Column>'), false,
+      `${name} no longer splits a condition across two columns`);
+  }
+});
+
+// The comparator vocabulary is the engine's, served, never a hand-kept copy in a page - and it is
+// NOT the duplicate table's own `comparisons`, which say how two RECORDS are matched.
+test('the condition comparator list is served, and told apart from record matching', () => {
+  assert.match(view('ValidationRuleList'), /items="\{ path: 'opt>\/comparisons'/u);
+  assert.match(view('DerivationRuleList'), /items="\{ path: 'opt>\/comparisons'/u);
+  assert.match(view('DuplicateRuleList'), /items="\{ path: 'opt>\/conditionComparisons'/u);
+  assert.match(serviceCds, /conditionComparisons : array of ComparisonOption;/u);
+  assert.match(serviceJs, /conditionComparisons: Object\.entries\(COMPARISONS\)/u);
+});
+
+// Additive columns, defaulting to `eq`: cds-deploy can add an element and can neither drop nor
+// retype one, and a null has to go on meaning what every stored row already meant.
+test('the comparator is a new column on both rule schemas, defaulting to equality', () => {
+  const duplicateCds = read(ROOT, 'db', 'duplicate-rules.cds');
+  for (const source of [rulesCds, duplicateCds]) {
+    // Read line by line rather than as one pattern: the two files align their colons differently,
+    // and how a .cds file is indented is not what this test is about.
+    const declared = source.split('\n')
+      .map((line) => line.trim().replace(/\s+/gu, ' '))
+      .filter((line) => line.startsWith('conditionOperator'));
+    for (const suffix of ['', '2', '3', '4', '5']) {
+      assert.ok(
+        declared.includes(`conditionOperator${suffix} : String(12) default 'eq';`),
+        `conditionOperator${suffix} is declared, defaulting to equality`
       );
     }
   }

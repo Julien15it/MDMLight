@@ -3,6 +3,11 @@
 const { resolveField, isIndexedField, catalogFields } = require('./duplicate-fields');
 const { parseValueList, conditionLogicError } = require('../checks/value-lists');
 const { COMPARISONS, INDICATORS, DEFAULT_RULES, CONDITION_PAIRS } = require('./duplicate-engine');
+// The CONDITION comparators, told apart from the record-matching COMPARISONS above by their name -
+// one vocabulary for every rule table's condition column. See srv/checks/rule-engine.js.
+const {
+  COMPARISONS: CONDITION_COMPARISONS, EMPTINESS_COMPARISONS, operatorOf
+} = require('../checks/rule-engine');
 const { DUPLICATE_THRESHOLD } = require('./name-match');
 
 const FUZZY_COMPARISONS = Object.freeze(['fuzzy', 'raw_dice']);
@@ -19,7 +24,15 @@ function trimmed(value) {
 // delimited LIST since 2026-08-21 - and `values` is that list, for anything counting entries.
 function readCondition(row, pair) {
   const value = trimmed(row[pair.value]);
-  return { field: trimmed(row[pair.field]), value, values: parseValueList(value), names: pair };
+  return {
+    field: trimmed(row[pair.field]),
+    // The comparator (2026-09-02): blank reads as `eq`, which is what every condition on this
+    // table meant before there was one to choose.
+    operator: operatorOf(row[pair.operator]),
+    value,
+    values: parseValueList(value),
+    names: pair
+  };
 }
 
 /**
@@ -60,12 +73,22 @@ function validateRule(row = {}) {
   // Conditions are field/value pairs from the same catalog, e.g. Role = Vendor and Country = BE.
   // Each pair stands on its own: neither, either or both may be filled.
   const conditions = CONDITION_PAIRS.map((pair) => readCondition(row, pair));
-  for (const { field: conditionField, values: conditionValues, names } of conditions) {
+  for (const { field: conditionField, operator, values: conditionValues, names } of conditions) {
+    const stored = trimmed(row[names.operator]);
+    // Blank is fine - it reads as `eq`. Anything else unrecognised is refused rather than quietly
+    // read as equality: the dropdown cannot produce one, so it can only arrive from a direct call.
+    if (stored && !CONDITION_COMPARISONS[stored]) {
+      errors.push({
+        field: names.operator,
+        message: `“${stored}” is not a comparison (${Object.keys(CONDITION_COMPARISONS).join(', ')}).`
+      });
+    }
     if (conditionField && !resolveField(conditionField)) {
       errors.push({ field: names.field, message: `“${conditionField}” is not a field in the catalog.` });
     }
-    // Half a condition is the dangerous half: a field with no value would match everything.
-    if (conditionField && !conditionValues.length) {
+    // Half a condition is the dangerous half: a field with no value would match everything - except
+    // under `is empty`/`is not empty`, which are a whole condition with no value by definition.
+    if (conditionField && !conditionValues.length && !EMPTINESS_COMPARISONS.includes(operator)) {
       errors.push({ field: names.value, message: 'A condition field needs a value. Leave both empty for “any”.' });
     }
     if (conditionValues.length && !conditionField) {
@@ -114,11 +137,13 @@ function toEngineRule(row = {}) {
   // Only a complete pair travels: half a condition would match everything, which is the opposite
   // of what a condition is for.
   for (const pair of CONDITION_PAIRS) {
-    const { field, value, values } = readCondition(row, pair);
+    const { field, operator, value, values } = readCondition(row, pair);
     // The delimited list travels as it is stored: `holds` in the engine parses it, so nothing here
-    // has to know how many values a condition carries.
-    if (field && values.length) {
+    // has to know how many values a condition carries. `is empty`/`is not empty` travel with no
+    // value at all - dropping them as half-written would leave the rule narrowing nothing.
+    if (field && (values.length || EMPTINESS_COMPARISONS.includes(operator))) {
       rule[pair.field] = field;
+      rule[pair.operator] = operator;
       rule[pair.value] = value;
       // The Logic column travels WITH its slot. It never did before (found 2026-09-01 while adding
       // the extra slots): `conditionsMatch` reads `rule.conditionLogic`, `toEngineRule` never

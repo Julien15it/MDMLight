@@ -194,3 +194,31 @@ test('every tile names its delete button after what it deletes, beside the add b
   assert.match(profiles, /text="Delete Profile"/u);
   assert.ok(profiles.indexOf('text="Delete Profile"') > profiles.indexOf('text="Add Profile"'));
 });
+
+/**
+ * The bug the day after Check Current Data shipped: "Row 2: this comparison needs a value" on a row
+ * whose comparison was `is not empty`, which compares against nothing. Both the check and the Value
+ * cell asked a `/needsValue` map built from a served flag; a flag that fails to arrive is
+ * `undefined`, and `undefined !== false` read as "this needs a value". The two operators are named
+ * on the page now - the vocabulary is closed and lives in the engine, so nothing has to be told it
+ * over the wire.
+ */
+test('a rule that compares against nothing is not asked for a value', () => {
+  const source = controller('ValidationRuleList');
+  assert.match(source, /var EMPTINESS_COMPARISONS = \["empty", "notEmpty"\];/u);
+  // The served map is gone entirely, rather than left half-wired beside the constant.
+  assert.equal(/view>\/needsValue/u.test(source), false, 'no /needsValue model property is read');
+  assert.equal(/view>\/needsValue/u.test(view('ValidationRuleList')), false, 'and none in the view');
+
+  const check = source.slice(source.indexOf('_localProblems: function'));
+  assert.match(
+    check.slice(0, check.indexOf('\n    },')),
+    /EMPTINESS_COMPARISONS\.indexOf\(rule\.comparison\) === -1/u,
+    'the emptiness pair is exempt from the value check'
+  );
+  // And the engine agrees, which is the guard the page is only a courtesy in front of.
+  assert.match(
+    read(ROOT, 'srv', 'checks', 'rule-engine.js'),
+    /COMPARISONS\[comparison\]\?\.needsValue && !value/u
+  );
+});

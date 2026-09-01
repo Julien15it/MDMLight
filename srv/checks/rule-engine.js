@@ -18,13 +18,17 @@ const {
  * since 2026-09-01, the same rollout WorkflowRules got - `logic` names the column joining a slot to
  * the one BEFORE it, null on the first, which has nothing to its left. A rule saved with two
  * conditions reads exactly as it did: the extra slots are empty and get dropped.
+ *
+ * `operator` since 2026-09-02, asked for so a condition here is built exactly as one on the
+ * Workflow Agent Determination page is - field, comparator, values. Null reads as `eq`, which is
+ * what every condition on these tables meant when there was no comparator to choose.
  */
 const CONDITION_PAIRS = Object.freeze([
-  Object.freeze({ field: 'conditionField', value: 'conditionValue', logic: null }),
-  Object.freeze({ field: 'conditionField2', value: 'conditionValue2', logic: 'conditionLogic' }),
-  Object.freeze({ field: 'conditionField3', value: 'conditionValue3', logic: 'conditionLogic2' }),
-  Object.freeze({ field: 'conditionField4', value: 'conditionValue4', logic: 'conditionLogic3' }),
-  Object.freeze({ field: 'conditionField5', value: 'conditionValue5', logic: 'conditionLogic4' })
+  Object.freeze({ field: 'conditionField', operator: 'conditionOperator', value: 'conditionValue', logic: null }),
+  Object.freeze({ field: 'conditionField2', operator: 'conditionOperator2', value: 'conditionValue2', logic: 'conditionLogic' }),
+  Object.freeze({ field: 'conditionField3', operator: 'conditionOperator3', value: 'conditionValue3', logic: 'conditionLogic2' }),
+  Object.freeze({ field: 'conditionField4', operator: 'conditionOperator4', value: 'conditionValue4', logic: 'conditionLogic3' }),
+  Object.freeze({ field: 'conditionField5', operator: 'conditionOperator5', value: 'conditionValue5', logic: 'conditionLogic4' })
 ]);
 
 /** How many slots the schema carries - the pages' own Add Condition ceiling. */
@@ -59,6 +63,20 @@ function symbolOnly(text) {
 
 /** The two that answer a question *about* emptiness, so they still fire on an empty field. */
 const EMPTINESS_COMPARISONS = Object.freeze(['empty', 'notEmpty']);
+
+/**
+ * A condition slot with no operator chosen. "Field is one of these values" is exactly what `eq`
+ * means, and it is what every condition on these two tables meant before the column existed
+ * (2026-09-02) - so no stored rule changed meaning and none had to be migrated.
+ */
+const DEFAULT_CONDITION_OPERATOR = 'eq';
+
+/** A known operator, defaulting a blank or unusable one to `eq`, exactly as `conditionLogicOf`
+ *  never leaves the AND/OR/NOR column unresolved. The read side always has one to apply. */
+function operatorOf(raw) {
+  const key = trimmed(raw);
+  return COMPARISONS[key] ? key : DEFAULT_CONDITION_OPERATOR;
+}
 
 const text = (value) => String(value === null || value === undefined ? '' : value).trim().toLocaleUpperCase();
 
@@ -129,6 +147,7 @@ function readConditions(rule, model) {
     .map((pair) => ({
       names: pair,
       field: trimmed(rule[pair.field]),
+      operator: operatorOf(rule[pair.operator]),
       value: trimmed(rule[pair.value]),
       values: parseValueList(rule[pair.value]),
       logic: pair.logic ? trimmed(rule[pair.logic]) : null
@@ -140,13 +159,35 @@ function readConditions(rule, model) {
     }));
 }
 
+/**
+ * One value against one condition, under the condition's own operator (2026-09-02 - "Condition 1
+ * contains the field, the comparator, the values"). The same shape workflow-rules.js already had:
+ *
+ * - `empty`/`notEmpty` are read on the RAW value, because an empty value is exactly the thing they
+ *   exist to notice - filtering it out first would make them answer about nothing.
+ * - `eq` keeps the wildcard and multi-value matching every condition column in this app has. `*`
+ *   only ever meant "equal to, loosely", so it stays scoped to the operator that means equality.
+ * - Every other operator is OR across the listed values, so `Country != BE, NL` holds on a value
+ *   that differs from either.
+ */
+function conditionMatches(condition, value) {
+  const comparison = COMPARISONS[condition.operator] || COMPARISONS[DEFAULT_CONDITION_OPERATOR];
+  if (EMPTINESS_COMPARISONS.includes(condition.operator)) return comparison.apply(value);
+  if (isEmptyValue(value)) return false;
+  // A condition with nothing to compare against narrows nothing and must not match everything:
+  // saving one is refused up front, so this is the backstop for a rule that arrived some other way.
+  if (!condition.values.length) return false;
+  if (condition.operator === 'eq') return listMatches(condition.values, value, compare);
+  return condition.values.some((expected) => comparison.apply(value, expected));
+}
+
 // Scoping, worth reading twice: a condition on the rule's OWN section is evaluated per row, so it
 // narrows to the matching rows. On any other section it is about the partner, so any row satisfies it.
 function conditionHolds(condition, payload, ownSection, row, model) {
   if (!condition.resolved) return false;
   const { section, element } = condition.resolved;
   // OR across the values: one of them matching is what makes the condition hold.
-  const matches = (value) => listMatches(condition.values, value, compare);
+  const matches = (value) => conditionMatches(condition, value);
   if (section === ownSection && row) return matches(row.record[element]);
   return sectionRows(payload, section).some(({ record }) => matches(record[element]));
 }
@@ -175,8 +216,15 @@ function describeCondition(conditions, logic) {
   if (!conditions.length) return '';
   const clauses = conditions
     // Every value, not the raw stored string: a requester reading why a rule fired should see the
-    // list it matched against rather than the delimiter it happens to be stored with.
-    .map((condition) => `${condition.field} = ${condition.values.join(', ')}`);
+    // list it matched against rather than the delimiter it happens to be stored with. The operator
+    // is said too (2026-09-02): "Country = BE" and "Country != BE" are different reasons, and a
+    // sentence that reported both as `=` would be telling a requester something untrue.
+    .map((condition) => {
+      const comparison = COMPARISONS[condition.operator] || COMPARISONS[DEFAULT_CONDITION_OPERATOR];
+      return comparison.needsValue === false
+        ? `${condition.field} ${comparison.text}`
+        : `${condition.field} ${symbolOnly(comparison.text)} ${condition.values.join(', ')}`;
+    });
   if (clauses.length === 1) return ` (rule applies where ${clauses[0]})`;
   // Each gap has its own Logic column since 2026-09-01; `logic` is the fallback for a slot that
   // stored none, exactly as it is in conditionsHold.
@@ -364,12 +412,23 @@ function conditionProblems(rule, model) {
   const errors = [];
   for (const pair of CONDITION_PAIRS) {
     const field = trimmed(rule[pair.field]);
+    const operator = trimmed(rule[pair.operator]);
     const values = parseValueList(rule[pair.value]);
+    // Blank is fine - it reads as `eq`, which is what every row stored before the column existed
+    // means. Anything else unrecognised is refused rather than quietly read as equality.
+    if (operator && !COMPARISONS[operator]) {
+      errors.push({
+        field: pair.operator,
+        message: `“${operator}” is not a comparison (${Object.keys(COMPARISONS).join(', ')}).`
+      });
+    }
+    const needsValue = COMPARISONS[operatorOf(operator)].needsValue !== false;
     if (field && !resolvePayloadField(field, model)) {
       errors.push({ field: pair.field, message: `“${field}” is not a field in the catalog.` });
     }
-    // A field with no value would match every record, which is the opposite of a condition.
-    if (field && !values.length) {
+    // A field with no value would match every record, which is the opposite of a condition - except
+    // under `is empty`/`is not empty`, which are a complete condition with no value by definition.
+    if (field && needsValue && !values.length) {
       errors.push({ field: pair.value, message: 'A condition field needs a value. Leave both empty for “any”.' });
     }
     if (values.length && !field) {
@@ -502,6 +561,8 @@ module.exports = {
   COMPARISONS,
   symbolOnly,
   EMPTINESS_COMPARISONS,
+  DEFAULT_CONDITION_OPERATOR,
+  operatorOf,
   SEVERITIES,
   OPERATOR_TEXT,
   compare,

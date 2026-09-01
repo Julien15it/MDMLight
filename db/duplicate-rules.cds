@@ -26,9 +26,17 @@ entity DuplicateRules : managed {
        *  condition must hold on both records of the pair before the rule
        *  participates. */
       conditionField : String(40);
+      /**
+       * **The comparator (2026-09-02, asked for)** - "Condition 1 contains the field, the
+       * comparator, the values", the shape `WorkflowRules` already had. Additive, and null reads as
+       * `eq`: every row stored before this column existed meant equality, so nothing was migrated
+       * and nothing changed meaning. The vocabulary is COMPARISONS in srv/checks/rule-engine.js.
+       */
+      conditionOperator : String(12) default 'eq';
       conditionValue : String(60);
       conditionLogic : String(3) default 'AND';
       conditionField2 : String(40);
+      conditionOperator2 : String(12) default 'eq';
       conditionValue2 : String(60);
 
       /**
@@ -44,12 +52,15 @@ entity DuplicateRules : managed {
        */
       conditionLogic2 : String(3) default 'AND';
       conditionField3 : String(40);
+      conditionOperator3 : String(12) default 'eq';
       conditionValue3 : String(60);
       conditionLogic3 : String(3) default 'AND';
       conditionField4 : String(40);
+      conditionOperator4 : String(12) default 'eq';
       conditionValue4 : String(60);
       conditionLogic4 : String(3) default 'AND';
       conditionField5 : String(40);
+      conditionOperator5 : String(12) default 'eq';
       conditionValue5 : String(60);
 
       // Superseded 2026-08-12 by the generic pair above, and unused. They stay

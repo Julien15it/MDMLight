@@ -138,6 +138,9 @@ test('the grid asks only for what a steward has to decide', () => {
     assert.equal(view.includes(gone), false, `${gone} is still on the grid`);
   }
   assert.match(view, /\{dc>conditionField\}/u);
+  // The comparator, since 2026-09-02: a condition here is field/comparator/values, the same as one
+  // on the Workflow Agent Determination page.
+  assert.match(view, /\{dc>conditionOperator\}/u);
   assert.match(view, /\{dc>conditionValue\}/u);
   // Two independent conditions, so a steward can write "Role = Vendor and Country = BE".
   assert.match(view, /\{dc>conditionField2\}/u);
@@ -152,7 +155,7 @@ test('the grid fills the page and carries no permanent info strip', () => {
   // 100%, so percentages re-flowed the whole row every time a condition was revealed - and a
   // fixed-layout table needs a real width to overflow with rather than redistributing into
   // whatever space it has. See the scrolling test below for the arithmetic.
-  for (const width of ['14rem', '9rem', '6rem', '18rem', '15rem', '4rem']) {
+  for (const width of ['24rem', '6rem', '18rem', '15rem', '4rem']) {
     assert.ok(view.includes(`width="${width}"`), `no column at ${width}`);
   }
   // Scoped to the COLUMNS: the cell controls inside them are still `width="100%"`, which is what
@@ -267,10 +270,11 @@ test('xlsxColumns matches exactly what a DuplicateRules row holds on screen, min
   const body = controllerSource.slice(start, end);
   const keys = [...body.matchAll(/key: "([^"]+)"/gu)].map((match) => match[1]);
   assert.deepEqual(keys, [
-    'conditionField', 'conditionValue', 'conditionLogic', 'conditionField2', 'conditionValue2',
-    'conditionLogic2', 'conditionField3', 'conditionValue3',
-    'conditionLogic3', 'conditionField4', 'conditionValue4',
-    'conditionLogic4', 'conditionField5', 'conditionValue5',
+    'conditionField', 'conditionOperator', 'conditionValue', 'conditionLogic',
+    'conditionField2', 'conditionOperator2', 'conditionValue2', 'conditionLogic2',
+    'conditionField3', 'conditionOperator3', 'conditionValue3', 'conditionLogic3',
+    'conditionField4', 'conditionOperator4', 'conditionValue4', 'conditionLogic4',
+    'conditionField5', 'conditionOperator5', 'conditionValue5',
     'field', 'comparison', 'indicator', 'isActive'
   ]);
   assert.equal(keys.includes('ID'), false);
@@ -338,6 +342,7 @@ test('the duplicate table carries five condition slots, three of them hidden unt
   for (const suffix of ['3', '4', '5']) {
     assert.match(view, new RegExp(`selectedKey="\\{dc>conditionField${suffix}\\}"`, 'u'));
     assert.match(view, new RegExp(`value="\\{dc>conditionValue${suffix}\\}"`, 'u'));
+    assert.match(view, new RegExp(`selectedKey="\\{dc>conditionOperator${suffix}\\}"`, 'u'));
   }
   for (const suffix of ['', '2', '3', '4']) {
     assert.match(view, new RegExp(`selectedKey="\\{dc>conditionLogic${suffix}\\}"`, 'u'));
@@ -357,12 +362,12 @@ test('the duplicate table scrolls sideways rather than squeezing its cells', () 
   const declared = [...view.matchAll(/<Column width="(\d+)rem"/gu)]
     .map((match) => Number(match[1]))
     .reduce((sum, each) => sum + each, 0);
-  assert.equal(declared, fixed + (23 * 5) + (6 * 4), 'the widths add up to the formula');
+  assert.equal(declared, fixed + (24 * 5) + (6 * 4), 'the widths add up to the formula');
   // The MultiSelect checkbox column (2026-09-02) has no <Column> to carry a width, so SELECT_REM is
   // the only place it is accounted for - and the formula has to include it or the real columns are
   // squeezed to make room.
   assert.match(controllerSource, /var SELECT_REM = \d+;/u);
-  assert.match(controllerSource, /SELECT_REM \+ FIXED_REM \+ \(23 \* conditions\)/u);
+  assert.match(controllerSource, /SELECT_REM \+ FIXED_REM \+ \(24 \* conditions\)/u);
 });
 
 test('Add and Delete Condition are wired, and Condition 1 is never removable', () => {
