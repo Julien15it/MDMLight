@@ -37,6 +37,24 @@ sap.ui.define([
   // Two columns are the shape this table has always had; nothing is revealed until asked for.
   var DEFAULT_CONDITIONS = 2;
 
+  // Condition 1 is not removable: a rule with no condition at all is written by leaving it blank,
+  // not by taking the column away.
+  var MIN_CONDITIONS = 1;
+
+  /**
+   * The table's own width, in rem, for the horizontal ScrollContainer to overflow. A fixed-layout
+   * table at `width="100%"` redistributes its columns into whatever space it has - which is the
+   * squashing this exists to stop - so it needs a real width instead.
+   *
+   * 37rem of columns that are always there (CR Type 9, Step 8, Approvers 16, Active 4), 24rem per
+   * condition, and 6rem per Logic column, of which there is one fewer than there are conditions.
+   * Kept here rather than as an expression binding in the view so the arithmetic and the column
+   * widths it mirrors can be read (and tested) in one place.
+   */
+  function tableWidthFor(conditions) {
+    return (37 + (24 * conditions) + (6 * (conditions - 1))) + "rem";
+  }
+
   /**
    * The rule's own fields, one column per fixed condition slot - "de structuur die ook zichtbaar is
    * in de app" (asked for): this mirrors the table on screen exactly, all five slots included
@@ -95,7 +113,8 @@ sap.ui.define([
         // replaced by the service's own `conditionSlots` once the options load, so the button and
         // the table cannot disagree with the columns that actually exist.
         conditions: DEFAULT_CONDITIONS,
-        maxConditions: CONDITION_SLOTS.length
+        maxConditions: CONDITION_SLOTS.length,
+        tableWidth: tableWidthFor(DEFAULT_CONDITIONS)
       }), "view");
       this._router = UIComponent.getRouterFor(this);
       // A saved rule that already uses more than two conditions has to show them without anyone
@@ -113,28 +132,99 @@ sap.ui.define([
      * revealed here, never hidden again by the same button).
      */
     onAddCondition: function () {
-      var view = this.getView().getModel("view");
-      var max = view.getProperty("/maxConditions") || CONDITION_SLOTS.length;
-      var shown = view.getProperty("/conditions") || DEFAULT_CONDITIONS;
+      var max = this._maxConditions();
+      var shown = this._shownConditions();
       if (shown >= max) {
         MessageToast.show("A rule can hold " + max + " conditions.");
         return;
       }
-      view.setProperty("/conditions", shown + 1);
+      this._setConditionColumns(shown + 1);
+    },
+
+    /**
+     * Removes the LAST shown condition - Condition 5 when five are drawn, Condition 2 when two are.
+     * Condition 1 is never removable (the button is disabled, and this refuses anyway).
+     *
+     * Hiding the column is not enough: the values stay on the row and the engine keeps evaluating
+     * them, so a rule would go on matching on a condition nobody can see. The slot is therefore
+     * CLEARED on every row as part of the removal, and confirmed first when any row actually holds
+     * something - it is a real edit, undoable only by Discard until Save.
+     */
+    onDeleteCondition: function () {
+      var shown = this._shownConditions();
+      if (shown <= MIN_CONDITIONS) return;
+      var slot = CONDITION_SLOTS[shown - 1];
+      var filled = this._rowsUsingSlot(slot);
+      if (!filled.length) {
+        this._setConditionColumns(shown - 1);
+        return;
+      }
+      var that = this;
+      MessageBox.confirm(
+        "Condition " + shown + " is filled in on " + filled.length + " rule(s). Removing the column "
+          + "clears it on those rules, so nothing is left matching on a condition nobody can see.",
+        {
+          onClose: function (action) {
+            if (action !== MessageBox.Action.OK) return;
+            that._clearConditionSlot(slot, filled);
+            that._markDirty();
+            that._setConditionColumns(shown - 1);
+          }
+        }
+      );
+    },
+
+    // The rows carrying anything in this slot - the ones a removal would actually change. The
+    // operator and the Logic column are not asked about: neither is a condition on its own.
+    _rowsUsingSlot: function (slot) {
+      var binding = this._table() && this._table().getBinding("items");
+      if (!binding) return [];
+      return (binding.getCurrentContexts() || []).filter(function (context) {
+        var row = context && context.getObject();
+        return Boolean(row && (row[slot.field] || row[slot.values]));
+      });
+    },
+
+    // Only the rows that hold something are written to, so removing an empty column costs no PATCH
+    // and does not mark the page dirty. The Logic column goes back to AND rather than to blank: it
+    // is the value a fresh row carries, so re-adding the column later renders a chosen join.
+    _clearConditionSlot: function (slot, contexts) {
+      contexts.forEach(function (context) {
+        context.setProperty(slot.field, null);
+        context.setProperty(slot.values, null);
+        context.setProperty(slot.operator, "eq");
+        if (slot.logic) context.setProperty(slot.logic, "AND");
+      });
+    },
+
+    _shownConditions: function () {
+      return this.getView().getModel("view").getProperty("/conditions") || DEFAULT_CONDITIONS;
+    },
+
+    _maxConditions: function () {
+      return this.getView().getModel("view").getProperty("/maxConditions") || CONDITION_SLOTS.length;
+    },
+
+    // The one place the count changes, so the table's own width can never drift from the number of
+    // columns actually drawn.
+    _setConditionColumns: function (count) {
+      var view = this.getView().getModel("view");
+      var bounded = Math.min(Math.max(count, MIN_CONDITIONS), this._maxConditions());
+      view.setProperty("/conditions", bounded);
+      view.setProperty("/tableWidth", tableWidthFor(bounded));
     },
 
     // The highest slot any row actually fills, never fewer than what is already on screen: a steward
     // who revealed a column and left it empty should not have it taken away on the next render.
+    // Deleting a condition clears the slot first, which is what stops this putting it straight back.
     _syncConditionColumns: function () {
-      var view = this.getView().getModel("view");
-      var shown = view.getProperty("/conditions") || DEFAULT_CONDITIONS;
+      var shown = this._shownConditions();
       this._draftRules().forEach(function (rule) {
         CONDITION_SLOTS.forEach(function (slot, index) {
           if (rule[slot.field] && index + 1 > shown) shown = index + 1;
         });
       });
-      var max = view.getProperty("/maxConditions") || CONDITION_SLOTS.length;
-      view.setProperty("/conditions", Math.min(shown, max));
+      this._setConditionColumns(shown);
     },
 
     onBackToHub: function () {

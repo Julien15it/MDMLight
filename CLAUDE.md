@@ -2517,6 +2517,28 @@ time.
   button that hides a column with a value in it would hide a condition that still evaluates.
 - **The widths went from percentages to rem.** A hidden column contributes no share of 100%, so
   percentages re-flowed the whole row every time a condition was revealed.
+- **The table scrolls sideways, and that took two halves.** A horizontal `ScrollContainer`
+  (`vertical="false"` — the rows still scroll with the Page) supplies the scrollbar, and
+  `view>/tableWidth` gives the table something to overflow *with*: a fixed-layout `sap.m.Table` at
+  `width="100%"` redistributes its columns into whatever space it has however many there are, which
+  is the squashing itself. `tableWidthFor` is the arithmetic — 37rem of always-present columns, 24
+  per condition, 6 per Logic column, of which there is one fewer than there are conditions — and a
+  test adds up the declared `<Column width>`s against it so the two cannot drift. `growingScrollToLoad`
+  is off, so nesting the table in a scroll container leaves the More button alone.
+- **"Delete Condition" removes the LAST shown one and CLEARS it** — Condition 5 when five are drawn,
+  Condition 2 when two are. Hiding the column alone is not enough: the values stay on the row and the
+  engine goes on matching against a condition nobody can see, which is the ghost this exists to
+  prevent. So the slot's field, value, operator and its Logic column are reset on every row that
+  holds something, and only on those rows — removing an empty column costs no PATCH and does not
+  dirty the page. Confirmed first when it would actually throw data away; nothing is saved until Save,
+  so Discard still undoes it.
+- **Condition 1 is never removable.** The button is disabled at one condition and `onDeleteCondition`
+  refuses anyway. A rule with no condition is written by leaving Condition 1 blank — an empty
+  condition already means "matches anything", so taking the column away would say nothing new.
+- **`_setConditionColumns` is the only writer of `view>/conditions`**, which is what keeps the
+  table's width and the number of columns drawn from ever disagreeing. `_syncConditionColumns` still
+  only ever raises the count; a deletion lowers it, and it stays lowered because the slot was
+  cleared first — otherwise the next `updateFinished` would put the column straight back.
 - **The engine folds LEFT TO RIGHT, one logic per gap** — `foldConditions` in
   `srv/checks/value-lists.js`, alongside the unchanged `joinConditions` the other three tables still
   use. `A OR B AND C` is `(A OR B) AND C`; there is no precedence to remember, and the row reads the

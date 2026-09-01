@@ -395,6 +395,64 @@ test('Add Condition reveals a column pair and cannot go past what the schema car
   );
 });
 
+/**
+ * The table scrolls sideways rather than squeezing its cells (2026-09-01, asked for). Both halves
+ * are load-bearing: a fixed-layout table at `width="100%"` redistributes its columns into whatever
+ * space it has however many of them there are, so it needs a real width to overflow WITH.
+ */
+test('revealing a condition widens the table inside a horizontal scroll container', () => {
+  const scroller = view.slice(view.indexOf('<ScrollContainer'));
+  assert.match(scroller.slice(0, scroller.indexOf('>')), /horizontal="true"[\s\S]*vertical="false"/u);
+  assert.ok(view.indexOf('<ScrollContainer') < view.indexOf('<Table'), 'the table is inside it');
+  assert.match(view, /<\/Table>\s*<\/ScrollContainer>/u, 'and closed around it');
+  assert.match(view, /width="\{view>\/tableWidth\}"/u, 'the table has a real width, not 100%');
+
+  // The arithmetic mirrors the column widths declared above it, so the two cannot drift.
+  const widthFn = controller.slice(controller.indexOf('function tableWidthFor'));
+  assert.match(widthFn.slice(0, widthFn.indexOf('\n  }')), /37 \+ \(24 \* conditions\) \+ \(6 \* \(conditions - 1\)\)/u);
+  const columnRem = [...view.matchAll(/<Column width="(\d+)rem"/gu)].map((match) => Number(match[1]));
+  const total = columnRem.reduce((sum, each) => sum + each, 0);
+  assert.equal(total, 37 + (24 * 5) + (6 * 4), 'five conditions drawn adds up to the same number');
+
+  // One setter, so the width can never disagree with the number of columns actually drawn.
+  assert.equal((controller.match(/setProperty\("\/conditions"/gu) || []).length, 1);
+  const setter = controller.slice(controller.indexOf('_setConditionColumns: function'));
+  assert.match(setter.slice(0, setter.indexOf('\n    },')), /setProperty\("\/tableWidth", tableWidthFor\(bounded\)\)/u);
+});
+
+/**
+ * "Delete Condition" removes the LAST shown one (2026-09-01, asked for) and clears that slot on
+ * every row on the way out - hiding the column alone would leave the engine matching on a condition
+ * nobody can see, which is the ghost this exists to prevent. Condition 1 is never removable.
+ */
+test('Delete Condition removes the last column and clears it, and never touches Condition 1', () => {
+  const button = view.slice(view.indexOf('text="Delete Condition"'));
+  const head = button.slice(0, button.indexOf('/>'));
+  assert.match(head, /press="\.onDeleteCondition"/u);
+  assert.match(head, /enabled="\{= \$\{view>\/conditions\} &gt; 1 \}"/u, 'greyed out on Condition 1');
+
+  const handler = controller.slice(controller.indexOf('onDeleteCondition: function'));
+  const body = handler.slice(0, handler.indexOf('\n    },'));
+  // Disabled is not the only guard: a direct call refuses too.
+  assert.match(body, /if \(shown <= MIN_CONDITIONS\) return;/u);
+  assert.match(controller, /var MIN_CONDITIONS = 1;/u);
+  // The LAST shown slot, not a fixed one.
+  assert.match(body, /var slot = CONDITION_SLOTS\[shown - 1\];/u);
+  // Clearing is confirmed when it would actually throw data away, and skipped when it would not.
+  assert.match(body, /if \(!filled\.length\) \{\s*this\._setConditionColumns\(shown - 1\);/u);
+  assert.match(body, /MessageBox\.confirm\(/u);
+  assert.match(body, /that\._clearConditionSlot\(slot, filled\)/u);
+  assert.match(body, /that\._markDirty\(\)/u);
+
+  const clear = controller.slice(controller.indexOf('_clearConditionSlot: function'));
+  const clearBody = clear.slice(0, clear.indexOf('\n    },'));
+  for (const column of ['slot.field', 'slot.values']) {
+    assert.match(clearBody, new RegExp(`setProperty\\(${column.replace('.', '\\.')}, null\\)`, 'u'));
+  }
+  assert.match(clearBody, /setProperty\(slot\.operator, "eq"\)/u);
+  assert.match(clearBody, /setProperty\(slot\.logic, "AND"\)/u);
+});
+
 // --- Operators (kept through the revert: "= of !=, en dan andere" was in the ORIGINAL ask too) ---
 
 /**

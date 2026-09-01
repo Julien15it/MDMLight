@@ -25,8 +25,19 @@
         text="{view>/skippedText}"
         type="Warning"
         showIcon="true" />
+      <!--
+        Horizontal scrolling, so revealing a condition widens the table instead of squeezing every
+        cell (2026-09-01, asked for). Two halves, and both are needed: the ScrollContainer supplies
+        the scrollbar, and `view>/tableWidth` gives the table a real width to overflow WITH - at
+        `width="100%"` a fixed-layout table just redistributes its columns into whatever space it
+        has, which is the squashing itself. Vertical scrolling stays the Page's, so the rows still
+        scroll the way they always did; `growingScrollToLoad` is off, so the More button is
+        unaffected by the nesting.
+      -->
+      <ScrollContainer horizontal="true" vertical="false" width="100%">
       <Table
         id="ruleTable"
+        width="{view>/tableWidth}"
         items="{ path: 'dc>/WorkflowRules', parameters: { $orderby: 'createdAt', $$updateGroupId: 'ruleChanges' } }"
         mode="SingleSelectMaster"
         busy="{view>/busy}"
@@ -45,6 +56,15 @@
               type="Transparent"
               enabled="{= ${view>/conditions} &lt; ${view>/maxConditions} }"
               press=".onAddCondition" />
+            <!-- Removes the LAST shown condition, and clears that slot on every row on the way out
+                 so nothing is left evaluating in a column nobody can see. Condition 1 can never be
+                 removed - a rule with no condition at all is written by leaving it blank. -->
+            <Button
+              text="Delete Condition"
+              icon="sap-icon://less"
+              type="Transparent"
+              enabled="{= ${view>/conditions} &gt; 1 }"
+              press=".onDeleteCondition" />
             <Button text="Duplicate" icon="sap-icon://copy" type="Transparent" press=".onDuplicateRule" />
             <Button text="Delete" icon="sap-icon://delete" type="Transparent" press=".onDeleteRule" />
             <ToolbarSeparator />
@@ -260,6 +280,7 @@
           </ColumnListItem>
         </items>
       </Table>
+      </ScrollContainer>
     </content>
   </Page>
 </mvc:View>
