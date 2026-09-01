@@ -29,7 +29,7 @@
             <Title text="Profiles" level="H2" />
             <ToolbarSpacer />
             <Button text="Add Profile" icon="sap-icon://add" type="Transparent" press=".onAddProfile" />
-            <Button text="Delete" icon="sap-icon://delete" type="Transparent" press=".onDeleteProfile" />
+            <Button text="Delete Profile" icon="sap-icon://delete" type="Transparent" press=".onDeleteProfile" />
             <Button text="Save" icon="sap-icon://save" type="Emphasized" press=".onSave" enabled="{view>/dirty}" />
             <Button text="Discard" icon="sap-icon://undo" type="Transparent" press=".onDiscard" enabled="{view>/dirty}" />
           </OverflowToolbar>

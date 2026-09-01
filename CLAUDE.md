@@ -2695,6 +2695,11 @@ has rows to tick and columns to widen, it simply has no conditions.
   - **The handle needs a stylesheet**, registered as `sap.ui5/resources/css` in the manifest
     (`webapp/css/style.css`, the app's first). `position: relative` on the `<th>` is set from JS
     instead — matching a header cell by its theme class would be a guess about a private class name.
+- **"Delete Rule", beside "Add Rule"** (asked for the same week). It was a bare "Delete" sitting
+  after Duplicate, two buttons along from "Delete Condition" — which left the toolbar with two
+  deletes and no word saying which one removed a row. Naming it after what it removes and putting it
+  next to the button that adds one makes the pair read as a pair. Field Properties says "Delete
+  Profile" for the same reason: it adds profiles, not rules.
 
 #### Check Current Data — the validation rules against the partners that exist (2026-09-02)
 

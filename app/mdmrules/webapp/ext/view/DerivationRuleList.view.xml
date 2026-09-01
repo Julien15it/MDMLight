@@ -43,6 +43,7 @@
             <Title text="Rules" level="H2" />
             <ToolbarSpacer />
             <Button text="Add Rule" icon="sap-icon://add" type="Transparent" press=".onAddRule" />
+            <Button text="Delete Rule" icon="sap-icon://delete" type="Transparent" press=".onDeleteRule" />
             <!-- Table-wide, not per row: it reveals the next Logic/Condition COLUMN pair for every
                  rule at once. Delete Condition removes the last one and clears it on every row, so
                  nothing is left matching in a column nobody can see. -->
@@ -59,7 +60,6 @@
               enabled="{= ${view>/conditions} &gt; 1 }"
               press=".onDeleteCondition" />
             <Button text="Duplicate" icon="sap-icon://copy" type="Transparent" press=".onDuplicateRule" />
-            <Button text="Delete" icon="sap-icon://delete" type="Transparent" press=".onDeleteRule" />
             <ToolbarSeparator />
             <Button text="Export to Excel" icon="sap-icon://excel-attachment" type="Transparent" press=".onExportExcel" />
             <Button text="Import from Excel" icon="sap-icon://upload" type="Transparent" press=".onImportExcel" />

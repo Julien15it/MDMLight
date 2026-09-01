@@ -174,3 +174,23 @@ test('the scan reads only what the ruleset needs, and never a projection of Gene
   assert.match(source, /Customers: 'Customer', Suppliers: 'Supplier'/u);
   assert.match(source, /parentKey === 'Customer' \|\| parentKey === 'Supplier'/u);
 });
+
+/**
+ * "Delete Rule" beside "Add Rule" (2026-09-02, asked for): the pair that adds and removes a row
+ * reads as a pair, and a bare "Delete" next to Delete Condition said nothing about which of the two
+ * it deletes.
+ */
+test('every tile names its delete button after what it deletes, beside the add button', () => {
+  for (const name of RULE_PAGES) {
+    const source = view(name);
+    assert.match(source, /text="Delete Rule"/u, `${name} says Delete Rule`);
+    assert.equal(/text="Delete"/u.test(source), false, `${name} has no bare Delete`);
+    assert.ok(
+      source.indexOf('text="Delete Rule"') - source.indexOf('text="Add Rule"') < 200,
+      `${name} puts Delete Rule beside Add Rule`
+    );
+  }
+  const profiles = view('FieldPropertyProfileList');
+  assert.match(profiles, /text="Delete Profile"/u);
+  assert.ok(profiles.indexOf('text="Delete Profile"') > profiles.indexOf('text="Add Profile"'));
+});
