@@ -230,18 +230,20 @@ test('the approvers are sent with the workflow context, and never absent', () =>
   const body = builder.slice(0, builder.indexOf('\n    };'));
   assert.match(body, /approversFor\(\{/u);
   assert.match(body, /requestType: req\.data\.RequestType/u);
-  // Flattened to plain e-mail addresses at this boundary: the deployed process declares `approvers`
-  // as an array of strings, and sending objects failed the whole submit with "/approvers/0 The value
-  // must be of string type". resolveApprovers still returns { step, kind, value } - only what
-  // crosses to SBPA is narrowed.
+  // Flattened to plain strings at this boundary: the deployed process declares `approvers` as an
+  // array of strings, and sending objects failed the whole submit with "/approvers/0 The value must
+  // be of string type". resolveApprovers still returns { step, kind, value } - only what crosses to
+  // SBPA is narrowed.
   //
-  // A role entry (2026-08-27) is resolved to its actual member e-mails HERE, not sent as its bare
-  // name - SBPA does not resolve BTP role collection membership itself, so a role name reaching it
-  // unresolved names nobody it can assign a task to.
-  assert.match(body, /emailsForRoleCollections\(roleNames\)/u);
-  assert.match(body, /approver\.kind === 'user'/u);
-  assert.match(body, /approver\.kind === 'role'/u);
-  assert.match(body, /approvers: approverEmails/u, 'the context carries resolved e-mails, not role names');
+  // A role entry travelled as its actual member e-mails between 2026-08-27 and 2026-08-31, because
+  // SBPA did not resolve BTP role collection membership itself at the time - reverted once it did
+  // (confirmed with Arthur), back to sending the bare role name unresolved, same as a user entry's
+  // e-mail. `emailsForRoleCollections` is no longer imported for this purpose (it is still used by
+  // srv/wf/data-stewards.js for `datastewards`, a separate field this table has nothing to do with).
+  assert.equal(/emailsForRoleCollections/u.test(body), false, 'no longer resolved here');
+  assert.equal(/approver\.kind === 'user'|approver\.kind === 'role'/u.test(body), false, 'not split by kind any more');
+  assert.match(body, /approverValues = \[\.\.\.new Set\(approvers\.map\(\(approver\) => approver\.value\)\)\]/u);
+  assert.match(body, /approvers: approverValues/u, 'the context carries the raw values - role names included');
   // Best-effort, like `businesspartnerinput`: an empty list is what SBPA read before this table
   // existed, so a routing hint must not cost a requester their submit.
   assert.match(body, /console\.warn/u);

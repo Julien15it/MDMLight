@@ -20,7 +20,7 @@ const { configuredStages } = require('./checks/rule-store');
 const { fieldPropertyStages, resolvedProperties } = require('./checks/field-property-store');
 const { fieldState } = require('./checks/field-properties');
 const { dataStewardEmails } = require('./wf/data-stewards');
-const { emailsForRoleCollections, specificRoleFor } = require('./wf/btp-agents');
+const { specificRoleFor } = require('./wf/btp-agents');
 
 // Categories a screen resolves to a literal - the only ones worth narrowing to a specific BTP role.
 // `Requester` is deliberately excluded: it names who submitted, never a role collection, and
@@ -494,20 +494,13 @@ class ChangeRequestService extends cds.ApplicationService {
         requestType: req.data.RequestType,
         payload: { root: payload.root || {}, sections: payload.sections || {} }
       });
-      // SBPA does not resolve BTP role collection membership itself - it only routes on whatever
-      // `approvers` already contains, so a `role` entry (e.g. "Approver Customer", picked from the
-      // Workflow Agent Determination cell) has to be expanded HERE into its actual member e-mails, the
-      // same lookup `dataStewardEmails` uses for its own fixed role. A `user` entry is already an
-      // e-mail and is kept as-is. Best-effort, like every other subaccount read in this function: a
-      // role that cannot be resolved contributes nobody rather than failing the submit.
-      const userApprovers = approvers
-        .filter((approver) => approver.kind === 'user')
-        .map((approver) => approver.value);
-      const roleNames = [...new Set(
-        approvers.filter((approver) => approver.kind === 'role').map((approver) => approver.value)
-      )];
-      const roleApprovers = await emailsForRoleCollections(roleNames);
-      const approverEmails = [...new Set([...userApprovers, ...roleApprovers])];
+      // SBPA now resolves BTP role collection membership itself (confirmed with Arthur,
+      // 2026-08-31), so a `role` entry (e.g. "Approver Customer", picked from the Workflow Agent
+      // Determination cell) is sent as its bare name again, not expanded here into member e-mails -
+      // reverting the 2026-08-27 fix now that the side that needed the expansion no longer does. A
+      // `user` entry is already an e-mail and travels unchanged either way. `kind` stays implicit on
+      // both sides of the wire, derivable from the `@` the same way it always was.
+      const approverValues = [...new Set(approvers.map((approver) => approver.value))];
       // `criticalField` is a scalar 'X'/' ' input parameter on Arthur's side, not a list - so this
       // asks one question, not one per entity: does THIS request fill in an entity the field property
       // profiles mark critical? 'X' when at least one does, ' ' otherwise (including when nothing is
@@ -547,18 +540,19 @@ class ChangeRequestService extends cds.ApplicationService {
         // One entry per matched partner, so the approver sees what was flagged and why. Empty when
         // nothing matched, never absent - SPA can then bind it without a null check.
         bpduplicates: duplicateSummary(findings),
-        // Flattened to plain e-mail addresses, because the deployed process declares `approvers` as
-        // an array of strings and the runtime validates against that: sending `{ step, kind, value }`
-        // fails the whole submit with "/approvers/0 The value must be of string type, but actual type
-        // is object", which is every create refused over a routing hint.
+        // Flattened to plain strings, because the deployed process declares `approvers` as an array
+        // of strings and the runtime validates against that: sending `{ step, kind, value }` fails
+        // the whole submit with "/approvers/0 The value must be of string type, but actual type is
+        // object", which is every create refused over a routing hint.
         //
-        // A role entry is resolved above (userApprovers/roleApprovers/approverEmails), NOT sent as its
-        // bare name (fixed 2026-08-27): the process does not resolve BTP role collection membership
-        // itself, so a role name reaching it as-is names nobody it can assign a task to. What is
-        // genuinely lost is `step`: two steps' approvers arrive as one flat list. Restoring it means
-        // declaring `approvers` as an array of objects in the process context, after which the
-        // flattening comes off again - resolveApprovers itself still returns the structured list.
-        approvers: approverEmails,
+        // A role entry travels as its bare name (e.g. "Approver Customer") again, not expanded into
+        // member e-mails - reverted 2026-08-31 now that SBPA resolves BTP role collection membership
+        // itself; see "A role entry is resolved to real e-mails before it crosses the wire" in
+        // CLAUDE.md for why the expansion existed and was later undone. What is still lost either
+        // way is `step`: two steps' approvers arrive as one flat list. Restoring it means declaring
+        // `approvers` as an array of objects in the process context, after which the flattening
+        // comes off again - resolveApprovers itself still returns the structured list.
+        approvers: approverValues,
         // 'X' when a critical entity was filled in on this request, ' ' otherwise - a scalar flag,
         // not a list, because that is what the process input expects (see the comment above).
         // Lowercase on the wire, like every other key in this context - the local variable keeps

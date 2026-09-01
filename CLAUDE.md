@@ -2715,6 +2715,26 @@ to, and the request routes to an approver list of one string nobody can act on.
   rendering answer, not a wire payload SBPA has to act on, so a role name shown there
   unresolved is not the same failure - left as it is unless asked for.
 
+###### ...and then un-resolved again, once SBPA learned to do it itself (2026-08-31)
+
+Asked for directly, and confirmed with Arthur first given how deliberately the expansion above was
+built: his process now resolves BTP role collection membership on its own, which is exactly the gap
+that made the 2026-08-27 fix necessary in the first place. `workflowContext` no longer calls
+`emailsForRoleCollections` for this - `approvers` on the wire goes back to `[...new Set(approvers
+.map((approver) => approver.value))]`, a role entry's bare name (`"Approver Customer"`) and a user
+entry's e-mail both sent exactly as `resolveApprovers` returned them, undifferentiated by `kind` the
+same way the very first version of this table worked.
+
+- **`emailsForRoleCollections` is untouched in `srv/wf/btp-agents.js`** and stays imported by
+  `srv/wf/data-stewards.js` - `datastewards` is a genuinely different field or this table would have
+  needed the same conversation with Arthur before it could revert too, and nothing suggests it did.
+  `change-request-service.js` simply stopped importing the function for this one purpose.
+- **Do not read this as "roles never need resolving here" as a general rule.** It is true only
+  because of a specific fact about Arthur's process today; if that process is ever rebuilt to NOT
+  resolve role collections again (or a different process definition is swapped in that doesn't),
+  this reverts back to the 2026-08-27 shape. The tell either way is a task landing with an approver
+  list of one unresolvable string - see that section's own diagnosis for what that looks like live.
+
 **Save cannot claim what it did not do (2026-08-21).** A rule appeared to clear itself
 after being created. `hasPendingChanges` answers for **one update group**, so a create
 that never travelled leaves it false and the toast reports a save that did not happen —
