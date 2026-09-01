@@ -23,6 +23,26 @@ aspect ruleConditions {
       conditionField2 : String(60);
       conditionValue2 : String(120);
 
+      /**
+       * **Three more fixed slots (2026-09-01)**, the same rollout `WorkflowRules` got the same day
+       * and for the same ask - an "Add Condition" button that reveals the next Logic/Condition
+       * column pair. Columns rather than a composition, because `cds-deploy` can add an element and
+       * can neither drop nor retype one; the page draws only as many of them as a rule uses.
+       *
+       * `conditionLogicN` joins slot N to slot N+1, so `conditionLogic` (unnumbered, above) stays
+       * the 1-to-2 join it has always been and the numbering starts at 2. The conditions fold LEFT
+       * TO RIGHT under those joins - see `foldConditions` in srv/checks/value-lists.js.
+       */
+      conditionLogic2 : String(3) default 'AND';
+      conditionField3 : String(60);
+      conditionValue3 : String(120);
+      conditionLogic3 : String(3) default 'AND';
+      conditionField4 : String(60);
+      conditionValue4 : String(120);
+      conditionLogic4 : String(3) default 'AND';
+      conditionField5 : String(60);
+      conditionValue5 : String(120);
+
       isActive        : Boolean default true;
 }
 

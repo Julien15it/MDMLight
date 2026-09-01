@@ -12,6 +12,9 @@
       <!--
         Same decision-table shape as the validation and duplicate rule tables. Read a row as one
         sentence: "where Country is BE, fill Language with NL".
+
+        Five condition slots since 2026-09-01, two of them drawn until "Add Condition" reveals the
+        next Logic/Condition pair - see the validation table for the reasoning, which is identical.
       -->
       <MessageStrip
         class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
@@ -21,8 +24,12 @@
         showIcon="true" />
       <!-- No standing explanation of what a derivation is: the "Copied from" hint under a Value cell
            says the one thing the columns do not, and says it where it applies. -->
+      <!-- Horizontal scrolling, so revealing a condition widens the table instead of squeezing every
+           cell. `view>/tableWidth` is the other half of it - see the validation table. -->
+      <ScrollContainer horizontal="true" vertical="false" width="100%">
       <Table
         id="ruleTable"
+        width="{view>/tableWidth}"
         items="{ path: 'dc>/DerivationRules', parameters: { $orderby: 'sequence,createdAt', $$updateGroupId: 'ruleChanges' } }"
         mode="SingleSelectMaster"
         busy="{view>/busy}"
@@ -33,6 +40,21 @@
             <Title text="Rules" level="H2" />
             <ToolbarSpacer />
             <Button text="Add Rule" icon="sap-icon://add" type="Transparent" press=".onAddRule" />
+            <!-- Table-wide, not per row: it reveals the next Logic/Condition COLUMN pair for every
+                 rule at once. Delete Condition removes the last one and clears it on every row, so
+                 nothing is left matching in a column nobody can see. -->
+            <Button
+              text="Add Condition"
+              icon="sap-icon://add-filter"
+              type="Transparent"
+              enabled="{= ${view>/conditions} &lt; ${view>/maxConditions} }"
+              press=".onAddCondition" />
+            <Button
+              text="Delete Condition"
+              icon="sap-icon://less"
+              type="Transparent"
+              enabled="{= ${view>/conditions} &gt; 1 }"
+              press=".onDeleteCondition" />
             <Button text="Duplicate" icon="sap-icon://copy" type="Transparent" press=".onDuplicateRule" />
             <Button text="Delete" icon="sap-icon://delete" type="Transparent" press=".onDeleteRule" />
             <ToolbarSeparator />
@@ -43,21 +65,35 @@
             <Button text="Discard" icon="sap-icon://undo" type="Transparent" press=".onDiscard" enabled="{view>/dirty}" />
           </OverflowToolbar>
         </headerToolbar>
+        <!-- Fixed widths in rem, not percentages: a hidden column contributes no share of 100%. -->
         <columns>
-          <Column width="15%"><Text text="Condition 1 Field" /></Column>
-          <Column width="10%"><Text text="Condition 1 Value" /></Column>
+          <Column width="14rem"><Text text="Condition 1 Field" /></Column>
+          <Column width="9rem"><Text text="Condition 1 Value" /></Column>
           <!-- Titleless on purpose: AND / OR / NOR reads as the joining word between the two
                conditions it sits between, and a heading would only repeat what the cell says. -->
-          <Column width="5%" hAlign="Center"><Text text="" /></Column>
-          <Column width="15%"><Text text="Condition 2 Field" /></Column>
-          <Column width="10%"><Text text="Condition 2 Value" /></Column>
-          <Column width="20%"><Text text="Field" /></Column>
-          <Column width="20%"><Text text="Value" /></Column>
+          <Column width="6rem" hAlign="Center"><Text text="" /></Column>
+          <Column width="14rem"><Text text="Condition 2 Field" /></Column>
+          <Column width="9rem"><Text text="Condition 2 Value" /></Column>
+          <Column width="6rem" hAlign="Center" visible="{= ${view>/conditions} &gt;= 3 }"><Text text="" /></Column>
+          <Column width="14rem" visible="{= ${view>/conditions} &gt;= 3 }"><Text text="Condition 3 Field" /></Column>
+          <Column width="9rem" visible="{= ${view>/conditions} &gt;= 3 }"><Text text="Condition 3 Value" /></Column>
+          <Column width="6rem" hAlign="Center" visible="{= ${view>/conditions} &gt;= 4 }"><Text text="" /></Column>
+          <Column width="14rem" visible="{= ${view>/conditions} &gt;= 4 }"><Text text="Condition 4 Field" /></Column>
+          <Column width="9rem" visible="{= ${view>/conditions} &gt;= 4 }"><Text text="Condition 4 Value" /></Column>
+          <Column width="6rem" hAlign="Center" visible="{= ${view>/conditions} &gt;= 5 }"><Text text="" /></Column>
+          <Column width="14rem" visible="{= ${view>/conditions} &gt;= 5 }"><Text text="Condition 5 Field" /></Column>
+          <Column width="9rem" visible="{= ${view>/conditions} &gt;= 5 }"><Text text="Condition 5 Value" /></Column>
+          <Column width="18rem"><Text text="Field" /></Column>
+          <Column width="20rem"><Text text="Value" /></Column>
           <Column width="4rem" hAlign="Center"><Text text="Active" /></Column>
         </columns>
         <items>
           <ColumnListItem>
             <cells>
+              <!-- `targetType: 'any'` on every `dc>` reference inside an expression binding: without
+                   it UI5 formats the referenced property into the type of the BOUND property - a
+                   Boolean here - and a String value throws a FormatException, leaving the cell at
+                   its default. See CLAUDE.md, "Workflow Agent Determination". -->
               <Input
                 width="100%"
                 value="{dc>conditionField}"
@@ -69,14 +105,14 @@
                 width="100%"
                 value="{dc>conditionValue}"
                 placeholder="any"
-                enabled="{= !!${dc>conditionField} }"
+                enabled="{= !!${path: 'dc>conditionField', targetType: 'any'} }"
                 change=".onCellChange" />
-              <!-- Only enabled once BOTH conditions are filled: there is nothing to join otherwise,
-                   and NOR on a single condition would silently invert it. -->
+              <!-- Only enabled once BOTH of the conditions it joins are filled: there is nothing to
+                   join otherwise, and NOR on a single condition would silently invert it. -->
               <ComboBox
                 width="100%"
                 selectedKey="{dc>conditionLogic}"
-                enabled="{= !!${dc>conditionField} &amp;&amp; !!${dc>conditionField2} }"
+                enabled="{= !!${path: 'dc>conditionField', targetType: 'any'} &amp;&amp; !!${path: 'dc>conditionField2', targetType: 'any'} }"
                 items="{ path: 'opt>/conditionLogics', templateShareable: false }"
                 change=".onCellChange">
                 <core:Item key="{opt>code}" text="{opt>text}" />
@@ -92,7 +128,70 @@
                 width="100%"
                 value="{dc>conditionValue2}"
                 placeholder="any"
-                enabled="{= !!${dc>conditionField2} }"
+                enabled="{= !!${path: 'dc>conditionField2', targetType: 'any'} }"
+                change=".onCellChange" />
+              <ComboBox
+                width="100%"
+                selectedKey="{dc>conditionLogic2}"
+                enabled="{= !!${path: 'dc>conditionField2', targetType: 'any'} &amp;&amp; !!${path: 'dc>conditionField3', targetType: 'any'} }"
+                items="{ path: 'opt>/conditionLogics', templateShareable: false }"
+                change=".onCellChange">
+                <core:Item key="{opt>code}" text="{opt>text}" />
+              </ComboBox>
+              <Input
+                width="100%"
+                value="{dc>conditionField3}"
+                placeholder="any"
+                showValueHelp="true"
+                valueHelpRequest=".onFieldValueHelp"
+                change=".onCellChange" />
+              <Input
+                width="100%"
+                value="{dc>conditionValue3}"
+                placeholder="any"
+                enabled="{= !!${path: 'dc>conditionField3', targetType: 'any'} }"
+                change=".onCellChange" />
+              <ComboBox
+                width="100%"
+                selectedKey="{dc>conditionLogic3}"
+                enabled="{= !!${path: 'dc>conditionField3', targetType: 'any'} &amp;&amp; !!${path: 'dc>conditionField4', targetType: 'any'} }"
+                items="{ path: 'opt>/conditionLogics', templateShareable: false }"
+                change=".onCellChange">
+                <core:Item key="{opt>code}" text="{opt>text}" />
+              </ComboBox>
+              <Input
+                width="100%"
+                value="{dc>conditionField4}"
+                placeholder="any"
+                showValueHelp="true"
+                valueHelpRequest=".onFieldValueHelp"
+                change=".onCellChange" />
+              <Input
+                width="100%"
+                value="{dc>conditionValue4}"
+                placeholder="any"
+                enabled="{= !!${path: 'dc>conditionField4', targetType: 'any'} }"
+                change=".onCellChange" />
+              <ComboBox
+                width="100%"
+                selectedKey="{dc>conditionLogic4}"
+                enabled="{= !!${path: 'dc>conditionField4', targetType: 'any'} &amp;&amp; !!${path: 'dc>conditionField5', targetType: 'any'} }"
+                items="{ path: 'opt>/conditionLogics', templateShareable: false }"
+                change=".onCellChange">
+                <core:Item key="{opt>code}" text="{opt>text}" />
+              </ComboBox>
+              <Input
+                width="100%"
+                value="{dc>conditionField5}"
+                placeholder="any"
+                showValueHelp="true"
+                valueHelpRequest=".onFieldValueHelp"
+                change=".onCellChange" />
+              <Input
+                width="100%"
+                value="{dc>conditionValue5}"
+                placeholder="any"
+                enabled="{= !!${path: 'dc>conditionField5', targetType: 'any'} }"
                 change=".onCellChange" />
               <!-- The field being filled in. -->
               <Input
@@ -123,6 +222,7 @@
           </ColumnListItem>
         </items>
       </Table>
+      </ScrollContainer>
     </content>
   </Page>
 </mvc:View>

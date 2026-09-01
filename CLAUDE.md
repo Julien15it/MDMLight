@@ -2566,6 +2566,43 @@ time.
   a header row is matched by LABEL, and four columns called "Logic" could not be told apart. Only the
   first stays bare, so a workbook exported before this still imports.
 
+##### Rolled out to the other three rule tables the same day (2026-09-01)
+
+Asked for straight after: *"make sure that the conditions for Workflow Agent Determination are taken
+over in the other tiles 'Duplicate check' 'validation' and 'Derivation'. Field Properties works via
+the profiles so doesn't need these same condition changes. (So the 'add condition'/'Delete condition'
+buttons + scrollbar)"*. So Duplicate Check Rules, Validation Rules and Derivation Rules all gained
+five slots, the two buttons and the horizontal scroll; **Field Properties is deliberately untouched**
+— it conditions through a profile's CR type and role, not through a condition row, so there is
+nothing here for it to take over.
+
+- **The schema change is the same additive one**: `conditionField3..5`/`conditionValue3..5` plus
+  `conditionLogic2..4`, on the `ruleConditions` aspect (`db/quality-rules.cds`, shared by Validation
+  and Derivation) and on `DuplicateRules` (`db/duplicate-rules.cds`). Note the value columns here are
+  **singular** (`conditionValue`), unlike WorkflowRules' stuck plural `conditionValues`.
+- **Both engines gained the same `logic` key on their `CONDITION_PAIRS` and fold with
+  `foldConditions`** — `srv/checks/rule-engine.js` for the quality tables and
+  `srv/ai/duplicate-engine.js` for the duplicate one. Two conditions under one logic give the
+  identical answer, which is what keeps every stored rule matching unchanged.
+- **`describeCondition` had to generalise with it.** It said "neither A nor B" for NOR and joined two
+  clauses otherwise; with five it folds left to right using each gap's own word, bracketing from the
+  third clause on, because the fold has no precedence and a flat "A or B and C" would read as if it
+  did. The two-clause NOR wording is kept verbatim — that is what every row stored before this means.
+- **A real bug fell out of the rollout: the duplicate table's Logic column never reached the engine.**
+  `conditionsMatch` reads `rule.conditionLogic`, and `toEngineRule` (`srv/ai/rule-config.js`) copied
+  every condition column *except* the logic — so every duplicate rule was ANDed however the grid was
+  set, since the column was added. It now travels with its own slot, which is also what makes a
+  five-slot rule joinable at all.
+- **Every page's own `CONDITION_PAIRS` array was already looped** by `_localProblems` and the
+  Excel columns, so extending that one literal carried most of the client side.
+
+**The controller glue is duplicated across the four pages, deliberately** — `onAddCondition`,
+`onDeleteCondition`, `_setConditionColumns`, `_syncConditionColumns` and their two helpers. It is the
+same call `STRIP_ON_COPY`, `xlsxColumns` and `_localProblems` already make: `XlsxCodec` was extracted
+because it is heavy, shared machinery, and this is per-page wiring that reads better beside the page
+it wires. **If a fifth table ever needs it, extract it then** — four copies of a delete-with-confirm
+is the point at which the reasoning flips.
+
 ##### The operators are symbols again, on this page only (2026-09-01)
 
 Asked in the same breath: *"the descriptive text can be removed, '= equal' should be '='. 'Contain'

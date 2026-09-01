@@ -325,3 +325,64 @@ test('index entries reuse their precomputed name fingerprints', () => {
   assert.equal(found.partner.BusinessPartner, '12');
   assert.equal(found.indicators[0].score, 1);
 });
+
+// --- Five condition slots, one Logic per gap (2026-09-01) ----------------------------------------
+
+/**
+ * Rolled out from WorkflowRules onto this table the same day. Only Country is used here on purpose:
+ * every slot compares the same field, so what the test is measuring is the FOLD, not the matcher.
+ *
+ * Left to right, no precedence: `BE OR NL AND NL` is `(BE OR NL) AND NL`, which is how the row
+ * reads. A BE partner satisfies the first half and fails the trailing AND - which is exactly what
+ * a rule that merely ORed everything together could not tell apart.
+ */
+test('a third condition slot narrows the rule, each gap under its own Logic', () => {
+  const rule = {
+    field: 'Name',
+    comparison: 'fuzzy',
+    indicator: 'strong',
+    conditionField: 'Country',
+    conditionValue: 'BE',
+    conditionLogic: 'OR',
+    conditionField2: 'Country',
+    conditionValue2: 'NL',
+    conditionLogic2: 'AND',
+    conditionField3: 'Country',
+    conditionValue3: 'NL'
+  };
+  assert.equal(conditionsMatch(rule, buildCandidate({ Country: 'NL' })), true);
+  assert.equal(conditionsMatch(rule, buildCandidate({ Country: 'BE' })), false, 'the trailing AND still has to hold');
+  assert.equal(conditionsMatch(rule, buildCandidate({ Country: 'FR' })), false, 'neither side of the OR holds');
+});
+
+// An empty slot never narrows, and it takes its own Logic with it rather than shifting the next
+// join onto the wrong pair.
+test('an empty middle slot leaves the surviving conditions joined by their own Logic', () => {
+  const rule = {
+    field: 'Name',
+    comparison: 'fuzzy',
+    indicator: 'strong',
+    conditionField: 'Country',
+    conditionValue: 'BE',
+    conditionLogic: 'AND',
+    conditionLogic2: 'OR',
+    conditionField3: 'Country',
+    conditionValue3: 'NL'
+  };
+  assert.equal(conditionsMatch(rule, buildCandidate({ Country: 'BE' })), true);
+  assert.equal(conditionsMatch(rule, buildCandidate({ Country: 'NL' })), true);
+  assert.equal(conditionsMatch(rule, buildCandidate({ Country: 'FR' })), false);
+});
+
+// A rule saved with two conditions has no later column filled in - it must read exactly as it did.
+test('a duplicate rule saved before the extra slots existed is unchanged', () => {
+  const rule = {
+    field: 'Name',
+    comparison: 'fuzzy',
+    indicator: 'strong',
+    conditionField: 'Country',
+    conditionValue: 'BE'
+  };
+  assert.equal(conditionsMatch(rule, buildCandidate({ Country: 'BE' })), true);
+  assert.equal(conditionsMatch(rule, buildCandidate({ Country: 'DE' })), false);
+});

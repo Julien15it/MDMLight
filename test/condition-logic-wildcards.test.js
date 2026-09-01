@@ -241,3 +241,79 @@ test('the message says which operator the rule actually used', () => {
   assert.match(finding.message, / or /u);
   assert.doesNotMatch(finding.message, / and /u);
 });
+
+// --- Five condition slots, one Logic per gap (2026-09-01) ----------------------------------------
+//
+// Rolled out from WorkflowRules onto ValidationRules/DerivationRules the same day. Columns, not a
+// composition - see db/quality-rules.cds for why that route is closed permanently.
+
+test('a validation rule can carry five conditions, ANDed by default', () => {
+  const rule = {
+    conditionField: 'Addresses.Country', conditionValue: 'BE',
+    conditionField2: 'BusinessPartnerRoles.BusinessPartnerRole', conditionValue2: 'FLCU01',
+    conditionField3: 'Addresses.Country', conditionValue3: 'BE',
+    conditionField4: 'BusinessPartnerRoles.BusinessPartnerRole', conditionValue4: 'FLCU01',
+    conditionField5: 'Addresses.Country', conditionValue5: 'BE',
+    field: 'General.CorrespondenceLanguage',
+    comparison: 'notEmpty',
+    severity: 'error'
+  };
+  const matching = {
+    root: { CorrespondenceLanguage: '' },
+    sections: { Addresses: [{ Country: 'BE' }], BusinessPartnerRoles: [{ BusinessPartnerRole: 'FLCU01' }] }
+  };
+  assert.equal(runValidationRule(rule, matching, model).length, 1, 'every condition holds, so it fires');
+  const missing = {
+    root: { CorrespondenceLanguage: '' },
+    sections: { Addresses: [{ Country: 'BE' }], BusinessPartnerRoles: [{ BusinessPartnerRole: 'FLVN01' }] }
+  };
+  assert.equal(runValidationRule(rule, missing, model).length, 0, 'one failing condition is enough');
+});
+
+// Left to right, no precedence: `A OR B AND C` is `(A OR B) AND C`, which is how the row reads.
+test('each Logic column joins its own pair, folded left to right', () => {
+  const rule = {
+    conditionField: 'Addresses.Country', conditionValue: 'BE',
+    conditionLogic: 'OR',
+    conditionField2: 'Addresses.Country', conditionValue2: 'NL',
+    conditionLogic2: 'AND',
+    conditionField3: 'BusinessPartnerRoles.BusinessPartnerRole', conditionValue3: 'FLCU01',
+    field: 'General.CorrespondenceLanguage',
+    comparison: 'notEmpty',
+    severity: 'error'
+  };
+  const payload = (country, role) => ({
+    root: { CorrespondenceLanguage: '' },
+    sections: { Addresses: [{ Country: country }], BusinessPartnerRoles: [{ BusinessPartnerRole: role }] }
+  });
+  assert.equal(runValidationRule(rule, payload('NL', 'FLCU01'), model).length, 1, 'NL satisfies the OR');
+  assert.equal(runValidationRule(rule, payload('NL', 'FLVN01'), model).length, 0, 'the trailing AND still has to hold');
+  assert.equal(runValidationRule(rule, payload('FR', 'FLCU01'), model).length, 0, 'neither side of the OR holds');
+});
+
+// A rule saved with two conditions has no later column filled in - it must read exactly as it did.
+test('a rule saved before the extra slots existed is unchanged', () => {
+  const rule = {
+    conditionField: 'Addresses.Country', conditionValue: 'BE',
+    conditionField2: 'BusinessPartnerRoles.BusinessPartnerRole', conditionValue2: 'FLCU01',
+    field: 'General.CorrespondenceLanguage', comparison: 'notEmpty', severity: 'error'
+  };
+  const both = {
+    root: { CorrespondenceLanguage: '' },
+    sections: { Addresses: [{ Country: 'BE' }], BusinessPartnerRoles: [{ BusinessPartnerRole: 'FLCU01' }] }
+  };
+  assert.equal(runValidationRule(rule, both, model).length, 1);
+});
+
+// Half a condition is the dangerous half in the new slots too, and so is an unrecognised logic.
+test('every slot validates, and so does every Logic column', () => {
+  const errors = validateValidationRule({
+    field: 'General.CorrespondenceLanguage',
+    comparison: 'eq',
+    value: 'NL',
+    conditionField5: 'Addresses.Country',
+    conditionLogic3: 'MAYBE'
+  }, model).errors;
+  assert.equal(errors.some((error) => error.field === 'conditionValue5'), true, 'a field with no value is refused');
+  assert.equal(errors.some((error) => error.field === 'conditionLogic3'), true, 'and so is an unusable logic');
+});

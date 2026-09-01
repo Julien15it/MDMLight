@@ -260,6 +260,9 @@ test('xlsxColumns matches exactly what a DuplicateRules row holds on screen, min
   const keys = [...body.matchAll(/key: "([^"]+)"/gu)].map((match) => match[1]);
   assert.deepEqual(keys, [
     'conditionField', 'conditionValue', 'conditionLogic', 'conditionField2', 'conditionValue2',
+    'conditionLogic2', 'conditionField3', 'conditionValue3',
+    'conditionLogic3', 'conditionField4', 'conditionValue4',
+    'conditionLogic4', 'conditionField5', 'conditionValue5',
     'field', 'comparison', 'indicator', 'isActive'
   ]);
   assert.equal(keys.includes('ID'), false);
@@ -299,7 +302,7 @@ test('import deletes every existing row and creates one for every row in the fil
   const second = mockContext({ field: 'TaxNumber', comparison: 'exact', indicator: 'strong' });
   const created = [];
   const binding = { getCurrentContexts: () => [first, second], create: (record) => created.push(record) };
-  const fakeThis = { _table: () => ({ getBinding: () => binding }), _markDirty: () => {} };
+  const fakeThis = { _table: () => ({ getBinding: () => binding }), _markDirty: () => {}, _syncConditionColumns: () => {} };
 
   // The file names only one row - data-identical to "first".
   const table = [
@@ -313,4 +316,72 @@ test('import deletes every existing row and creates one for every row in the fil
   assert.equal(second.deleted, true);
   assert.equal(created.length, 1, 'one new row for the one non-blank row in the file');
   assert.match(toasts[0], /2 existing rule\(s\) replaced by 1 from the file/u);
+});
+
+// --- Five condition slots, Add/Delete Condition and the scrollbar (2026-09-01) -------------------
+//
+// The same rollout Workflow Agent Determination got, asked for on this page too.
+
+test('the duplicate table carries five condition slots, three of them hidden until asked for', () => {
+  for (const suffix of ['3', '4', '5']) {
+    assert.match(view, new RegExp(`selectedKey="\\{dc>conditionField${suffix}\\}"`, 'u'));
+    assert.match(view, new RegExp(`value="\\{dc>conditionValue${suffix}\\}"`, 'u'));
+  }
+  for (const suffix of ['', '2', '3', '4']) {
+    assert.match(view, new RegExp(`selectedKey="\\{dc>conditionLogic${suffix}\\}"`, 'u'));
+  }
+  assert.match(view, /visible="\{= \$\{view>\/conditions\} &gt;= 3 \}"/u);
+  assert.match(view, /visible="\{= \$\{view>\/conditions\} &gt;= 5 \}"/u);
+});
+
+test('the duplicate table scrolls sideways rather than squeezing its cells', () => {
+  const scroller = view.slice(view.indexOf('<ScrollContainer'));
+  assert.match(scroller.slice(0, scroller.indexOf('>')), /horizontal="true"[\s\S]*vertical="false"/u);
+  assert.ok(view.indexOf('<ScrollContainer') < view.indexOf('<Table'), 'the table is inside it');
+  assert.match(view, /<\/Table>\s*<\/ScrollContainer>/u);
+  assert.match(view, /width="\{view>\/tableWidth\}"/u, 'a real width, not 100%');
+
+  const fixed = Number(/var FIXED_REM = (\d+);/u.exec(controllerSource)[1]);
+  const declared = [...view.matchAll(/<Column width="(\d+)rem"/gu)]
+    .map((match) => Number(match[1]))
+    .reduce((sum, each) => sum + each, 0);
+  assert.equal(declared, fixed + (23 * 5) + (6 * 4), 'the widths add up to the formula');
+});
+
+test('Add and Delete Condition are wired, and Condition 1 is never removable', () => {
+  const add = view.slice(view.indexOf('text="Add Condition"'));
+  assert.match(add.slice(0, add.indexOf('/>')), /press="\.onAddCondition"/u);
+  const remove = view.slice(view.indexOf('text="Delete Condition"'));
+  assert.match(remove.slice(0, remove.indexOf('/>')), /press="\.onDeleteCondition"/u);
+  assert.match(remove.slice(0, remove.indexOf('/>')), /enabled="\{= \$\{view>\/conditions\} &gt; 1 \}"/u);
+
+  assert.match(controllerSource, /var MIN_CONDITIONS = 1;/u);
+  assert.match(controllerSource, /if \(shown <= MIN_CONDITIONS\) return;/u);
+  // Removing a column CLEARS the slot, or the engine goes on matching on a condition nobody sees.
+  assert.match(controllerSource, /context\.setProperty\(slot\.field, null\)/u);
+  assert.match(controllerSource, /context\.setProperty\(slot\.value, null\)/u);
+  assert.match(controllerSource, /options\.conditionSlots/u);
+});
+
+/**
+ * The Logic column never reached the engine before (found 2026-09-01 while adding the extra slots):
+ * `conditionsMatch` reads it off the rule, and `toEngineRule` copied every condition column EXCEPT
+ * the logic - so every duplicate rule was ANDed however the grid was set. It travels with its own
+ * slot now, which is also what makes a five-slot rule joinable at all.
+ */
+test('the condition logic travels to the engine, per slot', () => {
+  const { toEngineRule } = require('../srv/ai/rule-config');
+  const rule = toEngineRule({
+    field: 'Name',
+    comparison: 'fuzzy',
+    indicator: 'strong',
+    conditionField: 'Country',
+    conditionValue: 'BE',
+    conditionLogic: 'OR',
+    conditionField2: 'Country',
+    conditionValue2: 'NL'
+  });
+  assert.equal(rule.conditionLogic, 'OR');
+  // A slot that carries no condition carries no logic either - there is nothing for it to join.
+  assert.equal(rule.conditionLogic2, undefined);
 });

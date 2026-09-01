@@ -3,10 +3,11 @@
 const cds = require('@sap/cds');
 const { catalogFields, validateRule } = require('./ai/rule-config');
 const { ruleStore, refreshRules } = require('./ai/duplicate-check');
-const { INDICATORS } = require('./ai/duplicate-engine');
+const { INDICATORS, MAX_CONDITIONS: DUPLICATE_MAX_CONDITIONS } = require('./ai/duplicate-engine');
 const { payloadFields } = require('./checks/payload-fields');
 const {
-  COMPARISONS, SEVERITIES, validateValidationRule, validateDerivationRule
+  COMPARISONS, SEVERITIES, MAX_CONDITIONS: QUALITY_MAX_CONDITIONS,
+  validateValidationRule, validateDerivationRule
 } = require('./checks/rule-engine');
 const qualityRules = require('./checks/rule-store');
 const { CONDITION_LOGIC } = require('./checks/value-lists');
@@ -161,6 +162,7 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
         comparisons: OFFERED_COMPARISONS.map((code) => ({ code, text: COMPARISON_TEXT[code] || code })),
         indicators: INDICATORS.map((code) => ({ code, text: INDICATOR_TEXT[code] || code })),
         conditionLogics: CONDITION_LOGIC_OPTIONS,
+        conditionSlots: DUPLICATE_MAX_CONDITIONS,
         source: ruleStore.source(),
         ruleCount: ruleStore.rules().length
       };
@@ -189,6 +191,7 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
           code, text: comparison.text.trim(), needsValue: comparison.needsValue
         })),
         conditionLogics: CONDITION_LOGIC_OPTIONS,
+        conditionSlots: QUALITY_MAX_CONDITIONS,
         severities: SEVERITIES.map((code) => ({ code, text: SEVERITY_TEXT[code] || code })),
         validationCount: await runnable(VALIDATIONS, validateValidationRule),
         derivationCount: await runnable(DERIVATIONS, validateDerivationRule)

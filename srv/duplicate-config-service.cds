@@ -58,6 +58,9 @@ service DuplicateConfigService {
     /** 'configured' or 'defaults'. The page must say which: an empty grid reads as "check is off". */
     source      : String(12);
     ruleCount   : Integer;
+    /** How many condition slots a rule may hold - the page's own Add Condition ceiling,
+     *  served so the button and the schema cannot disagree about it. */
+    conditionSlots : Integer;
   }
 
   /** Everything the admin grid needs to offer valid choices, straight from the
@@ -97,6 +100,9 @@ service DuplicateConfigService {
     severities      : array of Option;
     validationCount : Integer;
     derivationCount : Integer;
+    /** How many condition slots a rule may hold - the page's own Add Condition ceiling,
+     *  served so the button and the schema cannot disagree about it. */
+    conditionSlots : Integer;
   }
 
   /** Generated from the staging model and the engine, never a hand-kept UI copy. The counts are of
