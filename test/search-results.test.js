@@ -64,6 +64,8 @@ test('a pending create is a row of its own, with no partner number', () => {
   assert.equal(row.RecordStatus, 'Create in approval');
   assert.equal(row.RecordStatusCriticality, CRITICALITY.inFlight);
   assert.equal(row.RequestedBy, 'maarten');
+  // Nothing in S/4 yet to carry the flag.
+  assert.equal(row.IsMarkedForArchiving, false);
 });
 
 test('a pending create matches on the staged fields, not only on the name shown', () => {

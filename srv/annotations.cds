@@ -12,7 +12,8 @@ annotate service.BusinessPartners with @(
     BusinessPartner,
     BusinessPartnerCategory,
     BusinessPartnerGrouping,
-    BusinessPartnerIsBlocked
+    BusinessPartnerIsBlocked,
+    IsMarkedForArchiving
   ],
 
   UI.LineItem: [
@@ -21,7 +22,8 @@ annotate service.BusinessPartners with @(
     { Value: BusinessPartnerCategory,  Label: 'Category' },
     { Value: BusinessPartnerGrouping,  Label: 'Grouping' },
     { Value: SearchTerm1,              Label: 'Search Term' },
-    { Value: BusinessPartnerIsBlocked, Label: 'Blocked' }
+    { Value: BusinessPartnerIsBlocked, Label: 'Blocked' },
+    { Value: IsMarkedForArchiving,     Label: 'Marked for Deletion' }
   ],
 
   UI.Facets: [
@@ -698,6 +700,7 @@ annotate service.BusinessPartnerSearchResults with @(
     BusinessPartnerGrouping,
     SearchTerm1,
     BusinessPartnerIsBlocked,
+    IsMarkedForArchiving,
     RecordStatus,
     IsChangeRequest,
     ChangeRequestType,
@@ -713,6 +716,7 @@ annotate service.BusinessPartnerSearchResults with @(
     { Value: BusinessPartnerGrouping,  Label: 'Grouping' },
     { Value: SearchTerm1,              Label: 'Search Term' },
     { Value: BusinessPartnerIsBlocked, Label: 'Blocked' },
+    { Value: IsMarkedForArchiving,     Label: 'Marked for Deletion' },
     // Criticality colours it, so an in-flight request is visible without reading the text.
     { Value: RecordStatus, Label: 'Status', Criticality: RecordStatusCriticality }
   ]

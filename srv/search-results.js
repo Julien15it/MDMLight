@@ -46,7 +46,8 @@ const PARTNER_FIELDS = Object.freeze([
   'BusinessPartnerCategory',
   'BusinessPartnerGrouping',
   'SearchTerm1',
-  'BusinessPartnerIsBlocked'
+  'BusinessPartnerIsBlocked',
+  'IsMarkedForArchiving'
 ]);
 
 /** Only these can be sorted remotely; the key is this list's own and S/4 has never heard of it. */
@@ -93,6 +94,8 @@ function pendingCreateEntry(entry = {}) {
       BusinessPartnerGrouping: general.BusinessPartnerGrouping || null,
       SearchTerm1: general.SearchTerm1 || null,
       BusinessPartnerIsBlocked: Boolean(general.BusinessPartnerIsBlocked),
+      // A pending create has nothing in S/4 yet to carry this flag.
+      IsMarkedForArchiving: false,
       ...statusOf(request),
       IsChangeRequest: true,
       ...requestFields(request)

@@ -31,6 +31,7 @@ const {
   parseConversationHistory,
   parseJsonObject,
   pickDefined,
+  UPDATE_FIELDS,
   remoteErrorMessage,
   requestingUserEmail,
   WORKFLOW_ENTITIES,
@@ -127,6 +128,21 @@ test('only forwards supported, defined fields to S/4 maintenance operations', ()
       SearchTerm1: 'NEW',
       BusinessPartnerIsBlocked: false
     }
+  );
+});
+
+// updateBusinessPartner is the direct write behind "Mark for Deletion" on the search page (no
+// staging - marking an existing partner is not a create). false must survive pickDefined, since
+// un-marking sends exactly that.
+test('updateBusinessPartner accepts the central deletion flag, in both directions', () => {
+  assert.ok(UPDATE_FIELDS.includes('IsMarkedForArchiving'));
+  assert.deepEqual(
+    pickDefined({ IsMarkedForArchiving: true }, UPDATE_FIELDS),
+    { IsMarkedForArchiving: true }
+  );
+  assert.deepEqual(
+    pickDefined({ IsMarkedForArchiving: false }, UPDATE_FIELDS),
+    { IsMarkedForArchiving: false }
   );
 });
 

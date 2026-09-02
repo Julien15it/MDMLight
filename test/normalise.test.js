@@ -287,9 +287,7 @@ test('a sanitized proposal carries a short reason and a full detail', () => {
   assert.equal(proposal.reason, 'legal form capitalisation');
   assert.match(proposal.detail, /^Name 1 was entered/u);
 });
-<<<<<<< HEAD
 
-// A hover that shows nothing reads as a broken tooltip, not as "nothing more to say".
 // --- fieldEditable: the same predicate a derivation is gated by (srv/checks/pipeline.js) also
 // gates a normalisation, since rewriting a value is an edit too. A role that cannot touch a field
 // must get no proposal for it - not from the model, and not from the deterministic uppercaser.
@@ -333,6 +331,7 @@ test('proposeNormalisations still proposes for the fields fieldEditable allows',
   assert.deepEqual(proposals.map((entry) => entry.field), ['Country']);
 });
 
+// A hover that shows nothing reads as a broken tooltip, not as "nothing more to say".
 test('a proposal with no detail still gets a sentence to hover', () => {
   const fields = normalisableFields(payload({ OrganizationBPName1: 'acme' }));
   const [proposal] = sanitizeProposals({
@@ -342,5 +341,3 @@ test('a proposal with no detail still gets a sentence to hover', () => {
   assert.equal(proposal.reason, 'Capitalisation');
   assert.match(proposal.detail, /OrganizationBPName1 is proposed as “Acme” instead of “acme”\./u);
 });
-=======
->>>>>>> 672b6314be592d8538c63f10c42518af4c4de08b

@@ -73,6 +73,9 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
         BusinessPartnerGrouping  : String(4);
         SearchTerm1              : String(20);
         BusinessPartnerIsBlocked : Boolean;
+        /** S/4's own "Mark for Deletion" flag (central level, ADRC-XDELE's BP equivalent). Reversible,
+         *  not a real delete - S/4 has no DELETE verb for a Business Partner. */
+        IsMarkedForArchiving     : Boolean;
 
         /** What the row is, in words: 'Active', 'Create in approval', 'Change rework required'.
          *  Composed server-side so the list and the request can never disagree about a status. */
@@ -191,7 +194,10 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
     SearchTerm1                : String(20),
     SearchTerm2                : String(20),
     CorrespondenceLanguage     : String(2),
-    BusinessPartnerIsBlocked   : Boolean
+    BusinessPartnerIsBlocked   : Boolean,
+    /** Sets or clears S/4's central "Mark for Deletion" flag. Direct write, no staging - marking an
+     *  existing partner for deletion is not a create, and only create is routed through approval. */
+    IsMarkedForArchiving       : Boolean
   ) returns BusinessPartners;
 
   /** Full-screen maintenance operations. JSON keeps the contract aligned with

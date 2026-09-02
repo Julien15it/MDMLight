@@ -1,11 +1,12 @@
 sap.ui.define([
   "sap/ui/core/routing/HashChanger",
   "sap/m/MessageBox",
+  "sap/m/MessageToast",
   "mdm/md/businesspartner/reuse/BusinessPartnerAssistant"
-], function (HashChanger, MessageBox, BusinessPartnerAssistant) {
+], function (HashChanger, MessageBox, MessageToast, BusinessPartnerAssistant) {
   "use strict";
 
-  var environment = { model: null, view: null };
+  var environment = { model: null, view: null, extensionAPI: null };
 
   function contextsFrom() {
     var result = [];
@@ -95,6 +96,20 @@ sap.ui.define([
     return status + (by ? ", requested by " + by + "." : ".");
   }
 
+  /** One unbound action call, the same idiom the maintenance screen's _executeAction uses. */
+  function executeAction(model, name, parameters) {
+    var binding = model.bindContext("/" + name + "(...)");
+    Object.keys(parameters).forEach(function (parameter) {
+      binding.setParameter(parameter, parameters[parameter]);
+    });
+    return binding.execute("$direct").then(function () {
+      var resultContext = binding.getBoundContext();
+      var result = resultContext ? resultContext.getObject() : null;
+      binding.destroy();
+      return result;
+    });
+  }
+
   function modelFrom(value) {
     if (value && typeof value.getModel === "function") return value.getModel();
     var context = contextFrom(value);
@@ -107,9 +122,10 @@ sap.ui.define([
   }
 
   return {
-    setEnvironment: function (model, view) {
+    setEnvironment: function (model, view, extensionAPI) {
       if (model) environment.model = model;
       if (view) environment.view = view;
+      if (extensionAPI) environment.extensionAPI = extensionAPI;
     },
 
     /** Whether the AI assistant may be offered at all. The Fiori Elements actions bind
@@ -122,6 +138,7 @@ sap.ui.define([
     clearEnvironment: function () {
       environment.model = null;
       environment.view = null;
+      environment.extensionAPI = null;
     },
 
     isSingleSelection: function (bindingContext, selectedContexts) {
@@ -172,6 +189,66 @@ sap.ui.define([
         return;
       }
       navigateToEdit(context.getProperty("BusinessPartner"));
+    },
+
+    /**
+     * S/4 has no DELETE verb for a Business Partner - "deleting" one means setting its central
+     * "Mark for Deletion" flag (IsMarkedForArchiving), the same reversible flag the BP transaction
+     * uses. A direct write, like an edit - not staged or approved, since this is not a create.
+     *
+     * A pending create row is skipped: it has no Business Partner number yet, so there is nothing
+     * in S/4 to mark.
+     */
+    markForDeletion: function (bindingContext, selectedContexts) {
+      var selected = contextsFrom(bindingContext, selectedContexts);
+      if (!selected.length) {
+        MessageBox.error("Select at least one Business Partner to mark for deletion.");
+        return;
+      }
+      var pending = selected.filter(function (context) { return context.getProperty("IsChangeRequest"); });
+      var eligible = selected.filter(function (context) { return !context.getProperty("IsChangeRequest"); });
+      if (!eligible.length) {
+        MessageBox.error("A pending create has no Business Partner number yet, so it cannot be marked for deletion.");
+        return;
+      }
+      var model = modelFrom(eligible[0]);
+      if (!model) {
+        MessageBox.error("The Business Partner service is not bound to this screen.");
+        return;
+      }
+      var names = eligible.map(function (context) {
+        return context.getProperty("BusinessPartner") + " - " + (context.getProperty("BusinessPartnerFullName") || "");
+      });
+      var skippedNote = pending.length
+        ? "\n\n" + pending.length + " pending create row(s) were skipped: a create has no Business Partner number yet."
+        : "";
+
+      MessageBox.confirm(
+        "This is applied directly in S/4HANA, without approval:\n\n" + names.join("\n") + skippedNote,
+        {
+          title: "Mark for Deletion",
+          onClose: function (action) {
+            if (action !== MessageBox.Action.OK) return undefined;
+            return Promise.all(eligible.map(function (context) {
+              return executeAction(model, "updateBusinessPartner", {
+                BusinessPartner: context.getProperty("BusinessPartner"),
+                IsMarkedForArchiving: true
+              });
+            })).then(function () {
+              MessageToast.show(
+                eligible.length === 1
+                  ? "Business Partner marked for deletion."
+                  : eligible.length + " Business Partners marked for deletion."
+              );
+              if (environment.extensionAPI && typeof environment.extensionAPI.refresh === "function") {
+                environment.extensionAPI.refresh();
+              }
+            }).catch(function (error) {
+              MessageBox.error("Could not mark for deletion: " + ((error && error.message) || error));
+            });
+          }
+        }
+      );
     },
 
     /**

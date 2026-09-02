@@ -17,7 +17,7 @@ sap.ui.define([
 
           oModel = oModel || oView.getModel();
 
-          CustomActions.setEnvironment(oModel, oView);
+          CustomActions.setEnvironment(oModel, oView, oExtensionAPI);
         },
 
         routing: {

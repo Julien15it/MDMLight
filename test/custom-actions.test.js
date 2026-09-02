@@ -12,6 +12,8 @@ function loadActions(initialHash = '', { assistantAvailable = true } = {}) {
   const errors = [];
   const warnings = [];
   const information = [];
+  const confirms = [];
+  const toasts = [];
   const assistantCalls = [];
   const hashChanger = {
     getHash: () => hash,
@@ -33,8 +35,13 @@ function loadActions(initialHash = '', { assistantAvailable = true } = {}) {
               // A row under a change request is refused rather than opened, so the module needs
               // more of MessageBox than the one method the error paths used.
               warning: (message) => warnings.push(message),
-              information: (message) => information.push(message)
+              information: (message) => information.push(message),
+              // Captured rather than auto-confirmed, so a test can assert on the message shown
+              // before deciding whether the user pressed OK or Cancel.
+              confirm: (message, options) => confirms.push({ message, options }),
+              Action: { OK: 'OK', CANCEL: 'CANCEL' }
             },
+            { show: (message) => toasts.push(message) },
             {
               open: (model, view) => assistantCalls.push({ model, view }),
               // Part of the module's interface, not an extra: openAssistant asks before it
@@ -54,6 +61,8 @@ function loadActions(initialHash = '', { assistantAvailable = true } = {}) {
     errors,
     warnings,
     information,
+    confirms,
+    toasts,
     getHash: () => hash
   };
 }
@@ -64,9 +73,32 @@ function context(number) {
   };
 }
 
+/** A fake OData V4 model, just enough of bindContext(...).execute() for one unbound action call. */
+function fakeModel({ fails = false } = {}) {
+  const calls = [];
+  return {
+    calls,
+    bindContext: (path) => {
+      const parameters = {};
+      return {
+        setParameter: (name, value) => { parameters[name] = value; },
+        execute: () => {
+          calls.push({ path, parameters });
+          return fails ? Promise.reject(new Error('S/4HANA rejected it')) : Promise.resolve();
+        },
+        getBoundContext: () => ({ getObject: () => ({}) }),
+        destroy: () => {}
+      };
+    }
+  };
+}
+
 /** A row of the merged search list: either a pending create or a partner carrying a request. */
-function searchRow(properties) {
-  return { getProperty: (name) => properties[name] };
+function searchRow(properties, model) {
+  return {
+    getProperty: (name) => properties[name],
+    getModel: () => model
+  };
 }
 
 test('create action navigates directly to the maintenance route', () => {
@@ -184,4 +216,92 @@ test('a partner with no request in flight is edited exactly as before', () => {
   })]);
   assert.equal(runtime.getHash(), 'BusinessPartners/4711/maintain');
   assert.deepEqual(runtime.warnings, []);
+});
+
+// --- Mark for Deletion ----------------------------------------------------------------------
+// S/4 has no DELETE verb for a Business Partner: "deleting" one from the search page sets the
+// central IsMarkedForArchiving flag directly, no staging or approval - the same trust level as an
+// edit, not a create.
+
+test('nothing selected refuses rather than asking what to confirm', () => {
+  const runtime = loadActions();
+  runtime.actions.markForDeletion(null, []);
+  assert.equal(runtime.errors.length, 1);
+  assert.deepEqual(runtime.confirms, []);
+});
+
+test('a pending create has no Business Partner number, so it is refused outright', () => {
+  const runtime = loadActions();
+  runtime.actions.markForDeletion(null, [searchRow({ IsChangeRequest: true, ChangeRequest: 'req-1' })]);
+  assert.equal(runtime.errors.length, 1);
+  assert.match(runtime.errors[0], /no Business Partner number/u);
+  assert.deepEqual(runtime.confirms, []);
+});
+
+test('confirming marks the selected partner and refreshes the list', async () => {
+  const runtime = loadActions();
+  const model = fakeModel();
+  const extensionAPI = { refreshed: 0, refresh: function () { this.refreshed += 1; } };
+  runtime.actions.setEnvironment(null, null, extensionAPI);
+
+  runtime.actions.markForDeletion(null, [
+    searchRow({ IsChangeRequest: false, BusinessPartner: '4711', BusinessPartnerFullName: 'Acme NV' }, model)
+  ]);
+
+  assert.equal(runtime.confirms.length, 1);
+  assert.match(runtime.confirms[0].message, /4711/u);
+  assert.match(runtime.confirms[0].message, /Acme NV/u);
+
+  await runtime.confirms[0].options.onClose('OK');
+  // onClose's own promise chain resolves on a later microtask than the await above.
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(model.calls, [{
+    path: '/updateBusinessPartner(...)',
+    parameters: { BusinessPartner: '4711', IsMarkedForArchiving: true }
+  }]);
+  assert.equal(runtime.toasts.length, 1);
+  assert.equal(extensionAPI.refreshed, 1);
+});
+
+test('cancelling the confirmation calls nothing', async () => {
+  const runtime = loadActions();
+  const model = fakeModel();
+  runtime.actions.markForDeletion(null, [searchRow({ IsChangeRequest: false, BusinessPartner: '4711' }, model)]);
+
+  await runtime.confirms[0].options.onClose('CANCEL');
+  assert.deepEqual(model.calls, []);
+  assert.deepEqual(runtime.toasts, []);
+});
+
+test('a pending create among the selection is skipped and named, the real partner still marked', async () => {
+  const runtime = loadActions();
+  const model = fakeModel();
+  runtime.actions.markForDeletion(null, [
+    searchRow({ IsChangeRequest: false, BusinessPartner: '4711', BusinessPartnerFullName: 'Acme NV' }, model),
+    searchRow({ IsChangeRequest: true, ChangeRequest: 'req-9' }, model)
+  ]);
+
+  assert.match(runtime.confirms[0].message, /1 pending create row\(s\) were skipped/u);
+  await runtime.confirms[0].options.onClose('OK');
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(model.calls.length, 1);
+  assert.equal(model.calls[0].parameters.BusinessPartner, '4711');
+});
+
+test('a failed update is reported, not swallowed', async () => {
+  const runtime = loadActions();
+  const model = fakeModel({ fails: true });
+  runtime.actions.markForDeletion(null, [searchRow({ IsChangeRequest: false, BusinessPartner: '4711' }, model)]);
+
+  await runtime.confirms[0].options.onClose('OK');
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(runtime.errors.length, 1);
+  assert.match(runtime.errors[0], /Could not mark for deletion/u);
+  assert.deepEqual(runtime.toasts, []);
 });

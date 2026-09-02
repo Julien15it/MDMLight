@@ -5,7 +5,7 @@
     "type": "application",
     "i18n": "i18n/i18n.properties",
     "applicationVersion": {
-      "version": "1.32.0"
+      "version": "1.33.0"
     },
     "title": "{{appTitle}}",
     "description": "{{appDescription}}",
@@ -234,6 +234,13 @@
                       "enabled": "mdm.md.businesspartner.manage.ext.CustomActions.isSingleSelection",
                       "requiresSelection": true,
                       "text": "{i18n>EditBusinessPartner}"
+                    },
+                    "MarkForDeletion": {
+                      "press": "mdm.md.businesspartner.manage.ext.CustomActions.markForDeletion",
+                      "visible": true,
+                      "enabled": true,
+                      "requiresSelection": true,
+                      "text": "{i18n>MarkForDeletion}"
                     },
                     "BusinessPartnerAssistant": {
                       "press": "mdm.md.businesspartner.manage.ext.CustomActions.openAssistant",

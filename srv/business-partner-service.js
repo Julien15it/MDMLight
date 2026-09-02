@@ -86,7 +86,8 @@ const UPDATE_FIELDS = Object.freeze([
   'SearchTerm1',
   'SearchTerm2',
   'CorrespondenceLanguage',
-  'BusinessPartnerIsBlocked'
+  'BusinessPartnerIsBlocked',
+  'IsMarkedForArchiving'
 ]);
 
 const ASSISTANT_FIELDS = Object.freeze([
