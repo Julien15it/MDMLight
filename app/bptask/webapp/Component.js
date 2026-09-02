@@ -3,9 +3,10 @@ sap.ui.define(
         "sap/ui/core/UIComponent",
         "sap/ui/model/json/JSONModel",
         "sap/ui/model/odata/v4/ODataModel",
-        "sap/m/MessageBox"
+        "sap/m/MessageBox",
+        "sap/m/MessageToast"
     ],
-    function (UIComponent, JSONModel, ODataModel, MessageBox) {
+    function (UIComponent, JSONModel, ODataModel, MessageBox, MessageToast) {
         "use strict";
 
         /**
@@ -394,23 +395,6 @@ sap.ui.define(
             },
 
             /**
-             * Whether THIS task is the last approval BPA's own chain still needs (2026-09-01,
-             * multiple approvers). `currentapprover`/`totalapprovers` are new, optional task inputs -
-             * both 1-indexed integers - that BPA maps onto the task context the same way `prefix`
-             * does; a task built before either existed carries neither, and that (or either value
-             * failing to parse as a number) is read as "the only approver", matching the single-
-             * approver behaviour this app always had. `>=` rather than `===` is deliberately
-             * forgiving of `currentapprover` somehow exceeding `totalapprovers` - still the final
-             * step, not a reason to withhold the decision.
-             */
-            _isFinalApprover: function (context) {
-                var total = Number((context || {}).totalapprovers);
-                var current = Number((context || {}).currentapprover);
-                if (!Number.isFinite(total) || !Number.isFinite(current)) return true;
-                return current >= total;
-            },
-
-            /**
              * Record the decision in CAP first, then complete the task. The order matters: an
              * approve is what creates the business partner in S/4 (changed 2026-08-25 - it used to
              * happen in completeRequest, after the task resumed the workflow), so the post has
@@ -424,19 +408,27 @@ sap.ui.define(
              * message below is how the approver learns that. Whether a failed post should instead
              * leave the task open is Julien's call, not this screen's.
              *
-             * An **approve** that is not yet the last one in BPA's own chain of approvers
-             * (2026-09-01) never reaches `decideRequest` at all: nothing is decided in CAP and
-             * nothing is posted to S/4 yet, only this one task completes - BPA's own routing is what
-             * sends the next approver's task, the same way it already owns every other multi-
-             * approver decision (see CLAUDE.md, "Multiple approvers: decide and post are separate").
-             * Reject is unaffected either way: rejecting at any step still rejects the whole request.
+             * **Every** approve reaches `decideRequest` now (2026-09-02, reversing the 2026-09-01
+             * design below) - CAP decides for itself whether this is the last approval a multi-
+             * approver chain needs, by counting `ApprovalsReceived` against `RequiredApprovals`
+             * server-side, and posts only once they match. The task still completes here either way
+             * - BPA's own routing sends the next approver's task from the task completing, not from
+             * anything decideRequest returns.
+             *
+             * What this replaced: reading `currentapprover`/`totalapprovers` off the task context to
+             * decide client-side whether to call decideRequest at all. Those values came from BPA
+             * mapping them onto the task the same way `prefix` is - which meant the decision of
+             * "is this the last approver" depended on the SBPA Lobby being re-pointed at a task-form
+             * version that declares the two inputs. It was not: the version was reverted the same
+             * day it was raised, so neither input ever reached this task, both were read as absent,
+             * and the FIRST approver of every multi-approver chain decided and posted. Counting
+             * server-side removes the dependency on that external configuration state entirely - see
+             * CLAUDE.md, "Several approvers, sequentially". Reject is unaffected either way: rejecting
+             * at any step still rejects the whole request.
              */
             _completeTask: async function (outcomeId) {
                 try {
-                    var context = (this.getModel("context") && this.getModel("context").getData()) || {};
-                    var isIntermediateApproval = outcomeId === "approve" && !this._isFinalApprover(context);
-
-                    var decision = isIntermediateApproval ? null : await this._decideOnServer(outcomeId);
+                    var decision = await this._decideOnServer(outcomeId);
                     await this._patchTaskInstance(outcomeId);
                     this._startupParameters().inboxAPI.updateTask("NA", this._taskInstanceId());
                     if (decision && decision.ErrorMessage) {
@@ -444,6 +436,14 @@ sap.ui.define(
                             "Approved, but the Business Partner could not be created in S/4HANA:\n\n"
                             + decision.ErrorMessage
                             + "\n\nThe request has been sent back to the requester for rework."
+                        );
+                    } else if (
+                        outcomeId === "approve" && decision
+                        && decision.RequiredApprovals && decision.ApprovalsReceived < decision.RequiredApprovals
+                    ) {
+                        MessageToast.show(
+                            "Approval recorded (" + decision.ApprovalsReceived + " of "
+                            + decision.RequiredApprovals + "). Waiting for the remaining approver(s)."
                         );
                     }
                 } catch (error) {

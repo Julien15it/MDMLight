@@ -158,14 +158,6 @@
         "prefix": {
           "type": "string",
           "title": "Service Prefix"
-        },
-        "currentapprover": {
-          "type": "integer",
-          "title": "Current Approver"
-        },
-        "totalapprovers": {
-          "type": "integer",
-          "title": "Total Approvers"
         }
       }
     },

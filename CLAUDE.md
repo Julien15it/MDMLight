@@ -336,10 +336,22 @@ what was wrong.
 - `_cancelPendingTrigger` keeps its name, has no timer left, and empties `_declinedProposals` so a
   check button asks again. Every check-running button calls it first.
 - `Propose` and `Scope` on `checkRequest` stay (the duplicate check sends `propose: false`, and
-  `checkStandard` still keeps the SAP standard checks off a scoped call); nothing automatic sends them.
+  `checkStandard` still keeps the SAP standard checks off a scoped call).
 - `_rememberDeclined`/`_isDeclined` stay as the record of what was offered and refused; nothing filters
   on it. Declines are recorded in `afterClose` (Escape is a decline too, and after Apply Selected the
   unticked rows are declines). One dialog at a time (`_proposalsOpen`). `_emptyState` clears them.
+
+**One deliberate exception (2026-09-02, asked for): the data steward review screen.**
+`_loadStagedRequest` calls `this.onCheck()` itself — the same call a press makes, not a copy of its
+body — at the very end, once loading is done, whenever `mode === "datasteward"` **and**
+`state.requestStatus === "checkAndEnrich"` (a request that already moved on gets no check: nothing to
+decide, and no reason to spend one). This runs on **every** open, not once — a refresh or a re-opened
+task pays for it again. The cost is accepted, not overlooked: each run books a vendor number in S/4 the
+same way a manual press does (see "SAP standard checks" below), because a steward had to know to press
+Check before seeing S/4's own findings at all, and the point of this screen is that S/4's own verdict is
+what a steward is here to look at. This is the only page-load trigger in the app — do not generalise it
+to Check/edit/create/approve, and do not build a debounced or field-commit version of it; both are
+exactly the machinery removed above, for the reasons above.
 
 ### Registry checks — VIES and GLEIF (`srv/checks/registry-checks.js`, `srv/ai/registry.js`)
 
@@ -1042,17 +1054,52 @@ Three traps found wiring this, all still load-bearing:
 destination. `SignalWorkflow: false` (the task form saying completion already delivers the decision)
 deliberately does **not** silence this: the decision and the result are different waits. Best-effort.
 
-**Several approvers, sequentially.** BPA routes through multiple approver tasks and only the last should
-decide anything in CAP. **CAP still knows nothing about this**; `app/bptask` decides whether to call
-`decideRequest` at all. BPA maps two optional task inputs, `currentapprover` and `totalapprovers`
-(1-indexed), and `_isFinalApprover(context)` is `current >= total` — absent, or unparseable, reads as
-"the only approver". `_completeTask("approve")` skips `_decideOnServer` when not final and only completes
-the one task, which is what BPA reads to advance. **Both inputs are declared while
-`applicationVersion` sits at `1.5.0`, which predates them** — until the task is re-pointed the Lobby
-serves the old schema, neither input arrives, and the first approver posts. Raise the manifest and the
-pin in `test/task-form.test.js` together. **Reject is never gated** — a chain of approvals is not
-a chain of independent decisions. The shared screen's own `onApprove`/`_decide` need no gate: embedded,
-`_addInboxActions` wires the buttons straight to `_completeTask`, and standalone there is no real chain.
+**Several approvers, sequentially — CAP counts, not the client (redesigned 2026-09-02).** BPA routes
+through multiple approver tasks in order (see `abap`-adjacent BPA scripting: a `$.context.custom`
+counter indexes into the `approvers` array from the start context to pick each level's `approvergroup`
+and to route the task — CAP's job ends at sending that array, ordered, once at submit). **What decides
+whether an approve actually posts to S/4 now lives entirely in CAP**, not in `app/bptask` and not in
+anything BPA maps onto the task context:
+
+- `ChangeRequests` carries `requiredApprovals`/`approvalsReceived` (`db/staging.cds`). Set together,
+  always to the same two values (`context.approvers.length`, `0`), at the three places a request enters
+  `inApproval`: `submitRequest`, `resubmitRequest`, and `decideDataStewardReview`'s `complete` branch —
+  a fresh approval cycle always gets a freshly counted total, because a reworked payload can change WHO
+  matches a `WorkflowRules` condition. Null on a request from before this column existed reads as 1
+  (`header.requiredApprovals || 1`), matching what every request did before this existed.
+- **`decideRequest`'s approve branch increments and persists `approvalsReceived` on every single call**,
+  before anything else — `appendComment` runs for every approval, not only the final one, so the thread
+  shows who decided at each step. Only once `approvalsReceived >= requiredApprovals` does the existing
+  post path run (`status: 'approved'` then `postAndRecord`, unchanged). Every earlier approval returns
+  `Status: 'inApproval'`, `BusinessPartner: null`, and the two counts (`ApprovalsReceived`/
+  `RequiredApprovals`, added to the action's return type) — recorded, nothing more.
+- **This replaced a client-side design that broke silently.** `app/bptask`'s `_isFinalApprover` used to
+  read two optional task inputs, `currentapprover`/`totalapprovers` (1-indexed), off the BPA task
+  context — `current >= total`, absent-or-unparseable reading as "the only approver" — and
+  `_completeTask("approve")` skipped `_decideOnServer` entirely unless final, so an earlier approval
+  never even reached CAP. Those two inputs depended on the SBPA Lobby being re-pointed at a task-form
+  version that declares them; the version was raised (`1.6.0`) then reverted the same day (`1.5.0`,
+  `3f5bf77`), so in practice they never arrived, every approver read as the only one, and the **first**
+  approval of every multi-approver chain posted the business partner. **Both are now gone** —
+  `_isFinalApprover`, `isIntermediateApproval`, and the two `sap.bpa.task.inputs` entries — not left
+  dormant. `_completeTask` calls `_decideOnServer` unconditionally for every outcome and shows a toast
+  naming the count when an approve was recorded but not yet final.
+- **Reject is still never gated** — a chain of approvals is not a chain of independent decisions, and
+  this did not change: `decideRequest`'s reject branch runs first, before any counting, whichever step
+  it is called from. The shared screen's own `onApprove`/`_decide` never needed a client-side gate either
+  (embedded, `_addInboxActions` wires the buttons straight to `_completeTask`; standalone it just calls
+  `decideRequest`) — both now benefit from the server-side count without a client-side change of their
+  own.
+- **Accepted, not solved:** two decisions for the same approver arriving concurrently (a genuine
+  double-click) could double-count `approvalsReceived`, because nothing here identifies WHO is deciding,
+  only that a decision arrived — no worse than the trust `postedBP`'s own idempotency guard already
+  extends to the final step, and BPA does not hand a second open task to an approver who already
+  completed theirs.
+- `app/bptask`'s `applicationVersion` moved `1.5.0` → `1.7.0` (2026-09-02) — a genuinely new number, not
+  a third attempt at `1.6.0`, since `1.6.0` already means something different (the version that declared
+  the now-removed inputs) in anyone's memory of this. **Still needs a deploy and Arthur re-pointing the
+  SBPA Lobby's User Task at `1.7.0`** before the fixed `Component.js` is what actually runs — a version
+  bump and a code fix change nothing on their own until both of those happen.
 
 ### Rework — the requester's screen
 

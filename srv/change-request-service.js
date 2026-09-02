@@ -1037,7 +1037,11 @@ class ChangeRequestService extends cds.ApplicationService {
         // complete branch), so this is the only write it ever gets. A first submit's baseline is
         // trivially its own data, which is exactly why nothing is highlighted on a brand new create
         // until someone edits it.
-        baselineDataJson: req.data.DataJson
+        baselineDataJson: req.data.DataJson,
+        // The count decideRequest gates posting on - same array BPA gets as `approvers` in this
+        // same context, so CAP's idea of "how many" never disagrees with what actually got routed.
+        requiredApprovals: context.approvers.length,
+        approvalsReceived: 0
       }).where({ ID: changeRequest }));
 
       return {
@@ -1138,7 +1142,12 @@ class ChangeRequestService extends cds.ApplicationService {
         // Overwritten on purpose: the resubmit is the submission that matters now, and the original
         // timestamp is of no use to anyone once the request has been round the loop.
         submittedAt: new Date().toISOString(),
-        submittedBy: requestingUserEmail(req)
+        submittedBy: requestingUserEmail(req),
+        // A fresh approval cycle: the reworked payload can change WHO approves (a different country,
+        // a different role match), so the count is rebuilt from this resubmit's own context, same as
+        // submitRequest, and the counter starts over.
+        requiredApprovals: context.approvers.length,
+        approvalsReceived: 0
       }).where({ ID: changeRequest }));
       await appendComment(db, changeRequest, 'Requester', requestingUserEmail(req), req.data.Reason);
 
@@ -1361,7 +1370,11 @@ class ChangeRequestService extends cds.ApplicationService {
       await db.run(cds.ql.UPDATE(HEADER).set({
         status: 'inApproval',
         submittedAt: new Date().toISOString(),
-        submittedBy: requestingUserEmail(req)
+        submittedBy: requestingUserEmail(req),
+        // Same reasoning as resubmitRequest: a fresh approval cycle, rebuilt from this completed
+        // review's own context, counter reset.
+        requiredApprovals: context.approvers.length,
+        approvalsReceived: 0
       }).where({ ID: changeRequestId }));
       await appendComment(db, changeRequestId, 'DataSteward', requestingUserEmail(req), req.data.Reason);
 
@@ -1723,6 +1736,40 @@ class ChangeRequestService extends cds.ApplicationService {
         );
       }
 
+      // CAP decides finality itself (2026-09-02, asked for) - not a client, not what BPA happens to
+      // put in the task context. A multi-approver chain used to rely on `app/bptask` reading
+      // `currentapprover`/`totalapprovers` off the task and only calling decideRequest on the last
+      // one; that value depended on the SBPA Lobby being re-pointed at a task-form version that
+      // declares the two inputs, and a reverted version meant every approver read as "the only one" -
+      // see CLAUDE.md, "Several approvers, sequentially". Counting here removes that dependency
+      // entirely: every approve is recorded, and only the Nth one - N counted by CAP itself - posts.
+      // A request that predates `requiredApprovals` reads as needing exactly one, matching every
+      // request's behaviour before this column existed.
+      //
+      // Accepted, not solved: two decisions for the SAME approver arriving concurrently (a genuine
+      // double-click before the UI reacts) could double-count, because nothing here identifies WHO
+      // is deciding, only that a decision arrived. This is the same trust level `postedBP`'s guard
+      // already accepts for the final step; a human-paced sequential approval chain makes the window
+      // narrow, and BPA does not hand out a second open task for an approver who already completed
+      // theirs.
+      const requiredApprovals = header.requiredApprovals || 1;
+      const approvalsReceived = (header.approvalsReceived || 0) + 1;
+      await appendComment(db, changeRequest, 'Approver', requestingUserEmail(req), req.data.Comment);
+
+      if (approvalsReceived < requiredApprovals) {
+        // Not yet - one or more approvers still owe a decision. Status stays `inApproval`, so the
+        // NEXT approver's own decideRequest call still passes the status guard above, and nothing
+        // reaches S/4 on the strength of this one decision alone.
+        await db.run(cds.ql.UPDATE(HEADER).set({ approvalsReceived }).where({ ID: changeRequest }));
+        return {
+          ChangeRequest: changeRequest,
+          Status: 'inApproval',
+          BusinessPartner: null,
+          ApprovalsReceived: approvalsReceived,
+          RequiredApprovals: requiredApprovals
+        };
+      }
+
       // Approved, and posted from here (changed 2026-08-25, on Julien's ask). It used to stop at
       // `approved` and leave the S/4 write to SPA's completeRequest callback; pressing Approve now
       // creates the partner and the instance is told the outcome through `waitForResult` rather
@@ -1731,9 +1778,9 @@ class ChangeRequestService extends cds.ApplicationService {
       // its postedBP guard makes it a no-op once this has run.
       await db.run(cds.ql.UPDATE(HEADER).set({
         status: 'approved',
-        reason: req.data.Comment || header.reason
+        reason: req.data.Comment || header.reason,
+        approvalsReceived
       }).where({ ID: changeRequest }));
-      await appendComment(db, changeRequest, 'Approver', requestingUserEmail(req), req.data.Comment);
       return postAndRecord(req, { ...header, status: 'approved' });
     });
 

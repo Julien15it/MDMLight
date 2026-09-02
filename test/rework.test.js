@@ -88,7 +88,7 @@ test('every decision and resubmit appends to the running thread, not just the la
   assert.match(
     reject, /appendComment\(db, changeRequest, 'Approver', requestingUserEmail\(req\), req\.data\.Comment\)/u
   );
-  const approve = decide.slice(decide.indexOf('// Approved'));
+  const approve = decide.slice(decide.indexOf('// CAP decides finality itself'));
   assert.match(
     approve, /appendComment\(db, changeRequest, 'Approver', requestingUserEmail\(req\), req\.data\.Comment\)/u
   );

@@ -56,6 +56,17 @@ entity ChangeRequests : cuid, managed {
   submittedAt       : Timestamp;
   submittedBy       : String(120);
 
+  /** How many sequential approvals this cycle needs, and how many CAP has recorded so far - the
+   *  count `decideRequest` gates posting on, so CAP decides finality itself rather than trusting
+   *  `currentapprover`/`totalapprovers` task-context values a client or BPA might supply. Set from
+   *  `workflowContext`'s own `approvers` array length at (re)submit and at a data steward's
+   *  completed review, alongside `approvalsReceived: 0` - the same three call sites that already
+   *  set `status: 'inApproval'`. Null on a request that predates this column: `decideRequest`
+   *  treats a null `requiredApprovals` as 1, matching every request's actual behaviour before this
+   *  existed. */
+  requiredApprovals : Integer;
+  approvalsReceived : Integer default 0;
+
   /** ETag as read when the request was raised, re-compared before posting so a concurrent change
    *  is detected rather than overwritten. */
   sourceETag        : String(60);

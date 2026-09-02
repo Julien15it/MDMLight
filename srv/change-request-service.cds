@@ -170,10 +170,13 @@ service ChangeRequestService @(path: '/service/changerequest') {
   };
 
   /**
-   * The SPA decision callback. Records the outcome only and never writes to S/4: `approve` means
-   * every approval SPA wanted is in and the request waits to be posted. `reject` is NOT terminal -
-   * it goes to `reworkRequired` and back to the requester, leaving the instance parked for
-   * `resubmitRequest`, with the comment on `rejectionComment` rather than over `reason`.
+   * The SPA decision callback. `reject` is NOT terminal - it goes to `reworkRequired` and back to
+   * the requester, leaving the instance parked for `resubmitRequest`, with the comment on
+   * `rejectionComment` rather than over `reason`. `approve` is recorded and counted against
+   * `requiredApprovals` every time it is called - CAP itself decides when the chain is complete
+   * (`ApprovalsReceived >= RequiredApprovals`) and only THEN writes to S/4; every earlier approve in
+   * a multi-approver chain returns `Status: 'inApproval'` and `BusinessPartner: null`, having done
+   * nothing more than record the decision.
    */
   action decideRequest(
     ChangeRequest : UUID not null,
@@ -192,6 +195,10 @@ service ChangeRequestService @(path: '/service/changerequest') {
      *  sends the request to `reworkRequired` and says so here rather than rejecting the action —
      *  a rejected action rolls the status write back with it. */
     ErrorMessage    : String(1000);
+    /** Only meaningful on an approve: how many approvals this cycle has now recorded, and how many
+     *  it needs. Absent (null) on a reject. */
+    ApprovalsReceived : Integer;
+    RequiredApprovals : Integer;
   };
 
   /**

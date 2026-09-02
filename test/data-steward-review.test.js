@@ -119,6 +119,29 @@ test('opening the screen claims the review out of inApproval, the same way rewor
   assert.match(body, /state\.showDataStewardButtons = awaitingReview;/u);
 });
 
+// Asked for (2026-09-02): S/4's own standard checks used to need a Check press before a steward saw
+// them at all. The only page-load check trigger in the app, and deliberately narrow - see CLAUDE.md,
+// "Checks run on a button press, and only on a button press".
+test('the data steward screen checks itself, every time it opens, once there is something to review', () => {
+  const load = controller.slice(controller.indexOf('_loadStagedRequest: async function'));
+  const body = load.slice(0, load.indexOf('_loadChangeBaseline: async function'));
+
+  // After the finally block, not inside it or inside the `reviewing` branch: it must run once
+  // loading, rendering and the "nothing to review" message are all settled, not before.
+  const afterFinally = body.slice(body.indexOf('} finally {'));
+  assert.match(afterFinally, /this\._renderAll\(\);\s*\n\s*\}\s*\n/u);
+  assert.match(
+    afterFinally,
+    /if \(mode === "datasteward" && state\.requestStatus === "checkAndEnrich"\) \{\s*\n\s*await this\.onCheck\(\);/u
+  );
+  // The same call a press makes - not a second copy of its body, so the two can never disagree.
+  assert.equal((afterFinally.match(/this\.onCheck\(\)/gu) || []).length, 1);
+  // Not gated on `awaitingReview` alone reused from the branch above (which is a `var` inside the
+  // try) - the same expression is re-checked directly off `state`, so it still holds even when the
+  // load hit the catch branch and never reached the `reviewing` branch at all.
+  assert.equal(/awaitingReview/u.test(afterFinally), false);
+});
+
 test('the two outcomes are wired to decideDataStewardReview, complete through the shared gates and reject directly', () => {
   assert.match(controller, /onCompleteDataStewardReview: function \(\) \{/u);
   assert.match(controller, /return this\._sendChangeRequest\("decideDataStewardReview"\);/u);

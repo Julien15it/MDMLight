@@ -3573,6 +3573,18 @@ sap.ui.define([
           maintenanceModel.refresh(true);
           this._renderAll();
         }
+
+        // S/4's own standard checks (ZMDML_BPCHECK) used to run on a button press only, like every
+        // other check - but a steward had to know to press Check before seeing S/4's own findings at
+        // all. Asked (2026-09-02) to run every time this screen opens, not once: every re-open and
+        // every refresh, accepting the known cost - each run books a vendor number in S/4 the same
+        // way a manual press does (srv/checks/bp-check.js). Gated on there being something to review
+        // (state.requestStatus === "checkAndEnrich"), or a request that already moved on would still
+        // burn a vendor number and pop a proposals dialog for a screen offering no decision buttons.
+        // Calls the SAME onCheck a press does - one code path, so the two can never disagree.
+        if (mode === "datasteward" && state.requestStatus === "checkAndEnrich") {
+          await this.onCheck();
+        }
       },
 
       /**

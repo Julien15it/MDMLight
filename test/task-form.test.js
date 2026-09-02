@@ -192,11 +192,29 @@ test('the outcome labels are literal, not i18n placeholders', () => {
  * Raised 1.2.0 -> 1.3.0 on 2026-08-25, which is such an occasion: `prefix` joined
  * sap.bpa.task.inputs, and the Lobby only re-reads that schema when the task is re-pointed. The
  * new version URL also guarantees nothing serves the old manifest from a cache.
+ *
+ * Raised 1.5.0 -> 1.7.0 (2026-09-02): `currentapprover`/`totalapprovers` are GONE again, not
+ * raised a third time. They were added in 1.6.0 so a multiple-approver chain could tell here
+ * whether this was the last approval - then 1.6.0 was reverted back to 1.5.0 the same day, which
+ * meant the version never carried them in practice: every approver read as "the only one" and the
+ * first one posted (see CLAUDE.md, "Several approvers, sequentially"). The fix moves the decision
+ * server-side instead - `decideRequest` now counts ApprovalsReceived against RequiredApprovals
+ * itself and only posts once they match, so this task form no longer needs to know its own
+ * position in the chain at all. `1.7.0` is a genuinely new number, not a re-raise of `1.6.0`, so a
+ * Lobby still pointed at the old 1.6.0 build cannot be mistaken for one serving this schema.
  */
 test('the task app version is pinned, so the process keeps pointing at it', () => {
-  // Known drift: the manifest declares currentapprover/totalapprovers but sits on the version
-  // that predates them, so neither reaches the context and the first approver posts.
-  assert.equal(manifest['sap.app'].applicationVersion.version, '1.5.0');
+  assert.equal(manifest['sap.app'].applicationVersion.version, '1.7.0');
+});
+
+test('currentapprover/totalapprovers are gone - the task form no longer decides finality', () => {
+  const inputProperties = manifest['sap.bpa.task'].inputs.properties;
+  assert.equal('currentapprover' in inputProperties, false);
+  assert.equal('totalapprovers' in inputProperties, false);
+  assert.equal(component.includes('_isFinalApprover'), false);
+  assert.equal(component.includes('isIntermediateApproval'), false);
+  // Every approve reaches decideRequest now, unconditionally.
+  assert.match(component, /var decision = await this\._decideOnServer\(outcomeId\);/u);
 });
 
 /**

@@ -176,43 +176,47 @@ test('the approve screen reports a failed post as a failure, not as a rejection'
 });
 
 /**
- * Multiple approvers (2026-09-01, asked for): BPA now maps `currentapprover`/`totalapprovers` onto
- * the task context, 1-indexed. An approve only reaches decideRequest - and so only posts to S/4 -
- * once this is the last one; anything earlier in the chain just completes this one task and leaves
- * the decision, and the post, to whichever approval turns out to be final. Individual approvals are
- * still not recorded anywhere in CAP (see CLAUDE.md, "Multiple approvers: decide and post are
- * separate") - BPA's own routing is what sends the next approver's task.
+ * Multiple approvers (redesigned 2026-09-02): CAP counts its own approvals now, not the task form.
+ * The earlier design had `app/bptask` read `currentapprover`/`totalapprovers` off the BPA task
+ * context to decide client-side whether to call `decideRequest` at all - which broke silently the
+ * moment the task app's version drifted from what the SBPA Lobby had re-pointed to (see
+ * test/task-form.test.js, "currentapprover/totalapprovers are gone"), and posted on the FIRST
+ * approval of every multi-approver chain. `decideRequest` now increments and persists
+ * `approvalsReceived` on every approve, and only posts once it reaches `requiredApprovals` - a
+ * value CAP itself set at (re)submit time from its own `approvers` array, independent of anything a
+ * client or BPA supplies afterwards.
  */
-test('an approve only decides the request once BPA says this is the last approver', () => {
-  const fn = taskComponent.slice(taskComponent.indexOf('_isFinalApprover: function'));
-  const body = fn.slice(0, fn.indexOf('\n            },'));
-  assert.match(body, /current >= total/u);
-  // Absent, or unparsable, reads as "the only approver" - a task built before this existed, or a
-  // plain single-approver flow, must behave exactly as it always did.
-  assert.match(body, /if \(!Number\.isFinite\(total\) \|\| !Number\.isFinite\(current\)\) return true;/u);
+test('an approve only posts once CAP has counted enough of them, and always records one', () => {
+  // The approve-side counting logic, scoped past the reject branch above it - both branches call
+  // appendComment(..., 'Approver', ...), so a plain decideBody search finds the reject branch's
+  // call first.
+  const countingBody = decideBody.slice(decideBody.indexOf('const requiredApprovals ='));
+  assert.match(countingBody, /const requiredApprovals = header\.requiredApprovals \|\| 1;/u);
+  assert.match(countingBody, /const approvalsReceived = \(header\.approvalsReceived \|\| 0\) \+ 1;/u);
+  // Recorded before the finality check, so a comment lands on the thread whichever approval this is.
+  const countedAt = countingBody.indexOf('const approvalsReceived =');
+  const commentAt = countingBody.indexOf("appendComment(db, changeRequest, 'Approver'");
+  assert.ok(countedAt > -1 && commentAt > -1 && countedAt < commentAt);
 
-  const complete = taskComponent.slice(taskComponent.indexOf('_completeTask: async function'));
-  const completeBody = complete.slice(0, complete.indexOf('\n            },'));
-  assert.match(
-    completeBody,
-    /var isIntermediateApproval = outcomeId === "approve" && !this\._isFinalApprover\(context\);/u
-  );
-  // Still completes the task either way - that is what tells BPA's own routing to move on.
-  assert.match(completeBody, /await this\._patchTaskInstance\(outcomeId\);/u);
-  // Reject is never gated on this: rejecting at any step still rejects the whole request.
-  const decisionAt = completeBody.indexOf('var decision =');
-  const outcomeCheckAt = completeBody.indexOf('outcomeId === "approve"');
-  assert.ok(outcomeCheckAt > -1 && outcomeCheckAt < decisionAt);
+  // Not final: status stays inApproval, nothing is posted, and the caller is told how many are in.
+  const notFinal = countingBody.slice(countingBody.indexOf('if (approvalsReceived < requiredApprovals)'));
+  const notFinalBody = notFinal.slice(0, notFinal.indexOf('// Approved, and posted from here'));
+  assert.match(notFinalBody, /Status: 'inApproval'/u);
+  assert.match(notFinalBody, /BusinessPartner: null/u);
+  assert.match(notFinalBody, /ApprovalsReceived: approvalsReceived/u);
+  assert.match(notFinalBody, /RequiredApprovals: requiredApprovals/u);
+  assert.equal(/postAndRecord/u.test(notFinalBody), false, 'not final: nothing is posted');
+
+  // Final: the existing post path, unchanged, just reached one approval later.
+  assert.match(approveBranch, /return postAndRecord\(req, \{ \.\.\.header, status: 'approved' \}\)/u);
 });
 
-test('currentapprover/totalapprovers are declared, optional task inputs', () => {
-  const manifest = JSON.parse(fs.readFileSync(
-    path.join(__dirname, '..', 'app', 'bptask', 'webapp', 'manifest.json'), 'utf8'
-  ));
-  const inputs = manifest['sap.bpa.task'].inputs;
-  assert.equal(inputs.properties.currentapprover.type, 'integer');
-  assert.equal(inputs.properties.totalapprovers.type, 'integer');
-  // Not required: every task built before either existed must still open.
-  assert.equal(inputs.required.includes('currentapprover'), false);
-  assert.equal(inputs.required.includes('totalapprovers'), false);
+// The task form no longer decides finality at all - see test/task-form.test.js for the removal of
+// _isFinalApprover, isIntermediateApproval and the currentapprover/totalapprovers task inputs.
+test('every approve reaches decideRequest, whichever approval in the chain it is', () => {
+  const complete = taskComponent.slice(taskComponent.indexOf('_completeTask: async function'));
+  const completeBody = complete.slice(0, complete.indexOf('\n            },'));
+  assert.match(completeBody, /var decision = await this\._decideOnServer\(outcomeId\);/u);
+  assert.match(completeBody, /await this\._patchTaskInstance\(outcomeId\);/u);
+  assert.equal(completeBody.includes('_isFinalApprover'), false);
 });
