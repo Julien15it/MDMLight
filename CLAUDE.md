@@ -1,1605 +1,1296 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code when working in this repository.
 
 ## What this is
 
-CAP (Node.js) + SAP Fiori Elements (OData V4) recreation of the standard SAP app
-`mdm.md.businesspartner.manage` (F3163). There is **no local business-partner
-database** — the CAP service is a live facade that delegates every request to an
-S/4HANA system's OData V2 `API_BUSINESS_PARTNER` service through the BTP
-destination `VF_S4HANA_DEST`. Deletion of Business Partners is deliberately
-disabled throughout the facade.
+CAP (Node.js) + SAP Fiori Elements (OData V4) recreation of SAP's `mdm.md.businesspartner.manage`
+(F3163). There is **no local business-partner database** — the CAP service is a facade that delegates
+reads to an S/4HANA OData V2 `API_BUSINESS_PARTNER` service through the BTP destination
+`VF_S4HANA_DEST`. BP deletion is disabled throughout.
 
-Reads are still pure facade, but **creates no longer go straight to S/4** — they
-are staged in PostgreSQL and posted only once an approver accepts them. Read
-"Change request staging" below before touching `db/staging.cds`,
-`srv/change-request-service.*`, or the maintenance controller.
+Reads are pure facade; **creates are staged in PostgreSQL and posted only once approved**. Read
+"Change request staging" before touching `db/staging.cds`, `srv/change-request-service.*`, or the
+maintenance controller.
 
 ## Commands
 
 Root (CAP service):
 ```bash
-npm ci                 # install
-npm run watch           # cds watch — dev server with auto-reload, http://localhost:4004
-npm start                # cds-serve (no watch)
-npm test                 # node --test test/*.test.js — runs all tests
-node --test test/business-partner-service.test.js   # run a single test file
-npm run local            # cds watch --profile hybrid (uses live BTP-bound destinations, see below)
+npm ci                   # install
+npm run watch            # cds watch, http://localhost:4004
+npm start                # cds-serve
+npm test                 # node --test test/*.test.js
+node --test test/business-partner-service.test.js
+node --test --test-name-pattern="<pattern>" test/<file>.test.js
+npm run local            # cds watch --profile hybrid (live BTP-bound services)
 npm run build            # cds build --production
-npm run deploy           # cds deploy
+npm run import:bp        # re-import API_BUSINESS_PARTNER
+npm run import:valuehelp # re-import ZSRVB_MDMLIGHT_VH
 ```
 
-Run a single `node:test` case by name: `node --test --test-name-pattern="<pattern>" test/business-partner-service.test.js`.
+Four npm projects under `app/`: `businesspartner` (Work Zone tile, Fiori Elements),
+`mdmrules` (MDM Configuration Panel tile), `bptask` (My Inbox task UI, freestyle), `reuse` (the
+shared maintenance screen, a library-shaped folder copied at build time). Each has `npm run build:cf`;
+`app/businesspartner` also has `npm start`, `start-mock`, `generate:metadata`, `unit-tests`,
+`int-tests`.
 
-UI (`app/businesspartner`, separate npm project):
-```bash
-cd app/businesspartner
-npm install
-npm start                # fiori run against the live/mocked backend, opens flpSandbox
-npm run start-mock        # fiori run against local mock data (ui5-mock.yaml)
-npm run generate:metadata # regenerate maintenance metadata used by the full-screen create/edit UI
-npm run unit-tests        # QUnit unit tests via fiori run
-npm run int-tests         # OPA5 integration tests via fiori run
-npm run build:cf          # generate metadata + ui5 build preload for Cloud Foundry
-```
+Deployment: `mbt build` then `cf deploy mta_archives/mdm-md-businesspartner-manage_<version>.mtar`.
 
-UI (`app/mdmrules`, the MDM Configuration Panel tile — again a separate npm project):
-```bash
-cd app/mdmrules
-npm install
-npm run build:cf         # ui5 build preload for Cloud Foundry
-```
+Hybrid testing needs service keys bound with `cds bind` into `.cdsrc-private.json` (gitignored).
+The destination must be named `VF_S4HANA_DEST`, URL ending at `/sap/opu/odata/sap` — CAP appends
+`/API_BUSINESS_PARTNER` or `/ZSRVB_MDMLIGHT_VH`. On-premise needs `ProxyType=OnPremise` via Cloud
+Connector and `csrf: true` (already set).
 
-UI (`app/bptask`, the My Inbox approval task UI — freestyle UI5, third npm project):
-```bash
-cd app/bptask
-npm install
-npm run build:cf         # syncs app/reuse, then ui5 build preload for Cloud Foundry
-```
+## Standing rules
 
-Deployment (multi-target app):
-```bash
-mbt build
-cf deploy mta_archives/mdm-md-businesspartner-manage_<version>.mtar
-```
+These recur everywhere; sections below assume them rather than restating them.
 
-### Local hybrid testing against live BTP services
-
-`npm run local` (`cds watch --profile hybrid`) requires service keys bound via
-`cds bind`, configured in `.cdsrc-private.json` (gitignored) under
-`requires.[hybrid]`. To (re-)bind a service (e.g. after the AI Core instance is
-created in Cloud Foundry):
-```bash
-cds bind -2 mdm-businesspartner-aicore
-cds watch --profile hybrid
-```
-Without a working destination binding, CAP still compiles and `npm test` still
-runs, but any live S/4HANA call will fail.
-
-The destination itself must be named `VF_S4HANA_DEST`, with its own URL ending at
-`/sap/opu/odata/sap` — CAP appends only `/API_BUSINESS_PARTNER` or
-`/ZSRVB_MDMLIGHT_VH` (see `package.json`'s `cds.requires`). For an on-premise
-system it needs `ProxyType=OnPremise` via Cloud Connector and an auth method
-allowed to read and maintain business partners; creating a partner also needs
-CSRF token support (`csrf: true`, already set in `package.json`).
+- **A check that could not run must never read as a check that passed.** No "no duplicates found"
+  from a check that never ran, no empty findings panel where a lookup failed, no silently skipped
+  validation. Report the failure instead.
+- **Best-effort for every remote/platform read that is not a verdict on the data** — BTP APIs, BPA
+  signals, workflow rule/profile tables, metadata drift, live re-reads for diffing. Never throw,
+  never block a submit, log and degrade. The opposite applies to *validation* stores: an unreadable
+  rule table reports itself, because a validation nobody ran must not pass silently. An unreadable
+  *field property* table resolves to nothing, because hiding every field or blocking every submit
+  over a control is worse.
+- **`cds-deploy` can ADD an element and can neither DROP nor RETYPE one.** Any removal fails
+  `deploy_to_postgresql` at compile time, identically on every retry. Consequence: abandoned columns
+  stay in the model as documented dead weight, and a reworked mechanism gets a NEW name rather than
+  reusing a deployed one. Currently dead and read by nothing: `DerivationRules.createsRow`, the four
+  `cond*` columns on `DuplicateRules`, `FieldPropertyProfiles.sequence`, and on `WorkflowRules` the
+  `conditions : LargeString` column plus the whole `conditionRows`/`WorkflowRuleConditions`
+  composition. Never delete these; never "revive" them either.
+- **Half a mechanism nobody calls is what the next person mistakes for a working one.** Withdrawn
+  client-side code is deleted, not left dormant. A *read* path is kept where stored data may still be
+  in the old shape (e.g. `srv/checks/value-lists.js` still parses `BE|NL` delimited lists).
+- **A requester never reads "you could have X if you filled in Y."** A derivation that cannot fire
+  for want of an input says nothing. Two exceptions that do speak: a result that is only partial
+  ("this country has 5 tax categories, one row is proposed"), and settings that could not be read.
+- **The client may never name the role a write is judged under.** `requesterContext(req)` hardcodes
+  `Requester` on every write path. The *screen's* own role is trusted only for rendering decisions
+  and for what a proposal may offer.
+- **Bump versions on every deploy** — `version` in `mta.yaml`, and
+  `sap.app.applicationVersion.version` in each UI app's manifest. Several artifacts have shipped
+  under one number, which makes deploy logs and `cf html5-list` useless.
 
 ## Architecture
 
 ### Facade, not a data model
-`srv/business-partner-service.cds` defines `BusinessPartnerService`, a
-projection over the imported `API_BUSINESS_PARTNER` model
-(`srv/external/API_BUSINESS_PARTNER.{csn,edmx}` — imported from S/4HANA's
-`$metadata`, all 65 entity sets). Almost every entity is `@readonly`; only
-`BusinessPartners` and a small set of maintenance **actions** allow writes.
-Two exclusion lists (`A_Customer excluding {...}`, `A_Supplier excluding {...}`)
-work around fields present in the imported metadata but not exposed by this
-particular on-premise S/4 release — if a section read fails with "Resource not
-found for the segment", check whether a field needs to move into one of these
-excludes rather than assuming a bug.
-
-If the target S/4 system exposes different metadata (different release/config),
-re-import `$metadata` for `API_BUSINESS_PARTNER` and rebuild — don't hand-edit
-the generated `.edmx`/`.csn`.
-
-### The imported models are copies, and they go stale silently
-
-Both remote services (`API_BUSINESS_PARTNER` and the value-help service
-`ZSRVB_MDMLIGHT_VH`) are compiled from files in `srv/external`. Nothing reads
-`$metadata` to serve a request, and nothing can: `as projection on` is resolved
-by the CDS compiler and `mbt build` runs offline. The exclusion lists above exist
-because of exactly this — the copy carries fields this release does not expose.
-
-```bash
-npm run import:bp          # re-import API_BUSINESS_PARTNER
-npm run import:valuehelp   # re-import ZSRVB_MDMLIGHT_VH
-```
-
-The bare form goes through `VF_S4HANA_DEST` and **only works in Cloud Foundry**.
-The SAP Cloud SDK resolves destinations from `VCAP_SERVICES`; `cds bind` writes
-`.cdsrc-private.json`, which CAP reads and the Cloud SDK does not, and
-`cds bind --exec` still needs `mdm-businesspartner-destination-service` bound plus
-the connectivity proxy, which exists only in the CF runtime. Expect
-`Could not find service binding of type 'destination'` in BAS — that is the
-environment, not a bug. Same trap for any other Cloud SDK script added here.
-
-From BAS, fetch it directly instead — `--insecure` if the gateway certificate is
-self-signed:
-
-```bash
-npm run import:bp -- --url https://<host>:44301/sap/opu/odata/sap   # S4_USER / S4_PASSWORD
-```
-
-`--url` is the only route that works from BAS, and there is no `--file` route on
-purpose: a browser download lands on the developer's laptop while `cds import`
-runs in BAS, so it costs a file transfer before it costs anything else. (For a
-document already in the workspace, `npx cds import <file>.edmx --as cds --force
---no-save` is the whole job. **Not `--into`**: cds-dk 8, the version installed,
-does not know that flag — it lands the result in `srv/external` by itself.)
-
-Both checked-in copies got here by hand, from Julien and Arthur respectively.
-There has never been an automated path, so treat a re-import as a manual step
-someone performs, not as something the app can do for itself.
-
-**The five `Der*` entities were HAND-ADDED to both copies (2026-08-27), not imported.**
-`npm run import:valuehelp` could not be run against this landscape, so they were transcribed from
-the served `$metadata` into `ZSRVB_MDMLIGHT_VH.cds` *and* `.edmx`. The two agree, and the drift
-check (which reads the `.edmx`) is therefore quiet about them rather than nagging.
-
-Worth knowing before touching either file:
-
-- The **`checksum`** comment at the top of the `.cds` is now stale. Nothing verifies it; it exists
-  for `cds import`'s own change detection.
-- The `.edmx` is a **single minified line**, so it was edited by anchored string insertion, not by
-  appending. Verified afterwards by tag balance (53 `EntityType` / 53 `Key` / 53 self-closing
-  `EntitySet`, up from 48 each) and by byte offset — the types land before the first
-  `<Association>`, the sets inside `<EntityContainer>` before the first `<AssociationSet>`.
-- **No `Annotations` block was added** for these five. The imported copy carries
-  `Common.SAPObjectNodeType` annotations for a dozen value helps; the served metadata carries none
-  for the `Der*` types, so neither does this.
-- A real `cds import` supersedes all of it and should be preferred whenever one can be run.
-
-**The drift check earns its keep, and its output needs reading against the excludes**
-(2026-08-21). It reported six fields gone from the live service; five were already in
-the exclusion lists, and the sixth — `RecipientType` on `A_CustomerWithHoldingTax` —
-was not, so that section's read was answering 404 and rendering empty on a partner
-that has withholding tax data. When this warning fires, check each named field
-against the `excluding {}` lists: the ones already there are noise, and the one that
-is not is a broken section. Re-importing is the proper fix; an exclusion is the one
-that does not need S/4 credentials.
-
-`srv/metadata-drift.js` runs once at startup and reports the difference against
-the live services, scoped to the entity sets the app actually reads (nine of the
-65 in `API_BUSINESS_PARTNER`). A property the live service **dropped** is a
-warning, because that read is already failing; one it **gained** is an info,
-because the copy is only behind. It is best-effort by construction — an
-unreachable S/4 logs at debug and never delays or fails startup — so treat a
-silent log as "no destination here", not as "in step".
-
-**Excluding a field in the CDS fixes the live read, and used to leave it on the
-create screen anyway** (found and fixed 2026-08-27). The maintenance UI's field
-catalog (`app/reuse/.../BusinessPartnerMetadata.js`) is generated by
-`app/businesspartner/scripts/generate-maintenance-metadata.js`, and that script
-read the **raw imported** `API_BUSINESS_PARTNER.csn`/`.edmx` directly — never
-`business-partner-service.cds` — so a section's own `excludedFields` array there
-was a **second, hand-copied list** of the same exclusions, and nothing enforced
-that the two agreed. `RecipientType` on `A_CustomerWithHoldingTax` was excluded
-in the CDS on 2026-08-21 (the incident above) and never added to that section's
-`excludedFields` — so the field kept rendering on the create screen for six days,
-correctly gone from S/4's own metadata but never removed from the copy the create
-screen actually reads. The generator now compiles `business-partner-service.cds`
-once (`cds.load`/`cds.linked`, same offline compilation `cds build` already
-relies on) and diffs each section's projected elements against the raw CSN to
-derive its exclusions automatically, merged into whatever `excludedFields` the
-section still hand-lists for its own reasons. A field that is CDS-excluded but
-still named in a `fieldGroups` block now fails the build with a clear message
-instead of silently reappearing — the same guard that already existed for a
-field named in a group the raw metadata does not have, extended to catch the
-opposite drift. Re-run `npm run generate:metadata` after any change to
-`business-partner-service.cds`'s `excluding {}` clauses, same as always — the fix
-is that a forgotten run no longer leaves a genuinely-excluded field showing.
-
-**Customer Data and Supplier Data became deletable in the generated metadata too
-(2026-08-28, reported: "bij supplier data en customer data is dit niet
-mogelijk").** Every other maintainable section was deletable already; these two
-were still add-only because `generate-maintenance-metadata.js` hand-set
-`deletable: false` on both, copying the reasoning from
-`MAINTENANCE_ENTITIES.Customers`/`.Suppliers` on the server (see "Full-screen
-maintenance" above) — a reasoning that does not actually apply here:
-
-- **The two `deletable` flags are unrelated code**, despite the same name and the
-  same section id. `MAINTENANCE_ENTITIES` gates `deleteBusinessPartnerEntity`'s
-  live OData `DELETE` against S/4, which is real and stays refused — S/4 has no
-  such verb for a customer/vendor master record. The generated metadata's
-  `deletable` gates only whether **this shared, staged maintenance screen** draws
-  a Delete button for the section; nothing auto-derives one from the other.
-- **Deleting the row here never reaches that server call at all**, for either
-  request type, because of a gap in `writeStagedNodes` (`srv/change-request-service.js`):
-  `Customers`/`Suppliers` are `!config.many` (`kind: "single"`, one row at most),
-  and that branch has **no `deleted[section]` handling whatsoever** — unlike the
-  collection branch, which stages an explicit `action: 'D'` row that `postToS4`
-  later turns into a real `deleteBusinessPartnerEntity` call. So removing the row
-  on screen just means nothing is (re)inserted into `StagedCustomer`/
-  `StagedSupplier` at save/submit: a **create** stages no customer/supplier data
-  at all (the section was never posted to S/4 in the first place), and a
-  **change** over a partner that already has one simply leaves S/4's live record
-  untouched — the request carries no instruction about it either way. Neither
-  case is a delete this app forwards anywhere; the button only lets someone take
-  back data they added (or reviewed and decided not to touch) on this screen.
-  Fixing this gap to genuinely stage a deletion for an *existing* Customer/Supplier
-  would run straight into the server-side 405 at post time, which is exactly why
-  it has not been touched.
-- **The fix is therefore two one-line removals** — `deletable: false` deleted
-  from the `Customers` and `Suppliers` entries in
-  `generate-maintenance-metadata.js` — followed by `npm run generate:metadata`.
-  `MAINTENANCE_ENTITIES` on the server is untouched and must stay that way.
-
-### The `abap/` folder — how the two S/4-side services are built
-
-`abap/valuehelp/README.md` and `abap/customerfields/README.md` are the ADT-side
-companions to the two services above: exact ABAP steps for creating the service
-definition/binding in the S/4 system, which released views back each value help,
-and known drift between what is exposed there and what has been imported here.
-Read one before touching a `@Common.ValueList` or asking why a field has no F4.
-
-**`abap/customerfields` (`ZMDML_CUST_ENTITY` / `ZSRVB_MDMLIGHT_CUST`) is designed
-but not yet wired in** — it is not in `package.json`'s `cds.requires`, has no
-`srv/external` copy, and nothing in `srv/business-partner-service.cds` projects
-it. It exposes S/4's `I_Customer` view to close the gap between
-`A_Customer`'s 53 fields and the MDG *ERP Customer* screen's larger set
-(Trading Partner, DME Indicator, Condition Groups 1–5, and others) — build it
-when one of those fields is actually asked for, following the README's ADT and
-wiring steps rather than guessing at the shape.
-
-### Change request staging (approve-then-create)
-
-The whole point of the staging layer: **nothing reaches S/4 until it is
-approved.** Before it existed, `saveBusinessPartner` wrote the BP to S/4
-immediately and started the workflow afterwards, so the approver was reviewing
-something already live. Do not reintroduce that order.
-
-The flow, with create as the example:
-
-1. User fills the create form. **Preview was removed 2026-08-13** — it was a step
-   between wanting a partner and asking for one, and the validation it gated on
-   runs on submit anyway. Check, Save Request and Submit Request are all live on
-   the empty form.
-2. **Submit Request** writes everything to the staging tables (and **Save
-   Request** stores a draft without starting anything).
-3. The SPA workflow starts and the task lands in the approver inbox.
-4. The approver opens the same Maintain BP screen in approve mode, data read
-   back from staging, with Approve / Reject in place of save/submit.
-5. On approve, CAP posts to `API_BUSINESS_PARTNER` — the SPA never writes to
-   S/4 itself.
-
-### The merged search list (2026-08-24)
-
-The list report reads **`BusinessPartnerSearchResults`**, not `BusinessPartners`:
-the live S/4 partners and the change requests still in flight, in one result set.
-Without it a requester could not see that the company they are about to request
-is already being created by somebody else — and worse, a partner under an
-in-flight request was filtered **out** of the list by
-`applyChangeRequestExclusion`, which is now deleted.
-
-Two kinds of row, and the difference matters:
-
-- A **pending create** has no partner number yet, so it can only be seen as its
-  own row (`ResultKey: 'CR:<id>'`, `IsChangeRequest: true`), named by
-  `stagedFullName` because S/4 is the one that derives
-  `BusinessPartnerFullName` and staging only has the fields it was typed into.
-- A **change/block/delete** request over an existing partner is that partner's
-  own row (`ResultKey: 'BP:4711'`), marked via `RecordStatus` /
-  `RecordStatusCriticality` and carrying `ChangeRequest`. Its staged copy is
-  never listed: staging holds a second copy of the same company, and showing
-  both would report one company twice — the same reason `stagedEntries` in
-  `srv/ai/duplicate-check.js` feeds creates only to the duplicate check.
-
-`IN_PROGRESS_REQUEST_STATUSES` (`srv/search-results.js`) is `draft`,
-`inApproval`, `reworkRequired`. It is deliberately **narrower** than
-`ACTIVE_REQUEST_STATUSES`, which is a lock and covers `approved` and `failed`
-too. Do not collapse the two: one answers "may this partner be edited", the
-other "is a human still holding this request".
-
-The entity is `@cds.persistence.skip` — one READ handler in
-`srv/business-partner-service.js` merges a remote read with staging:
-
-1. Staging is read **first**. The staged rows always take the top of the list: a
-   pending create has no number, so that is where the default sort puts it, and
-   fixing their position is what makes `pageSplit` exact rather than
-   approximate — page 2 skips the staged rows it already showed and resumes the
-   remote read at `skip - pendingCount`.
-2. Staged rows are filtered **in memory** by `matchesWhere` (enough CQN for what
-   the filter bar and the `$search` rewrite emit) and `matchesTerms` (every term
-   must hit a field, matching the remote rule). An expression `matchesWhere`
-   cannot evaluate **keeps** the row and logs `[search]`: a staged request
-   wrongly shown is a nuisance, one wrongly hidden is the failure this list
-   exists to prevent.
-3. The remote read asks for a **fixed** column list (`PARTNER_FIELDS`). The
-   client asks for status columns that exist only here, and one unknown field
-   fails the whole remote read.
-4. `$count` is the remote count plus the matching staged rows, and **both sides
-   have to be numbers**. `$count` arrives from the V2 remote as a **string**, so
-   `partners.count + pending.length` was `"323" + 57` — string concatenation,
-   giving `"32358"` for a list of 380 rows. It reported a count two orders of
-   magnitude out for a week, and survived that long because 32,354 / 32,355 /
-   32,358 all look like a plausible partner population rather than a bug.
-
-   What gave it away was the arithmetic, not the logs: the numbers were always
-   `"323"` with the staged count stuck on the end. Two wrong theories came first —
-   that an unfiltered read was simply correct, and then that the `$top=1` count-only
-   read made the gateway answer differently — and a per-read `[search]` log line
-   disproved the second by printing `count 323` on exactly that read. The count-only
-   read is back to asking for one throwaway row; the page-size version was aimed at a
-   bug that was never there.
-
-   **That per-read log line is gone** (2026-08-24), having settled this twice. The
-   two `[search]` warnings that remain are worth keeping: staging unavailable, and a
-   read arriving with no `$top` — the second is the one shape whose count nobody can
-   sanity-check. If a count ever looks wrong again, put the line back rather than
-   theorising: it prints the incoming shape, `countOnly`, and the remote count.
-
-   A page filled entirely by staged rows still needs the total, which is why that
-   branch exists at all.
-
-Consequences worth knowing before changing this:
-
-- The computed columns are declared **non-filterable and non-sortable**
-  (`@Capabilities.FilterRestrictions` / `SortRestrictions`). Sorting on a
-  computed column would silently sort one half of the list only.
-- **Every filterable table column is also in `UI.SelectionFields`** (asked for
-  2026-08-27), because OData V4 Fiori Elements builds the filter bar - and its
-  "Adapt Filters" dialog - from `SelectionFields` alone; unlike V2, there is no
-  "every property is a candidate" fallback, so a column left out of that list
-  cannot be added as a filter no matter how visible it already is in the table.
-  `BusinessPartnerFullName` and `SearchTerm1` were LineItem columns without a
-  matching `SelectionFields` entry until then.
-- **The change-request columns became filterable too (2026-08-28, asked for)** -
-  `RecordStatus`, `IsChangeRequest`, `ChangeRequestType`, `ChangeRequestStatus`,
-  `RequestedBy`, `RequestedAt` are all in `UI.SelectionFields` and out of
-  `NonFilterableProperties` now. S/4 has never heard of any of them, so the READ
-  handler cannot forward such a filter as-is the way it does for
-  `BusinessPartnerCategory` or `SearchTerm1` - see "Filtering on the
-  change-request columns" below for how it evaluates one locally instead.
-  `ChangeRequest` (a raw UUID) stays off `SelectionFields` on purpose, the same
-  reasoning that keeps `ResultKey`/`RecordStatusCriticality` off it: a field that
-  means nothing as a typed value is not worth offering as a filter candidate.
-- Sorting on a field S/4 *can* sort still leaves the staged rows on top —
-  `remoteOrderBy` drops what S/4 has never heard of, `ResultKey` included.
-- The **object page and the maintenance screens still read `BusinessPartners`**,
-  which is why the exclusion had to go rather than move: a hidden partner could
-  not be opened for display either.
-- Because a marked partner is now reachable, `openEditPage` in
-  `CustomActions.js` refuses to edit a partner that carries a `ChangeRequest`
-  and names it. Hiding the row used to be what prevented that; a message is.
-- **A change request row opens read-only, for anyone** (2026-08-24). Seeing what
-  has already been asked for is the point of showing the request in this list, and
-  the list itself is open — so a gate on the view would only have hidden the answer
-  it exists to give. A first version restricted it to a steward or the requester
-  (`CanViewRequest`, resolved from `req.user`); Maarten opened it to everyone and
-  that flag is gone rather than left dormant.
-- **The route is `ChangeRequests/{id}/display`, never the edit one.** `_loadStagedRequest(id, "view")`
-  renders the screen with `editing` false, no Check, no decision buttons and no
-  save — so this widened what can be *seen* without widening what can be
-  *changed*. Editing a draft still means the steward-gated Change Requests list,
-  and an `inApproval` request is still decided from the approver's inbox against a
-  real task. `onSave` refuses an unrecognised mode, so `view` cannot write.
-- **Nothing authorises the staged payload, and this did not change that.**
-  `getRequestPayload` has no check in front of it and neither does the `@readonly
-  ChangeRequests` entity — the whole payload is already readable by any
-  authenticated user through `$expand`, which is how the "reading staged data"
-  recipe further down works. Closing that needs the role model this file keeps
-  deferring: restricting `getRequestPayload` to steward-or-requester today would
-  **break every approval**, because an approver is neither.
-
-#### Filtering on the change-request columns (2026-08-28)
-
-Asked for directly: a requester wants to filter the list by status ("show me my drafts", "what is
-in approval"), and status is exactly the one column S/4 has never heard of. Forwarding such a
-filter to the remote read the way `BusinessPartnerCategory` already is would fail the whole read -
-S/4 would answer "property not found", not "no matches".
-
-- **`referencedFields` (`srv/search-results.js`) walks a WHERE clause the same way `valueOf` reads
-  it** (`ref`/`xpr`/`list`/`func`) and returns every field it names. The READ handler compares that
-  set against `PARTNER_FIELDS` - the fixed column list S/4 actually understands - and any field
-  outside it flips the read into a different branch entirely.
-- **That branch fetches the full matching partner population and filters everything in memory**,
-  the same trade-off already made for a read with no `$top`: `mergeLocalPage` merges the pending
-  entries and the fetched partners, runs `matchesWhere` against **`entry.row`** (not
-  `entry.searchable`, which was built only for `matchesTerms`'s free-text search and never carried
-  the computed change-request fields at all), sorts by `byRequestedAtDesc`, and pages the result
-  locally - so the `$count` this branch returns is exact, unlike the remote path's own string-`$count`
-  workaround.
-- **A `console.warn` names the field(s) that forced it**, the same discipline the "no `$top`"
-  warning already follows: an expensive read must never happen silently.
-- **`$orderBy` is untouched by any of this** - sorting on a change-request column is still refused
-  (`NonSortableProperties` keeps all of them, `RecordStatus` included), for the same reason as
-  before: the staged half is sorted in memory, so sorting on one would silently sort one half only.
-  Only *filtering* was widened.
-- **`FilterRestrictions.NonFilterableProperties` now holds only `ResultKey` and
-  `RecordStatusCriticality`** - a synthetic key nobody types and a bare colouring int, neither of
-  which means anything as a value to filter *by*. Every other change-request column moved out, and
-  into `UI.SelectionFields` (see above) so "Adapt Filters" actually offers it.
-- **A mixed filter (a remote field AND a change-request field) still works correctly**, because
-  the local branch does not try to split the WHERE clause and forward half of it - it evaluates the
-  *whole* clause against the *whole* merged population once fetched. Splitting would be the
-  performance optimisation; correctness came first.
-
-### The request screen's message area (2026-08-24)
-
-**The strips live in a collapsible `Panel`** (`maintenanceMessagePanel`), like the
-duplicate findings below them. A submit reports several at once; information-only
-noise must not push the form off screen.
-
-- The **header carries the leading message**, elided to one line, with `(+N more)`
-  for the rest — so a collapsed panel still says what it holds. The strips are
-  ordered so a Warning leads, which is what makes that worth reading.
-- **Anything above Information opens the panel itself** (`messagesNeedAttention`).
-  A blocked submit or an approver's rejection reason is not something to make
-  somebody click for; an Information-only set stays shut, which is the case the
-  panel exists for.
-- `expanded` is bound **one-way**, so a render re-applies it: expanding an
-  information-only panel and then editing a field collapses it again. Accepted
-  deliberately over a state flag that all thirteen `state.messages = …` sites would
-  have to remember to set — that is the version that goes stale. If the re-collapse
-  ever annoys somebody, the fix is the flag plus a fingerprint, not a formatter.
-
-**The duplicate findings follow the request into the approval task.** They were
-written to `CheckFindings` at submit and **never read back**: the approve screen
-built its panel only from a check it ran itself, which it does not, so an approver
-opening a task saw an empty panel — indistinguishable from "no duplicate was
-found", which is the one wrong answer this whole feature refuses to give.
-`getRequestPayload` now returns `FindingsJson` and `_loadStagedRequest` feeds it to
-the same `_setDuplicatePanel`, so the requester's panel and the approver's are one
-piece of code. Two details:
-
-- **`duplicate_check` findings only**, and the same `isStale` filter the exposed
-  `CheckFindings` view applies — `CheckFindings` also holds the validation and
-  registry findings, which are a different report, and a resubmit's superseded
-  verdicts would otherwise come back alongside the current ones and make one pair
-  read as several.
-**And the validations follow it too** (2026-08-24). `CheckFindings` only ever held
-`duplicate_check` rows, so a VIES name mismatch, a VAT number VIES could not
-confirm, a GLEIF statement or a `warning`-level configured rule was reported to the
-requester at submit and then dropped — the approver judged the request without the
-findings it was submitted with. `recordValidationFindings` stores them on both
-submit paths and `getRequestPayload` returns them as `ValidationsJson`.
-
-- **Written after the blocking gate**, so nothing blocking is ever stored: a
-  blocking validation leaves the request a draft and never reaches this point.
-- **Written before the duplicate check**, so an outage in that check cannot cost the
-  warnings the submit already produced.
-- **Superseded, not deleted**, on a resubmit — same as the duplicates, so an earlier
-  verdict stays auditable.
-- **Rendered as strips, not in the duplicate panel**: they are statements about this
-  record, not a list of other partners to compare it against. `_validationMessages`
-  is the shared mapper, so the approver's strips and the requester's Check strips
-  cannot drift.
-- **Appended after the mode branches.** Every branch *assigns* `state.messages`, so
-  setting them earlier puts them where the next branch wipes them. Order is: the
-  branch's own message (it explains the screen, and the collapsed panel header shows
-  the first one), then the submitted warnings, then who has it now.
-
-- The approver's rows carry **no candidate name**: `candidateName` is not a
-  staging column, so the title is the partner number (or `pending request <id>`)
-  and the stored `message` carries the sentence. Add the column if the name matters
-  more than that.
-
-### `BusinessPartnerFullName` is derived, never stored (2026-08-24)
-
-It is a **standard S/4 field**, not one this app added, and
-`srv/external/API_BUSINESS_PARTNER.edmx` marks it
-`sap:creatable="false" sap:updatable="false"` — S/4 composes it from the name
-components and refuses to be told it. That is why the maintenance screen shows it
-uneditable (`generate-maintenance-metadata.js` carries the flags through) and why
-making it editable would gain nothing.
-
-It is also absent from the **Field Properties** catalog, correctly:
-`payload-fields.js` is generated from `db/staging.cds`, which has no such column,
-and a profile cannot govern a field nobody can fill.
-
-The gap that mattered: a **pending create** has no such name anywhere. S/4 has
-never seen the partner and staging does not hold the field, so the approver's task
-was being handed a blank where the partner's name belongs. `srv/partner-name.js`
-composes it — the category decides which fields to read (1 person, 2 organisation,
-3 group), because S/4 discards name fields that do not match the category, and an
-empty answer falls through the other groups rather than leaving a request unnamed
-for a human to read.
-
-**One composed name, two consumers**, so the search list and the approver's task
-can never name the same requested partner differently: `stagedFullName` in
-`srv/search-results.js` *is* `fullNameOf`, and `buildBusinessPartnerInput` wraps
-the root row in `withFullName`.
-
-**Never write it into a request payload**, and this is the trap worth remembering:
-`sanitizeEntityPayload` excluded it on **update** all along and excluded *nothing*
-on create, so a value sitting on the staged root would have been forwarded to S/4
-on the post and rejected — a request that fails at the last step. It cost nothing
-while nothing could produce such a value; composing one is exactly that. Hence
-`ROOT_CREATE_EXCLUDED_FIELDS`, which is the create-path counterpart and holds
-`BusinessPartnerFullName` and `BusinessPartnerName`. Other derived root fields
-(`BusinessPartnerUUID`, `CreatedByUser`, `CreationDate`, …) are still unguarded on
-create; nothing produces them today, and the same reasoning applies if anything
-ever does.
-
-**On the screen it is filled by `_refreshFullName`**, from `previewName` — the same
-category-driven composition, client-side. Two rules make it safe and honest:
-
-- **A committed name field recomposes it** (`_onFieldCommitted`, `recompose: true`),
-  so it fills in as soon as Name 1 is typed rather than waiting for a post.
-- **So does a name accepted from a proposal, and so does the Additional Fields dialog**
-  (both fixed 2026-08-27). Neither fires `_onFieldCommitted` — `_applyProposals` writes
-  straight into `state.root` — so accepting a VIES-proposed "Alluvion BV" over a typed
-  "Test" left the full name reading "Test". Both now recompose, and both are **guarded on a
-  name field having actually changed**: recomposing on every Apply would overwrite S/4's own
-  derivation on a partner read from S/4, which is what the rule below exists to prevent.
-- **An existing value is otherwise left alone.** On a partner read from S/4 that
-  value is S/4's own derivation, and replacing it with a composition would show
-  something S/4 does not say. A staged request always arrives without one, so
-  loading a request composes it.
-
-Writing it onto `state.root` is safe on both counts that matter: staging has no such
-column so `stageable()` drops it, and `ROOT_CREATE_EXCLUDED_FIELDS` keeps it out of
-the create S/4 would reject. A value to show, never one to store.
-
-**The AI assistant's suggested draft never fires `_onFieldCommitted`, so it never
-recomposed the name either** (fixed 2026-08-27). `_onCreateRoute` writes
-`OrganizationBPName1`/etc straight onto `state.root` from the parsed draft — that
-is not a user editing an `Input` control, so the commit-triggered recompose above
-never ran, and the full name stayed blank until the requester separately touched a
-name field by hand (typing Name 2, say, then recomposed off both fields at once and
-looked like Name 2 was what had been missing). `_onCreateRoute` now calls
-`this._refreshFullName(true)` itself, right after `setData` so `previewName` reads
-the draft's fields rather than the empty state it replaced. Safe to call
-unconditionally: on a plain `BusinessPartners/create` with no draft, `previewName`
-composes nothing from an empty root and the existing no-op guard
-(`!composed || root.BusinessPartnerFullName === composed`) leaves the screen alone.
-
-### Who has it now — the processors strip (2026-08-24)
-
-Every change request screen leads with one Information strip saying which step the
-request is on and who is holding it: `Current step: Approval - with
-julien@alluvion.eu, Sales Approver`. `getRequestPayload` returns it as
-`ProcessorsJson`; `srv/request-processors.js` maps a status to a step, a list and a
-sentence.
-
-**The approvers are what CAP SENT the workflow, not who the workflow gave the task
-to.** They are re-resolved from the `WorkflowRules` table against the payload as it
-stands, so two things can make them wrong: the table may have been edited since the
-submit, and — today — **Arthur's process ignores `approvers` entirely** (see
-"Workflow rules"). It becomes the real answer only once the process routes on the
-list, and it must never be labelled as SBPA's assignment before that lands.
-
-**That caveat belongs in the code, not in the strip.** It was in the strip until
-2026-08-24 — *"With the approvers below, as sent to the workflow."* — and Maarten had
-it removed: the names are already in the same sentence, so "below" was wrong, and
-"as sent to the workflow" told a requester nothing they could act on while reading as
-a hedge. A note is now shown **only when there is something a reader can do with it**,
-which is the empty case: no rule named an approver, so look in the inbox.
-
-The rest is deliberate:
-
-- **Approvers are resolved only while the status is `inApproval`.** For a draft they
-  would name people who are responsible for nothing yet.
-- **A requester is always `kind: 'user'`**, whatever their user id looks like. Only
-  the approver half of the rules table can name a role, and the `@` rule that tells
-  them apart is the same one the wire uses.
-- **`submittedBy` outranks `createdBy`** — whoever sent it is who it is with.
-- **The steps nobody holds say so.** `approved` is waiting on the workflow to post,
-  not on a person; `failed` says a steward has to pick it up and that it will not
-  retry itself. Naming somebody who cannot act would be worse than naming nobody.
-- **An empty approver list is a legitimate answer**, as everywhere else that table
-  is read: it says the workflow routes it itself and that the holder is only visible
-  in the approver's inbox.
-- **`rejected` reads as the rework it has become.** Nothing writes it any more, but
-  it cannot be dropped from the enum, so it must not fall through to "nobody".
-- **The strip goes LAST**, after every mode branch has set its own messages — both
-  so none of them can overwrite it, and because each of those messages explains the
-  screen the requester is looking at: why a rework link offers nothing, why a
-  request is read-only, what a rejection said. The panel header shows the *leading*
-  message, so leading with the step collapses the explanation out of sight. It was
-  prepended for half a day and that is exactly what it did. It leads on its own
-  when nothing else spoke, which is the plain approve screen.
-- Best-effort, like every other read of the workflow rules: a table that cannot be
-  read costs the strip, never the screen.
-- **Suppressed entirely on the rework screen** (2026-08-26, asked for). The rework
-  branch already sets its own message explaining why the requester is looking at
-  this screen; "Current step: Rework - with &lt;requester&gt; ... Sent back to the
-  requester, who resubmits it or withdraws it." on top of that read as noise, not
-  new information — the requester already knows the request is theirs to act on.
-
-**Removed from the screen entirely on 2026-08-28** ("haal de infomessage uit de
-app waar de melding current step zegt wie approved, dit is niet meer nodig" - not
-needed any more). `processorMessage`, `parseProcessors` and `state.processors`
-are gone from `BusinessPartnerMaintenance.controller.js`, and `_loadStagedRequest`
-no longer appends anything after `submittedWarnings`. **Only the client-side
-reading of it went** - `srv/request-processors.js`, `ProcessorsJson` on
-`getRequestPayload`, and every rule above about how the step and the approvers are
-resolved are all untouched, so this stays available to build a different surface
-on later without re-deriving any of it.
-
-### The check pipeline — `srv/checks/pipeline.js`
-
-**validate → derive → duplicate check**, and the order is the design. Data that
-fails validation cannot be a duplicate of anything, so a blocking validation
-stops the rest. Data that is merely incomplete may be missing the very fields a
-duplicate rule needs, so derivation runs *before* the duplicate check.
-
-Stages run over the **request payload** (`{ root, sections }`), not a flattened
-candidate, because a derivation has to be able to say "the street of the first
-address" and the screen has to write it back to that field.
-
-`VALIDATIONS` and `DERIVATIONS` are the default registries and are empty; the
-stages actually in use are built per request from two places and concatenated in
-`runRequestChecks`:
-
-- `srv/checks/rule-store.js` — the **steward-configured** validation and
-  derivation tables, deterministic and offline. See "The validation and derivation
-  tables" below.
-- `srv/checks/registry-checks.js` — **VIES and GLEIF**, as one validation and one
-  derivation sharing a single lookup (VIES throttles per member state).
-
-Configured stages come first in both lists; the reasoning is with the tables.
-
-- **Validation**: a VAT number VIES does not know blocks. A name or an address
-  that disagrees with the register only **warns** — VIES returns the legal name
-  and partners are often stored under a trading one, and blocking stopped the
-  derivations and the normalisation proposals as well. `NAME_MISMATCH_SEVERITY`
-  is the one-line knob back to `'error'`.
-- **VIES never proposes.** It validates and it fills gaps; rewriting a value the
-  requester typed is the model's job (`srv/checks/normalise.js`). A register value
-  that differs from a filled-in one is reported as a warning naming both, never
-  offered as a change.
-- **Never block on an outage.** `registry.js` uses check name `vat_registered`
-  for *both* "not registered" (error) and "could not confirm" (info, because VIES
-  answers `isValid: false` when merely throttled). Re-grade by severity, not by
-  check name — `severityOf` exists for exactly this.
-- **Derivation**: fills empty address fields on the *first* address row from VIES
-  first, then GLEIF.
-- **GLEIF is a last resort, not a second opinion** (tightened 2026-08-27, Maarten:
-  *"the quality of GLEIF data seems to be less than that of VIES"*). It is a member
-  state's own register against self-reported LEI reference data. So `enrichCandidate`
-  searches GLEIF only when **both** of these hold:
-  - **A name *and* a country are filled in.** `acceptedEntities` is what makes a
-    GLEIF hit safe, and its country filter cannot run on a record that carries no
-    country — a name alone is how a Belgian company ended up under a Dutch entity's
-    number on 2026-08-14. The country may come from the root `Country` or the first
-    address; `primaryCountry` reads both.
-  - **No VIES check came back `VALID`.** Once a member state has confirmed the VAT
-    number, GLEIF cannot improve on it. A VIES *outage* or no VAT number at all
-    leaves nothing confirmed, so the fallback does apply.
-
-  `requireCountry: false` is the one opt-out and it is opt-in only: the assistant's
-  "who is this company?" prefill (`registryEnrichment` in
-  `srv/business-partner-service.js`) has a typed name and nothing else, and its answer
-  is a suggestion in chat the requester reads, not a value proposed into a field. The
-  check pipeline never passes it — `test/registry.test.js` asserts that too.
-
-#### The CVI configuration check (2026-08-25)
-
-`srv/checks/cvi-checks.js` adds one validation, `cvi_configuration`, on all three
-gates. It answers **will this partner actually synchronise?** — CVI turns a business
-partner into a customer and a supplier, and whether it can is decided by S/4
-customizing nobody filling in the form can see. A role the BP category may not carry
-is accepted by the screen, staged, approved, and only then refused by S/4, after an
-approver has spent their time on it.
-
-It reads `CviConfigService`'s remote sets (see `srv/cvi-config-service.cds`), backed
-by eight CDS views in S/4 package `ZMDM_LIGHT`. Four rules and one derivation today:
-
-- **A role its BP category may not carry.** `TB003` gives role → role category,
-  `TB003A` gives the category's allowed BP categories (person/organisation/group).
-  Reported against the offending `BusinessPartnerRoles` row, one per role, so a
-  requester sees all of them at once.
-
-  **This rule was wrong twice, and both times for the same reason: the flags are
-  booleans, not `'X'`.** Every CHAR(1) flag in these sets arrives as `Edm.Boolean`
-  — look at any of them in `srv/external/ZSRVB_MDMLIGHT_VH.cds`. A comparison
-  against `'X'` therefore reads *every* row as blank. Version one read blank as
-  "forbidden" and fired on `FLCU01` and `FLVN01` on an organisation, the two most
-  ordinary combinations in the product; the fix for that — "a row with no flags set
-  restricts nothing" — then made the rule permanently *silent*, because with
-  booleans no row ever looks like it has a flag set. `isSet` now accepts both
-  representations (fixed 2026-08-25), and the tests use the boolean form on purpose:
-  the earlier `'X'` fixtures are why a broken rule had a green suite.
-
-  The no-flags-set guard stays, but it is a guard and not a description of any
-  system: **on S4A all 166 `TB003A` rows have at least one flag set**, and `FLCU01`
-  carries all three. The claim that S4A's flags were unmaintained was wrong — the
-  rows were finally read on 2026-08-25.
-- **Postprocessing switched off**, when the request asks for a role at all. PPO off
-  means a synchronisation error is dropped rather than queued, so the partner
-  silently never becomes a customer. Reported **per row of
-  `CviPostprocessingControl`** rather than against a hardcoded sync object name — a
-  constant guessed wrong would match nothing and report nothing, forever.
-
-Three decisions worth not reversing casually:
-
-- **`warning`, not `error` — `ROLE_CATEGORY_SEVERITY` is the knob.** The two failure
-  costs are not symmetric: a warning on a combination that would have worked is
-  noise, while blocking a legitimate partner leaves a requester unable to submit and
-  with no way to argue. Move it to `error` once the rule has been seen to be right on
-  real data at a real customer.
-- **A configuration that cannot be read reports itself and never blocks.** The
-  pipeline turns a *thrown* validation into a blocking error, which would be more
-  severe than anything this stage itself reports — an unreachable S/4 would stop
-  every submit over a warning. So the read is caught and returned as a warning
-  saying it did not run, rather than letting "no findings" read as "checked and fine".
-- **Configuration, not SAP's verdict.** Transaction `CVI_FS_CHECK_CUST` is a module
-  pool with no callable API and its judgements move with support packages. These
-  rules are derived from the customizing itself and stated in terms of the request.
-
-One rule that was considered and is **not** built, deliberately:
-
-- **Contact person synchronisation.** `CviContactMapping` reports the switch, but
-  MDM Light does not stage contact persons at all (there is no such node in
-  `db/staging.cds`), so there is nothing in a request for the rule to fire on.
-
-##### Number assignment (added 2026-08-25)
-
-The third rule, and the one with teeth. **Does the grouping on this request line up
-with the account group CVI will use, so that a number actually gets assigned?** Off by
-one flag, nothing synchronises and nobody is told.
-
-Finding the tables was the work. `CVI_FS_CHECK_CUST_SUBROUTINES` names them itself —
-`select` in `select_data_customer` / `select_data_vendor` and the fills in
-`CVI_FS_CHECK_CUST_STARTSCREEN` — which is how the first five views were found too:
-
-| Table | What it holds |
-|---|---|
-| `TBD001` / `TBC001` | grouping → customer / supplier account group, plus the same-number flag (direction BP → account) |
-| `CVIC_CUST_TO_BP1` / `CVIC_VEND_TO_BP1` | the same for the inbound direction. **Both empty on S4A** |
-| `TB001.NRRNG` | the grouping's BU_PARTNER number range |
-| `T077D.NUMKR` / `T077K.NUMKR` | the account group's DEBITOR / KREDITOR number range |
-| `TBD002` / `TBC002` | which BP role category actually creates a customer / supplier |
-| `MDSC_CTRL_OPT_A` | which directions are switched on |
-
-Three new views (`Z_I_CVI_NUM_ASGN_CUSTOMER`, `Z_I_CVI_NUM_ASGN_VENDOR`,
-`Z_I_CVI_SYNC_DIRECTION`) and four new columns on `Z_I_CVI_ROLE_CATEGORY` carry them.
-The intervals stay where they already were, in `CviNumberRanges`; the new views expose
-the number range *keys* only, which is the link nothing had before. What the rule
-reports, in this order:
-
-1. **The direction is off.** No active `MDSC_CTRL_OPT_A` row means the account is
-   simply never created. SAP's report checks the mirror image — "maintained but
-   inactive" — and never this one, and "on but nothing maintained" is the case that
-   bites.
-2. **Nothing maintained for the grouping.** No `TBD001`/`TBC001` row means CVI has no
-   account group to create with. On S4A **nine of 23 groupings have no customer row
-   and fifteen have no supplier row, `MDM0` among them.**
-3. **Same number set, intervals differ.** Message 023 of `CVI_FS_CHECK_CUST`, with
-   both ranges and both intervals named — "the number ranges do not match" alone
-   sends the reader to two SPRO screens to find out which.
-4. **Same number not set and the account's range is external.** Nobody supplies that
-   number: the requester cannot (no field for it) and CVI will not (not its range to
-   draw from). Messages 022/031 turned around — SAP checks this for the inbound
-   direction only. On S4A this fires on `0002 → KUNA`, and on `0002`, `GPEX` and
-   `Z001` on the supplier side.
-
-##### The account group derivation (added 2026-08-25)
-
-The rule's counterpart, and the reason it was worth exposing `TBD001` rather than only
-judging it. **For direction BP → Customer, S/4 takes the customer account group from
-`TBD001` by grouping — it is not a free choice, it is a lookup**, and the only place
-it existed was a SPRO screen the requester cannot see. `cvi_account_group` fills
-`Customers.CustomerAccountGroup` and `Suppliers.SupplierAccountGroup` from it.
-
-It runs on Check and Duplicate Check only, through `runRequestChecks` — submit and
-resubmit still validate without deriving, unchanged since 2026-08-13. Two pipeline
-guarantees carry it: a derivation **never overwrites a typed value**, and `createsRow`
-invents a row **only when the section is completely empty**. So a request that already
-carries supplier data gets the field filled and one that carries none gets the row it
-needs, and neither case touches a second row somebody added deliberately.
-
-Silent wherever it cannot be sure — no grouping, no role that creates the account, an
-inactive direction, no assignment row, or more than one. That last case should not
-exist (`TBD001` is keyed by grouping) and if S/4 ever produces it, deriving nothing
-beats picking a winner. `numberAssignmentFindings` already says why nothing was filled.
-
-**Because a derivation never overwrites, it needed a validation beside it.** A
-requester who picks a different account group by hand keeps theirs, and S/4 then uses
-`TBD001`'s anyway — accepted by the screen, quietly overridden afterwards, which is the
-exact failure this module exists for. `accountGroupConflictFindings` reports the
-contradiction against the offending row, naming both account groups. Validations run
-*before* derivations, so it judges what the requester typed and never what was just
-filled in.
-
-Two things worth not undoing:
-
-- **Which target a role reaches for comes from `TBD002`/`TBC002`, not from the role
-  name.** Pattern-matching `FLCU*` would be shorter and would be a guess; a role whose
-  category drives neither a customer nor a supplier (a contact person, say) is
-  measured against no grouping at all, which is most of the noise avoided.
-- **The inbound rows are exposed but never read.** MDM Light only ever creates business
-  partners, so `CUSTOMER_TO_BP` / `VENDOR_TO_BP` describe a journey it does not make.
-  They are in the views because leaving half a table behind is how the next person ends
-  up re-deriving where it lives, and a test pins that a rule cannot mistake one
-  direction for the other.
-
-#### The S/4 standard checks only see accepted values (fixed 2026-08-27)
-
-`runDerivations` returns a third payload, `systemDerived`: what was **typed**, plus only the
-entries a derivation marked `system: true`. `checkStandard` runs on that, never on `derived`.
-
-Before this, S/4 was objecting to postal codes VIES had merely *proposed* — an error a requester
-cannot clear, because no field on the screen holds the value it is about. A proposal the requester
-accepts is written into the payload by `_applyProposals`, so it arrives as a typed value on the
-next press and is checked then. **Acceptance is the gate**, and nothing else had to change to
-enforce it.
-
-- **`cvi_account_group` is the only `system` derivation**, and the flag is load-bearing twice
-  over: `TBD001` decides the account group whatever the screen says, so checking against it is
-  checking reality — and it is what *creates* the `Customers`/`Suppliers` node, without which
-  `ZMDML_BPCHECK` sends no relation node and the **customer and vendor tiers silently examine
-  nothing**. Withholding it would have taken the whole tier out while still reporting a clean run.
-- **The duplicate check still reads `derived`.** A value nobody accepted yet makes the comparison
-  better without committing anyone to anything, which is the whole reason derive precedes match.
-- **`systemDerived` is replayed from `applied`, not written in the derivation loop**, so an entry
-  the pipeline refused to write (a typed value already there) is not replayed either. A keyed entry
-  is replayed **by key**, not by index: this payload holds only the `system` entries, so a row's
-  position in it is not the position it had in `derived`.
-
-##### And they are not SHOWN until the proposals are answered (2026-08-28)
-
-The half `systemDerived` could not solve, reported from the live app: *"if City for example is
-proposed... the S4 check already triggers warning users that it's required... now user gets the idea
-that they're missing info, while the derivations already filled it in for them."* Correct on both
-sides — S/4 genuinely does not have the City, because nobody has accepted it yet — and reading, to a
-requester, as a contradiction between a strip and the dialog on top of it.
-
-**Filtering the stale findings out is not possible, and that is a property of the mapper.**
-`bp-check.js` flattens every S/4 message to `{ severity, message }`, formatting the class and number
-**into the text** and deliberately discarding S/4's own `field` — `MAINTAIN`'s
-`BAPIRETM → BAPIRETI → BAPIRETC` anchors nothing to a field or a row anyway. So "was this message
-about City?" can only be answered by a regex over prose or a hand-maintained `(class, number) →
-field` map, which fails silently on everything not in it with no safe direction to fail. Worse,
-removal is only half of it: an accepted value can make a **new** message appear (a filled city
-brings a region/postal-code plausibility check; an accepted VAT number changes `VMD_API/043`), so a
-removal-only reconciliation would hand back a cleaner list than S/4 would actually give — the
-all-clear-from-a-check-nobody-ran this codebase refuses everywhere.
-
-So the answer is **when**, not **which**. `checkRequest` returns `StandardJson` **separately** from
-`ValidationsJson` (filtered by object identity out of `result.validations`, so it cannot drift from
-what `runChecks` merged), and `_resolveStandardChecks` decides on the way out of the dialog:
-
-- **Nothing to propose** → they were never held; they go up on the first press, one round trip, as
-  before.
-- **Nothing accepted** (Not Now, Escape, everything unticked, every value edited back to what it
-  already was) → the payload is unchanged, so the held findings are exactly right. Shown as they
-  are: **no second round trip, and no second vendor number.** A requester who declines the city
-  *does* then see "City is required", which is the correct answer to what they just decided.
-- **Something accepted** → what S/4 was told is out of date, so `_rerunStandardChecks` asks again
-  with `Propose: false`. One extra round trip and one extra `NRIV KREDITOR/02` draw, on the press
-  where a fresh answer is wanted anyway (gaps settled as acceptable 2026-08-26).
-
-`_applyProposals` **returns the number of fields it changed** for exactly this, and the count is
-what `afterClose` reads — not whether Apply Selected was pressed. The re-run replaces the message
-set rather than merging: it is a real check of the new payload, and its declined proposals are
-dropped rather than offered a second time inside one press, because pressing Check again is how a
-requester asks for those. A re-run that fails says so as a warning, never as silence.
-
-##### And they only run on the DATA STEWARD step (2026-09-01)
-
-Asked for directly: *"when a requestor presses 'check' or 'submit' I don't want our standard S4
-checks to be triggered, only in a Data Steward step"*. Same checks, same ordering, same
-`systemDerived` payload and same hold-back-until-the-proposals-are-answered behaviour — only the
-step they run on narrowed.
-
-- **`stewardStep` in `runRequestChecks`** (`srv/change-request-service.js`) reads the SCREEN's own
-  role, `req.data.Role`, and `checkStandard` is now `standard && !scope && stewardStep`. Matched
-  with `startsWith(DATASTEWARD_ROLE)` rather than an equality, so a narrowed
-  `DataSteward Customer` (see `resolveEffectiveRole`) still gates them.
-- **The screen's role, not the caller's BTP role, and deliberately so.** This is the same trust
-  level as the `renderRole` half of `runRequestChecks` — which fields a derivation may propose —
-  not the `requesterContext(req)` half, which is a security boundary and stays hardcoded. Nothing
-  is written or approved on the strength of `Role`; what it decides here is whether a remote
-  dry-run costs a round trip and a vendor number, so a client that lied would only spend its own.
-- **A requester's Check still checks.** Validations, derivations, normalisation proposals and the
-  duplicate check are untouched — what a requester no longer sees is S/4's own message list.
-  Submit and Resubmit go through the same `checkRequest` (`_runPreActionCheck`), so they lose it
-  by the same gate; `runSubmitValidations` never ran the standard checks to begin with.
-- **`_rerunStandardChecks` now sends `Role` too.** It re-runs the check over an accepted proposal
-  for its messages; without the role it would refresh everything except the findings it exists for.
-
-#### SPRO derivations: nine gaps, one open mechanism (2026-08-27)
-
-The app derives the CVI account group, VIES/GLEIF addresses and the steward's own rules. **Nine
-things SAP standard fills in and this app does not** are listed with their customizing sources in
-`mdmlbpcheck/README.md` — partner functions, address language / time zone / transportation zone /
-tax jurisdiction, tax classification rows, withholding tax types, search term, and reference-customer
-defaults. Out of scope by decision: the BP, customer and vendor **numbers**, which CVI assigns at
-post time.
-
-**Partner functions need no new node** — `StagedCustomerSalesPartnerFunc` and
-`StagedSupplierPartnerFunc` already exist, are catalogued, and are on the screen. Only the
-customizing source is missing, which is true of every row in that table.
-
-**The mechanism is settled (2026-08-27), and it is the deterministic one.** Four probe rounds
-established that S/4 has no callable way to tell us what it would derive: `CL_MD_BP_MAINTAIN` is
-**final**, the only two methods that hand the payload back enriched are **protected and private**
-respectively, and all eight public methods take `i_data` as `IMPORTING`. A real `MAINTAIN` rolled
-back would harvest everything but cannot be what a Check button does — it creates the partner, and
-number assignment commits outside the LUW. So each derivation is read from its own customizing
-through a CDS view, exactly the way `cvi_account_group` reads `TBD001`. Every source table is
-confirmed to exist with data; the full write-up, including two wrong table guesses and the
-`SEOCOMPO` visibility trap that cost a round, is in `mdmlbpcheck/README.md`.
-
-**Do not copy `cvi_account_group`'s `system: true` flag onto these.** That flag says "S/4 will use
-this whatever anyone ticks", which is true of the CVI account group and of nothing else here — a
-derived language or partner function is a proposal like every other.
-
-##### Two of them are live: `srv/checks/derivation-checks.js` (2026-08-27)
-
-One stage, `sap_derivations`, reading `DerivationConfigService` with the same 60s cache
-`cvi-checks.js` uses. It runs **last** in the derivation list — the pipeline never overwrites, so a
-steward's configured rule and a VIES lookup both outrank a country default, which is the weakest
-claim on any field here. On Check and Duplicate Check only; submit still validates without deriving.
-
-- **Address language** from `T005-SPRAS`, on **every** address row. Unlike the registry lookup this
-  is not a fact about one *place* that a second address would be wrong to inherit — every address in
-  a country has that country's default language. This is the `FSBP_GENERIC/008` field.
-- **Customer tax category** from `TSTL`, and the only multi-row derivation here. It proposes the
-  ROWS; **`CustomerTaxClassification` is left empty on purpose** — that is a decision about the
-  customer, not something any customizing table knows. Only fires when the request asks to be a
-  customer, and never into a section the requester already filled.
-- **A country with several tax categories is said out loud.** The pipeline creates only the first
-  row of an empty section, so the others come back as a `field`-less statement naming all of them.
-  Covering one of five silently would read as "these are all of them", which is the answer this
-  codebase refuses everywhere.
-
-- **Address time zone** from `TTZ5S`, added 2026-08-27 along with `StagedAddresses.AddressTimeZone`
-  (`ADRC-TIME_ZONE`). **Keyed by country AND region**, so an address with no region has nothing to
-  derive — and that is said as a statement rather than skipped, because "no time zone appeared" and
-  "your address needs a region first" are different answers. One statement however many rows are
-  short of a region. Where a region carries several zones, `TZONEDFT` decides; where several exist
-  and **none** is marked default, nothing is derived — that is a customizing gap, not a coin toss.
-- **`TransportZone` is deliberately NOT staged.** `TZONE` holds valid zones per country and carries
-  no determination data at all, so nothing could ever fill it. A column would be a field the
-  requester has to type with no help, which is what this whole feature exists to remove.
-
-**A created tax row needs TWO entries**, and the mechanism is worth knowing before adding a third
-multi-field derivation: `createsRow` writes exactly one field, so the departure country comes from a
-second entry that finds the row the first one made. `runDerivations` applies each entry to `derived`
-as it goes, so within one stage a later entry sees an earlier entry's row. Without it the row would
-carry a tax category and no departure country — half a `KNVI` key.
-
-- **Mandatory customer partner functions** from `TKUPA` → `TPAER`, added 2026-08-27 once the link was
-  found. `TKUPA`'s key is the **account group alone**; `T077D` carries no procedure and
-  `T077D-KALSM` turned out to be output determination. Only **`PartnerType` = 'KU'** rows are
-  proposed — `TPAR-NRART` is what stops a vendor function landing on a customer sales area, the same
-  class of error `accountGroupConflictFindings` reports. **`BPCustomerNumber` and `PartnerCounter`
-  are never proposed**: SAP defaults those functions to the customer itself, which on a create has
-  no number, and the counter is S/4's to assign. Needs a `CustomerSalesArea` row, because the node
-  is keyed by one; three extra entries fill that key from the row the requester already added.
-
-- **Mandatory SUPPLIER partner functions** from `T077K-PARGE` → `TPAER`, added 2026-08-27 after
-  Maarten spotted that only the customer side was wired. **The vendor link is a different table**:
-  the customer procedure lives on `TKUPA`, the vendor one is three columns on the account group table
-  itself, one per level — `PARGE` purchasing organisation, `PARGT` sub-range, `PARGW` plant,
-  confirmed from the served `sap:quickinfo` rather than inferred. **Only `PARGE` is joined**, because
-  the app stages a purchasing-organisation row and nothing below it; `SupplierSubrange` and `Plant`
-  are therefore never filled. Mirrors the customer stage otherwise, with the guard inverted:
-  `PartnerType = 'LI'`, because procedure `AG` carries `LF` (vendor) and schema `0001` carries `AG`
-  (customer), so each side would otherwise propose the other's functions.
-
-###### All of the mandatory functions, and beside what somebody typed (2026-08-28)
-
-Reported from the live app the day after the paging fix landed: `AG` derived, and *"I think there
-are 4 mandatory?"* Both stages proposed the FIRST mandatory function and named the rest in a
-`field`-less statement — not a decision, a workaround: `createsRow` could only invent a row into a
-**completely empty** section, so one row was all the pipeline could carry.
-
-**`rowKey` is what lifted it.** An entry may now name the row it belongs to, and `rowMatchesKey`
-(`pipeline.js`) decides whether that row is already there. So `createsRow` may append **beside**
-rows somebody added deliberately, because the key says which row this is — the guard that used to
-be "the section is empty" is now "no row already carries this key". An entry **without** a key keeps
-the old rule exactly, and that asymmetry is the design: *"fill in the city"* says nothing about
-which address it belongs to, so there is no safe row for it to add.
-
-- **Every entry of one row carries the same key**, which is how the three that complete a sales
-  area find the row the `createsRow` entry made. Nothing counts indices any more — the previous
-  version relied on the section being empty so that index 0 was the row just added, which stops
-  being true the moment a second row can be proposed.
-- **The reported `index` is where the row actually landed** (`indexOfRecord`), because the dialog
-  groups on it — see "A whole derived row is one line" below.
-- **A blank level is not a key.** The sales area contributes only the levels the requester filled
-  in; a blank compared against a row that HAS that level fails, and the section would then collect
-  a second copy of every row. Guarded in the derivation *and* in `rowMatchesKey`.
-- **A blank on the EXISTING row counts as a match**, because the entry's own key fields are what
-  would fill it: a requester who typed `AG` and left the sales area empty has the row this
-  derivation was about to add, so it is completed rather than duplicated. A row the request is
-  deleting (`action: 'D'`) holds nothing and matches nothing, mirroring `liveRows`.
-- **A partly-filled section is no longer a reason to say nothing.** `if (liveRows(...).length)
-  return []` is gone from both stages: a requester who entered `AG` themselves gets `RE`, `RG` and
-  `WE` proposed and their own row left alone.
-- **The statement went with it.** "One row is proposed; add the others by hand" existed to cover
-  what the pipeline could not do. The tax-category one **stays** — that is a genuine "one of five"
-  report about a decision no customizing table can make (`CustomerTaxClassification`), not a
-  workaround. Multi-row is now available to it if it is ever wanted.
-
-Which derivations are customer-only, and why it is not an oversight: **tax categories** — `KNVI` has
-no vendor counterpart, vendors carry no tax classification node. **Withholding tax** is symmetric in
-being absent from both: `T059P` has no mandatory flag, so there is nothing to propose unasked on
-either side. Address language and time zone are BP-level and have no customer/vendor split at all.
-
-##### The rule about what a derivation may say (Maarten, 2026-08-27)
-
-**A requester never reads "you could have X if you filled in Y."** They fill in what they know, and
-the system completes whatever it can. So a derivation that cannot fire for want of an input derives
-nothing and **says nothing** — no strip about a missing region, no note about an absent sales area.
-A message they cannot act on and did not ask for is noise, however true it is.
-
-Two things this does **not** cover, and both still speak:
-
-- **What the derivation did but only partly.** "This country has 5 tax categories, one row is
-  proposed" reports the result, not a prerequisite. One of five read as all five is a wrong answer;
-  the region note was merely unasked-for advice.
-- **Settings that could not be read at all.** A derivation that silently did nothing is
-  indistinguishable from one that had nothing to do, which is the failure this codebase refuses
-  everywhere.
-
-##### The customizing reads are paged, and were not (fixed 2026-08-27)
-
-**The remote value-help service caps a response at 100 rows.** `cvi-checks.js` and
-`derivation-checks.js` both read their customizing with a bare
-`service.run(cds.ql.SELECT.from(entity))` and used the answer as the whole table. Twelve reads,
-every one of them silently truncated. `srv/checks/config-reader.js` is the fix and both files now
-call `readAllOf`.
-
-How it presented, because the shape of this is worth keeping:
-
-- Tables **under** 100 rows were complete, so most checks worked. `taxCategories` (51) and
-  `supplierFunctions` (12) were always right.
-- `DerPartnerFunctionAccGrp` is keyed `(AccountGroup, PartnerFunction)` and account group `0001`
-  alone is 18 rows, so page one never reached `DEBI`. Correct customizing, a valid payload, and
-  **nothing proposed**.
-- `countries` and `timeZones` were capped too and nobody noticed, because `BE` is early
-  alphabetically.
-
-Two decisions inside `config-reader.js`:
-
-- **`skip` advances by what arrived, never by `pageSize`.** Ask for 500, get 100, start the next
-  read at 100. The server's page size is its own business and is not worth discovering.
-- **The loop ends on an EMPTY page, not a short one.** `readAllPages` in
-  `business-partner-service.js` stops on a short page, which is right when the caller sets the page
-  size and is exactly wrong here — the read that lost `DEBI` was short *because* the server capped
-  it. One extra round trip per table per cache period, against a 60s cache.
-
-Diagnosing this took three rounds of wrong guesses, all of them inference from partial data, and it
-was `[sap-derivations]` in `cf logs` that ended it in one press. The log line is in
-`derivation-checks.js#diagnose` and reports the five config **row counts** alongside every field the
-builders branch on — because a truncated read looks exactly like customizing that says nothing.
-
-Still unpaged, deliberately: `fetchWorkflowEntityRows` reads one partner's child rows, where 100 is
-not a realistic count. Everything else on that list is local Postgres, where the cap does not apply.
-
-#### Two standard-check messages nobody could clear (fixed 2026-08-27)
-
-Both reported from the live app after the customer/supplier tier went on, and both were in the
-ABAP mapper rather than in the request. Full write-up in `mdmlbpcheck/README.md`.
+
+`srv/business-partner-service.cds` projects the imported `API_BUSINESS_PARTNER` model
+(`srv/external/*.{csn,edmx}`, all 65 entity sets). Almost everything is `@readonly`; only
+`BusinessPartners` and the maintenance actions write. Two exclusion lists (`A_Customer excluding
+{...}`, `A_Supplier excluding {...}`) work around fields in the imported metadata that this
+on-premise release does not expose — a section read failing with "Resource not found for the
+segment" usually means a field needs to move into an exclude, not that there is a bug.
+
+### The imported models are copies and go stale silently
+
+Both remote services are compiled from `srv/external`; nothing reads `$metadata` at runtime and
+nothing can (`as projection on` is resolved by the compiler, `mbt build` is offline).
+
+- The bare import scripts resolve destinations from `VCAP_SERVICES` and **only work in Cloud
+  Foundry**. From BAS use `npm run import:bp -- --url https://<host>:44301/sap/opu/odata/sap`
+  (`S4_USER`/`S4_PASSWORD`, `--insecure` for a self-signed gateway). There is no `--file` route on
+  purpose. For a document already in the workspace:
+  `npx cds import <file>.edmx --as cds --force --no-save` — **not `--into`**, cds-dk 8 does not know
+  that flag and lands the result in `srv/external` by itself.
+- Both checked-in copies got here by hand. Treat a re-import as a manual step a person performs.
+- **The five `Der*` entities in `ZSRVB_MDMLIGHT_VH` were hand-added to both the `.cds` and the
+  minified single-line `.edmx`**, not imported. The `checksum` comment in the `.cds` is stale and
+  nothing verifies it. No `Annotations` block was added for them, matching the served metadata. A
+  real `cds import` supersedes all of it and is preferred whenever one can be run.
+- `srv/metadata-drift.js` runs once at startup against the nine entity sets the app actually reads.
+  A property the live service **dropped** is a warning (that read is already failing); one it
+  **gained** is info. Read its output against the `excluding {}` lists — a named field already
+  excluded is noise, one that is not is a broken section. Silence means "no destination here", not
+  "in step".
+- **Excluding a field in the CDS must reach the create screen too.**
+  `app/businesspartner/scripts/generate-maintenance-metadata.js` compiles
+  `business-partner-service.cds` (`cds.load`/`cds.linked`) and diffs each section's projected
+  elements against the raw CSN to derive exclusions automatically, merged with whatever
+  `excludedFields` a section still hand-lists. A CDS-excluded field still named in a `fieldGroups`
+  block fails the build. Re-run `npm run generate:metadata` after changing any `excluding {}` clause
+  (`build`/`build:cf` already chain it).
+
+### `abap/` — the two S/4-side services
+
+`abap/valuehelp/README.md` and `abap/customerfields/README.md` carry the ADT steps, the released
+views behind each value help, and known drift. Read one before touching a `@Common.ValueList`.
+
+`abap/customerfields` (`ZMDML_CUST_ENTITY` / `ZSRVB_MDMLIGHT_CUST`) is **designed but not wired in**
+— not in `package.json`'s `cds.requires`, no `srv/external` copy, nothing projects it. It exposes
+`I_Customer` to close the gap between `A_Customer`'s 53 fields and the MDG ERP Customer screen. Build
+it when one of those fields is actually asked for.
+
+`mdmlbpcheck/README.md` holds the ABAP write-ups: the `ZMDML_BPCHECK` mapper, the nine SPRO
+derivations SAP fills in and this app does not (with their customizing sources), and the probe
+rounds that established the mechanism.
+
+## Change request staging (approve-then-create)
+
+**Nothing reaches S/4 until it is approved.** Creates used to post immediately and start the workflow
+afterwards, so the approver reviewed something already live. Do not reintroduce that order.
+
+1. User fills the create form (no Preview step — removed; Check, Save Request and Submit Request are
+   live on the empty form).
+2. **Submit Request** writes to staging; **Save Request** stores a draft without starting anything.
+3. The SBPA workflow starts and a task lands in the approver inbox.
+4. The approver opens the same maintenance screen in approve mode, read back from staging.
+5. On approve, CAP posts to `API_BUSINESS_PARTNER`. SBPA never writes to S/4.
+
+`db/staging.cds` holds `ChangeRequests` plus one `Staged*` node per object-page section (mirroring the
+MDG node structure), `CheckFindings`, and `ChangeRequestComments`.
+`srv/change-request-service.cds` exposes `ChangeRequests`/`CheckFindings` as `@readonly` and does
+every write through actions, so a status cannot be forged from the client.
+`srv/change-request-service.js` never talks to S/4 directly — posting is delegated to
+`BusinessPartnerService`, which owns the connection, payload sanitizing and maintenance config.
+
+Every child node carries an explicit `request` backlink, so **the to-one compositions (`general`,
+`customer`, `supplier`) need an `ON` condition too** — without it CAP puts a foreign key on the header,
+duplicating the link and creating a schema that later fails to migrate.
+
+**Statuses.** `ACTIVE_REQUEST_STATUSES` is a lock (governs the refusal to edit, `openEditPage` in
+`CustomActions.js`) and includes `approved` and `failed`, because a failed post is not atomic.
+`IN_PROGRESS_REQUEST_STATUSES` (`srv/search-results.js`) is narrower — `draft`, `inApproval`,
+`reworkRequired`, `checkAndEnrich` — and answers "is a human still holding this". Do not collapse
+them. `posted` is the only terminal status; a withdrawn request is deleted. `rejected` is in the enum
+and nothing writes it any more, but it cannot be dropped, so no reader may fall through on it.
+
+**Still open, ask before implementing:** staging retention after posting (deleting the header would
+destroy the `postedBP` idempotency guard against SBPA retries); routing edit/change requests through
+staging (only create is redirected today); populating `sourceETag` (never set, so a request approved
+days later overwrites concurrent S/4 changes); reading number ranges so users can key their own BP
+number when the grouping is externally numbered; `completeRequest` has **no scope restriction** and
+writes to S/4, so any authenticated user can force a post — restrict it to the SBPA technical user
+before this goes anywhere real.
+
+**Human-readable CR numbers (asked, not built).** Maarten wants MDG-style `$1`…`$999999` instead of
+the `cuid`. **Do not change the key** — the UUID is in the SBPA contract (`changerequestid`, the
+decide/complete payloads, `bpurl`) and `cds-deploy` refuses to change a key. Build it additively as a
+display-only `changeRequestNumber`; nothing joins on it. Undecided: where the number comes from
+(`SELECT max()+1` is not concurrency-safe and this app does produce bursts — a Postgres sequence needs
+either a locked counter table under `cds.tx` or a native `CREATE SEQUENCE` migration), what happens at
+`$999999`, and whether a draft gets a number at all.
+
+### The merged search list
+
+The list report reads **`BusinessPartnerSearchResults`**, not `BusinessPartners`: live S/4 partners
+and in-flight change requests in one result set, so a requester can see that the company they are
+about to request is already being created. A partner under an in-flight request is **marked**, never
+hidden (`applyChangeRequestExclusion` is deleted) — the object page and maintenance screens still read
+`BusinessPartners`, so a hidden partner could not be opened for display either.
+
+Two kinds of row: a **pending create** has no partner number and appears as its own row
+(`ResultKey: 'CR:<id>'`, `IsChangeRequest: true`), named by `stagedFullName`. A
+**change/block/delete** request is the existing partner's own row (`ResultKey: 'BP:4711'`) carrying
+`RecordStatus`/`RecordStatusCriticality`/`ChangeRequest`; its staged copy is never listed separately,
+or one company would be reported twice.
+
+The entity is `@cds.persistence.skip`; one READ handler in `srv/business-partner-service.js` merges:
+
+1. **Staging is read first** and staged rows take the top of the list, which is what makes `pageSplit`
+   exact — page 2 resumes the remote read at `skip - pendingCount`.
+2. Staged rows are filtered **in memory** by `matchesWhere` and `matchesTerms`. An expression
+   `matchesWhere` cannot evaluate **keeps** the row and logs `[search]`: a staged request wrongly
+   shown is a nuisance, one wrongly hidden is the failure this list exists to prevent.
+3. The remote read asks for a **fixed** column list (`PARTNER_FIELDS`) — one unknown field fails the
+   whole remote read.
+4. **`$count` arrives from the V2 remote as a STRING.** `partners.count + pending.length` concatenates
+   (`"323" + 57` → `"32358"`). Coerce both sides.
+
+- Computed columns are non-sortable (`NonSortableProperties` keeps all the change-request ones):
+  sorting on one would silently sort the staged half only. `remoteOrderBy` drops anything S/4 has
+  never heard of, `ResultKey` included.
+- **Every filterable column must also be in `UI.SelectionFields`** — OData V4 Fiori Elements builds
+  the filter bar and "Adapt Filters" from that list alone, with no "every property is a candidate"
+  fallback.
+- **Change-request columns are filterable.** S/4 has never heard of them, so `referencedFields`
+  (`srv/search-results.js`) walks the WHERE clause and, if any field falls outside `PARTNER_FIELDS`,
+  flips into a branch that fetches the full matching population and filters in memory
+  (`mergeLocalPage` against `entry.row`, not `entry.searchable`), sorts by `byRequestedAtDesc` and
+  pages locally — so that branch's `$count` is exact. A `console.warn` names the fields that forced
+  it. A mixed filter works because the whole clause is evaluated once against the whole merged
+  population; splitting it would be the optimisation, and correctness came first.
+  `NonFilterableProperties` holds only `ResultKey` and `RecordStatusCriticality`; `ChangeRequest` (a
+  raw UUID) stays off `SelectionFields`.
+- **A change request row opens read-only, for anyone**, via `ChangeRequests/{id}/display` —
+  `_loadStagedRequest(id, "view")`, no Check, no decision buttons, no save. Editing a draft still
+  means the steward-gated Change Requests list; an `inApproval` request is still decided from the
+  inbox against a real task. `onSave` refuses an unrecognised mode.
+- **Nothing authorises the staged payload.** `getRequestPayload` has no check in front of it and
+  `@readonly ChangeRequests` is readable by any authenticated user through `$expand`. Restricting
+  `getRequestPayload` to steward-or-requester today would break every approval, because an approver is
+  neither. Closing this needs the role model.
+
+Change requests have their own list (`ext/view/ChangeRequestList.view.xml`), reached from a
+**steward-only** button (`{perm>/isDataSteward}`). Consequence accepted while only the dev team files
+requests: **a requester cannot reach their own saved draft.** A `draft` opens editable via
+`ChangeRequestEdit`; nothing further along is navigable from this list at all — approve is reached from
+the inbox, rework from the `reworkurl` notification.
+
+### `BusinessPartnerFullName` is derived, never stored
+
+A standard S/4 field marked `sap:creatable="false" sap:updatable="false"` — S/4 composes it and
+refuses to be told it. Hence uneditable on the maintenance screen, and absent from the Field
+Properties catalog (`payload-fields.js` is generated from `db/staging.cds`, which has no such column).
+
+A **pending create** has no such name anywhere, so `srv/partner-name.js` composes it — the BP category
+decides which fields to read (1 person, 2 organisation, 3 group), because S/4 discards name fields that
+do not match the category; an empty answer falls through the other groups rather than leaving a request
+unnamed. **One composed name, two consumers**: `stagedFullName` in `srv/search-results.js` *is*
+`fullNameOf`, and `buildBusinessPartnerInput` wraps the root row in `withFullName`.
+
+**Never write it into a request payload.** `ROOT_CREATE_EXCLUDED_FIELDS` is the create-path
+counterpart to `sanitizeEntityPayload`'s update exclusions and holds `BusinessPartnerFullName` and
+`BusinessPartnerName`. Other derived root fields (`BusinessPartnerUUID`, `CreatedByUser`, …) are still
+unguarded on create; nothing produces them today.
+
+On screen `_refreshFullName` fills it from `previewName` (the same category-driven composition,
+client-side). It recomposes on a committed name field, on a name accepted from a proposal, from the
+Additional Fields dialog, and from the AI assistant's suggested draft (`_onCreateRoute` calls
+`_refreshFullName(true)` after `setData`) — the last three because they write straight into
+`state.root` and never fire `_onFieldCommitted`. All are **guarded on a name field having actually
+changed**: an existing value is otherwise left alone, because on a partner read from S/4 that value is
+S/4's own derivation. It is safe to hold on `state.root` — staging has no such column so `stageable()`
+drops it.
+
+### The request screen's message area
+
+Strips live in a collapsible `Panel` (`maintenanceMessagePanel`). The header carries the leading
+message elided to one line with `(+N more)`; strips are ordered so a Warning leads. Anything above
+Information opens the panel (`messagesNeedAttention`). `expanded` is bound **one-way**, so a render
+re-applies it — accepted deliberately over a state flag all thirteen `state.messages = …` sites would
+have to remember to set.
+
+**The findings follow the request into the approval task.** `getRequestPayload` returns `FindingsJson`
+(duplicate findings, `duplicate_check` only, same `isStale` filter the exposed `CheckFindings` view
+applies) and `ValidationsJson` (written by `recordValidationFindings` on both submit paths), and
+`_loadStagedRequest` feeds them to the same `_setDuplicatePanel` / `_validationMessages` the requester
+saw — one piece of code, so the two screens cannot drift. Validations are written **after** the
+blocking gate (nothing blocking is ever stored) and **before** the duplicate check (an outage there
+cannot cost the warnings already produced), and are **superseded, not deleted**, on a resubmit.
+Validations render as strips, not in the duplicate panel: they are statements about this record, not
+other partners to compare against. Messages are **appended after the mode branches**, since every
+branch assigns `state.messages`.
+
+Approver findings rows carry **no candidate name** — `candidateName` is not a staging column, so the
+title is the partner number (or `pending request <id>`) and the stored `message` carries the sentence.
+
+`srv/request-processors.js` (a "who has it now" step/holder sentence, returned as `ProcessorsJson`)
+is **still on the server and no longer rendered** — `processorMessage`/`parseProcessors`/
+`state.processors` were removed from the controller on request. It stays available to build a
+different surface on. Its own rules: approvers are what CAP *sent* the workflow (re-resolved from
+`WorkflowRules`, so a table edited since submit makes them stale), resolved only while `inApproval`;
+a requester is always `kind: 'user'`; `submittedBy` outranks `createdBy`; `approved` and `failed` say
+nobody holds them rather than naming someone who cannot act; an empty approver list is legitimate.
+
+## The check pipeline — `srv/checks/pipeline.js`
+
+**validate → derive → duplicate check**, and the order is the design: data that fails validation
+cannot be a duplicate of anything, and data that is merely incomplete may be missing the very fields a
+duplicate rule needs. Stages run over the **request payload** (`{ root, sections }`), not a flattened
+candidate, so a derivation can say "the street of the first address" and the screen can write it back.
+
+Three behaviours worth not "simplifying" away: a validation that **throws blocks** (a rule that
+silently skipped would defeat the ordering); a derivation that throws **only reports**; a duplicate
+check that could not run is **reported**, never folded into an empty result.
+
+`VALIDATIONS`/`DERIVATIONS` are empty default registries. The stages actually used are built per
+request in `runRequestChecks` (`srv/change-request-service.js`) from `srv/checks/rule-store.js` (the
+steward-configured tables), `registry-checks.js` (VIES/GLEIF), `cvi-checks.js`, `derivation-checks.js`
+and `field-properties.js`. **Configured stages come first in both lists**: validations because they
+are offline and a failing request should not cost a VIES call; derivations because the pipeline never
+overwrites, so an explicitly configured rule outranks a lookup.
+
+**Pipeline guarantees:** a derivation **never overwrites** a typed value; `createsRow` invents a row
+only when the section is empty **or** — with a `rowKey` — when no existing row already carries that
+key; `runDerivations` applies each entry as it goes, so a later entry in one stage sees an earlier
+entry's row.
+
+### Two buttons, two questions
+
+- **Check** — "is this record right?": validate, derive, normalise. Returns derivations and
+  normalisations and **nothing about duplicates**.
+- **Duplicate Check** — "does it already exist?": validate, derive, match. Derivations run **in memory
+  only** (a rule conditioned on a country nobody typed still has to fire).
+
+Both stage nothing and share `runRequestChecks`; only the stage list differs, never the order.
+**Submit/resubmit run the validations and the duplicate check, never the derivations** — a derivation
+changes the data and the requester has to have seen what they are asking for. Since Check only
+proposes, no derived value reaches a request without the requester ticking it.
+
+### Checks run on a button press, and only on a button press
+
+The automatic/debounced trigger was removed: **opening a record dialog commits the cell behind it**,
+so "+" and "Add" fired checks nobody asked for, mid-typing, each costing an AI Core call and a remote
+round trip. Every guard added against the resulting double-dialogs worked as designed; the premise was
+what was wrong.
+
+- `_onFieldCommitted` survives and does **local work only** — recompose the full name, redraw the
+  change summary. `test/check-triggers.test.js` pins that it makes no server call (no
+  `_executeAction`, no `checkRequest`, no `setTimeout`, no `_offerProposals`). Adding a debounced check
+  back is a one-line change, which is why the absence is tested.
+- `_cancelPendingTrigger` keeps its name, has no timer left, and empties `_declinedProposals` so a
+  check button asks again. Every check-running button calls it first.
+- `Propose` and `Scope` on `checkRequest` stay (the duplicate check sends `propose: false`, and
+  `checkStandard` still keeps the SAP standard checks off a scoped call); nothing automatic sends them.
+- `_rememberDeclined`/`_isDeclined` stay as the record of what was offered and refused; nothing filters
+  on it. Declines are recorded in `afterClose` (Escape is a decline too, and after Apply Selected the
+  unticked rows are declines). One dialog at a time (`_proposalsOpen`). `_emptyState` clears them.
+
+### Registry checks — VIES and GLEIF (`srv/checks/registry-checks.js`, `srv/ai/registry.js`)
+
+One validation and one derivation sharing a single lookup (VIES throttles per member state).
+
+- A VAT number VIES does not know **blocks**. A name or address disagreeing with the register only
+  **warns** — VIES returns the legal name and partners are often stored under a trading one, and
+  blocking stopped the derivations and normalisation proposals too. `NAME_MISMATCH_SEVERITY` is the
+  knob back to `'error'`.
+- **VIES never proposes.** It validates and fills gaps; rewriting a typed value is `normalise.js`'s
+  job. A register value differing from a filled-in one is a warning naming both.
+- **Never block on an outage.** `registry.js` uses check name `vat_registered` for both "not
+  registered" (error) and "could not confirm" (info — VIES answers `isValid: false` when throttled).
+  Re-grade by **severity**, never by check name; `severityOf` exists for this.
+- **GLEIF is a last resort, not a second opinion.** `enrichCandidate` searches GLEIF only when a name
+  **and** a country are filled in (`primaryCountry` reads the root `Country` or the first address — a
+  name alone once put a Belgian company under a Dutch entity's number) **and** no VIES check came back
+  `VALID`. `requireCountry: false` is opt-in and used only by the assistant's "who is this company?"
+  prefill, whose answer is chat prose, never a proposed field value; the pipeline never passes it and a
+  test pins that.
+- The derivation fills empty address fields on the **first** address row, VIES then GLEIF, and sets
+  `createsRow` on the first of its four address entries when there is no address row at all.
+
+### The CVI configuration check (`srv/checks/cvi-checks.js`)
+
+Answers **will this partner actually synchronise?** — CVI turns a BP into a customer and a supplier,
+and whether it can is decided by S/4 customizing nobody filling in the form can see. Reads
+`CviConfigService` (`srv/cvi-config-service.cds`), backed by CDS views in S/4 package `ZMDM_LIGHT`.
+
+- **A role its BP category may not carry** — `TB003` gives role → role category, `TB003A` the
+  category's allowed BP categories. Reported per offending `BusinessPartnerRoles` row.
+  **Every CHAR(1) flag in these sets arrives as `Edm.Boolean`, not `'X'`** (look at
+  `srv/external/ZSRVB_MDMLIGHT_VH.cds`) — this rule was wrong twice over exactly that, once firing on
+  `FLCU01`/`FLVN01` on an organisation and once being permanently silent. `isSet` accepts both
+  representations and the tests use the boolean form on purpose. The no-flags-set guard stays but
+  describes no real system: on S4A all 166 `TB003A` rows have at least one flag set.
+- **Postprocessing switched off**, when a role is requested at all — PPO off means a sync error is
+  dropped rather than queued and the partner silently never becomes a customer. Reported **per row of
+  `CviPostprocessingControl`**, never against a hardcoded sync object name.
+- **Number assignment** — does the grouping line up with the account group CVI will use, so a number
+  actually gets assigned? Tables: `TBD001`/`TBC001` (grouping → account group + same-number flag),
+  `CVIC_CUST_TO_BP1`/`CVIC_VEND_TO_BP1` (inbound, both empty on S4A), `TB001.NRRNG`,
+  `T077D.NUMKR`/`T077K.NUMKR`, `TBD002`/`TBC002` (which role category creates a customer/supplier),
+  `MDSC_CTRL_OPT_A` (active directions). Reported in order: direction off; nothing maintained for the
+  grouping; same number set but intervals differ (both ranges and intervals named); same number not set
+  and the account's range is external. The inbound rows are exposed but never read — MDM Light only
+  creates BPs — and a test pins that a rule cannot mistake one direction for the other.
+- **Severity is `warning`; `ROLE_CATEGORY_SEVERITY` is the knob.** The costs are asymmetric: a warning
+  on a combination that would have worked is noise, blocking a legitimate partner leaves a requester
+  unable to submit and with no way to argue. Move to `error` once seen right on real customer data.
+- **A configuration that cannot be read reports itself and never blocks** — the pipeline turns a
+  thrown validation into a blocking error, so an unreachable S/4 would stop every submit.
+- **Configuration, not SAP's verdict.** `CVI_FS_CHECK_CUST` is a module pool with no callable API and
+  its judgements move with support packages; these rules are derived from the customizing itself.
+- Deliberately not built: contact person synchronisation — MDM Light stages no contact persons.
+
+**The account group derivation `cvi_account_group`** fills `Customers.CustomerAccountGroup` /
+`Suppliers.SupplierAccountGroup` from `TBD001` — for direction BP → Customer, S/4 takes the account
+group from that table by grouping; it is a lookup, not a free choice, and it only existed on a SPRO
+screen. Silent wherever it cannot be sure (no grouping, no role that creates the account, an inactive
+direction, no assignment row or more than one); `numberAssignmentFindings` already says why nothing
+was filled. Because a derivation never overwrites, `accountGroupConflictFindings` sits beside it and
+reports a requester's hand-picked account group that contradicts `TBD001` — validations run before
+derivations, so it judges what was typed. Which target a role reaches for comes from `TBD002`/`TBC002`,
+**never from the role name** — pattern-matching `FLCU*` would be a guess.
+
+### SAP standard checks (`ZMDML_BPCHECK` via `srv/checks/bp-check.js`)
+
+- **They only see accepted values.** `runDerivations` returns a third payload, `systemDerived`: what
+  was typed plus only entries a derivation marked `system: true`. `checkStandard` runs on that, never
+  on `derived` — otherwise S/4 objects to postal codes VIES merely *proposed*, an error a requester
+  cannot clear. Acceptance is the gate; `_applyProposals` writes an accepted proposal into the payload
+  so it arrives typed on the next press. `cvi_account_group` is the **only** `system` derivation, and
+  the flag is load-bearing twice: `TBD001` decides the account group whatever the screen says, and it
+  is what *creates* the `Customers`/`Suppliers` node, without which `ZMDML_BPCHECK` sends no relation
+  node and the customer/vendor tiers silently examine nothing. The duplicate check still reads
+  `derived`. `systemDerived` is replayed from `applied` (so an entry the pipeline refused is not
+  replayed) and a keyed entry is replayed **by key, not by index**.
+- **They are held back until the proposals are answered.** `bp-check.js` flattens every S/4 message to
+  `{severity, message}`, formatting class and number into the text and discarding S/4's own `field`
+  (which anchors nothing anyway), so "was this message about City?" cannot be answered — and an
+  accepted value can make a **new** message appear, so a removal-only reconciliation would hand back a
+  cleaner list than S/4 would give. The answer is **when**, not **which**: `checkRequest` returns
+  `StandardJson` separately from `ValidationsJson` (filtered by object identity out of
+  `result.validations`), and `_resolveStandardChecks` decides on the way out of the dialog — nothing to
+  propose: shown on the first press; nothing accepted (Not Now, Escape, all unticked, every value
+  edited back): shown as they are, **no second round trip and no second vendor number**; something
+  accepted: `_rerunStandardChecks` asks again with `Propose: false`, replacing rather than merging.
+  `_applyProposals` **returns the number of fields it changed** and that count is what `afterClose`
+  reads, not whether Apply Selected was pressed. A re-run that fails says so as a warning, never as
+  silence.
+- **They only run on the DATA STEWARD step.** `stewardStep` in `runRequestChecks` reads the screen's
+  own `req.data.Role` with `startsWith(DATASTEWARD_ROLE)`, and `checkStandard` is
+  `standard && !scope && stewardStep`. This is the same trust level as the `renderRole` half — nothing
+  is written or approved on the strength of `Role`; what it decides is whether a remote dry-run costs a
+  round trip and a vendor number, so a client that lied spends only its own. A requester's Check still
+  validates, derives, normalises and duplicate-checks; what they no longer see is S/4's message list.
+  `_rerunStandardChecks` sends `Role` too.
+- **`MAX_SEVERITY` caps every standard finding at `'warning'`** on purpose, and `runChecks` never lets
+  one flip its own `valid` flag — they join the validation list for **display**. So the pre-action gate
+  uses `_standardBlocks(findings)`: anything with `severity !== 'info'` blocks (gating on `'error'`
+  would never fire), and a findings value that is not an array blocks too. Checked in every branch
+  `_runPreActionCheck` takes, including approve, and — where proposals were offered — against the
+  **effective** findings the dialog settles on, not the stale initial ones. `_resolveStandardChecks`
+  and `_rerunStandardChecks` both return those findings for that reason.
+
+### SPRO derivations (`srv/checks/derivation-checks.js`)
+
+One stage, `sap_derivations`, reading `DerivationConfigService` with a 60s cache. Runs **last** in the
+derivation list — a country default is the weakest claim on any field. Check and Duplicate Check only.
+
+- **Address language** from `T005-SPRAS`, on **every** address row (every address in a country has that
+  country's default language, unlike a registry fact about one place). This is the `FSBP_GENERIC/008`
+  field.
+- **Customer tax category** from `TSTL` — proposes the ROWS; `CustomerTaxClassification` is left empty
+  on purpose (a decision about the customer, not something customizing knows). Only when the request
+  asks to be a customer, never into a section already filled. A country with several tax categories is
+  **said out loud** as a `field`-less statement naming all of them. **A created tax row needs TWO
+  entries** — `createsRow` writes one field, so the departure country comes from a second entry that
+  finds the row the first made; without it the row is half a `KNVI` key.
+- **Address time zone** from `TTZ5S`, keyed by country **and** region, into `StagedAddresses
+  .AddressTimeZone` (`ADRC-TIME_ZONE`). No region means nothing to derive, said as a statement (one,
+  however many rows are short). Where a region carries several zones `TZONEDFT` decides; where several
+  exist and none is default, nothing is derived — a customizing gap, not a coin toss.
+- **`TransportZone` is deliberately NOT staged**: `TZONE` holds valid zones per country and carries no
+  determination data, so nothing could ever fill it.
+- **Mandatory customer partner functions** from `TKUPA` → `TPAER`. `TKUPA`'s key is the **account group
+  alone** (`T077D` carries no procedure; `T077D-KALSM` is output determination). Only `PartnerType =
+  'KU'` rows. `BPCustomerNumber` and `PartnerCounter` are never proposed. Needs a `CustomerSalesArea`
+  row; three extra entries fill that key.
+- **Mandatory supplier partner functions** from `T077K-PARGE` → `TPAER`. **A different table**: the
+  vendor procedure is three columns on the account group table itself (`PARGE` purchasing org, `PARGT`
+  sub-range, `PARGW` plant). Only `PARGE` is joined, because the app stages a purchasing-org row and
+  nothing below it. Guard inverted: `PartnerType = 'LI'` — procedure `AG` carries `LF` and schema `0001`
+  carries `AG`, so each side would otherwise propose the other's functions.
+- Customer-only is not an oversight: `KNVI` has no vendor counterpart. Withholding tax is absent from
+  both (`T059P` has no mandatory flag). Language and time zone are BP-level.
+- **Do not copy `cvi_account_group`'s `system: true` flag onto these** — that flag says "S/4 will use
+  this whatever anyone ticks", which is true of the CVI account group and of nothing else here.
+
+**The remote value-help service caps a response at 100 rows.** `srv/checks/config-reader.js`'s
+`readAllOf` is mandatory for every customizing read (twelve were silently truncated; account group
+`0001` alone is 18 `DerPartnerFunctionAccGrp` rows, so page one never reached `DEBI` and correct
+customizing proposed nothing). Two decisions inside it: **`skip` advances by what arrived, never by
+`pageSize`**, and **the loop ends on an EMPTY page, not a short one** (the read that lost `DEBI` was
+short *because* the server capped it) — unlike `readAllPages` in `business-partner-service.js`, which
+stops on a short page because there the caller sets the page size. Still unpaged deliberately:
+`fetchWorkflowEntityRows` (one partner's child rows) and everything on local Postgres.
+`derivation-checks.js#diagnose` logs the five config **row counts** alongside every field the builders
+branch on, because a truncated read looks exactly like customizing that says nothing.
+
+### Two standard-check messages nobody could clear
 
 - **`VMD_API/043`** (EU vendor needs a VAT registration number) fired on every EU vendor because
-  `ZCL_MDML_BPCHECK` never built a `TaxNumbers` node — `ty_sections` had no such member. Nothing
-  typed on the Tax Numbers section reached the check. Same blind spot fed `CVI_API/007`.
+  `ZCL_MDML_BPCHECK` never built a `TaxNumbers` node — `ty_sections` had no such member. Same blind
+  spot fed `CVI_API/007`.
 - **`FSBP_GENERIC/008`** (LANGU in ADDR1_DATA) was *caused* by the mapper: `datax-langu` was set
-  unconditionally, and a blank with the X-flag set means **clear this field**. `StagedAddresses`
-  had no `Language` column, so every request cleared LANGU and then failed the required check.
+  unconditionally, and a blank with the X-flag set means **clear this field**.
 
-So `StagedAddresses` gained **`Language`** (ADDR1_DATA-LANGU, `String(2)`), and it is on the
-address section of the maintenance screen. **It is not `CorrespondenceLanguage`** — that one is
-BP-level (`bp_centraldata-partnerlanguage`) and person-only on an organisation, which is `R11/336`.
-Filling the correspondence language can never satisfy an address-level LANGU, and on an org it
-buys a second error. Keep the two apart.
-
-`payload-fields.js` is generated from `db/staging.cds`, so the new column reaches the rule catalog
-with no further change; `BusinessPartnerMetadata.js` is regenerated by `npm run generate:metadata`,
-which `build`/`build:cf` already chain.
-
-#### The Why column is three words, with the sentence on hover (2026-08-27)
-
-A derivation entry carries a short `label` beside its long `message`; the proposal dialog shows
-`label` as **Why** and puts `message` in that cell's **tooltip**. Labels: `VIES check` /
-`GLEIF check` (`registry-checks.js`, named after the source rather than the action — a requester
-needs to know which register to argue with), `CVI customizing`, `Derivation rule`.
-
-Normalisations get theirs from the **model**: `PROPOSAL_SCHEMA` requires `reason` *and* `detail`,
-the prompt asks for at most three words and one or two sentences respectively, and `shortReason`
-clamps to three words server-side whatever comes back. A proposal with no `detail` falls back to a
-stated sentence rather than `''` — an empty tooltip reads as a broken one.
-
-A field that was derived and then reformatted is still one row: the derivation's label leads (it
-is why the field has a value at all) and the reformatting is appended to the **tooltip**, rather
-than growing the label past three words.
-
-#### A whole derived ROW is one line (2026-08-28)
-
-Reported from the live app: *"I just entered Sales org, dist ch, division, and then the derivation
-triggers for the partner function (which also has a Sales org, dist ch, div field) so to an enduser
-it looks like it's filling in what I just entered."* A created row takes several entries —
-`createsRow` writes one field and the rest complete its key — so with four mandatory partner
-functions the dialog would have shown **sixteen** lines, twelve of them reading the sales area back
-to the person who had just typed it.
-
-`_proposalRows` groups derivation entries on **target + index** — which the pipeline resolves per
-row, so entries of one row always share it and entries of two rows never do — and a group whose
-lead entry carries a **`rowKey`** collapses to one line built by `_derivationRow`.
-
-**The key is the boundary, and grouping on `createsRow` instead was a regression** — shipped and
-reported within the hour: *"I can't choose or edit anything in the address popup anymore?"*
-`registry-checks.js:42` sets `createsRow` on **every** address entry when there is no address row
-yet, so Street, Postal Code, City and Country collapsed into one line with only Street editable.
-A `rowKey` is what says the other entries **identify** the row rather than describe it — a partner
-function's sales area is not a value anybody edits, it is *which row this is*. Address fields from
-VIES are five independent values a requester may well want to edit or decline separately. So an
-unkeyed row-adding entry keeps its own line and its own field name, and still says *Row added*;
-`test/proposal-rows.test.js` pins the address case for exactly this reason.
-
-For a keyed group:
-
-- **The Field column names the SECTION** ("Customer Partner Functions"), not the field, because the
-  row is what is being accepted; a field name alone reads as a field somebody still has to fill.
-  A plain filled-in field is still named by itself, so nothing about those lines changed.
-- **`subtext` under it carries the key** — "Sales area 1710 / 10 / 00" — visible without hovering,
-  asked for directly. The Why column's tooltip still holds the whole sentence, which now says which
-  sales area the row is for as well.
-- **The row is accepted or declined WHOLE.** Only the lead is tickable and only its value is
-  editable; the key fields travel with it as `extras` and `_applyProposals` writes them together.
-  They were separate ticks resolved by index before, which breaks as soon as more than one row can
-  be proposed: declining the second row shifted the third's key fields onto it.
-- **Idempotence moved to the whole key.** `_applyProposals` used to refuse a row whose lead value
-  already existed; `AG` under a second sales area is a different row, so it now compares every key
-  field, with a blank on the existing row counting as a match — the same rule `rowMatchesKey`
-  applies server-side.
-
-#### A derivation may create the row it needs (changed 2026-08-20)
-
-A derivation used to refuse to invent a row: with no address on the screen, a VIES
-answer was reported with no `field` ("there is no Addresses row to hold it") and
-written nowhere — so the requester had to press **Add** before the register could
-fill anything, which is precisely the case where the lookup is most useful.
-
-**Built twice, on the same afternoon, and merged into one.** Maarten and Julien both
-implemented it within four minutes of each other (`b50a8a1` and `6a45554`). The
-merged design takes the trigger, the scope and the registry path from the first and
-the idempotency and the stage ordering from the second — Maarten's call.
-
-- **The payload is the trigger, not a flag on the rule.** A rule whose target section
-  holds no rows proposes the row; one whose section has rows fills its gaps. There is
-  no `createsRow` column and no "Add row" checkbox: conditions met are enough, and a
-  steward should not have to tick a second box to get the obvious behaviour. The
-  `createsRow` **column stays in `db/quality-rules.cds` as dead weight**: dropping it
-  failed `deploy_to_postgresql` four times over, because Julien's build had already
-  reached the deployed model. Nothing reads it, the same way nothing reads the four
-  `cond*` columns on `DuplicateRules`. (Julien's
-  version made it opt-in per rule, with save-time refusals guarding the checkbox;
-  those refusals went with it — a condition on the section being added is evaluated
-  against an empty row and cannot hold, and a value copied out of that section
-  resolves to nothing, so both simply do not fire.)
-- **Only an EMPTY section, and only its first row.** A section the requester has
-  already put a row in is theirs: the rule falls back to filling gaps and never
-  appends beside it. This is narrower than Julien's version, which appended — so
-  "role FLVN01 in BE means purchasing organisation 1710" fires on a partner with no
-  purchasing org, but will not add a *second* one.
-- **Two stages, adders before fillers.** Every rule in one stage sees the same payload
-  — the pipeline applies a stage's entries only after it returns — so a filler sharing
-  a stage with the rule that adds its row would fill nothing. Both stages run every
-  rule and `mode` (`'create'` / `'fill'`) decides what each may emit, because which
-  rule adds and which fills is not known until the payload is in hand. `sequence`
-  therefore orders rules *within* each kind, not across them.
-- **Idempotent.** A section already holding a row with that value is left alone, and
-  `_applyProposals` refuses to add a second row carrying the value it is accepting —
-  so pressing Check twice adds one row, and a row the requester added by hand is kept.
-- **The requester still ticks it.** The row is created in the pipeline's own copy
-  (which is what the duplicate check reads) and on the screen only when the proposal
-  is accepted — with `__state: "new"`, so it stages as a `C` rather than an update to
-  a row S/4 does not have. The dialog says **Row added** rather than *Filled in*.
-- **The registry creates the first address too** (`registry-checks.js`): VIES/GLEIF
-  set `createsRow` when there is no address row at all, which is the case that started
-  this. Only the first of the four address entries carries the flag — the pipeline
-  fills the rest into the row it just made.
-
-Three behaviours worth not "simplifying" away: a validation that throws blocks
-(a rule that silently skipped would defeat the ordering); a derivation that
-throws only reports (an improvement, not a gate); and a duplicate check that
-could not run is reported rather than folded into an empty result, because "no
-duplicates found" from a check that never ran is the one wrong answer here.
+So `StagedAddresses` gained **`Language`** (ADDR1_DATA-LANGU, `String(2)`). **It is not
+`CorrespondenceLanguage`** — that is BP-level (`bp_centraldata-partnerlanguage`) and person-only on an
+organisation (`R11/336`), so filling it can never satisfy an address-level LANGU and on an org buys a
+second error. Keep the two apart.
 
 ### Normalisation — `srv/checks/normalise.js`
 
-AI Core proposes reformatting of **stored** data: casing, legal forms (`bvba` →
-`BVBA`), whitespace, street conventions. **Proposals only — nothing is ever
-applied without the requester ticking it.**
+AI Core proposes reformatting of **stored** data (casing, legal forms `bvba` → `BVBA`, whitespace,
+street conventions). **Proposals only.** Normalising *for comparison* is solved deterministically in
+`srv/ai/duplicate-fields.js` and is a different thing; a derivation fills a gap and never overwrites,
+a normalisation only ever touches a field that already has a value.
 
-Two distinctions worth keeping straight:
+`sanitizeProposals` drops a proposal for a field that was not offered or that changes nothing.
+Identifiers (tax numbers, IBAN, BP number) are outside `NORMALISABLE` — formatting them is not a
+formatting matter. Runs on **Check only** and returns `[]` on any failure.
 
-- Normalising **for comparison** is already solved deterministically in
-  `srv/ai/duplicate-fields.js` and is the engine's business. This is different:
-  it rewrites what someone typed, which is an edit to master data.
-- A **derivation** fills a gap and never overwrites. A **normalisation** only
-  ever touches a field that already has a value. That is why it is its own stage
-  and why it can never auto-apply.
+### The proposals dialog
 
-`sanitizeProposals` checks the model's output against the fields actually sent —
-a proposal for a field that was not offered, or one that changes nothing, is
-dropped. Identifiers (tax numbers, IBAN, BP number) are deliberately outside
-`NORMALISABLE`: formatting them is not a formatting matter.
+Derivations and normalisations share one dialog, everything ticked by default, with a `change` column
+saying `Filled in` or `Reformatted`. Derivations **no longer auto-apply**.
 
-It runs on **Check only**, and returns `[]` on any failure — an AI Core outage
-must not stop a check or a submit.
+- A field a derivation filled and the model then reformatted is **one row, not two** (`_proposalRows`),
+  and the normalised value wins.
+- The proposed value is an **editable input**; `_applyProposals` reads back from the model. Clearing
+  the field is a decline, not an instruction to blank what is there.
+- A derivation carrying **no `field`** is a statement, not a value — it stays a message strip.
+- **The Why column is three words, with the sentence on hover.** An entry carries a short `label`
+  (shown as Why) beside its long `message` (the cell's tooltip). Labels: `VIES check` / `GLEIF check`
+  (named after the source — a requester needs to know which register to argue with), `CVI customizing`,
+  `Derivation rule`. Normalisations get theirs from the model: `PROPOSAL_SCHEMA` requires `reason` and
+  `detail`, the prompt asks for at most three words and one or two sentences, and `shortReason` clamps
+  to three words server-side. A missing `detail` falls back to a stated sentence — an empty tooltip
+  reads as a broken one.
+- **A whole derived ROW is one line.** `_proposalRows` groups derivation entries on **target + index**,
+  and a group whose lead entry carries a **`rowKey`** collapses into one line built by `_derivationRow`:
+  the Field column names the **section**, `subtext` carries the key ("Sales area 1710 / 10 / 00"), only
+  the lead is tickable and editable, and the key fields travel with it as `extras`. Idempotence
+  compares **every key field**, with a blank on the existing row counting as a match — the same rule
+  `rowMatchesKey` applies server-side. **The `rowKey` is the boundary, not `createsRow`**: grouping on
+  `createsRow` collapsed VIES's four independent address fields into one line with only Street editable.
+  An unkeyed row-adding entry keeps its own line, its own field name, and still says *Row added*;
+  `test/proposal-rows.test.js` pins the address case.
+- Duplicate findings survive the dialog in a collapsed, self-scrolling `Panel` (`_setDuplicatePanel`).
+  **Only a match ever changes that panel**, and only Duplicate Check and Submit match — findings stand
+  until something re-matches and replaces them, including when a check did not run.
 
-#### Two buttons, two questions (changed 2026-08-17)
+### Gating derivations by field property, and re-validating at every gate
 
-`checkRequest` and `duplicateCheckRequest` are separate actions over the same
-pipeline, because the screen asks two different things:
+Two separate mechanisms, because they answer different questions ("may this be shown" vs "does this
+still pass").
 
-- **Check** — "is this record right?": validate, derive, normalise. Returns
-  derivations and normalisations and **nothing about duplicates**.
-- **Duplicate Check** — "does it already exist?": validate, derive, match. The
-  derivations still run, but **in memory only** — nothing derived is returned or
-  shown. They run because a rule conditioned on a country nobody typed yet still
-  has to fire, which is the whole reason derive precedes match in `pipeline.js`.
+- **Gating.** `runDerivations`/`runChecks` take an optional `fieldEditable(target, field)` predicate;
+  an entry whose target field it refuses gets **no entry at all** — not written, not reported, not
+  offered. A field-less statement is checked with `field` undefined, resolving to the entity's own state
+  via `effectiveProperty`'s cascade. No predicate means everything is editable, exactly as before.
+  `runRequestChecks` builds it from `fieldState` for the **screen's own** role (narrowed the same way
+  `effectiveFieldProperties` narrows it), which is a rendering trust level, not a security boundary.
+  Both `checkRequest` and `duplicateCheckRequest` take `RequestType`/`Role`; a caller sending neither
+  resolves to `role: null`, matching only `*` profiles. The client sends them from `_checkRole(state)`.
+- **Re-validating.** `runSubmitValidations(req, payload)` is the one definition shared by
+  `submitRequest`, `resubmitRequest`, `decideDataStewardReview`'s `complete` branch **and
+  `decideRequest`'s approve path** (which previously ran none of this). On approve it runs over
+  `loadStagedPayload(changeRequest)` — the same `{root, sections}` reconstruction `getRequestPayload`
+  does, extracted so the two cannot drift — and a blocking result **rejects the action outright**,
+  which is safe because nothing has been written at that point. The reason: the configuration behind a
+  rule can have changed since submit.
+- **`loadStagedPayload` must always assign an ARRAY** to `sections[section]`, whatever `config.many`
+  says. `getRequestPayload`'s bare-object shape for a to-one node is only safe because the *client*
+  re-wraps it; `loadStagedPayload` feeds validations directly, and both `relation-checks.js` and
+  `node-required.js` silently `continue` on a non-array — so a real Suppliers row was invisible and
+  the check reported "no Supplier record" over a row it never looked at.
+- **Derivations never run on approve** — nothing there is editable, so there is nobody to show a
+  proposal to.
+- **`_runPreActionCheck`** (`BusinessPartnerMaintenance.controller.js`) is the client half: `onSave`
+  (Submit, Resubmit, and the embedded My Inbox rework action) and `onApprove` call it first, from a
+  button press. A validation gate that only speaks when something is wrong reads as "no check
+  happened", so it is the **full Check-button experience** — it calls `checkRequest` as `onCheck` does,
+  blocks with the same message, and opens the **same** `_offerProposals` dialog (which gained an
+  optional `onResolved` callback), waiting for it to close. Two callers share that one vetted dialog;
+  never add a second, cheaper way for a proposal to reach the screen. **Never for Approve**
+  (`forApprove: true`, also skipping the AI normalisation call) — `decideRequest` takes no `DataJson`,
+  so an acceptance would have nowhere to go; checked before the confirm dialog opens.
 
-Both stage nothing, and `runRequestChecks` in `srv/change-request-service.js` is
-the one runner they share — the stage list is what differs, never the order.
+## The MDM Configuration Panel tile (`app/mdmrules`)
 
-#### Checks run on a button press, and only on a button press (2026-08-27)
+`webapp/ext/view/MDMRuleHub.view.xml` is the landing page: five `GenericTile`s — Duplicate Check
+Rules, Validation Rules, Field Properties, Derivation Rules, Workflow Agent Determination.
 
-**Derivations and proposals happen when the requester presses Check.** Nothing on
-the form triggers a check by itself. Maarten, 2026-08-27: *"only trigger
-Derivations/Proposals after a 'Check' button was triggered. Now it's firing a lot
-when a user is typing because '+' or 'add' buttons trigger it as well."*
+**Renamed on the screen only.** Every technical id is unchanged: `app/mdmrules`, `sap.app.id`
+`mdm.md.mdmrules.manage`, the `MDMRules-manage` inbound and `MDMRules` semantic object, the
+`WorkflowRules` entity, the `WorkflowRuleList` route, and the service path `/service/duplicateconfig`
+(which keeps its name after growing four more tables).
 
-`_onFieldCommitted` survives and does local work only — it recomposes
-`BusinessPartnerFullName` and redraws the change summary when `trackChanges` is on.
-It makes **no server call**, and `test/check-triggers.test.js` pins that: no
-`_executeAction`, no `checkRequest`, no `setTimeout`, no `_offerProposals`. Adding a
-debounced check back here is a one-line change, which is why the absence is tested.
+**It is a second HTML5 app, not a second inbound. SAP Build Work Zone, standard edition exposes only
+the FIRST `crossNavigation.inbounds` entry per `sap.app.id`.** Extra inbounds are dropped silently and
+never reach the Content Explorer; SAP confirmed this as unsupported. Do not reintroduce a second
+inbound, and do not read a missing tile as a deploy problem. A **local copy** in Content Manager was
+tried, produced a tile that would not load, and stops reflecting later descriptor changes.
 
-`_cancelPendingTrigger` keeps its name and has no timer left to cancel: it empties
-`_declinedProposals`, so pressing a check button asks again. Every button that runs
-a check still calls it first — Check, Duplicate Check, Save/Submit/Resubmit,
-Withdraw — before the client-side validation, so a press that fails that check has
-still superseded the earlier declines.
+So: unique `sap.app.id` per app, **shared `sap.cloud.service`** (`mdm.md.businesspartner`) so no new
+destination/app-host/XSUAA entry is needed, each app's own `xs-app.json` reusing the
+`mdm-businesspartner-srv-api` destination, and **one** `com.sap.application.content` module at
+`path: .` funnelling all app zips into the same app-host (two content modules pointed at one app-host
+each replace the other's content).
 
-##### Why the automatic trigger was removed
+**`tools/package-html5.js` does the zipping, and that is not a style choice.** The generator's pattern
+(`type: html5` modules with `build-result: dist`, referenced by `<module>.zip`) produced a **22-byte**
+`data.zip` here — deploying that would have shipped empty content and **deleted both apps from the
+HTML5 repository**. The script refuses to emit a zip under 1KB. Verify before any deploy:
+`unzip -l mta_archives/*.mtar | grep -i zip` must show app zips of real size.
 
-Worth keeping, because the feature looked correct the whole way down and was not.
-Between 2026-08-17 and 2026-08-21 the trigger acquired a guard for every double-dialog
-reported against it, and **every guard worked as designed**:
+The hub is the app root (route pattern `""`) and `Component.js` calls `getRouter().initialize()`
+itself — there is no Fiori Elements AppComponent here. Back from the hub is a **cross-app intent** to
+`BusinessPartner-manage`, and it no-ops where there is no shell.
 
-- Hung off `change`, never `attachLiveChange`; never a `MessageBox`, never
-  `state.busy`; one at a time, dropped rather than queued; a failure was a
-  `console.warn`.
-- `_cancelPendingTrigger` cleared `_idleTimer` and `_triggerTimer` and nulled
-  `_pendingScope`, because a *scheduled* trigger fired the moment a button released
-  busy (fixed 2026-08-19).
-- `_buttonRun` dropped the result of a trigger a button had overtaken mid-flight,
-  since the busy check happens before the await.
-- `_rememberDeclined` keyed a decline on `target|index|field|proposed` rather than
-  the payload, because `_lastTriggerKey` (`scope|propose|dataJson`) could not tell
-  two checks over a changed payload apart (fixed 2026-08-21).
+**Adding the app does not create the tile.** After deploying: refresh the HTML5 Apps content provider
+in Channel Manager, add the app from the **Content Explorer** (it does not appear in Content Manager
+until you do), assign it to a group, a catalog and a role, and the role to the site.
 
-The premise was what was wrong: **opening a record dialog commits the cell behind
-it.** So "+" and "Add" fired checks nobody asked for, mid-typing, repeatedly — and
-no amount of de-duplication fixes a check that should never have started. The
-mechanism cost an AI Core call and a remote round trip per accidental commit.
+### The rule tables
 
-What is left of it, and why:
+`db/quality-rules.cds` (`ValidationRules`, `DerivationRules`), `db/duplicate-rules.cds`
+(`DuplicateRules`) and `db/workflow-rules.cds` (`WorkflowRules`) share a BRF+-style decision-table
+shape and are all exposed by `DuplicateConfigService`. Read a row left to right as one sentence:
 
-- **`Propose : Boolean` and `Scope : String(40)` on `checkRequest` stay.** The
-  duplicate check still sends `propose: false`, and `checkStandard: standard && !scope`
-  still keeps the SAP standard checks off a scoped call. They are simply no longer
-  sent by anything automatic.
-- **`_rememberDeclined` / `_isDeclined` stay** as the record of what was offered and
-  refused. Nothing filters on it now — every dialog comes from a press, and
-  "declining is not ticking it, and the next Check proposes it again" is this
-  dialog's contract. `_emptyState` empties it too: declines belong to the record on
-  screen.
-- **Recorded in `afterClose`, not on the Not Now button** — Escape is a decline as
-  well, and after *Apply Selected* the unticked rows are declines too.
-- **One dialog at a time** (`_proposalsOpen`).
+- Validation — *where `Addresses.Country` = BE, `General.Language` must be `=` NL*
+- Derivation — *where `Addresses.Country` = BE, fill `General.Language` with NL*
+- Workflow — *a **create** request whose `Addresses.Country` is BE is **approved** by these people*
 
-Gone entirely: `REGISTRY_TRIGGER_FIELDS`, `TRIGGER_DELAY_MS`, `TRIGGER_IDLE_MS`,
-`_runTriggeredCheck`, `_scheduleTrigger`, `_flushPendingScope`, `_triggerInFlight`,
-`_lastTriggerKey`, `_pendingScope`, `_triggerTimer`, `_idleTimer`.
+**Fields are payload fields, not duplicate-catalog fields.** `srv/checks/payload-fields.js` is a
+second, different catalog: `srv/ai/duplicate-fields.js` describes bags of *normalised* values for
+comparing two partners, while a rule reads and writes the request payload with its real values. It is
+**generated from the staging model** (`cds.model`), never listed — add a column to `db/staging.cds` and
+the value help has it. Names are qualified and always dotted. `PAYLOAD_NODES` is the single source of
+truth for section ids, and `NODES` in `srv/change-request-service.js` is derived from it, so a rule can
+never name a section nothing stages.
 
-**Derivations no longer auto-apply.** They used to be written straight into the
-form on Check, which made them easy to miss and impossible to decline. They are
-proposals now, and they share the normalisation dialog: one list, a `change`
-column saying `Filled in` or `Reformatted`, everything ticked by default.
-Consequences worth keeping:
+**The Value column means two things and nothing else says which.** A value resolving to a qualified
+catalog field is a **reference**; anything else is a literal — unambiguous because catalog names are
+always dotted and a literal never can be. The derivation page's "Copied from …" hint under the cell is
+the only feedback that a reference was understood as one; do not drop it. A same-section reference
+reads **the same row**.
 
-- A field a derivation filled and the model then reformatted is **one row, not
-  two** (`_proposalRows`), and the normalised value wins — applying both would
-  write the same field twice.
-- The proposed value is an **editable input**. A model that spells "st" out as
-  "Straat" where the requester meant "Sint" is right that the abbreviation needs
-  resolving and wrong about how; `_applyProposals` reads back from the model, so
-  what was typed is what lands. Clearing the field is a decline, not an
-  instruction to blank what is there.
-- A derivation carrying **no `field`** is a statement, not a value. It cannot be
-  applied, so it stays a message strip.
+Semantics worth not "simplifying":
 
-Duplicate findings survive the dialog in a collapsed, self-scrolling `Panel`
-(`_setDuplicatePanel`) — dismissing the MessageBox used to destroy the only copy
-of the list, so looking a candidate up meant pressing the button again.
+- **An empty field does not fail a comparison** — validations run before derivations, so a rule failing
+  on an empty field would block the derivation about to fill it. `notEmpty`/`empty` are the exceptions.
+- **Condition scoping is per row on the rule's own section.** A condition on any *other* section is a
+  statement about the partner and holds when any row matches. (Workflow rules target no section of
+  their own, so every condition there is a statement about the partner.)
+- **A rule the engine cannot evaluate blocks**, like a validation that throws.
+- **Severity is a column** on validations — without it every validation would block, and a naming
+  convention that stops a submit is how people learn to ignore findings.
+- **An empty table contributes nothing and does not fall back to defaults.** (The duplicate table is
+  the exception: it falls back, because an empty table would switch the control off.)
 
-**Only a match ever changes that panel**, and only Duplicate Check and Submit
-match. Check does not touch it, and neither does applying a proposal: the
-findings stand until something re-matches and replaces them. A check that **did
-not run** leaves them standing too. Every one of these is the same rule — a
-screen that looks clean must never be clean on the strength of a check nobody
-ran, which is the wrong answer `pipeline.js` refuses to give server-side.
+`srv/checks/rule-store.js` holds rows in memory (60s TTL, dropped on any write) and
+`createConfiguredStages` builds **one stage per kind**, not per rule — the pipeline blocks on the first
+error a validation stage reports, and a table of twenty rules has to report all twenty.
 
-**Submit runs the validations and the duplicate check, but never the
-derivations** (decided 2026-08-13). A derivation changes the data and the
-requester has to have seen what they are asking for, so Check is where they are
-proposed; more triggers get decided on their own merits when there is a
-derivation framework. Since Check only proposes now, **no derived value reaches
-a request without the requester having ticked it.** A blocking validation on submit leaves the request a
-`draft` and reports at the top of the screen — a list of things to fix in the
-form, not a decision to take, which is why it is strips and not a dialog.
+**The field picker is a dialog, not a ComboBox** (`ext/fragment/FieldValueHelp.fragment.xml`). The
+catalog is several hundred fields and `sap.m.ComboBox` filters on the **start** of an item's text. The
+dialog searches with `contains` over the qualified code as well as the label, and **the qualified code
+is what is stored** — a relabelled field must not turn a saved rule into one that no longer resolves.
+**Reset the filter when the dialog OPENS, never when it closes, and read the selection off its binding
+context**: resetting a JSONModel list binding re-templates the rows, so an item control asked for its
+value after a reset answers for whatever now sits at that position.
 
-`db/staging.cds` holds `ChangeRequests` plus one `Staged*` node per section of
-the object page, mirroring the MDG node structure, plus `CheckFindings`.
-`srv/change-request-service.cds` exposes `ChangeRequests`/`CheckFindings` as
-`@readonly` and does every write through actions (`saveRequest`,
-`submitRequest`, `getRequestPayload`, `decideRequest`) so a status can never be
-forged from the client. `srv/change-request-service.js` never talks to S/4
-directly — posting is delegated to `BusinessPartnerService`, which already owns
-the connection, payload sanitizing and maintenance config.
+**No standing banners on the rule pages.** The remaining strips are `Warning` and conditionally bound —
+rules saved but not running, or a duplicate table fallen back to defaults.
 
-Every child node carries an explicit `request` backlink, so **the to-one
-compositions (`general`, `customer`, `supplier`) need an `ON` condition too**.
-Without it CAP puts a foreign key on the header instead of using the backlink,
-which both duplicates the link and creates a schema that later fails to migrate.
+Still open on these tables: a custom message per validation row (a generated one ships); rules for
+object types other than the BP — when MM arrives, **copy the tables** rather than adding an object-type
+column.
 
-A partner with an in-flight change request used to be **hidden** from the
-Business Partner list so two people could not edit it at once. Since 2026-08-24
-it is listed and **marked** instead — see "The merged search list" above.
-`ACTIVE_REQUEST_STATUSES` still decides what counts as in-flight, and `failed`
-is in that list on purpose, because a failed post is not atomic and may have
-left the partner half-written. What it now governs is the **refusal to edit**
-(`openEditPage` in `CustomActions.js`) rather than what the list shows.
+**Multiple values per condition were built and withdrawn**, after three deployed attempts failed
+(`MultiInput` tokens written with `context.setProperty` never reached the server; a hidden bound `Input`
+fixed saving and broke typing; drawing what was written exposed `removeAllTokens` reporting every token
+as removed, which **blanked every stored condition value on page open**). The lesson: **a hand-managed
+aggregation alongside a bound column is the wrong shape** — whatever comes next must make the binding
+the only writer (a child entity with a real list binding, or `sap.ui.mdc`'s multi-value field). What
+survives: `srv/checks/value-lists.js` as a READ path (`conditionHolds`, `holds` and `resolveApprovers`
+still parse `BE|NL` and OR across it), and the stuck plural names `WorkflowRules.conditionValues`/`2`.
+`ListCell.js` was deleted. **`WorkflowRules.approvers` holds one approver; several approvers are
+several rows**, which `resolveApprovers` merges.
 
-Change requests have their own list (`ext/view/ChangeRequestList.view.xml`),
-reached from the Change Requests button on the list report. **The button is
-steward-only** (`{perm>/isDataSteward}`), and since the rules moved to their own
-tile it is the last steward-gated action on the list report.
+### Condition slots, and the page mechanics shared by all rule pages
 
-### The MDM Configuration Panel tile — its own app (`app/mdmrules`, 2026-08-17)
+**Five fixed condition slots per rule, and the PAGE decides how many are drawn.** A genuinely unbounded
+count needs a composition, which was built, deployed toward and abandoned twice — do not try it a third
+time. Columns: `conditionField`/`conditionOperator`/`conditionValue(s)` ×5 plus `conditionLogic`
+(1↔2) and `conditionLogic2..4`. WorkflowRules' value columns are plural (`conditionValues`), the other
+three singular (`conditionValue`) — a stuck naming difference; nothing reads a column name by
+convention, each `CONDITION_PAIRS` names its own.
 
-Rule configuration left the Maintain BP app's toolbar and became its own tile.
-`app/mdmrules/webapp/ext/view/MDMRuleHub.view.xml` is the landing page: five
-`GenericTile`s for **Duplicate Check Rules**, **Validation Rules**,
-**Field Properties**, **Derivation Rules** and **Workflow Agent Determination**.
+- **"Add Condition" is table-wide, not per row** — it raises `view>/conditions`; each Column and its
+  cells carry `visible="{= ${view>/conditions} >= N }"`. Nothing is written. The ceiling comes from the
+  service (`conditionSlots`, from `MAX_CONDITIONS`) so page and schema cannot disagree.
+- **A saved rule reveals its own columns** — `_syncConditionColumns` (on `updateFinished` and after an
+  import) raises the count to the highest slot any row fills, and **never lowers it**.
+  `_setConditionColumns` is the only writer of `view>/conditions`.
+- **"Delete Condition" removes the LAST shown slot and CLEARS it** on every row that holds something.
+  Hiding alone is not enough — the values stay and the engine goes on matching a condition nobody can
+  see. Confirmed first when it would actually throw data away; nothing is saved until Save.
+  **Condition 1 is never removable** (a rule with no condition is written by leaving it blank).
+- **Widths are rem, not percentages** — a hidden column contributes no share of 100%. The table sits in
+  a horizontal `ScrollContainer` (`vertical="false"`) and `view>/tableWidth` gives it something to
+  overflow with, because a fixed-layout `sap.m.Table` at `width="100%"` redistributes its columns into
+  whatever space it has. `tableWidthFor` is the arithmetic (24rem per condition, 6 per Logic column of
+  which there is one fewer, plus `SELECT_REM = 3` for the invisible MultiSelect column), and tests add
+  the declared `<Column width>`s up against it. `growingScrollToLoad` is off so the More button still
+  works. `_applyTableWidth` is the single setter, which is what stops Add Condition undoing a resize.
+- **The engine folds LEFT TO RIGHT, one logic per gap** — `foldConditions` in
+  `srv/checks/value-lists.js`. `A OR B AND C` is `(A OR B) AND C`; there is no precedence. Zero and one
+  condition behave exactly as before (a lone condition is itself, logic bypassed, so NOR cannot
+  invert it) and two under one logic give the identical answer, which is what keeps every stored rule
+  matching. `joinConditions` (the older pairwise fold) still serves nothing else that needs it.
+  **A blank slot takes its own Logic with it** — `readConditions` drops it and carries each surviving
+  condition's own preceding logic.
+- **A blank comparator reads as `eq`** (`operatorOf` in `rule-engine.js`, like `conditionLogicOf` for a
+  blank Logic) — every row stored before the operator column existed meant equality, so nothing was
+  migrated. `empty`/`notEmpty` read the **RAW** value via `sectionRows`, never `fieldValues` (which
+  filters empties out before either could see one). `eq` keeps wildcard and `|`-multi-value matching
+  (`listMatches`); every other operator is OR across the listed values. The duplicate engine's bag holds
+  **normalised** values, so its `is empty` means "no value for that field at all" and its comparators
+  compare normalised against normalised.
+- **`is empty` / `is not empty` are a COMPLETE condition with no value.** `conditionProblems`,
+  `validateRule`/`toEngineRule` (`srv/ai/rule-config.js`) and each page's `_localProblems` all know
+  this. The two operators are **named** by a shared constant (`EMPTINESS_COMPARISONS`), not signalled
+  over the wire — a served `needsValue` flag that failed to arrive read as `undefined !== false` and
+  refused a valid rule.
+- **Operator labels are symbols.** `symbolOnly` (in `rule-engine.js`, beside the `COMPARISONS` it
+  formats) takes everything before the double space `COMPARISONS` already uses to separate symbol from
+  gloss, and returns the word-shaped operators (`contains`, `is empty`, `is not empty`) whole. The
+  duplicate page's own `COMPARISON_TEXT` (`Exact — equal after normalisation`) is a different
+  vocabulary — how two RECORDS are matched — served alongside as `conditionComparisons`, and untouched.
+- **`describeCondition` says which comparator fired.** With five slots it folds left to right using each
+  gap's own word, bracketing from the third clause on; the two-clause NOR wording is kept verbatim
+  because that is what every row stored before means.
+- **The Value cell's expression binding needs `targetType: 'any'`** — inside an expression binding a
+  referenced property is formatted into the bound control property's type unless told otherwise, so
+  `${dc>conditionOperator}` on a Boolean `enabled` threw `FormatException` on every row and silently
+  fell back to the default. Write `${path: 'dc>conditionOperator', targetType: 'any'}`. Applies to any
+  expression over the typed `dc` model; the `view>` JSONModel carries no types.
+- **Multi-select is `mode="MultiSelect"` and nothing else** — `sap.m.Table` draws the per-row checkbox
+  as column 1 and the select-all in the header, so no page declares a `<Column>` for it. Delete and
+  Duplicate read `getSelectedItems()`, act in the same `ruleChanges` group so one Save writes them
+  together, then `removeSelections(true)`. The confirmation counts what it is about to delete.
+- **Column resizing is `ext/util/ColumnResizer.js`**, shared. `sap.m.Table` has no resizing of its own,
+  so the grip is a real `<div>` on the right edge of each `<th>` dragged with plain mouse listeners.
+  **What is draggable is the BORDER between two columns, never the column itself** — there is no
+  reordering and no `dragDropConfig` anywhere near these tables, and a test pins that. The drag ends in
+  `Column#setWidth`, not an inline style (every keystroke in a bound cell can re-render), and handles
+  are re-installed on `onAfterRendering`. Header cell → column is **by id first, by position second**
+  (zipped against the *visible* columns). A resize widens the TABLE by the same delta
+  (`_onColumnResized` → `/widthAdjust` → `_applyTableWidth`), keeping a `calc(<n>rem ± <n>px)` so the
+  rem half still follows the page font. Field Properties passes no `onResize` — it is 100% wide with no
+  horizontal scroll. The handle needs `webapp/css/style.css`, registered as `sap.ui5/resources/css`;
+  `position: relative` on the `<th>` is set from JS rather than by matching a private theme class.
+- **"Delete Rule" sits beside "Add Rule"** (Field Properties says "Delete Profile"): a bare "Delete"
+  two buttons along from "Delete Condition" left the toolbar with two deletes and no word saying which
+  removed a row.
+- **Save cannot claim what it did not do.** `hasPendingChanges` answers for one update group, so a
+  create that never travelled leaves it false and the toast reports a save that did not happen.
+  `_transientRows()` asks the rows directly. **That guard had a race**: `submitBatch`'s promise can
+  resolve before a freshly created context has flipped out of `isTransient()`. So `onSave` captures
+  `_transientRows()` **before** the submit and, once `hasPendingChanges` has ruled out a genuine
+  rejection, awaits each row's `context.created()` (each `.catch(() => {})`) before asking a second
+  time. Applied to all four rule pages.
+- **Duplicate a rule** — `STRIP_ON_COPY` (`ID`, `@odata.etag`, `createdAt`/`By`, `modifiedAt`/`By`) then
+  `binding.create(copy)`. Nothing is saved automatically.
 
-**Renamed on the screen 2026-08-25, not in the code.** The tile and page titles are now
-"MDM Configuration Panel" and "Workflow Agent Determination"; every technical id is unchanged -
-`app/mdmrules`, `sap.app.id` `mdm.md.mdmrules.manage`, the `MDMRules-manage` inbound and its
-`MDMRules` semantic object, the `WorkflowRules` entity, the `WorkflowRuleList` route and the
-`/service/duplicateconfig` path. Renaming any of those costs a re-point, a route change or a
-migration for nothing a user can see - the same reasoning that keeps the service path named
-`duplicateconfig` after it grew four more tables.
+### Excel import/export (`app/mdmrules/webapp/ext/util/XlsxCodec.js`)
 
-**It is a second HTML5 app, not a second inbound.** The first attempt declared
-`MDMRules-manage` alongside `BusinessPartner-manage` in one manifest and told
-them apart with a `screen=rules` startup parameter. That cannot work: **SAP Build
-Work Zone, standard edition exposes only the FIRST `crossNavigation.inbounds`
-entry per `sap.app.id`.** Extra inbounds are dropped silently — they never reach
-the Content Explorer, so no amount of refreshing the HTML5 Apps channel surfaces
-them, and the deployed manifest verifiably contains an inbound that Work Zone
-ignores. SAP confirmed this as not supported on a customer ticket. Do not
-reintroduce a second inbound, and do not read a missing tile as a deploy problem.
+A real `.xlsx`, hand-rolled with **no new dependency**, mirroring BRF+'s own decision-table up/download:
+one worksheet, bold frozen header row, one data row per rule. A `.xlsx` is a ZIP of OOXML parts and the
+container needs only STORE entries to be valid, which sidesteps DEFLATE on export; inline strings
+(`t="inlineStr"`) sidestep `xl/sharedStrings.xml` on write.
 
-A **local copy** in Content Manager can add a tile with its own parameters, and
-that path was tried; it produced a tile that would not load. It is also
-documented to stop reflecting later descriptor changes. Rejected for that.
+- **Reading back must cope with what real Excel saves**, which is a different shape: always DEFLATE
+  (method 8) and always `xl/sharedStrings.xml` once a file has been opened and re-saved. Decompression
+  uses the browser's `DecompressionStream('deflate-raw')`, so import is async where export is not.
+- **A targeted XML scanner (`matchTags`/`parseAttrs`), not `DOMParser`** — it keeps every read-path
+  function runnable and testable outside a browser.
+- **The attribute group must be lazy (`[^>]*?`).** Real Excel writes an empty cell as
+  `<c r="D3" t="inlineStr" />` and a greedy group swallows the trailing `/`, so the tag reads as OPEN and
+  consumes the next cell's content — silently shifting every column after it.
+- **`xmlUnescape` is applied at each leaf text node (`<t>…</t>`)**, separately from attribute values and
+  never inside the generic tag scanner (which also returns markup that must not be decoded twice).
+- **Columns are matched by header LABEL, not position**, so a reordered or trimmed copy re-imports.
+  `ID` is not a column on any page — nothing reads it on either side of the round trip.
+- **Import REPLACES the table wholesale**: delete every row on the page, create a fresh row for every
+  non-blank file row. No ID matching. A header-only file clears the table. **Import never saves by
+  itself** — the existing Save/Discard flow and `_localProblems` still have the last word.
+- **`isActive` is read tolerantly** (`true`/`1`/`yes`/`x`, case-insensitive, and a real `t="b"` cell).
+- Each page owns its own `xlsxColumns()` (mirroring its own table; `sequence`/`threshold` are left out
+  where they are not columns on screen) and its own `_applyImportedXlsx` (the "does this file look like
+  this table's export" check differs per table). `buildWorkbook` takes `sheetName` so each export names
+  its own tab.
+- Tested at two levels: `test/xlsx-codec.test.js` loads the module by `new Function`-wrapping the AMD
+  factory — **not** `vm.createContext`/`runInContext`, which creates a separate JS realm and makes
+  `assert.deepEqual` fail on structurally identical arrays. Each page's own test file tests that page's
+  columns and wholesale-replace behaviour.
 
-So there are two apps sharing one backend:
+**The controller glue (`onAddCondition`, `onDeleteCondition`, `_setConditionColumns`,
+`_syncConditionColumns`, `STRIP_ON_COPY`, `xlsxColumns`, `_localProblems`) is duplicated across the four
+pages deliberately** — heavy shared machinery is extracted (`XlsxCodec`, `ColumnResizer`), per-page
+wiring reads better beside the page it wires. If a fifth table ever needs it, extract it then.
 
-- Unique **`sap.app.id`** (`mdm.md.mdmrules.manage`) — required, or the deploy
-  collides.
-- **Shared `sap.cloud.service`** (`mdm.md.businesspartner`) — deliberate. Apps in
-  one MTA may share it, which is why no new destination, app-host or XSUAA entry
-  was needed; `app/mdmrules/xs-app.json` reuses the existing
-  `mdm-businesspartner-srv-api` destination for `/service/duplicateconfig/*` and
-  `/service/businesspartner/*` (the latter only for `currentUserPermissions`).
-- One `com.sap.application.content` module at `path: .` funnels **both** app zips
-  into the same app-host. Two content modules pointed at one app-host would each
-  replace the other's content.
-- **`tools/package-html5.js` does the zipping, and that is not a style choice.**
-  The first attempt used the generator's pattern — two `type: html5` modules with
-  `build-result: dist`, referenced from `build-parameters.requires` by
-  `<module>.zip` — on the assumption that `mbt` archives an html5 module's
-  build-result for you. It does not, at least not here: `mbt build` produced
-  `mdm-businesspartner-app-content/resources/data.zip` at **22 bytes**, an empty
-  archive. Deploying that would have shipped empty content to the app-host and
-  **deleted both apps from the HTML5 repository**. The deploy was aborted for an
-  unrelated reason before it got there, which is the only reason it didn't happen.
-  The script therefore refuses to emit a zip under 1KB. Verify before any deploy:
-  `unzip -l mta_archives/*.mtar | grep -i zip` must show two app zips of real size.
-- The hub is the app root (route pattern `""`), and `Component.js` calls
-  `getRouter().initialize()` itself — there is no Fiori Elements AppComponent
-  here to do it. Back from the hub is a **cross-app intent** to
-  `BusinessPartner-manage`, not a route, and it no-ops where there is no shell.
+### Check Current Data (`srv/checks/data-scan.js`)
 
-**Adding the app does not create the tile.** After deploying, refresh the HTML5
-Apps content provider in Channel Manager, then add the app from the **Content
-Explorer** (it does not appear in Content Manager until you do), then assign it
-to a group, a catalog, a role, and the role to the site.
+The Validation Rules page's counterpart to the duplicate tile's "Test Against Current BPs": run the
+**saved** ruleset against the partners that exist.
 
-Bump `sap.app.applicationVersion.version` on every UI deploy. It sat at `1.9.0`
-across several deploys, which made `cf html5-list` useless for telling whether a
-UI change had actually landed.
+- **Knows nothing about S/4** — readers are handed in (`readPartners()`, `readSection(section,
+  partners)`), like `srv/ai/name-index.js`, so it is testable with plain objects.
+- **Runs `runValidationRule`, the engine itself.** A scan judging the data by its own reimplementation
+  would be a second answer to the same question.
+- **Only the sections the ruleset actually reads are fetched** (`sectionsUsedBy` walks each rule's field
+  and its five condition fields); `General` arrives with the partner.
+- **The customer/supplier tree is read by the number `A_BusinessPartner` itself carries**, never by the
+  partner number — CVI does not guarantee they are equal (the same reason `resolveRelationNumber`
+  exists). `scanKeyFieldFor` derives the key column from `MAINTENANCE_ENTITIES`'
+  `parentKeyField`/`parentKeyFields`, covering all 31 sections without a second hand-kept map.
+- **Every column of `A_BusinessPartner`, no projection** — a rule may name any General field.
+- **A section that could not be read is NAMED in the report**, never treated as empty.
+- **Findings and flagged partners are counted separately**; rules are ordered loudest first.
+- **Capped at `MAX_PARTNERS` (2000) and refused above it** rather than answered on a slice
+  (`testRuleset` makes the same call at 5000 for its own pairwise cost).
+- **Delegated to `BusinessPartnerService`** from `DuplicateConfigService`, like `testRuleset` — one S/4
+  connection. With no `RulesJson` it runs what is stored.
 
-Validation and Derivation Rules were UI previews until 2026-08-19. **They are
-real now** — see "The validation and derivation tables" below. They still copy
-the duplicate rule table's layout, and each page still binds only its own entity:
-binding `dc>/DuplicateRules` would show duplicate rules under a Validation Rules
-heading and let someone edit them by accident.
+Derivation deliberately gets no such button: it fills empty fields on the request in front of you, and
+there is no population-wide verdict to preview.
 
-#### Gating derivations by role/field property, and re-validating at every gate (2026-08-31)
+## Field property profiles (`db/field-properties.cds`)
 
-Asked for directly, "heel belangrijk": a derivation must not propose a value into a field the
-current screen cannot edit, and the validations should run again at submit/resubmit/approve, not
-only at the moment of a first Check. Two separate mechanisms, because they answer different
-questions - "may this be shown" and "does this still pass" - and conflating them would have made
-either one impossible to reason about alone.
+A profile says what a request may, must and must not show: **mandatory, read-only, hidden or optional**,
+per entity and per field. Conditions are two dropdowns on the profile row — **CR type** and **role**,
+both taking `*`. Content lives behind **Modify**: a dialog listing every entity, expandable to its
+fields, four checkboxes on both levels.
 
-**Gating what a derivation may propose.** `runDerivations`/`runChecks` (`srv/checks/pipeline.js`)
-take an optional `fieldEditable(target, field)` predicate. An entry whose target field the
-predicate refuses gets **no entry at all** - not written, not reported, not offered as a proposal -
-the same "a requester never reads what they cannot act on" rule that already governs a derivation
-with no prerequisite (see "The rule about what a derivation may say" above). A field-less statement
-entry is checked the same way with `field` left `undefined`, which resolves to the entity's own
-state via `effectiveProperty`'s cascade - a statement about a section the role cannot see is exactly
-as unhelpful as a value it cannot edit. No caller passing a predicate means every field stays
-editable, exactly the behaviour before this existed.
+- **One state per target, not four flags.** The boxes behave as a radio group; the stored row carries a
+  single `property`, so nothing downstream resolves a contradiction that should never have been
+  storable (`hidden`+`mandatory` is unsubmittable, `readOnly`+`mandatory` only a derivation could
+  satisfy).
+- **Absent is not `optional`.** A field with no row is not mentioned; `optional` is an explicit override,
+  which is what lets a narrow profile hand a field back after a broader one made it mandatory.
+- **The dialog replaces the whole profile** (`saveFieldProperties` deletes and rewrites). An unknown
+  entity, field or property is **refused**, not filtered.
+- **The entity/field tree is generated** by `srv/checks/field-properties.js` from `payloadFields()`.
+  The condition lists are closed and served from the same module.
+- **Modify saves the profile first** — settings hang off a saved profile.
 
-`runRequestChecks` (`srv/change-request-service.js`, backing both `checkRequest` and
-`duplicateCheckRequest`) builds the predicate from `fieldState`, resolved for the **screen's own
-role** - narrowed to the caller's specific BTP role the same way `effectiveFieldProperties` narrows
-it, so "Approver Customer" is gated by its own profile rather than by every "Approver" profile in
-the table. This is a **separate** resolution from the one already in `runRequestChecks` for the
-mandatory-field validation gate, which stays hardcoded to `requesterContext(req)` on purpose - that
-one is a security boundary (a client naming its own role could submit past a mandatory field), gating
-a proposal is not, so the caller's own `Role`/`RequestType` are trusted for this half only. Both
-actions gained `RequestType`/`Role` parameters for it; a caller that sends neither (an older client,
-or a direct service call) resolves to `role: null`, which matches only `*` profiles - ungated for
-anything scoped to a specific role, exactly as before this existed. The client sends them from
-`_checkRole(state)`, the same `approve`/`datasteward`/else-`Requester` mapping `_loadStagedRequest`
-already uses for `_loadFieldProperties` - so a Check pressed on the approve screen (the button stays
-visible there; approve has never had its own gate on it) cannot open a dialog offering to fill in a
-field the object page itself never lets an approver touch.
+### Applying them
 
-**Re-validating at every gate.** `submitRequest`, `resubmitRequest` and `decideDataStewardReview`'s
-`complete` branch used to carry three literal copies of the same validation stage list. They now
-share one function, `runSubmitValidations(req, payload)`, defined once beside `runRequestChecks` -
-purely a deduplication, zero behaviour change, and it closes the drift risk of the three ever
-disagreeing about what "the check" means.
+**Where two profiles match, the broadest result wins** — a **join over three axes** (visible / editable
+/ required), not a ranking, because `mandatory` and `readOnly` are not comparable. Visible or editable
+if **any** matching profile allows it; required only if **every** profile that speaks demands it.
 
-**`decideRequest`'s approve path never ran any of this before** - it went straight from
-`postedBP`/status guards to writing `status: 'approved'` and posting. It now calls
-`runSubmitValidations` too, over `loadStagedPayload(changeRequest)` (the same `{root, sections}`
-reconstruction `getRequestPayload` does, extracted so the two cannot drift on how they read staging).
-A blocking result rejects the action outright - safe because nothing has been written yet at that
-point, unlike a failed *post*, which is why that failure mode uses `ErrorMessage` instead (see
-"Signalling the outcome" above): the request stays `inApproval`, the task stays open, and the
-approver sees why rather than the partner being created against data that no longer passes. The
-reasoning for approving is the last point before S/4 ever sees the request: the configuration behind
-a rule (a mandatory field, a CVI account group mapping) can have changed since the request was
-submitted.
+| Profile 1 | Profile 2 | Result |
+| --- | --- | --- |
+| hidden | readOnly | readOnly |
+| mandatory | readOnly | **optional** |
+| mandatory | optional | optional |
+| hidden | mandatory | optional |
 
-**Derivations still never run on approve**, deliberately: nothing on the approve screen is editable,
-so there is nobody left to show a proposal to even if one ran. This is the other half of "in
-Approval stap niks tonen" - the first half is the predicate above, for the Check button; this half
-is that the automatic re-check on Approve was never a derivation to begin with.
+`PROPERTY_STATE` is the whole rule and the join is closed over the four names
+(`test/field-property-apply.test.js` proves it exhaustively). **Nothing reads a precedence** — the grid
+shows no Order cell and the resolver never sorts. **Silence is not `optional`**: a profile saying
+nothing about a target is left out of the join entirely.
 
-##### The silent version above was not what "geactiveerd" meant (revised the same day)
+**Only `hidden` and `readOnly` cascade from an entity to its fields** — they describe the container. An
+entity's `mandatory` is about whether it needs a **row** at all.
 
-Reported back within hours: "als ik op de approve submit of resubmit button druk dan wordt die
-check niet uitgevoerd" - a validation gate that only speaks up when something is WRONG reads as "no
-check happened" when the data is fine, which is indistinguishable from what shipped before this
-section existed. Asked directly what "the check" meant: **the full Check-button experience** -
-validate, derive, and show what was found or proposed - not only a pass/fail gate.
+Two halves, deliberately not one code path:
 
-`_runPreActionCheck` (`BusinessPartnerMaintenance.controller.js`) is that: `onSave` (Submit and
-Resubmit, standalone and the embedded My Inbox rework action, which already calls `onSave` itself)
-and `onApprove` both call it before doing anything else, from a button press - not from typing, not
-scheduled, so it does not reopen the door "Checks run on a button press, and only on a button press"
-closed. It calls `checkRequest` exactly as `onCheck` does and:
+- **Rendering** — `effectiveFieldProperties(RequestType, Role)` on `ChangeRequestService`, loaded by the
+  maintenance controller **before the first render** (rendering is synchronous; a field painted and then
+  taken away is worse than one never drawn). `hidden` drops the field from both layouts entirely and a
+  hidden entity hides its whole `ObjectPageSection`. `readOnly` takes editability away and can never
+  grant it. `hidden` is deliberately honoured on the approve view — once approvals are split by
+  function, a sales approver has no business reading bank details.
+- **Enforcement** — `createFieldPropertyStages` adds a `field_properties` validation to Check, Duplicate
+  Check, submit and resubmit, reading the cascade back first. Without it a profile is a star on a label
+  a direct service call walks past. It runs on `requesterContext(req)`, always `Requester`, and is the
+  security-relevant half.
 
-- **Blocks with the same message `onCheck` shows** on an invalid payload, before the real
-  submit/resubmit/approve action is even attempted.
-- **Opens the SAME `_offerProposals` dialog** when there is something to derive or reformat, and
-  waits for it to close before letting Submit/Resubmit actually proceed - `_offerProposals` gained
-  an optional `onResolved` callback for exactly this, fired once `_resolveStandardChecks` has
-  settled. The requester still has to have seen and ticked (or declined) whatever it found; nothing
-  auto-applies, same as pressing Check by hand. **Now two callers of `_offerProposals` share the one
-  vetted dialog** - `onCheck` and this - never a second, cheaper way for a proposal to reach the
-  screen.
-- **Never opens that dialog for Approve** (`forApprove: true`, also skipping the AI normalisation
-  call entirely - nothing there could be reformatted towards anyway). `decideRequest` takes no
-  `DataJson`, so an approver "accepting" a proposal on that screen would have nowhere for the
-  acceptance to go - the same reasoning that already kept approve out of every proposal-dialog path.
-  Checked before the confirm dialog even opens, so a request about to fail validation does not first
-  make the approver confirm they want to approve it.
+**"Both layouts" includes the section's own summary table**, not just the record dialogs:
+`_renderSection` filters `_summaryFields` through `_isHiddenField` the same way `_createFieldGrid`/
+`_createFieldTable` already do, so a hidden field is gone from the column list, the cells and the search.
 
-The server-side `runSubmitValidations` gate above is unchanged and still runs on every one of these
-three actions regardless of what the client did or did not check first - belt and braces against a
-direct service call, and the actual security-relevant gate (`requesterContext` is still hardcoded on
-every write path).
+### Roles are BTP role collections, by naming convention
 
-##### An S/4 standard-check finding blocks the button too, not only the local validations (2026-08-31)
+A profile's role is one of `*`, `Requester` (the only two non-role-collection concepts left in
+`ROLES`/`ROLE_TEXT`), or a BTP role collection name.
 
-Asked for directly: "Validaties/SAP standard checks op Submit button doublechecken (Geen Proposals
-voorstellen) bij de approver. Omdat die dus niks mag aanpassen" - validations/SAP standard checks
-should be double-checked on Submit (and Resubmit/Approve), with no proposals for the approver,
-because they cannot change anything anyway. The "no proposals for approve" half was already true;
-the "double-checked" half was not, for a specific reason: `runChecks` in `srv/checks/pipeline.js`
-never lets a standard-check finding flip its own `valid` flag - `bp-check.js`'s findings only "join
-the validation list" for **display**, and `_runPreActionCheck` was checking `result.Valid`, which
-answers only for the LOCAL validations. So a genuine S/4 objection (a required field S/4 itself
-refuses, say) could sit on screen as a strip while Submit/Resubmit/Approve went ahead anyway -
-visible only by accident, when a proposal happened to be on offer at the same time.
+- The picker sources from `workflowAgents()` filtered to `type === 'Role'` — a profile's role condition
+  is about an actor kind, so users stay out of this picker. **The bare `MDMLIGHT` collection is excluded
+  here only** (it is the catalog-level role for the whole app; offering it would scope a profile to
+  "everyone with any access" while looking like a narrow choice).
+- **A role matches the screen's category by a case-insensitive PREFIX, checked BIDIRECTIONALLY**
+  (`profileMatches`). `ApproverSales` counts as an Approver-category profile, and once the screen
+  resolves a *specific* role the bare category must still match it (`"Approver".startsWith("Approver
+  Customer")` is false), while two different specific roles stay apart. `LEGACY_ROLES`
+  (`['Approver', 'DataSteward']`) keeps the write guard accepting the literal values stored before this,
+  and an exact match is checked before the prefix.
+- **Rendering is narrowed to the caller's own specific role.** `resolveEffectiveRole`
+  (`change-request-service.js`) resolves `Approver`/`DataSteward` (`RESOLVABLE_ROLE_CATEGORIES`) to the
+  caller's own collection via `specificRoleFor(email, category)` (`srv/wf/btp-agents.js`) before
+  `effectiveFieldProperties` runs — without this, `Approver Customer` (hides Suppliers) and `Approver
+  Vendor` (hides Customers) both matched every approve screen and the join landed on "visible for both,
+  for everyone". **Ambiguous resolves to null, not a guess** (several matching groups, or none), falling
+  back to the bare category. Best-effort. **Only the rendering path** — enforcement still runs on
+  `requesterContext(req)`.
 
-`_standardBlocks(findings)` is the new, stricter LOCAL gate: anything with `severity !== 'info'`
-blocks. Not `=== 'error'` - `bp-check.js`'s own `MAX_SEVERITY` caps every standard finding at
-`'warning'` on purpose (see "The S/4 standard checks only see accepted values" above), so gating on
-`'error'` here would never fire. This does **not** loosen or touch that cap - the Check button's own
-strips still show these as ordinary warnings a requester can read and keep working past; only the
-pre-action check that decides whether Submit/Resubmit/Approve may actually proceed treats them as a
-stop sign. A findings value that is not an array at all (a re-run that itself failed - see below)
-blocks too, on the same "a check that could not be confirmed must not read as one that passed" rule
-`_rerunStandardChecks`'s own catch block already followed for its warning strip.
+### Critical entities
 
-Checked in **every** branch `_runPreActionCheck` can take, not only the common one:
+- **Critical is entity-level only.** `validateSetting` refuses a row carrying both `element` and
+  `critical: true`; the dialog greys the box on a field row and `onCriticalSelect` guards it again.
+  `resolveProfiles` still *reads* an older field-level row rather than dropping it, and `_buildTree`
+  never carries one back, so such a profile self-migrates on the next Apply.
+- **Critical is a marker, not a gate.** `createFieldPropertyStages` enforces `mandatory` only; a first
+  version that blocked an empty critical entity was rejected.
+- **Drawn on the screen, not written as a message** — `_isCriticalEntity` reads `criticalEntities` off
+  the already-loaded properties and `_markSectionCritical` appends "⚠" to the Object Page section title.
+  Applied in `_renderSection` for the nine node sections and in `_renderRootForm`/`_renderRootSection`
+  for the two cards the root splits into (both render the same `General` section).
+- **Critical is Requester-scoped and reflected read-only everywhere else.** A request carries one set of
+  critical entities for its lifetime, decided by whoever files it. `resolveProfiles` computes it from a
+  **separate** matching set (`criticalMatching`/`criticalIds`, re-running `profileMatches` against
+  `role: 'Requester'`) independent of the caller's own role. The Modify dialog computes
+  `canEditCritical = !role || role === "*" || role === "Requester"`, guards both the checkbox binding and
+  `onCriticalSelect` with it, and `_settingsFromTree` multiplies every `critical` it sends by that flag —
+  **Apply on an Approver profile must not copy the Requester profile's flag into it.** Other roles' dialogs
+  still SHOW the box, disabled, fed by `fieldPropertiesOf`'s `{ settings, requesterCritical }` (which
+  reuses the exact runtime resolution the maintenance screen reads "⚠" from).
+- `srv/checks/field-property-store.js` caches profiles for 60s, dropped on any write.
+- **Watch the read column lists.** The Critical checkbox silently stopped saving because
+  `fieldPropertiesOf`'s SELECT omitted `critical` — the save side had always been correct.
 
-- **Approve** (`forApprove`) - checked right after the local-validation gate, before the function
-  returns at all. Approve still never opens the proposals dialog (nothing there is editable, and
-  `decideRequest` takes no `DataJson` for an accepted proposal to reach), but that is a reason to
-  skip the DIALOG, not a reason to skip the CHECK.
-- **No proposals to offer** - `standard` from the initial `checkRequest` call is judged directly.
-- **Something to propose** - judged only AFTER the proposals dialog closes, against the EFFECTIVE
-  findings that dialog settles on, not the stale initial ones: accepting a proposal can itself clear
-  a standard-check objection (the exact case "The S/4 standard checks only see accepted values"
-  exists for), or a re-run can surface a new one. `_resolveStandardChecks`/`_rerunStandardChecks`
-  both now RETURN the effective findings (previously they only had the side effect of setting
-  `state.messages`) precisely so `_offerProposals`'s `onResolved` callback has something to judge.
+## Workflow Agent Determination (`db/workflow-rules.cds`)
 
-##### `loadStagedPayload` fed a shape the validation pipeline could not see through (fixed 2026-08-31)
+Produces the `approvers` list in the workflow context; SBPA routes on it.
 
-Reported live, the same day the approve gate above shipped: approving a genuine supplier create
-failed with *"SupplierPurchasingOrg needs a Supplier record, and a new business partner has none"* -
-against a request that plainly had a Suppliers row. `loadStagedPayload` had copied
-`getRequestPayload`'s own shape for a to-one node (`Customers`/`Suppliers`, `!config.many` in
-`PAYLOAD_NODES`): a bare object, or `null`, never an array. That is safe for `getRequestPayload`
-only because the **client** always re-wraps a bare section into a one-element array
-(`_loadStagedRequest`: `Array.isArray(value) ? value : (value ? [value] : [])`) before it is ever
-staged into `state.sections` and handed to a check. `loadStagedPayload` feeds
-`runSubmitValidations` **directly**, with no client in between to do that wrapping - and
-`relation-checks.js`'s own loop, unlike `payload-fields.js`'s `sectionRows` (which already tolerates
-either shape), requires `Array.isArray(rows)` and silently **skips** anything else. So a real
-Suppliers row, staged as a bare object, was invisible to the relation check the moment this new
-approve-time re-validation started running it - the section was simply never added to
-`broughtAlong`, and the check reported "no Supplier record" over a row it never looked at.
+- **The table decides WHO, never how many approvals or in what order.** CAP does not check that a role
+  exists either — roles live in SBPA and a copy here would go stale.
+- **An entry carrying an `@` is a user, anything else a role.** `resolveApprovers` returns
+  `{ step, kind, value }`; the wire carries a flat array of the values (see below). The two halves are
+  entered differently on purpose: an address is free text, a role has to be spelled as SBPA knows it, so
+  the cell takes typing *and* offers a value help. The condition cells deliberately do not get it.
+- **Rows are additive** — every matching row contributes, nothing needs ranking, and there is no order
+  column. **Several approvers means several rows**; `resolveApprovers` de-duplicates on step + value.
+- **All four CR types plus `*` ("Any").** Unlike the field property profiles' closed list this table
+  offers `block`/`delete`, because saying who approves one early is harmless (`SUPPORTED_REQUEST_TYPES`
+  gates what can be submitted). `*` is an explicit value a steward picks, not a default for a blank type,
+  and a `*` rule and a specific-type rule both contribute for a request matching both.
+- **`step` carries only `Approve`** — a column rather than an assumption, because the next version of
+  this table describes whole request types with several steps each.
+- **Empty is a legitimate answer** — no rule matched, empty table, or unreadable: all `[]`, which is what
+  every submit sent before this table existed.
+- **Resolved in `workflowContext()`**, after the validations and the duplicate gate, and rebuilt after a
+  rework so a resubmit routes on the payload the requester fixed.
 
-**A second, previously-silent instance of the same gap came along for free with the fix**:
-`node-required.js`'s own loop has the identical `if (!Array.isArray(rows)) continue;` guard, so the
-mandatory-field check on `Customers`/`Suppliers` (`CustomerAccountGroup`/`SupplierAccountGroup` and
-friends) was *also* being skipped at approve-time before this - an incomplete Suppliers/Customers
-row could have passed the approve gate silently. `loadStagedPayload` now always assigns
-`sections[section] = clean` (an array, whatever `config.many` says), matching the shape every
-validation stage - and the client itself - already assumes.
+### The approver picker is sourced from the subaccount (`srv/wf/btp-agents.js`)
 
-`test/relation-checks.test.js` pins the behavioural half directly (a bare-object Suppliers section
-is invisible to `relation-checks.js`, an array-wrapped one is seen); `test/submit-messages.test.js`
-pins that `loadStagedPayload` never goes back to the `config.many ? clean : ...` shape.
+The subaccount's own **role collections** and **users**, read live from the BTP Authorization Management
+API — not this app's `ROLES` list, which is a different question (`ROLES`/`ROLE_TEXT` are untouched and
+still serve the Field Property Profiles page).
 
-### The shared maintenance screen (`app/reuse`, 2026-08-20)
+- Role collections are filtered to those whose **Description** starts with `MDMLIGHT`
+  (`ROLE_COLLECTION_PREFIX`) — **Description, never Name**: the prefix is a convention applied to text an
+  admin writes. Users are named by e-mail, falling back to the username.
+- **A second, separate XSUAA instance**: `mdm-businesspartner-authmgmt` (plan `apiaccess`, in
+  `mta.yaml`), because the app's own `mdm-businesspartner-auth` (plan `application`) has no access to
+  that API. Its key carries `clientid`/`clientsecret`/`url` plus **`apiurl`** — a fixed region-wide
+  address, not this tenant's login URL; `btp-agents.js` refuses to guess one when it is missing. Being a
+  **managed** service its credentials land under VCAP's `xsuaa` group, not `user-provided`.
+- A broad, subaccount-wide read credential; `btp-agents.js` is the only module that ever sees it.
+- Best-effort, cached 5 minutes (`TTL_MS`). The two lookups fail independently.
+- **The F4 dialog is a real two-column table** (`RoleValueHelp.fragment.xml`), not `sap.m.SelectDialog`
+  — that control wraps a plain `sap.m.List` with no column headers, and *Type* vs *Name / E-mail* is
+  exactly the distinction a combined picker must make visible. `onRolesChosen` reads the entry off its
+  binding context before anything touches the list.
+- **`Agent { type, value }`** is the CDS type on `WorkflowRuleOptions.agents`.
 
-The Business Partner maintenance screen — the object page used for create, edit,
-approve and rework — lives in **`app/reuse`**, not in either app that renders it:
+**Two BTP API facts, live-tested rather than assumed:**
+`GET /sap/rest/authorization/v2/rolecollections` already returns each collection's roles inline as
+**`roleReferences`** — there is no detail call to make, and `detail.roles` does not exist. And
+`GET .../users/{name}/rolecollections` answers empty for a user confirmed to be a member of two
+collections; `GET /Users` returns membership inline as **`groups`** (`[{value, display, type:'DIRECT'}]`).
+`test/data-stewards.test.js` pins both shapes. Diagnosed by running a script as a one-off `cf run-task`
+against the bound credentials (the same env-var-passthrough trick `tools/wipe-staging.js` uses).
+
+## Workflow / SBPA integration
+
+`srv/wf/processAutomation.js` talks to SAP Build Process Automation through the `SBPA_DESTINATION` CDS
+requires entry (a `rest`-kind destination). It gets an OAuth2 client-credentials token from the
+`mdmlight-bpa-uaa` user-provided service (cached until near expiry) and an API key, then POSTs a
+workflow-instance start with `irpa-api-key` and bearer headers. `mdmlight-bpa-key`/`mdmlight-bpa-uaa`
+are CF user-provided services bound in `mta.yaml`.
+
+**Known bug, not fixed:** it reads `apiKey` from `mdmlight-bpa-uaa`, which holds
+`clientid`/`clientsecret`/`url`. `mdmlight-bpa-key` is bound and never read, so `irpa-api-key` goes out
+`undefined` and the workflow start fails. Because `submitRequest` deliberately leaves a request in
+`draft` when the workflow will not start, the symptom is staging rows at `draft` with no approver task —
+that is the guard working. Confirm with Arthur which service holds the key.
+
+### Decide and post
+
+- **`decideRequest` records an outcome and, on approve, creates the business partner.** It writes
+  `approved` first, then posts: success → `posted` with the number; failure → `reworkRequired` with the
+  reason in `postError` and in the action's `ErrorMessage`. `reject` → `reworkRequired`. It is not
+  terminal.
+- **`completeRequest` is the same step for SBPA's callback**, made a no-op by its `postedBP` guard once
+  approve has run. **Both entry points call one `postAndRecord`.**
+- Individual approvals are not stored anywhere in CAP, by decision.
+
+Three traps found wiring this, all still load-bearing:
+
+- **A status write immediately before `req.reject` never persists** — `req.reject` throws and CAP rolls
+  the transaction back. That is why a failed post is **returned** as `ErrorMessage` with
+  `Status: reworkRequired` rather than rejecting the action.
+- **A partial post must not create a second partner.** `postToS4` persists the number the moment S/4
+  hands it over — before the child nodes, which can still throw — and `isCreate` is
+  `requestType === 'create' && !businessPartner`.
+- **…nor re-create a child node S/4 already has.** `postToS4` flips a successfully-created row's own
+  `action` to `'U'` right after the save, and removes a successfully-deleted row from staging entirely.
+  Only `header.businessPartner` and `ROLE_NODES` were retry-safe before (the latter because their
+  `isCreate` reads `relationValue == null`).
+- `completeRequest` once threw a ReferenceError on every completion by calling `notifyWorkflow`, a
+  `const` declared inside the `decideRequest` handler. `test/approve-posts.test.js` pins that it is only
+  called where it is declared.
+
+**Signalling the outcome.** The parked instance is told the result through its own trigger,
+`waitForResult`, whose inputs are exactly `businesspartnerid`, `businesspartnerfullname`, `status`
+(`success`/`error`) and `errormessage`; `executionId` is `ChangeRequests.processInstanceId`. It has no
+`result` key, so it cannot go through `sendTrigger` — `triggerPostResult` posts it through the same
+destination. `SignalWorkflow: false` (the task form saying completion already delivers the decision)
+deliberately does **not** silence this: the decision and the result are different waits. Best-effort.
+
+**Several approvers, sequentially.** BPA routes through multiple approver tasks and only the last should
+decide anything in CAP. **CAP still knows nothing about this**; `app/bptask` decides whether to call
+`decideRequest` at all. BPA maps two optional task inputs, `currentapprover` and `totalapprovers`
+(1-indexed), and `_isFinalApprover(context)` is `current >= total` — absent, or unparseable, reads as
+"the only approver". `_completeTask("approve")` skips `_decideOnServer` when not final and only completes
+the one task, which is what BPA reads to advance. **Reject is never gated** — a chain of approvals is not
+a chain of independent decisions. The shared screen's own `onApprove`/`_decide` need no gate: embedded,
+`_addInboxActions` wires the buttons straight to `_completeTask`, and standalone there is no real chain.
+
+### Rework — the requester's screen
+
+A rejection is a **loop, not an end**. `ChangeRequests/{id}/rework` renders the same maintenance screen
+in mode `rework` — the draft view with **Resubmit** as the primary action and Withdraw beside it.
+`state.mode` is what `onSave` routes on.
+
+- **Two entry points**: the `reworkurl` deep link (sent by SBPA with the *initial* workflow context) and
+  a My Inbox task whose input carries `tasktype: "rework"`. A task with no `tasktype` still opens the
+  approver's screen. The screen must cope with a link opened twice.
+- **My Inbox does not render an embedded app's `sap.m.Page` footer at all.** Anything that must be
+  pressable on a task goes in the header actions or through `inboxAPI.addAction`.
+  - **Check/Duplicate Check live in the object page header actions regardless of `env>/embedded`** — on
+    a long create form the footer is a scroll away from the fields being filled in. Neither is a
+    declared outcome, so the header was always the only way to reach them embedded.
+  - **Resubmit/Withdraw go through `inboxAPI.addAction`** (`_addReworkInboxActions`), the same native
+    action bar as Approve/Reject. Pressing one publishes on the `"taskform"` event-bus channel; the
+    shared controller (subscribed in `onInit`) runs the real `onSave`/`onWithdraw` flow, and the task
+    completes only after that succeeds, via `_completeEmbeddedOutcome` calling `completeOutcome` on the
+    task app's Component. The footer copies hide on `env>/embedded`.
+- **Resubmit resumes, it does not restart.** The instance stays parked and `resubmitRequest` signals it
+  with `RESUBMITTED_SIGNAL`. A request with no `processInstanceId` is refused rather than given a fresh
+  workflow, which would hand it two audit threads. **A failed signal no longer blocks the resubmit** —
+  it fails with `bpm.workflowruntime.rest.message.no.match` even for valid reworks because the parked
+  instance is not waiting on `requesterCallBack`, which is a BPA-side gap. What resumes the process is
+  the rework **task completing**. `resubmitRequest` returns `ContextJson` so that PATCH can carry the
+  reworked data as the task's own output.
+- **Resubmit runs every gate a first submit runs** — the requester may have changed the very fields the
+  duplicate check reads. Derivations still do not run on a submit path.
+- **The approver's comment goes to `rejectionComment`, never over `reason`** — the requester would
+  otherwise find their own justification replaced by the verdict on it. The strip **points at the
+  conversation panel** rather than repeating the text; `state.rejectionComment` is read for truthiness
+  only, to tell "a reason was given" from "none was recorded".
+- **Comment boxes**: `approverCommentBox` is embedded-only (`context>/comment`, a model only
+  `app/bptask`'s Component sets). `reworkCommentBox` and `dataStewardCommentBox` bind to
+  `maintenance>/…` and work standalone too (the deep links reach those screens directly); the rework one
+  is sent as `resubmitRequest`'s `Reason` and echoed into the panel locally after a successful resubmit.
+  All three sit **right after the conversation panel** — at the bottom of the content they were cut off
+  (My Inbox does not reliably give an embedded app's lower content room).
+- **The full conversation, not just the latest word.** `ChangeRequestComments` is append-only
+  (`role` + `author` + `text`); `decideRequest`/`resubmitRequest` write to it **in addition to** the
+  legacy `reason`/`rejectionComment`. Returned as `CommentsJson`, rendered as `commentsPanel` (oldest
+  first) on every mode with a thread — approve, rework, view, draft — and it is the **last** panel above
+  the form.
+- **`claimRework` is a stopgap for the missing reject callback.** SBPA notifies the requester and never
+  calls `decideRequest`, so the request is still `inApproval` when the rework screen opens and every
+  downstream gate refuses. It moves `inApproval` → `reworkRequired` **on the rework route only**,
+  treating arrival as the evidence. No-op on any other status, refuses a request carrying `postedBP`, and
+  deliberately sends **no** workflow signal. **Accepted cost:** the link stays in the mailbox, so clicking
+  it again after a resubmit pulls a live approval back into rework. **Delete the handler, the controller
+  call and their tests once Arthur's rejection branch calls `decideRequest`** — that path carries the
+  comment this one cannot ("No reason was recorded with it").
+- **`reworkRequired` is an ACTIVE_REQUEST_STATUS** — the requester is about to edit and resubmit.
+- **No Save Request in rework**: it drops the screen out of editing and offers Edit, which re-enters
+  `edit` mode, and `onSave` would then route to `submitRequest`, starting a second workflow.
+
+**Withdraw deletes.** `withdrawRequest` removes the staged children explicitly then the header, rather
+than trusting the compositions' cascade through the hand-written `ON` backlinks. Two load-bearing
+guards: a request carrying `postedBP` can never be withdrawn, and only `draft`/`reworkRequired` are
+withdrawable. **Idempotent** — a missing request returns `Deleted: false`, not a 404. The workflow is
+told (`'withdrawn'`) before the delete, best-effort.
+
+### Data steward enrichment
+
+A third loop, parallel to rework: a steward is handed a request mid-approval to add or correct data, then
+sends it back — to the approver if they made it work, to the requester if not.
+
+- **`checkAndEnrich` is its own status**, not a value of `reworkRequired`, and joined `EDITABLE_STATUSES`,
+  `ACTIVE_REQUEST_STATUSES` and `IN_PROGRESS_REQUEST_STATUSES`. `WITHDRAWABLE_STATUSES` aliases
+  `EDITABLE_STATUSES` (test-pinned), so a steward may withdraw — accepted, though no UI offers it.
+- **`claimDataStewardReview` is `claimRework`'s pattern**: arrival (via the `datastewardurl` deep link or
+  a task carrying `tasktype: "datasteward"`) moves `inApproval` → `checkAndEnrich`, no signal sent.
+- **`decideDataStewardReview` is two existing shapes under one action.** `'complete'` is
+  **`resubmitRequest`'s body** — persist, the same gates, `Confirm` included, rebuild the context, hand
+  the same parked instance back to `inApproval`. `'reject'` is **`decideRequest`'s reject branch** —
+  straight to `reworkRequired` with the steward's note on `rejectionComment`, back to the requester,
+  never to the approver who never asked the steward anything.
+- **Both handlers are placed after `withdrawRequest`**, not beside `claimRework`: several tests slice
+  `serviceJs` from `resubmitRequest` to `withdrawRequest` expecting an exact shape.
+- Two signals, `DataStewardComplete`/`DataStewardRejected`, are **unconfirmed placeholders**;
+  `triggerRequesterCallback` carries all four, told apart by `result`.
+- The screen is the same shared screen in a fourth mode (`"datasteward"`), route
+  `ChangeRequests/{id}/datasteward` in both `app/businesspartner` and `app/bptask`. Editable like rework
+  but with `showSaveButton`/`showSaveRequestButton` both false — only the two decision buttons. The field
+  property profile is read under `DataSteward`.
+- **Two buttons.** *Complete Review* goes through `_sendChangeRequest("decideDataStewardReview")`, so it
+  gets the same Check/duplicate-confirm dance as Resubmit, then `_completeEmbeddedOutcome("enrich", …)`.
+  *Reject* is a plain decision (`onRejectDataStewardReview` → `_declineDataStewardReview`), mirroring
+  `onReject`/`_decide`.
+- **Outcome ids are `"enrich"` and `"reject"`.** `sap.bpa.task.outcomes` is one flat array across every
+  task type and an id only has to be unique **within** it: `_addInboxActions` and
+  `_addDataStewardInboxActions` both register `"reject"` with their own callbacks, safe because
+  `_initTaskForm` picks exactly one branch per task. Both publish on the event bus rather than calling
+  `_completeTask` directly.
+- **Nothing on Arthur's side routes a task to a data steward yet** — which condition sends a request
+  here, how the parked instance waits for the two signals, and re-pointing the Lobby's user task.
+
+### `datastewards` and `approvers` on the wire
+
+`workflowContext` sends **`approvers` as a flat array of strings**, not the structured list
+`resolveApprovers` returns — the deployed process declares an array of strings and the runtime validates,
+so sending objects failed **every submit** with `/approvers/0 The value must be of string type`. The
+`.map` sits in `workflowContext` and nowhere else. What is genuinely lost is `step` (two steps arrive as
+one list); restoring it is a process-side schema change, **not** a one-sided fix here. `kind` is not
+lost, only implicit.
+
+**Role names are sent unresolved**, and so are `datastewards` (`dataStewardRoles()` — the *names* of the
+role collections carrying this app's `DataSteward` role template). This is true only because **Arthur's
+process resolves BTP role collection membership itself**. Do not read it as a general rule: if a process
+that does not is ever swapped in, this reverts to expanding them via `emailsForRoleCollections`
+(`srv/wf/btp-agents.js`, still live and still used by `dataStewardEmails`). The tell is a task landing
+with an approver list of one unresolvable string. `srv/wf/data-stewards.js` genuinely needs both shapes,
+permanently: `dataStewardEmails` for `processorsFor`'s human-readable strip, `dataStewardRoles` for the
+wire — separate cached functions, not one with a flag.
+
+**`criticalfield`** (lowercase on the wire, like every key in this context; the local variable stays
+`criticalField`) is a **scalar `'X'`/`' '`**, never a list and never one entry per entity.
+`workflowContext` answers one question: does this request fill in **any** entity a **Requester-scoped**
+profile marks critical? It reads `resolvedProperties(requesterContext(req)).criticalEntities` and checks
+each with `sectionRows`. SBPA is told *that* something critical was filled in, never *which* — the "⚠" is
+where a human sees that.
+
+**Still open:** wiring SBPA to actually consume `approvers` — Arthur's definition ignores the field, so
+the table is inert until his process assigns its approver task from it.
+
+## The task app (`app/bptask`) and the approve screen as a BPA UI5 Task Form
+
+Freestyle UI5, `sap.app.id` `mdm.md.businesspartner.task`, shared `sap.cloud.service`, its own
+`xs-app.json`, one more entry in `tools/package-html5.js`. It used to be the Fiori Elements app with
+`sap.bpa.task` in its manifest; SAP documents UI5 task UIs for **freestyle** apps only. It declares **no
+`crossNavigation` inbound**, deliberately — My Inbox resolves a task UI by `sap.cloud.service` +
+`sap.app.id`, so the one-inbound-per-app limit never applies and it needs no tile, catalog or role.
+
+What stayed in `app/businesspartner`: the List Report, object page, `CustomActions` toolbar wiring, and
+the `?changerequestid=` deep link. What left: `sap.bpa.task`, the `inboxAPI` actions, the task context
+load and the completion PATCH. The `env>/embedded` model stays set — to `false`, always — because the
+shared view binds it to decide whether to draw its own decision buttons.
+
+- **Outcome labels are literal text, not `{{…}}` keys** — `{{Approve}}` resolves out of the app's own
+  i18n bundle, which is not where the Lobby looks. `test/task-form.test.js` pins the labels. `inputs`
+  and `outputs` declare the task context for the Lobby; the runtime reads none of it.
+- **Re-pointing the user task in the Lobby is a manual step** whenever the app id changes.
+- **Never put a comment key in `app/businesspartner/xs-app.json`** — it is schema-validated in the HTML5
+  repository, and an unknown property makes the whole app version unservable: every resource returns
+  **500** and the app fails with `adding element with duplicate id '<app id>-content'`, which names
+  nothing relevant.
+- **`app/businesspartner/xs-app.json` needs `^/api/(.*)$` as its FIRST route**, to
+  `com.sap.spa.processautomation` / endpoint `api`. Without it the form loads and every workflow call
+  404s.
+- The workflow base URL is **derived**: `/{sap.cloud.service}.{sap.app.id}/api/public/workflow/rest/v1`,
+  dots stripped. `test/task-form.test.js` pins it.
+- **Verifying `manifest.json` over HTTP proves nothing about what is running.** `build:cf` uses
+  `ui5 build preload` and `Component-preload.js` **embeds the manifest** — the runtime reads it from the
+  bundle. To test a change, disable the browser cache or move the app version.
+- **The OData `dataSources` need the DESTINATION SERVICE INSTANCE GUID as a path prefix.** Without the
+  leading UUID the approuter cannot tell which destination service instance to resolve
+  `mdm-businesspartner-srv-api` from, and `/service/*` answers 500. It is the instance GUID of
+  `mdm-businesspartner-destination-service` (`cf service … --guid`) — **not** a Work Zone content
+  provider id (those are ≤20 alphanumerics/dots/underscores, so never a 36-char UUID) and not the
+  app-host GUID. `/api/` never needed it because it resolves a **service**, not a **destination**.
+- **The prefix is carried in the TASK CONTEXT, because nothing else can carry it.** `workflowContext()`
+  sends `prefix`, read out of `VCAP_SERVICES` by `srv/ui-prefix.js`; `_initTaskForm` reads it and
+  `_appPath()` composes `/{prefix}.{sap.cloud.service}.{sap.app.id}/` in front of the still-relative
+  `dataSources` uri. **`manifest.json` declares no OData model** (a `dataSource`-backed one is built at
+  init, before any context exists). Only the GUID crosses the wire, not the whole path.
+  **Ordering is the design**: `_loadPermissions` and `getRouter().initialize()` live in `_begin()`, which
+  runs only once the prefix is known. Standalone calls `_begin("")`. **A task with no `prefix` is
+  reported, never guessed.** `UI_PATH_PREFIX` overrides the lookup by hand.
+  Two routes ruled out, recorded so nobody re-runs them: (1) deriving it from the component's own load
+  URL — tried and reverted, the resource root is versioned and **unprefixed**; (2) routing `/service/*`
+  as a business service — only works for a service whose VCAP credentials publish `sap.cloud.service`
+  and `endpoints` via the broker's `onBind` hook, which a plain CF app behind a destination is not.
+  Build-time substitution is impossible in one pass: the destination service instance is a resource of
+  this same MTA, so its GUID does not exist until the first deploy finishes.
+- **`app/bptask`'s `dataSources` are ABSOLUTE on that derived path; `app/businesspartner` keeps relative
+  uris.** Embedded in My Inbox the app is served from the HTML5 repository at its **version-stamped**
+  path where `/service/*` is not proxied, so a relative uri answered 500 without ever reaching CAP
+  (nothing in `cf logs`). Statics come from the versioned path; the approuter applies `xs-app.json` on
+  the **unversioned** one. Do not "make them consistent".
+- Completion is `PATCH task-instances/{id}` with `status: COMPLETED`, the context and `decision`, after
+  fetching an `X-CSRF-Token`. **Order matters**: `decideRequest` runs *before* the PATCH, because
+  completing the task resumes the workflow. `decideRequest` is passed `SignalWorkflow: false`.
+- Embedded, `window.location` is the **host's** — the change request id comes from the task **context**,
+  never the hash.
+- **A service model is read through `_serviceModel()`, never straight off the view.** The handover calls
+  `_loadStagedRequest` from `onInit`, and a view has not inherited its component's models at that point,
+  so `getView().getModel("cr")` is `undefined` and the first action call throws "Cannot read properties
+  of undefined (reading 'bindContext')". The accessor tries the view first, then the component.
+
+Still open, Julien's call: a failed post from My Inbox completes the task anyway.
+
+### Contract the SBPA side depends on
+
+Changing any of these breaks Arthur's process definition — agree the change first.
+
+- Approver task URL: `<app-url>#/ChangeRequests/{changeRequestId}/approve`
+- Requester rework URL: `<site-url>#BusinessPartner-manage&/ChangeRequests/{id}/rework`
+- Data steward review URL: `<site-url>#BusinessPartner-manage&/ChangeRequests/{id}/datasteward`
+  (sent as `datastewardurl`, not yet used by any process definition)
+- **Both deep links are Work Zone intents, not approuter paths.** The managed approuter serves the app
+  through the Work Zone site, so a link is the site URL plus a cross-navigation intent with the app's
+  route after `&/`. The base comes from **`WORKZONE_URL`** (a literal in `mta.yaml`, from Site Manager);
+  `APPROUTER_URL` is deliberately no longer read — it stayed set on the deployed app and kept producing
+  the dead standalone host, so unset now yields `''` and a missing link is diagnosable where a 404 is
+  not. The intent must match the `BusinessPartner-manage` inbound.
+- Workflow context at submit:
+  `{ changerequestid, requesttype, businesspartner, emailadressinitiator, bpurl, reworkurl,
+  datastewardurl, prefix, businesspartnerinput, bpduplicates, approvers, criticalfield, datastewards }`
+- **`prefix` must be mapped onto the approval AND rework task inputs.** Declared in `app/bptask`'s
+  `sap.bpa.task.inputs` as an optional string. **An undeclared key never becomes task context**, so
+  sending it is not enough — the process definition has to declare and map it.
+- Decision callback: `POST /service/changerequest/decideRequest` with
+  `{ ChangeRequest, Decision: 'approve'|'reject', Comment }`
+- Post trigger: `POST /service/changerequest/completeRequest` with `{ ChangeRequest }`
+- Workflow definition ID: `eu10.alluvion-dev-cf.mdmlightapproval.mDM_LIGHT_APPROVAL_WF`
+- `businesspartnerinput` is **gone** from the create path — the approve view reads staging.
+
+**Not built on Arthur's side — rework needs three things and the loop does not close without them:**
+
+1. On reject: call `decideRequest` with `Decision: 'reject'` and the comment, notify the requester with
+   `reworkurl`, and **do not complete the instance** — park it. (Today the notification arrives and the
+   callback does not, which is why `claimRework` exists.)
+2. Handle the approval-decision trigger input `result: 'Resubmitted'` — **capitalised**, unlike
+   `approved`/`rejected` — by routing the request back to the approver:
+   ```json
+   { "executionId": "<process instance>",
+     "inputs": { "result": "Resubmitted", "changerequestid": "...",
+                 "businesspartnerinput": {}, "bpduplicates": [], "...": "..." } }
+   ```
+   The BP context sits **flat inside `inputs`, next to `result`**, and is the same object a first submit
+   sends (`workflowContext()` builds both). It is rebuilt *after* `persist()`. `executionId` is the BPA
+   process instance, **not** the change request UUID.
+3. Handle `result: 'withdrawn'` by terminating the instance and clearing any open approver task. CAP has
+   already deleted the request by then.
+
+SBPA calls `decideRequest` on the CAP app directly, not through the approuter. The browser does go
+through it, so **any new CAP service path also needs a route in `app/businesspartner/xs-app.json`** —
+the catch-all sends anything unmatched to the HTML5 repo, where it 404s instead of erroring usefully.
+
+## The shared maintenance screen (`app/reuse`)
+
+The object page used for create, edit, approve, rework, datasteward and view lives in **`app/reuse`**,
+not in either app that renders it:
 
 ```
 app/reuse/src/mdm/md/businesspartner/reuse/
@@ -1610,2927 +1301,267 @@ app/reuse/src/mdm/md/businesspartner/reuse/
   css/maintenance.css
 ```
 
-Two apps render it: `app/businesspartner` (the Work Zone tile) and `app/bptask`
-(the My Inbox task UI). It moved there rather than being copied, because a second
-copy of a 2,400-line controller drifts and nobody notices until the two screens
-disagree about what a request contains.
-
-**The screen was already freestyle** — a plain `sap/ui/core/mvc/Controller`, and a
-view over `sap.m`/`sap.uxap` — which is what made the extraction cheap. It has no
-`sap.fe` dependency and must not gain one: `test/task-form.test.js` fails if it
-does, because the task app has no Fiori Elements libraries to satisfy it.
-
-#### It is copied at build time, not deployed as a library
-
-`tools/sync-reuse.js` copies the folder into each consumer's `webapp/reuse`
-(gitignored, never edited), and each manifest maps the namespace onto it:
-
-```json
-"resourceRoots": { "mdm.md.businesspartner.reuse": "./reuse" }
-```
-
-So the module names are identical in both apps — `mdm.md.businesspartner.reuse.*`
-— and there is exactly one copy in git.
-
-**A deployed UI5 library would have been the textbook answer and is the wrong one
-here.** An HTML5-repository library is addressed by its version-stamped URL, and a
-stale version reference is precisely what made the task UI 404 on 2026-08-20
-(`…manage-1.15.0/Component.js`). Copying at build time leaves nothing to resolve
-at runtime. `app/reuse` is still shaped as a real UI5 library project (`ui5.yaml`
-`type: library`, `.library`, `library.js`) so that decision can be revisited
-without moving a file — but nothing loads `library.js` today.
-
-Consequences worth knowing:
-
-- **`npm run generate:metadata` writes into the library**, not into an app. Both
-  consumers pick the new `BusinessPartnerMetadata.js` up on their next build.
-- **Every build runs `sync:reuse` first.** `build` and `build:cf` in both apps
-  chain it, and `mta.yaml` calls those. Editing `webapp/reuse` directly is
-  pointless — the next build deletes it.
-- **The controller attaches only to routes its host declares.** The partner app
-  routes all six (create, display, maintain, approve, edit, rework); the task app
-  declares only approve and rework. `onInit` skips a missing route rather than
-  throwing, which would take the whole screen down instead of one entry point.
-- **`ui5 build preload` bundles `webapp/reuse/**` under the consuming app's own
-  namespace**, which is not the name the runtime asks for, so the shared modules
-  load as individual files from `dist/reuse/…` and the bundle carries unused
-  copies. It works and it is not free; excluding them from the bundle is a
-  worthwhile follow-up, not a correctness fix.
-
-#### The task app (`app/bptask`)
-
-Third HTML5 app, same pattern as `app/mdmrules`: unique `sap.app.id`
-(`mdm.md.businesspartner.task`), **shared `sap.cloud.service`**
-(`mdm.md.businesspartner`), its own `xs-app.json` reusing the
-`mdm-businesspartner-srv-api` destination, and one more entry in
-`tools/package-html5.js` and in the app-content module's build commands.
-
-**It declares no `crossNavigation` inbound**, deliberately: My Inbox resolves a
-task UI by `sap.cloud.service` + `sap.app.id`, not by intent, so the
-one-inbound-per-app limit in Work Zone standard edition never applies to it — and
-it needs no tile, no catalog and no role assignment.
-
-What stayed behind in `app/businesspartner`: the List Report, the object page, the
-`CustomActions` toolbar wiring, and the `bpurl` **query-parameter** deep link
-(`?changerequestid=`). What left: `sap.bpa.task`, the `inboxAPI` actions, the task
-context load and the `PATCH task-instances/{id}` completion. The `env>/embedded`
-model stays set — to `false`, always — because the shared view binds it to decide
-whether to draw its own decision buttons, and in the task app it is sometimes true.
-
-### The validation and derivation tables (2026-08-19)
-
-`db/quality-rules.cds` adds `ValidationRules` and `DerivationRules` alongside
-`DuplicateRules`, in the same `mdmlight.config` namespace and the same BRF+
-decision-table style: two optional condition pairs, then the columns that make
-that kind of rule what it is. Both are exposed by **`DuplicateConfigService`**,
-whose path keeps its old name (`/service/duplicateconfig`) on purpose — it is in
-`app/mdmrules/xs-app.json` and in the deployed approuter config, so renaming it
-would cost a route change and a redeploy to gain nothing.
-
-Read a row left to right as one sentence:
-
-- Validation — *where `Addresses.Country` = BE, `General.Language` must be `=` NL*
-- Derivation — *where `Addresses.Country` = BE, fill `General.Language` with NL*
-
-#### Fields are payload fields, not duplicate-catalog fields
-
-`srv/checks/payload-fields.js` is a **second, different catalog** and the
-distinction is the whole reason it exists. `srv/ai/duplicate-fields.js` describes
-bags of *normalised* values for comparing two partners — `Name` is a fingerprint,
-`TaxNumber` is country-padded. A rule that fills in a language or asserts a region
-has to read and write the request payload (`{ root, sections }`) with its real
-values, so it needs that shape's own field names.
-
-The catalog is **generated from the staging model** (`cds.model`), never listed:
-add a column to `db/staging.cds` and the value help has it. Names are qualified
-and always dotted — `General.Language`, `Addresses.Country`. `PAYLOAD_NODES` is
-the single source of truth for the section ids, and `NODES` in
-`srv/change-request-service.js` is now derived from it, so a rule can never name
-a section nothing stages.
-
-#### The Value column means two things, and nothing else says which
-
-A value that resolves to a qualified catalog field is a **reference** to that
-field; anything else is a literal. That is what Maarten asked for on the
-derivation table ("field A will be filled in with the same value as field B"), and
-it needs no third column to disambiguate, because **catalog names are always
-dotted and a literal never can be one**. `N.V.` is a literal; `General.Language`
-is a reference. The derivation page says which one it read, under the cell
-("Copied from …") — that hint is the only feedback that a reference was understood
-as one, so do not drop it. Validation values work the same way, which is how
-"CorrespondenceLanguage must equal Language" is written.
-
-A same-section reference reads **the same row**: "this address's Region from this
-address's Country" is about one address, not about the first one.
-
-#### Semantics worth not "simplifying"
-
-- **An empty field does not fail a comparison.** Validations run *before*
-  derivations, so a rule that failed on an empty field would block the very
-  derivation that was about to fill it. `notEmpty` is how a steward says a field
-  is required, and it is the one comparison (with `empty`) that still fires on an
-  empty field.
-- **Condition scoping is per row on the rule's own section.** "Where
-  `Addresses.Country` = BE, `Addresses.Region` is required" is about the Belgian
-  address rows — not about every address of a partner that happens to have one
-  Belgian address. A condition on any *other* section is a statement about the
-  partner, so it holds when any row of that section matches.
-- **A rule the engine cannot evaluate blocks**, the same way a validation that
-  throws does. Skipping it would let a request through on the strength of a check
-  that never ran.
-- **Severity is a column, and was added rather than asked for.** Without it every
-  validation would block, and a naming convention that stops a submit is how
-  people learn to ignore findings.
-- **A derivation still never overwrites and still never auto-applies.** The
-  non-overwrite rule stays in `pipeline.js` so these rules and the registry's
-  cannot disagree about it, and configured derivations reach the requester through
-  the same proposals dialog, ticked by hand.
-
-#### Where they run
-
-`srv/checks/rule-store.js` holds the rows in memory (60s TTL, dropped on any
-write) and `createConfiguredStages` turns them into **one stage per kind** — not
-one per rule, because the pipeline blocks on the first error a validation stage
-reports and a table of twenty rules has to report all twenty problems.
-
-`runRequestChecks` puts them **before** the registry stages in both lists:
-validations because these are offline and a request that fails one should not cost
-a VIES call; derivations because the pipeline never overwrites, so the stage that
-fills a field first wins, and an explicitly configured rule is a decision somebody
-made about that field where the registry is a lookup that happens to have one.
-Submit runs the configured validations and, as before, **no derivations**.
-
-Two failure modes are deliberate:
-
-- **An empty table contributes nothing, and does not fall back to defaults.** The
-  duplicate check falls back because an empty table would switch the control off;
-  there are no default validations, and inventing a rule nobody configured would
-  be worse than running none.
-- **An unreadable table reports itself.** A read failure with nothing cached
-  produces a stage that says so, rather than passing as "nothing to report" — the
-  same discipline the pipeline applies to a duplicate check that could not run.
-
-#### The field picker is a dialog, not a ComboBox
-
-`ext/fragment/FieldValueHelp.fragment.xml`, shared by both pages and used by every
-cell that can name a field. The catalog is the whole staging model — several
-hundred fields — and `sap.m.ComboBox` filters on the **start** of an item's text,
-so finding a Country would have meant knowing it lives on Address and typing that
-first. The dialog searches with `contains` over the qualified code as well as the
-label, and the **qualified code is what is stored**: a label reworded later must
-not turn a saved rule into one that no longer resolves.
-
-**Reset the filter when the dialog opens, never when it closes, and read the
-selection off its binding context.** The first version cleared the filter in the
-confirm handler and then asked the selected item *control* for its value, which
-wrote the wrong field: resetting a JSONModel list binding re-templates the rows,
-so the item instance gets re-bound to whatever now sits at its old position.
-Searching "Country" left one match at position 0, and position 0 of the unfiltered
-catalog is a General name field — so that is what landed, reproducibly, and
-differently depending on what had been searched for.
-
-#### No standing banners on the rule pages
-
-Asked for 2026-08-19. The strips that remain on all three pages are `Warning` and
-conditionally bound, so a page carries a message only when something is actually
-wrong with it — rules that are saved but not running, or a duplicate table that has
-fallen back to the defaults. Explaining what a derivation *is* belongs here, not in
-a strip above the table; the per-cell "Copied from" hint stays, because it reports
-what the page actually read rather than restating the concept.
-
-Still open on these tables, and not built:
-
-- ~~A "Test Against Current Data" button — on Validation Rules only~~ — **built
-  2026-09-02**, see "Check Current Data" below. The scoping stands: Derivation still
-  does not get one, because it fills empty fields on the request in front of you and
-  there is no population-wide verdict to preview.
-- A custom message per validation row; a generated one is what ships.
-- Rules for object types other than the Business Partner. When MM arrives, **copy
-  the tables** rather than adding an object-type column.
-
-#### Multiple values per condition — built, withdrawn, and what it would take
-
-**Every rule table takes ONE value per field.** Multiple values per condition were built on
-2026-08-21 across all four tables and **withdrawn the same day** on Maarten's instruction, after
-three deployed attempts failed. It is on the list for later; the notes below are what the next
-attempt needs, because the idea is fine and the implementation route was not.
-
-What was tried, in order, and how each one failed **in the deployed app**:
-
-1. **A `MultiInput` whose tokens were written with `context.setProperty`.** The value reached the
-   client model and never the server. It looked saved while navigating inside the app — the model
-   cache was answering — and was gone the moment the app was left and re-entered.
-2. **A hidden bound `Input` beside the token cell, writing through the binding.** That fixed the
-   saving and broke the typing: the write path re-read the model to redraw the tokens, and through a
-   two-way binding that read does not reliably see what was just written, so it returned the
-   previous value and deleted the token a line after adding it.
-3. **Drawing what was written instead of re-reading.** That exposed the worst one: `removeAllTokens`
-   makes the control report every token as removed, the `tokenUpdate` handler computed the resulting
-   list as empty, and the write went through the bound sink — so **opening a page blanked every
-   stored condition value on it.** A `redrawing` guard stopped the loop and the cells still did not
-   work.
-
-The common thread, and the lesson for the next attempt: **a hand-managed aggregation alongside a
-bound column is the wrong shape.** Every column on these pages that saves is written by a plain
-two-way binding, and each fix above was another patch on the gap between the tokens and the
-binding. Whatever comes next should make the binding the only writer from the start — a child
-entity with one row per value and a real list binding, or `sap.ui.mdc`'s multi-value field, not a
-`MultiInput` synchronised by hand.
-
-What the withdrawal left behind, deliberately:
-
-- **`srv/checks/value-lists.js` stays as a READ path.** Rows written while the feature was live may
-  hold `BE|NL`, and `conditionHolds` (`srv/checks/rule-engine.js`), `holds`
-  (`srv/ai/duplicate-engine.js`) and `resolveApprovers` still parse a delimited list and OR across
-  it. A stored rule that silently stopped matching is the failure this codebase refuses everywhere
-  else. A single value is a one-entry list, so the tolerance costs nothing.
-- **`WorkflowRules.conditionValues` / `conditionValues2` keep their PLURAL names** and hold one
-  value. `cds-deploy` cannot rename an element any more than it can drop one — the same reason
-  `createsRow` and the four `cond*` columns are still in the model.
-- **`app/mdmrules/webapp/ext/ListCell.js` was deleted**, not left dormant. Half a mechanism nobody
-  calls is what the next person mistakes for a working one.
-
-**`WorkflowRules.approvers` therefore holds one approver**, and several approvers are **several
-rows** — which is what Maarten asked for originally ("an extra line can be used to add extra
-approvers") and what `resolveApprovers` already merges. The role value help stays: an address is
-typed, a role is picked, one per cell.
-
-### Field property profiles (2026-08-20)
-
-`db/field-properties.cds` adds `FieldPropertyProfiles` and its
-`FieldPropertySettings`, exposed by the same `DuplicateConfigService`. A profile
-says what a request may, must and must not show: **mandatory, read-only, hidden or
-optional**, per entity and per field.
-
-A profile is **conditions plus content**, and they are maintained separately
-because they are different sizes. The conditions are two dropdowns on the profile
-row — **CR type** and **role** — and both take `*` for "all", which is how a global
-profile is written. The content is several hundred fields, so it lives behind
-**Modify**: a dialog listing every entity, each opening up with its arrow to the
-fields underneath it, four checkboxes on both levels. Setting a property on the
-entity row is what lets a steward hide or require a whole section without naming
-every field in it.
-
-Decisions worth keeping:
-
-- **One state per target, not four flags.** The boxes are drawn as checkboxes
-  because that is what was asked for, but they behave as a radio group: ticking one
-  clears the other three. `hidden` + `mandatory` is a request nobody can submit,
-  and `readOnly` + `mandatory` is one only a derivation could satisfy. The stored
-  row carries a single `property`, so nothing downstream has to resolve a
-  contradiction that should never have been storable.
-- **Absent is not `optional`.** A field with no row is not mentioned by the profile
-  at all; `optional` is an explicit override, which is what makes a narrow profile
-  able to hand a field back after a broader one made it mandatory.
-- **The dialog replaces the whole profile.** `saveFieldProperties` deletes the
-  profile's rows and writes what was sent, the same wholesale-replace reasoning as
-  the staged nodes: the dialog always holds the complete state, so no unticked row
-  can survive as a setting nobody can see any more. An unknown entity, field or
-  property is **refused**, not filtered — storing the valid remainder leaves a
-  profile quietly missing what someone thought they set.
-- **The entity/field tree is generated** by `srv/checks/field-properties.js` from
-  `payloadFields()`, so a new node in `db/staging.cds` appears in the dialog with no
-  UI change. The condition lists are closed and served from the same module: a typed
-  value outside them makes a profile that looks configured and never fires.
-- **The roles are not the xsappname scopes.** `Approver` is a workflow role that no
-  scope carries, so `ROLES` is a hand-kept list next to `REQUEST_TYPES`, which is
-  the set of types a request can actually carry (`block`/`delete` are in the enum
-  and nothing produces them).
-- **Modify saves the profile first.** The settings hang off a saved profile, so a
-  row just added has no id to hang them on; the page offers the save rather than
-  refusing, because pressing Modify on a new row is the obvious thing to do.
-
-#### Applying them (2026-08-20)
-
-**Where two profiles match, the broadest result wins.** Maarten's rule, and it is a
-**join over three axes** (visible / editable / required) rather than a ranking,
-because `mandatory` and `readOnly` are not comparable — one says what you must
-fill, the other what you may touch. Visible or editable if **any** matching profile
-allows it; required only if **every** profile that speaks demands it. His two
-examples fall out of that rather than being special-cased:
-
-| Profile 1 | Profile 2 | Result |
-| --- | --- | --- |
-| hidden | readOnly | readOnly |
-| mandatory | readOnly | **optional** |
-| mandatory | optional | optional |
-| hidden | mandatory | optional |
-
-`PROPERTY_STATE` in `srv/checks/field-properties.js` is the whole rule, and the
-join is closed over the four names — every combination lands back on one of them,
-which `test/field-property-apply.test.js` proves exhaustively. **Nothing therefore
-reads a precedence.** A `sequence` was modelled for one, removed on 2026-08-20 when
-Maarten asked what the Order column was for — and **put straight back the same day
-as dead weight**, because removing it failed `deploy_to_postgresql` four times over:
-it had already reached the deployed model, and `cds-deploy` cannot drop an element.
-So the column stands in `db/field-properties.cds` and nothing reads it, the same way
-nothing reads `createsRow` on `DerivationRules` or the four `cond*` columns on
-`DuplicateRules`. The merge is a join, so no profile is ever "first"; the grid shows
-no Order cell and the resolver never sorts.
-
-**Silence is not `optional`.** A profile that says nothing about a target is left
-out of the join entirely. Counting it as `optional` would let one global profile
-neuter every narrower one, which is the opposite of what a global base profile is
-for.
-
-**Only `hidden` and `readOnly` cascade from an entity to its fields**, because they
-describe the container: nothing shows inside a hidden section and nothing is
-editable inside a frozen one. An entity's `mandatory` is about whether it needs a
-**row** at all — cascading it would silently make every field of Tax Numbers
-required, which is not what ticking Mandatory on the entity means.
-
-Two halves, and they are not the same code path for a reason:
-
-- **Rendering** — `effectiveFieldProperties(RequestType, Role)` on
-  `ChangeRequestService` returns the merged answer, and the maintenance controller
-  loads it **before the first render** (rendering is synchronous; a field painted
-  and then taken away is worse than one never drawn). `hidden` drops the field from
-  both layouts entirely — a disabled input still shows the value — and a hidden
-  entity hides its whole `ObjectPageSection`, not just the container, or a heading
-  is left pointing at nothing. `readOnly` takes editability away and can never
-  grant it: a field S/4 will not accept on create stays uneditable however broad a
-  profile is. `mandatory`/`optional` have the last word on the star, which is what
-  `optional` is for.
-- **Enforcement** — `createFieldPropertyStages` adds a `field_properties`
-  validation to the Check button, the Duplicate Check button, submit and resubmit.
-  A mandatory field left empty blocks, naming the row; a mandatory entity with no
-  rows blocks. Without it a profile is a star on a label that a direct service call
-  walks straight past. It reads the cascade back first: a field marked mandatory
-  inside an entity a broader profile hid or froze is not something anyone can fill.
-
-**"Both layouts" used to mean the two record-dialog forms, not the section's own
-summary table — reported directly with a screenshot (2026-08-27): a field hidden
-by a profile correctly disappeared from the Add/Edit Addresses popup
-(`_createFieldGrid`/`_createFieldTable`, both already filtering on
-`_isHiddenField`) but stayed as a column, and searchable, on the Addresses
-section's own table.** `_summaryFields` just mapped `section.summaryFields`
-straight to field objects — nothing there ever read a profile. `_renderSection`
-now filters that result through `_isHiddenField` too, the same way the dialog
-already does, so a hidden field is gone from the column list, the rendered
-cells, and the search.
-
-**The role a submit is judged under is never the client's to name.**
-`requesterContext(req)` hardcodes `Requester` on every write path — whoever submits
-is the requester — while the *screen* asks for whatever role it is rendering
-(`approve` → `Approver`, draft/rework → `Requester`). Otherwise a requester could
-claim `Approver` and submit past every mandatory field set for them. When the role
-model lands — a requester role, one approver role per function, a steward role —
-this becomes a scope read off `req.user` and the two converge.
-
-**`hidden` is deliberately honoured on the approve view.** Confirmed 2026-08-20:
-once approvals are split by function, a sales approver has no business reading the
-bank details, and that is the point of the feature rather than a risk to it.
-
-`srv/checks/field-property-store.js` caches the profiles for 60s and drops them on
-any write, like `rule-store.js`. Its failure mode is the **opposite** one on
-purpose: an unreadable rule table reports itself, because a validation nobody ran
-must not read as "nothing to report"; an unreadable *profile* table resolves to
-nothing, because a read failure that hid every field or blocked every submit would
-take the maintenance screen down over a control that is not a verdict on the data.
-
-#### The approval role is BTP-sourced now, by naming convention (2026-08-27)
-
-`Approver` and `DataSteward` stopped being fixed values the same day they were
-first added. The first version kept all four (`*`/`Requester`/`Approver`/
-`DataSteward`) and only *appended* BTP role collections alongside them; Maarten
-asked for the hardcoded two to come out entirely, so a profile's role is now one
-of `*`, `Requester` (`ROLES`/`ROLE_TEXT` in `field-properties.js` - the only two
-concepts that are not a role collection), or a BTP role collection name.
-
-- **The picker still sources from `workflowAgents()`** - the identical function
-  the Workflow Agent Determination picker uses (see that section) - filtered to
-  `type === 'Role'`, since a field property profile's role condition is about a
-  screen/actor kind, not a named individual, so users stay out of this one.
-- **The bare `MDMLIGHT` role collection itself is excluded**, here only (not from
-  the Workflow Agent Determination picker) - it is the catalog-level role for the
-  whole app, not a Requester/Approver/DataSteward-shaped one, and offering it
-  would let a profile be scoped to "everyone with any access to this app" while
-  looking like a deliberate, narrow choice.
-- **A role is matched against the screen's own category by a case-insensitive
-  PREFIX**, not an exact value any more - `profileMatches` in
-  `field-properties.js`: a BTP role named `ApproverSales` or `ApproverFinance`
-  both count as an Approver-category profile the way the literal `Approver`
-  value used to, `DataStewardEU` counts as DataSteward, and so on. This is what
-  makes the naming convention do real work: a steward names role collections by
-  the layout they are meant to configure, and CAP tells them apart without
-  needing to know any of their names in advance.
-- **A profile saved before this change still matches.** `LEGACY_ROLES`
-  (`['Approver', 'DataSteward']`) keeps the write guard accepting the literal
-  values a profile may already carry, and `profileMatches` checks an exact match
-  before ever falling back to the prefix - `cds-deploy` cannot rename a stored
-  value any more than it can drop one, so an old row has to keep working exactly
-  as it did, not merely keep saving.
-
-#### Rendering is narrowed to the caller's own specific role (closed 2026-08-27)
-
-The gap above did not stay open the same day it was written: a real customer
-case hit it within hours. Two profiles - `Approver Customer` (hides Suppliers)
-and `Approver Vendor` (hides Customers), each backed by its own BTP role
-collection with different people in it - were both configured, and **neither
-hid anything** for anyone. The reason was exactly the documented gap:
-`effectiveFieldProperties` was always called with the bare literal `'Approver'`,
-so `profileMatches`'s prefix rule matched BOTH profiles against EVERY approve
-screen regardless of who was actually looking at it, and the join
-("hidden" wins only when a profile that speaks says so, "visible" otherwise)
-landed on "nobody's opinion about Suppliers other than one profile, nobody's
-opinion about Customers other than the other" - which is visible for both,
-for everyone.
-
-- **`resolveEffectiveRole` (`change-request-service.js`) narrows `Approver`/
-  `DataSteward` to the CURRENT user's own specific BTP role before
-  `effectiveFieldProperties` resolves anything** - "Approver Customer" instead
-  of the bare category, found via `specificRoleFor(email, category)`
-  (`srv/wf/btp-agents.js`): the one of the CALLER's own `/Users` `groups` that
-  starts with the category being asked about. `Requester` is deliberately left
-  alone - `RESOLVABLE_ROLE_CATEGORIES` names only the two that are role
-  collections at all; `requesterContext` already hardcodes `Requester` for its
-  own, unrelated reason (whoever submits is the requester, not a role a client
-  could name their way out of a mandatory field with).
-- **`profileMatches`'s prefix check became bidirectional the same fix**,
-  because narrowing the *asked* role to something specific breaks the direction
-  that used to be the only one: a profile still carrying the bare legacy
-  `Approver` (or one a steward deliberately left at the category level, meant to
-  apply to every approver) needs to keep matching once the screen resolves
-  `Approver Customer` for a specific person - `"Approver".startsWith("Approver
-  Customer")` is false, so only checking the original direction would have
-  silently stopped every broad profile from applying to anyone the moment
-  resolution got precise. Checking both directions keeps `ApproverSales`
-  matching the bare category (the original case) AND the bare category matching
-  `ApproverSales` (the new one) AND two DIFFERENT specific roles apart from
-  each other - neither `Approver Customer` nor `Approver Vendor` is a prefix of
-  the other.
-- **Ambiguous resolves to null, not a guess.** `specificRoleFor` returns `null`
-  when a user's own groups carry **several** roles matching the category (as
-  well as when none do), and the caller falls back to the bare category - the
-  same "show everything rather than pick one arbitrarily" answer this screen
-  gave before any of this existed, so a person with overlapping roles is no
-  worse off than before, never silently shown a narrower screen than intended.
-- **Best-effort, the same discipline as every other BTP read in this
-  codebase**: an unreachable subaccount API, or a user resolving to no specific
-  role, falls back to the bare category CAP always used before this - not a
-  blocked render, not an error.
-- **Only the rendering path changed.** `createFieldPropertyStages` (the submit-
-  time enforcement) still runs on `requesterContext(req)`, always `'Requester'`,
-  never touched by any of this - the security-relevant half of this design was
-  already correct and stays exactly as it was.
-
-The Workflow Agent Determination table's own gap - "Arthur's process ignores
-`approvers` entirely" - is a different thing and still open: that one needs
-Arthur's process definition to change, not CAP's own code, so there was nothing
-here to close it with.
-
-#### Critical fields, entity-level only, and who to notify (2026-08-26)
-
-Three things changed together, all off the same `critical` column:
-
-- **The Critical checkbox stopped saving.** `fieldPropertiesOf`'s read
-  (`srv/duplicate-config-service.js`) selected `section`, `element`, `property` —
-  never `critical` — so every reopen of the dialog rebuilt the tree with
-  `critical: undefined` on every row, regardless of what was stored. The box
-  looked cleared the moment the dialog was reopened, even though the save itself
-  (`saveFieldProperties`) always persisted it correctly. Fixed by adding
-  `critical` to that column list; the bug was on the read side only.
-- **Critical is entity-level only.** `validateSetting` in
-  `srv/checks/field-properties.js` refuses a row that carries both `element` and
-  `critical: true` — "critical applies to the whole entity, not one field" — and
-  the dialog greys the box out on a field row (`enabled="{= ${fp>kind} ===
-  'entity'}"`) to match, guarded again in `onCriticalSelect` rather than trusting
-  the binding alone. `resolveProfiles` still *reads* an older field-level critical
-  row rather than dropping it — the same tolerance the withdrawn multi-value
-  feature's delimited-list reader keeps — and the dialog's `_buildTree` never
-  carries a field-level `critical` back into the editable tree, so a profile with
-  one left over self-migrates to entity-level the next time someone presses
-  Apply, rather than becoming unsavable.
-- **Critical is a marker, not a gate — deliberately.** A first version blocked an
-  empty critical entity with an error strip at the top of the screen; Maarten
-  rejected that the same day. `createFieldPropertyStages` was reverted to enforce
-  `mandatory` only, and `critical` contributes no validation stage on its own.
-
-**The marker is drawn on the screen, not written as a message.** The maintenance
-screen (`app/reuse/.../BusinessPartnerMaintenance.controller.js`) already loads
-`effectiveFieldProperties` before every render; `_isCriticalEntity` reads its
-`criticalEntities` list and `_markSectionCritical` appends "⚠" to the Object Page
-section's own title (`section.setTitle`) when the section is critical — "Address
-Data ⚠", not a strip, not a popup. Applied in `_renderSection` for the nine node
-sections and in `_renderRootForm`/`_renderRootSection` for the two cards the root
-section splits into (General Information, Names), since both render the same
-`General` payload section and critical is decided per section, not per card.
-
-**`criticalFields` became two scalar fields in the workflow context, not a list.**
-`criticalfield` (lowercase on the wire, like every other key in this context —
-the local variable in `srv/change-request-service.js` stays `criticalField` for
-readability) is Arthur's BPA input parameter and takes exactly one value:
-`'X'` or `' '` — never an array, and never one entry per entity the way the first
-version sent it. `workflowContext` (`srv/change-request-service.js`) answers one
-question: does this request fill in **any** entity a field property profile marks
-critical? It reads `resolvedProperties(requesterContext(req)).criticalEntities`
-and checks each with `sectionRows(payload, section)` — 'X' the moment one has a
-row, ' ' otherwise, including when nothing is marked critical at all or the
-profile table cannot be read. There is no per-entity detail in the payload; SBPA
-is told *that* something critical was filled in, never *which* — the screen's "⚠"
-is where a human sees which.
-
-**`datastewards` is a flat array of e-mails, resolved the same way `approvers`
-is — fresh at submit time, never through the `WorkflowRules` table.**
-`srv/wf/data-stewards.js` resolves every BTP subaccount user holding this app's
-own `DataSteward` role template (`xs-security.json`), because unlike
-`btp-agents.js`'s `MDMLIGHT`-prefixed collections for the approver picker, a
-`DataSteward`-carrying collection can be named anything, so membership has to be
-resolved by role template rather than read off a naming convention. It shares
-`btp-agents.js`'s HTTP client (`callApi`, now exported) rather than fetching its
-own token, and follows the same best-effort discipline: never throws, resolves to
-`[]` on any failure, cached 5 minutes. Sent as `string[]`, like `approvers` — the
-same lesson applies: the deployed process validates the shape it declared, and an
-array of objects is not what an array-of-strings input accepts.
-
-**Shipped empty, diagnosed and fixed the same day against the live subaccount.**
-The first version made two wrong assumptions, neither of which threw — both just
-quietly resolved to nothing, so the symptom was `datastewards: []` on every
-submit with no warning in the logs to point at why:
-
-- **The role-collection detail call read the wrong key.** `GET
-  /sap/rest/authorization/v2/rolecollections` already returns each collection's
-  roles inline as `roleReferences` — there is no separate detail call needed at
-  all. The first version made one anyway (`GET .../rolecollections/{name}`) and
-  read its result as `detail.roles`, a key that does not exist on the response,
-  so `carriesTemplate` was always false and no collection ever matched.
-- **The per-user role-collection endpoint doesn't answer what it sounds like it
-  should.** `GET /sap/rest/authorization/v2/users/{name}/rolecollections`
-  answered `{ roleCollections: [], roleCollectionsBySamlAssignment: [] }` for a
-  user confirmed (via `/Users`) to be a member of two collections — wrong for
-  this purpose, live-tested rather than assumed. `GET /Users` already returns
-  each user's own membership inline as `groups`
-  (`[{ value, display, type: 'DIRECT' }]`, both `value` and `display` the
-  collection name), which costs nothing extra since `/Users` is fetched anyway.
-
-Diagnosed by running a small script as a one-off `cf run-task` against the
-already-bound `mdm-businesspartner-authmgmt` credentials (same approach as
-`tools/wipe-staging.js`'s env-var-passthrough trick) to print the real API
-responses — the fix in both bullets above was copied from that live output, not
-reasoned about from documentation. `test/data-stewards.test.js` pins both real
-response shapes so a future refactor cannot reintroduce either wrong key.
-
-#### Critical is Requester-scoped, and reflected read-only everywhere else (2026-08-27)
-
-Asked for once profiles started being split by BTP role for approvers (see
-"Field property profiles" and its "Applying them" section below): a request
-carries **one** set of critical entities for its whole lifetime, decided once
-by whoever files it, not one per role that happens to review it later. So
-`critical` is now only ever **read** off a profile matching role `Requester`
-(or `*`, which covers `Requester` along with everything else) — an Approver or
-DataSteward profile's own `critical` column, if one is somehow stored, is
-simply never consulted by the running app.
-
-- **`resolveProfiles` (`srv/checks/field-properties.js`) computes critical from
-  a SEPARATE matching set than the four property states.** `criticalMatching`/
-  `criticalIds` re-run `profileMatches` against `{ requestType: context.requestType,
-  role: 'Requester' }`, independent of whatever role the caller actually asked
-  about — `entities`/`fields` (the mandatory/readOnly/hidden/optional states)
-  keep using the caller's own `matching`/`ids` exactly as before. The two
-  aggregations were kept apart on purpose rather than overloaded onto one set:
-  they answer different questions ("what does this role see" vs. "what did the
-  requester mark critical"), and entangling them would make either one
-  impossible to reason about alone.
-- **The Modify dialog only lets the box be ticked from a Requester-scoped
-  profile.** `_openPropertyDialog` (`app/mdmrules/.../FieldPropertyProfileList.controller.js`)
-  computes `canEditCritical = !role || role === "*" || role === "Requester"` —
-  a profile with no role yet (a just-added row) counts as editable too, the
-  same way it defaults to matching everything until something narrower is
-  chosen — and stores it on the `fp` model as `/canEditCritical`. The checkbox's
-  `enabled` binding in `FieldPropertyDialog.fragment.xml` gained `&& ${fp>/canEditCritical}`
-  alongside its existing entity-row-only condition, and `onCriticalSelect`
-  guards the same flag again in code, the same discipline the entity-only
-  restriction already used rather than trusting the binding alone.
-- **Every other role's dialog still SHOWS the box, ticked or not, just
-  disabled** — a steward reviewing an Approver profile should still be able to
-  see which entities the requester already marked critical, the same reasoning
-  "hidden is honoured on the approve view" argues the other way for visibility
-  of data. `fieldPropertiesOf` (`srv/duplicate-config-service.js`) now returns
-  `{ settings, requesterCritical }` instead of a bare settings array —
-  `requesterCritical.entities` is `resolvedProperties({ requestType, role:
-  'Requester' }).criticalEntities`, the exact same runtime resolution the
-  maintenance screen itself reads "⚠" from, reused rather than re-derived, so
-  the config screen and the running app can never disagree about what critical
-  means for a given request type. (Only `entities` is carried over — critical
-  is entity-level only, so the field-level half of that resolved shape has
-  nothing to contribute here.) `_buildTree` reads an entity row's displayed
-  `critical` from `requesterCriticalEntities.includes(entity.section)` instead
-  of this profile's own (normally empty, since editing it here is blocked)
-  stored value whenever `canEditCritical` is false.
-- **The reflection is read-only in the truest sense: Apply cannot write it
-  back.** Without a guard, pressing Apply on an Approver profile — having
-  touched nothing — would silently copy the Requester profile's own critical
-  flag into the Approver profile's storage, which is exactly the kind of
-  profile-owns-what-it-shouldn't bug this whole feature exists to prevent
-  elsewhere. `_settingsFromTree` reads `canEditCritical` off the same `fp`
-  model property and computes `entityCritical = canEditCritical &&
-  entity.critical` / `fieldCritical = canEditCritical && field.critical`,
-  using these — never the raw `entity.critical`/`field.critical` — for both
-  whether a row is worth sending at all and what `critical` value it carries.
-
-
-### Workflow Agent Determination — who approves what (2026-08-21)
-
-`db/workflow-rules.cds` adds `WorkflowRules`, the fifth table on the MDM Configuration Panel
-tile and the first one that is **not a check on the data**: it produces the
-`approvers` list in the workflow context, and SBPA routes on it.
-
-Read a row left to right as one sentence — *a **create** request whose
-`Addresses.Country` is **BE, NL, FR or DE** is **approved** by **these three
-people***. The columns are CR type, step, two condition pairs, and the approvers.
-
-- **The table decides WHO, never how many approvals or in what order.** That
-  stays on SBPA's side, the same way `decideRequest` records an outcome without
-  knowing the chain. CAP does not check that a role exists either — roles live in
-  SBPA, and a copy kept here would go stale.
-- **An entry carrying an `@` goes out as a user, anything else as a role.**
-  `resolveApprovers` returns `{ step, kind, value }` per approver, but **what crosses
-  to SBPA is a flat array of the values** — see "What actually goes over the wire"
-  below. `kind` stays derivable on either side from the `@`. The two halves are **entered** differently on purpose
-  (2026-08-21): an address is free text nobody could offer a list for, while a role
-  has to be spelled exactly as SBPA knows it, so the cell takes typing *and* offers
-  a value help over the roles and the subaccount's users — see "The approver picker
-  is sourced from the subaccount" below for where that list comes from since
-  2026-08-26. The condition cells
-  deliberately do not get it: a country is not a role. **There is no order column** — rows are additive, so
-  every matching row contributes its approvers and nothing needs ranking. Asked for
-  and removed on 2026-08-21, before anything was deployed: it was copied in from the
-  other rule tables rather than wanted, and dropping a column after a deploy is what
-  `cds-deploy` refuses to do.
-- **Empty is a legitimate answer.** No rule matched, the table is empty, or it
-  could not be read — all three resolve to `[]`, which is what every submit sent
-  before this table existed, so SBPA reads it as "route it the way you always
-  did". The store's failure mode is `field-property-store.js`'s, not
-  `rule-store.js`'s, deliberately: a submit that failed because the approver table
-  was unreadable would stop every request in the installation over a routing hint.
-- **Resolved in `workflowContext()`**, so it happens after the validations and the
-  duplicate gate, and is rebuilt after a rework — a resubmitted request is routed
-  on the payload the requester fixed, not the one that was rejected. Best-effort,
-  like `businesspartnerinput`.
-- **All four CR types, plus `*` ("Any") since 2026-08-31.** Unlike the field
-  property profiles' closed list this table offers `block` and `delete`, because
-  it is where a steward says who approves one and saying it early is harmless —
-  `SUPPORTED_REQUEST_TYPES` still gates what can be submitted. `*` was added on
-  direct feedback ("ik moet ook 1 hebben dat voor alle gevallen werkt") so one row
-  can name the approvers for every CR type instead of the same list copied onto
-  four rows — an explicit value a steward picks on a row, still `not null` and
-  still validated, not a silent default for a blank type. `resolveApprovers`
-  matches a `*` rule against whatever the request's own type actually is, and a
-  `*` rule and a specific-type rule both contribute additively for a request that
-  matches both, the same way two specific-type rules already do.
-- **`step` carries only `Approve`.** It is a column rather than an assumption
-  because the next version of this table is meant to describe whole request types
-  (Supplier creation, Customer creation) with several steps each, and a step added
-  later must not be a column added later.
-
-#### One value per column (the legacy two-pair shape)
-
-Both condition values and the approver held a single value in the original design, like every
-other rule table — see "Multiple values per condition" above for the version that was built and
-withdrawn, and what the next attempt would need. The columns keep their plural names because
-`cds-deploy` cannot rename an element. **Superseded for conditions by the `WorkflowRuleConditions`
-composition below (2026-08-28)** — a rule is no longer stuck at exactly two — but every bullet here
-still describes the legacy `conditionField`/`conditionValues`(+2) pair, which a rule saved before
-that date still reads through, and still describes `approvers` exactly as it works today.
-
-- **A condition here is always a statement about the partner.** A row of this table targets no
-  section of its own, so any row of the named section satisfying the condition is enough — unlike
-  the validation and derivation tables, where a condition on the rule's *own* section is evaluated
-  per row.
-- **Several approvers means several rows.** `resolveApprovers` merges every matching row and
-  de-duplicates on step + value, so two rows naming the same person produce one approver.
-- **The read path still tolerates a delimited list**, for rows written while multiple values were
-  live.
-
-#### As many conditions as a rule needs, side by side (2026-08-28)
-
-**Reverted 2026-08-31** — see "The whole dynamic-conditions detour was reverted the same day it
-deployed cleanly" further down. `WorkflowRuleConditions` and the `conditionRows` composition this
-section describes are still in the model (`cds-deploy` cannot drop them), but nothing reads or
-writes them any more; `WorkflowRules` is back to the two fixed condition slots, now with an operator
-column each. The rest of this section is kept as the historical record of what was built and why.
-
-Asked for directly: "Nu is dit beperkt tot 2 maar dit kunnen meer factoren zijn" — the two fixed
-condition pairs above could never become three without a schema change `cds-deploy` cannot walk
-back if it turns out to be one column too many, the same trap `createsRow` and the `cond*` columns
-are already stuck in. `WorkflowRuleConditions` (`db/workflow-rules.cds`) replaces them: a real
-composition, one row per condition, `Association to WorkflowRules` plus `field`/`operator`/`values`.
-"Add Condition" grows one rule's own composition — genuinely per row (rule A can have two conditions
-and rule B five, each its own count), not a fixed number of always-visible slots.
-
-**A free-text, line-per-condition column (`field = value1|value2` in a `TextArea`) was tried first
-the same day and reverted the same day, on direct feedback: "ik wil dit naast elkaar zoals het
-ervoor was... niet hoe het nu is".** The ask was never "fewer columns", it was "as many of the
-original side-by-side Field/Value groups as a rule needs" — stacking them as lines of text solved
-the *dynamic* half and broke the *side by side* half. `WorkflowRuleConditions` is what a real
-composition looks like once "the binding is the only writer" (the lesson "Multiple values per
-condition" above left behind, for a *different* problem — several values in ONE field, not several
-conditions) is honoured for *this* problem too: no hand-parsed DSL, no line-splitting, one row, one
-set of plain two-way-bound cells, rendered inline.
-
-- **The view: a wrapping `FlexBox` templated over `dc>conditionRows`.** Each condition renders as its
-  own small `HBox` — Field `Input` (the same `FieldValueHelp` fragment every condition cell on this
-  tile has always used, unchanged), an operator `Select`, a Value `Input`, and a remove button — and
-  `wrap="Wrap"` lets a rule with many conditions spill onto a second line inside the cell rather than
-  growing the row forever sideways. An "Add Condition" button below the `FlexBox` creates a new child
-  row against *that rule's own* `conditionRows` navigation via `_conditionsBinding` (a fresh
-  `bindList("conditionRows", ruleContext, ..., { $$updateGroupId: 'ruleChanges' })`) — the same
-  mechanism Duplicate and the Excel import share for adding a condition row under a given rule
-  context, so nothing here depends on the OData v4 model supporting a deep-insert payload in one
-  call. Remove reads the *condition's own* binding context (it lives inside the per-condition
-  template) and deletes just that row. **Not named `conditions`** — see "The composition element had
-  to be renamed before it ever deployed" immediately below, which is the one part of this feature
-  that did not ship as first designed.
-- **Operators reuse `rule-engine.js`'s `COMPARISONS`** (`eq`/`ne`/`lt`/`le`/`gt`/`ge`/`contains`/
-  `empty`/`notEmpty`) — asked for directly ("volgens mij alle mogelijke operatoren") rather than a
-  smaller, WorkflowRules-only set, and served through `workflowRuleOptions()` the identical way
-  `qualityRuleOptions()` already serves them to ValidationRules/DerivationRules. `conditionHolds`
-  keeps the *shape* every condition here has always had — "some row of the named section, some
-  listed value" — for every operator, not just `eq`: `Country != BE` holds when *some* address
-  disagrees with BE, not when *every* address does, the exact same "any row is enough" reading the
-  positive case has always had. `eq` alone keeps the wildcard/`|`-multi-value matching
-  (`listMatches`) every other condition column in this app already has — a `*` pattern only ever
-  meant "equal to, loosely". `empty`/`notEmpty` read the **raw** field value via `sectionRows`
-  directly, never `fieldValues` (which filters empties out before either check would ever see one —
-  found while writing the test for it, not assumed).
-- **`joinConditions` (`srv/checks/value-lists.js`) was generalised to fold over N results, not just
-  two** — `results.every(Boolean)` for AND, `.some(Boolean)` for OR, `!.some(Boolean)` for NOR. This
-  is shared by all four rule tables' engines, but the fold is defined so it produces the *exact same
-  answer* for 0/1/2 results as the old pairwise version did — a single condition still bypasses the
-  logic entirely rather than letting NOR invert it, which is the one behaviour that had to survive
-  unchanged. `ValidationRules`/`DerivationRules`/`DuplicateRules` still only ever pass 0/1/2 results
-  themselves (their own `CONDITION_PAIRS` are untouched — this change was scoped to WorkflowRules
-  only), so nothing about them changed; the shared fold could serve all four the day their own
-  columns are generalised the same way.
-- **`readConditions` prefers the composition and falls back to the legacy pair only while it has no
-  rows.** A rule saved before 2026-08-28 keeps matching exactly as it always did, with no migration —
-  the moment it gets its first real condition row, the legacy columns simply go stale (never written
-  again, the same tolerance as every other dead column in these four tables).
-- **Each condition validates on its OWN write, as its own entity**, not as a slice of the rule that
-  owns it: `WorkflowRuleConditions` gets the same `guard()` treatment `WorkflowRules` itself does,
-  with its own validator (`validateCondition`) rather than looping a fixed `CONDITION_PAIRS.entries()`
-  — which is what made "as many conditions as it needs" simplify validation rather than complicate
-  it: one row, one set of checks, no position-based "condition 1"/"condition 2" naming needed
-  server-side any more (the client's own courtesy check in `_localProblems` still numbers them for
-  the error message a steward reads).
-- **No `sequence` column, deliberately, on `WorkflowRuleConditions` either** — AND/OR/NOR fold over
-  these rows without caring what order they were added in, so there is nothing for a sequence to
-  mean, the same reasoning `WorkflowRules` itself already gives for having no order column of its
-  own ("rows are additive... nothing needs ranking").
-
-#### The composition element had to be renamed before it ever deployed (2026-08-31)
-
-The design above was built twice. **The first cut of "as many conditions as a rule needs" was a
-scalar `conditions : LargeString` column** — a line-per-condition `field = value1|value2` text blob
-— and it deployed to production before the very same day's feedback ("ik wil dit naast elkaar zoals
-het ervoor was... niet hoe het nu is", quoted above) reworked it into the real
-`WorkflowRuleConditions` composition this section describes. The second cut kept the element name:
-`conditions : Composition of many WorkflowRuleConditions`, same name, new kind.
-
-**Every retry of the next `cf deploy` failed `deploy_to_postgresql` on it**, identically each time:
-
-```
-Error: CDS compilation failed (@sap/cds-compiler v5.9.16)
-db/csn.json:3644: Error: Changed element "conditions" is a lossy type change from
-"cds.LargeString" to "cds.Composition" and is not supported
-(in entity:"mdmlight.config.WorkflowRules"/element:"conditions")
-```
-
-This is the identical trap `createsRow` and the four `cond*` columns are already stuck in, wearing a
-different message: `cds-deploy` will not DROP a deployed element, and — the fact this incident
-established — it will not RETYPE one either, even where the old and new shapes are conceptually the
-same idea (one condition, several values). A compile-time error, so it failed on every one of the
-three automatic retries the same way and would have failed on a hundred more.
-
-**The fix is the same one this codebase always reaches for: abandon the deployed element in place,
-and give the real mechanism a name deploy has never seen.** `conditions : LargeString` stays in
-`db/workflow-rules.cds`, permanently dead — nothing reads or writes it any more, the same as the two
-legacy `conditionField`/`conditionValues` pairs beside it. The composition is `conditionRows`
-instead, which is a pure ADDITION to the deployed schema and carries no risk on the next deploy.
-Every reference to the old name was renamed to match — the view's `dc>conditionRows` binding, the
-controller's `_conditionsBinding`/`bindList("conditionRows", ...)`, `flattenForExport`'s
-`rule.conditionRows`, and `readConditions`/`validateWorkflowRule` in `srv/checks/workflow-rules.js` —
-so `WorkflowRules` now carries **two** dead columns from two abandoned first attempts
-(`conditions: LargeString`, plus the still-earlier `conditionField`/`conditionValues` pair), neither
-of which any running code touches.
-
-**Nobody had deployed against the composition-shaped `conditions` yet**, which is what made this a
-same-day rename rather than a real migration: the column existed in a live database only as the
-`LargeString` from the first cut, so renaming the second cut's element cost nothing beyond an
-in-repo find-and-replace across schema, engine, service, view and controller, plus the two test
-files (`test/workflow-rules.test.js`, `test/workflow-rules-page.test.js`) that exercise the
-composition directly. Had the composition-shaped version already reached a live deploy, the fix would
-have needed a real migration instead of a rename.
-
-**Diagnosed from the actual MTA operation log, not from the top-level `cf deploy` console output** —
-that only ever says a task failed and to check the logs, never what broke. `cf mta-ops` lists every
-operation on an MTA ID including other developers' (a colleague's deploy was found `RUNNING` at the
-same moment this was diagnosed — nothing was deployed or retried while that was true, per the
-standing multi-developer deploy-lock rule elsewhere in this file), and `cf dmol -i <operation-id> -d
-<dir>` downloads the per-module logs an operation produced; `deploy_to_postgresql`'s own log is where
-the compiler error above actually lives.
-
-#### The whole dynamic-conditions detour was reverted the same day it deployed cleanly (2026-08-31)
-
-Hours after the rename above finally made `conditionRows` deploy-safe, direct feedback arrived that
-the feature itself — not its element name — was the wrong shape: *"Kan je het terug brengen naar
-condition 1 en 2 zoals dit origineel was?"* (bring it back to Condition 1 and Condition 2 as it
-originally was). The dynamic, genuinely-unbounded "Add Condition" composition is abandoned; the page
-is back to two fixed condition slots, side by side, exactly the shape the very first correction in
-this whole saga described — *"conitie 1 (element) dan je = of != (en dan andere) en dan conditie 2"*
-— which is why the per-slot **operator** survives the revert even though the two-slot *structure*
-came back: the original ask already had one, it was never a bare field/value pair.
-
-**`conditionRows`/`WorkflowRuleConditions` stay in the model, a second time abandoned rather than
-removed.** The same `cds-deploy` constraint that forced the rename now forces this: dropping an
-entity or a composition is exactly as unsupported as dropping a plain column, and there was no way
-to be certain the freshly-renamed shape had not already reached a live deploy by the time the revert
-was requested. So the composition and its child entity are left in `db/workflow-rules.cds`,
-documented as dead, the identical treatment `conditions: LargeString` already got a few hours
-earlier — `WorkflowRules` now carries **three** abandoned condition mechanisms from the same single
-day (`conditionField`/`conditionValues` never actually went anywhere this time, they are simply live
-again; `conditions: LargeString`; `conditionRows`/`WorkflowRuleConditions`), and none of the newer
-two is read or written by anything.
-
-- **Two new columns, `conditionOperator`/`conditionOperator2`, are the one thing NOT simply restored.**
-  The pre-2026-08-28 shape had no operator concept at all (`legacyConditionPairs` always assumed
-  `eq`) — but the ORIGINAL ask that started this whole feature already wanted one per slot, so
-  reverting the *structure* without also restoring the *operator* would have thrown away something
-  that was asked for from the start, not something introduced by the detour. Both are pure additions
-  (`String(10) default 'eq'`), so restoring them cost nothing at the schema level.
-- **`readConditions` (`srv/checks/workflow-rules.js`) goes straight to the two fixed slots,
-  unconditionally** — no more "prefer the composition, fall back to the legacy pair" branch. A rule
-  that happens to carry rows in the abandoned `conditionRows` from the few hours it was live is read
-  as if those rows do not exist; `CONDITION_PAIRS` (renamed in spirit, not in code — the constant and
-  `legacyConditionPairs` keep their names, since every caller already imports them and there is no
-  behavioural gain in a rename) is once again the live encoding, with `operator` added to each pair.
-- **`validateWorkflowRule` validates both fixed slots directly again**, through the same
-  `validateCondition` a lone condition row always used — one call per `CONDITION_PAIRS` entry instead
-  of looping `rule.conditionRows`. The service's own per-row `guard` on `WorkflowRuleConditions` is
-  gone entirely, and so is that entity's projection in `duplicate-config-service.cds` — nothing
-  exposes it over OData any more, the same reasoning that already applies to every other column
-  nothing reads: leaving a working-but-unreachable API surface around is what the next person
-  mistakes for something still in use.
-- **The view goes back to two plain `HBox` groups** (Field/Operator/Value each), no wrapping
-  `FlexBox`, no "Add Condition"/"Remove Condition" buttons, no `$expand` on the table's own binding —
-  a plain scalar field needs none. `onAddCondition`/`onRemoveCondition`/`_conditionsBinding` are
-  deleted from the controller rather than left dormant, the same call made for `ListCell.js` when
-  token cells were withdrawn: half a mechanism nobody calls is what the next person mistakes for a
-  working one.
-- **Duplicate got simpler, not more complex, from the revert** — see "Copy a rule" below: with every
-  field back to being a plain scalar on the rule itself, one `binding.create(copy)` is the whole job;
-  the second `.create()` per condition row is gone along with the composition it copied.
-
-#### Five condition slots, and an "Add Condition" that adds a COLUMN (2026-09-01)
-
-Asked for the day after the revert above: *"is it possible that we provide an 'add condition' button
-next to 'add rule'... pressing this should add an extra 'Logic' and an extra 'Condition' column into
-our table. Is this something that's possible? It might not be as our conditions are part of our
-postgres db of course."* It is possible, and the postgres caveat is exactly what decides the shape.
-
-`cds-deploy` can **add** an element; it can neither drop nor retype one — the lesson this table has
-now paid for three times (`createsRow`, `conditions: LargeString`, `conditionRows`). So the schema
-carries a **fixed five slots** and the PAGE decides how many of them to draw. Adding a condition is
-therefore a rendering decision with zero deploy risk, and raising the cap later is another purely
-additive change. What is *not* available this way is a genuinely unbounded count — that needs the
-composition, which was built, deployed-toward and abandoned twice, and is not being tried a third
-time.
-
-- **The new columns are `conditionField3..5` / `conditionOperator3..5` / `conditionValues3..5`, plus
-  `conditionLogic2..4`.** `conditionLogicN` joins slot N to slot N+1, so the unnumbered
-  `conditionLogic` stays the 1-to-2 join it has always been and the numbering starts at 2. All
-  twelve are pure additions.
-- **The button is table-wide, not per row** — "an extra column into our table". `onAddCondition`
-  raises `view>/conditions`; every Column and its cells carry `visible="{= ${view>/conditions} >= N }"`,
-  and `sap.m.Table` hides a hidden column's cells with it, so there is no second gate on the cell.
-  Nothing is written: the columns exist on every row already.
-- **The ceiling comes from the service** (`conditionSlots` on `workflowRuleOptions`, from
-  `MAX_CONDITIONS`), so the button and `db/workflow-rules.cds` cannot disagree about how many slots
-  there are.
-- **A saved rule reveals its own columns.** `_syncConditionColumns` runs on the table's
-  `updateFinished` and after an import, and raises the count to the highest slot any row fills. It
-  never lowers it: a column somebody revealed and left empty is not taken away on the next render.
-  There is no Remove Condition, deliberately — reloading the page is what collapses it back, and a
-  button that hides a column with a value in it would hide a condition that still evaluates.
-- **The widths went from percentages to rem.** A hidden column contributes no share of 100%, so
-  percentages re-flowed the whole row every time a condition was revealed.
-- **The table scrolls sideways, and that took two halves.** A horizontal `ScrollContainer`
-  (`vertical="false"` — the rows still scroll with the Page) supplies the scrollbar, and
-  `view>/tableWidth` gives the table something to overflow *with*: a fixed-layout `sap.m.Table` at
-  `width="100%"` redistributes its columns into whatever space it has however many there are, which
-  is the squashing itself. `tableWidthFor` is the arithmetic — 37rem of always-present columns, 24
-  per condition, 6 per Logic column, of which there is one fewer than there are conditions — and a
-  test adds up the declared `<Column width>`s against it so the two cannot drift. `growingScrollToLoad`
-  is off, so nesting the table in a scroll container leaves the More button alone.
-- **"Delete Condition" removes the LAST shown one and CLEARS it** — Condition 5 when five are drawn,
-  Condition 2 when two are. Hiding the column alone is not enough: the values stay on the row and the
-  engine goes on matching against a condition nobody can see, which is the ghost this exists to
-  prevent. So the slot's field, value, operator and its Logic column are reset on every row that
-  holds something, and only on those rows — removing an empty column costs no PATCH and does not
-  dirty the page. Confirmed first when it would actually throw data away; nothing is saved until Save,
-  so Discard still undoes it.
-- **Condition 1 is never removable.** The button is disabled at one condition and `onDeleteCondition`
-  refuses anyway. A rule with no condition is written by leaving Condition 1 blank — an empty
-  condition already means "matches anything", so taking the column away would say nothing new.
-- **The Value cell's `enabled` expression needs `targetType: 'any'`, and never had it** (found
-  2026-09-01 in the deployed app's console, while looking at something else). Inside an expression
-  binding, a referenced property is formatted into the type of the BOUND CONTROL property unless
-  told otherwise — so `${dc>conditionOperator}` on a Boolean `enabled` was asked to become a
-  boolean, and every row logged `FormatException in property 'enabled' ... eq is not a valid boolean
-  value`. The binding then fell back to the default, so the cell was **never actually disabled for
-  `is empty`/`is not empty`** — a silently dead feature, not a visibly broken one, which is why it
-  survived from the original two slots. Written as
-  `${path: 'dc>conditionOperator', targetType: 'any'}`. The same trap applies to any expression
-  binding over the `dc` model here; the `view>` model is a JSONModel and carries no types, so its
-  own expressions are unaffected.
-- **`_setConditionColumns` is the only writer of `view>/conditions`**, which is what keeps the
-  table's width and the number of columns drawn from ever disagreeing. `_syncConditionColumns` still
-  only ever raises the count; a deletion lowers it, and it stays lowered because the slot was
-  cleared first — otherwise the next `updateFinished` would put the column straight back.
-- **The engine folds LEFT TO RIGHT, one logic per gap** — `foldConditions` in
-  `srv/checks/value-lists.js`, alongside the unchanged `joinConditions` the other three tables still
-  use. `A OR B AND C` is `(A OR B) AND C`; there is no precedence to remember, and the row reads the
-  way it is written. Zero and one condition behave exactly as before (a lone condition is itself,
-  logic bypassed, so NOR cannot silently invert it) and two conditions under one logic give the
-  identical answer — which is what makes every rule saved before this keep matching unchanged.
-- **A blank slot takes its own Logic with it.** `readConditions` drops a slot with no field and
-  carries each surviving condition's own preceding logic, so Condition 2 left blank joins Condition 3
-  to Condition 1 by Condition 3's Logic — never by a column with nothing left beside it.
-- **Every slot and every Logic column validates**, through the same `validateCondition` a single
-  condition always used: half a condition is the dangerous half in slot 5 as much as in slot 1, and
-  a Logic value the dropdown cannot produce is still refused rather than read as AND.
-- **Excel carries all five slots**, and the later joins are labelled `Logic 2`/`Logic 3`/`Logic 4` —
-  a header row is matched by LABEL, and four columns called "Logic" could not be told apart. Only the
-  first stays bare, so a workbook exported before this still imports.
-
-##### Rolled out to the other three rule tables the same day (2026-09-01)
-
-Asked for straight after: *"make sure that the conditions for Workflow Agent Determination are taken
-over in the other tiles 'Duplicate check' 'validation' and 'Derivation'. Field Properties works via
-the profiles so doesn't need these same condition changes. (So the 'add condition'/'Delete condition'
-buttons + scrollbar)"*. So Duplicate Check Rules, Validation Rules and Derivation Rules all gained
-five slots, the two buttons and the horizontal scroll; **Field Properties is deliberately untouched**
-— it conditions through a profile's CR type and role, not through a condition row, so there is
-nothing here for it to take over.
-
-- **The schema change is the same additive one**: `conditionField3..5`/`conditionValue3..5` plus
-  `conditionLogic2..4`, on the `ruleConditions` aspect (`db/quality-rules.cds`, shared by Validation
-  and Derivation) and on `DuplicateRules` (`db/duplicate-rules.cds`). Note the value columns here are
-  **singular** (`conditionValue`), unlike WorkflowRules' stuck plural `conditionValues`.
-- **Both engines gained the same `logic` key on their `CONDITION_PAIRS` and fold with
-  `foldConditions`** — `srv/checks/rule-engine.js` for the quality tables and
-  `srv/ai/duplicate-engine.js` for the duplicate one. Two conditions under one logic give the
-  identical answer, which is what keeps every stored rule matching unchanged.
-- **`describeCondition` had to generalise with it.** It said "neither A nor B" for NOR and joined two
-  clauses otherwise; with five it folds left to right using each gap's own word, bracketing from the
-  third clause on, because the fold has no precedence and a flat "A or B and C" would read as if it
-  did. The two-clause NOR wording is kept verbatim — that is what every row stored before this means.
-- **A real bug fell out of the rollout: the duplicate table's Logic column never reached the engine.**
-  `conditionsMatch` reads `rule.conditionLogic`, and `toEngineRule` (`srv/ai/rule-config.js`) copied
-  every condition column *except* the logic — so every duplicate rule was ANDed however the grid was
-  set, since the column was added. It now travels with its own slot, which is also what makes a
-  five-slot rule joinable at all.
-- **Every page's own `CONDITION_PAIRS` array was already looped** by `_localProblems` and the
-  Excel columns, so extending that one literal carried most of the client side.
-
-**The controller glue is duplicated across the four pages, deliberately** — `onAddCondition`,
-`onDeleteCondition`, `_setConditionColumns`, `_syncConditionColumns` and their two helpers. It is the
-same call `STRIP_ON_COPY`, `xlsxColumns` and `_localProblems` already make: `XlsxCodec` was extracted
-because it is heavy, shared machinery, and this is per-page wiring that reads better beside the page
-it wires. **If a fifth table ever needs it, extract it then** — four copies of a delete-with-confirm
-is the point at which the reasoning flips.
-
-##### The operators are symbols, on every rule page (2026-09-01)
-
-Asked in the same breath as the five slots: *"the descriptive text can be removed, '= equal' should
-be '='. 'Contain' or 'is empty' only contain text, so they can stay as is."* — first for this page,
-then, once the rollout landed, *"operator labels can be changed as well"*. `symbolOnly` takes
-everything before the double space `COMPARISONS` already uses to separate the symbol from its gloss
-— `=  equal to` → `=`, `<=  at most` → `<=` — and returns the three word-shaped operators
-(`contains`, `is empty`, `is not empty`) whole, since they carry no symbol and no double space.
-
-**It lives in `srv/checks/rule-engine.js`, beside the `COMPARISONS` it formats** (moved there from
-`workflow-rules.js` when the second ask landed), and both `workflowRuleOptions` and
-`qualityRuleOptions` call it. `COMPARISONS[code].text` is still the one definition of what an
-operator is called — this only chooses which half of it a picker shows. The duplicate page's own
-`COMPARISON_TEXT` (`Exact — equal after normalisation`) is untouched and unaffected: those are words
-rather than symbols, and carry no double space for `symbolOnly` to split on anyway.
-
-##### Several values per condition, on every table (2026-09-01)
-
-Asked alongside the operator labels: *"the plural conditionvalue can be reused on the other tables as
-well"*. Two halves, and only one of them is a schema question:
-
-- **The column NAMES cannot follow.** WorkflowRules' `conditionValues` is plural by accident — a
-  stuck name from the withdrawn multi-value feature (see "Multiple values per condition"). Renaming
-  the other tables' `conditionValue`/`conditionValue2` is the one thing `cds-deploy` refuses as
-  firmly as dropping them, and naming *only* the new slots 3–5 plural would leave each table
-  disagreeing with itself. So they stay singular, and the mapping in each `CONDITION_PAIRS` names
-  its own column per slot — nothing reads a name by convention.
-- **What the plural name STANDS FOR already applied everywhere.** `parseValueList` is shared, so
-  `BE|NL|FR` has always been one condition on all four tables: `listMatches` for the quality engine,
-  `holds` for the duplicate one, both ORing across the list, both treating a single value as a
-  one-entry list. What was missing was any sign of it on the three pages, whose value cells said
-  only `any`.
-
-**One wording for that cell on all four tables: `any, or Value1|Value2`.** The workflow page said
-`Value1|Value2` and the other three said `any`, and neither told the whole story — an empty value
-means "any" *and* a filled one may be a list. Settled by asking rather than guessing ("Do all these
-fields show value1|value2 as an inputguide?" — they did not, and that was the point). The cell is
-7–9rem so it truncates to about "any, or Value1…", which still reads correctly. The condition FIELD
-cells are deliberately left as they were (`Field` on workflow, `any` on the other three): that
-column has no list semantics to explain.
-
-This is the READ path the withdrawn token-cell feature left behind, finally surfaced — not a second
-attempt at that feature. The cell is still a plain bound `Input`, which is the version that works.
-
-#### Resizable columns and multi-select, on every rule tile (2026-09-02, asked for)
-
-Two asks about the tables themselves rather than about any rule in them: *"We added a scrollbar, but
-it should also be possible to make columns wider/smaller, aka making the column header draggable"*
-and *"A checkbox at the left, as column 1, to allow us to select multiple rule lines at the same
-time... actions like 'delete' or 'copy' should then be executed on all selected lines"*. Both apply
-to **all five** tiles — Field Properties included this time, unlike the condition-column rollout: it
-has rows to tick and columns to widen, it simply has no conditions.
-
-- **Multi-select is `mode="MultiSelect"` and nothing else.** `sap.m.Table` draws the per-row
-  checkbox as column 1 *and* the select-all checkbox in the header itself, which is exactly what was
-  asked for — so no page declares a `<Column>` for it, and `growingThreshold` still decides what
-  "all" means (the loaded rows).
-- **The width arithmetic had to learn about a column it cannot see.** That checkbox column has no
-  `<Column>` to carry a width, and the four scrolling tables are fixed-layout at an explicit width —
-  so without allowing for it, the table makes room by squeezing every real column, which is the
-  squashing `tableWidthFor` exists to stop. Hence `SELECT_REM = 3` on each of the four, inside the
-  formula rather than beside it. The tests that add the declared `<Column width>`s up assert it
-  separately, since it is deliberately not one of them.
-- **Delete and Duplicate read `getSelectedItems()`**, delete/create every one of them in the same
-  `ruleChanges` group (so one Save still writes them together), and then call
-  `removeSelections(true)` — a selection pointing at rows that no longer exist is not a selection.
-  The confirmation counts what it is about to delete, because "delete these 7 rules" reads very
-  differently from "delete this rule".
-- **Column resizing is `ext/util/ColumnResizer.js`, a shared module** — the same call `XlsxCodec`
-  made: heavy, identical machinery is extracted, per-page wiring is not. `sap.m.Table` has no
-  resizing of its own (that is `sap.ui.table.Table`, which these pages do not use), so the grip is a
-  real `<div>` on the right-hand edge of each `<th>`, dragged with plain `mousedown`/`mousemove`
-  listeners.
-  - **What is draggable is the BORDER between two columns, never the column itself.** Clarified the
-    day it was built ("I did not mean to be able to drag columns around, but resize them by dragging
-    their borders closer together") — which is what it already did, but "draggable column headers"
-    is a phrase that reads as reordering, so the code says *border* everywhere now. There is no
-    reordering on these tables and no `dragDropConfig` anywhere near them; a test pins that.
-  - **The drag ends in `Column#setWidth`, not in an inline style.** The live `header.style.width` is
-    feedback only; every keystroke in a bound cell can re-render the table, and a DOM-only width
-    would go with it. The handles are re-installed on `onAfterRendering` for the same reason.
-  - **Header cell → column is by id first, by POSITION second.** The renderer stamps the column's own
-    id onto its `<th>`, which is the mapping a hidden column cannot throw off; the positional
-    fallback keeps this working if it ever stops doing so, zipped against the **visible** columns
-    since a hidden column renders no cell at all. The select/navigation/filler cells are filtered out
-    by class first — there is nothing to resize on any of them.
-  - **A resize widens the TABLE by the same delta** (`_onColumnResized` → `/widthAdjust` →
-    `_applyTableWidth`), or a widened column would simply take its space from the column beside it.
-    The width stays a `calc(<n>rem ± <n>px)` rather than being resolved to pixels, so the rem half
-    still follows the page's own font size. `_applyTableWidth` is the single setter, which is what
-    stops Add Condition silently undoing a resize. Field Properties passes no `onResize`: it is 100%
-    wide with no horizontal scroll, so its fixed-layout row redistributes on its own.
-  - **The handle needs a stylesheet**, registered as `sap.ui5/resources/css` in the manifest
-    (`webapp/css/style.css`, the app's first). `position: relative` on the `<th>` is set from JS
-    instead — matching a header cell by its theme class would be a guess about a private class name.
-- **"Delete Rule", beside "Add Rule"** (asked for the same week). It was a bare "Delete" sitting
-  after Duplicate, two buttons along from "Delete Condition" — which left the toolbar with two
-  deletes and no word saying which one removed a row. Naming it after what it removes and putting it
-  next to the button that adds one makes the pair read as a pair. Field Properties says "Delete
-  Profile" for the same reason: it adds profiles, not rules.
-
-#### One "Condition N" column: field, comparator, values (2026-09-02, asked for)
-
-*"Make it so our Condition combinations are built the same way as in Workflow Agent Determination.
-Condition 1 contains the field, the comparator, the values. The other tiles should have the exact
-same way of working."* Workflow Agent Determination has drawn a condition that way since it was
-built; the other three drew a **Field** column and a **Value** column with equality implied between
-them, and no way to say `!=`, `contains` or `is not empty` in a condition at all.
-
-- **A new column per slot, not a new table.** `conditionOperator`, `conditionOperator2`..`5` on the
-  `ruleConditions` aspect (db/quality-rules.cds, so Validation and Derivation get them together) and
-  on `DuplicateRules`. `String(12) default 'eq'`, additive - `cds-deploy` can add an element and can
-  neither drop nor retype one, which is the same reason the slots are columns at all.
-- **A blank comparator reads as `eq`, and that is load-bearing.** Every row stored before the column
-  existed meant equality, so nothing was migrated and no stored rule changed meaning. `operatorOf`
-  in srv/checks/rule-engine.js is the one place that decides it, the way `conditionLogicOf` already
-  decides a blank Logic column.
-- **The evaluation is workflow-rules.js's, moved into rule-engine.js.** `empty`/`notEmpty` are read
-  on the RAW value (an empty value is the thing they exist to notice, so it must not be filtered out
-  before they see it); `eq` keeps the wildcard and multi-value matching every condition column has,
-  because `*` only ever meant "equal to, loosely"; every other operator is OR across the listed
-  values. Same shape for the duplicate engine, except that its bag holds NORMALISED values, so
-  `is empty` there means "this partner has no value for that field at all" and the other comparators
-  compare normalised against normalised - comparing a raw `BE 0123` against a bag entry of `BE0123`
-  would answer about a value the index does not carry.
-- **`is empty` / `is not empty` are a COMPLETE condition with no value.** Three places had to learn
-  that, or a perfectly good condition would have been refused as half-written and the rule would
-  have stopped narrowing: `conditionProblems` (rule-engine.js), `validateRule` and `toEngineRule`
-  (srv/ai/rule-config.js), and each page's own `_localProblems`.
-- **The reason a rule fired says which comparator it used.** `describeCondition` used to write
-  `Country = BE` whatever the condition was; a requester told "where Country = BE" about a `!=` rule
-  has been told something untrue.
-- **The duplicate page needed its own list.** Its `ruleOptions.comparisons` are how two RECORDS are
-  matched (exact, fuzzy, raw_dice) - a different question entirely - so the condition vocabulary is
-  served alongside it as `conditionComparisons`. The quality pages reuse `comparisons`, which is
-  already the engine's list.
-- **The table is 24rem per condition now**, one column instead of 14 + 9, and every width formula
-  and the tests that add the declared `<Column width>`s up moved with it.
-
-#### Check Current Data — the validation rules against the partners that exist (2026-09-02)
-
-The Validation Rules page's counterpart to the duplicate tile's "Test Against Current BPs", and the
-item the "Still open on these tables" list has carried since 2026-08-19: *"Execute to see how much of
-our current data is triggering warnings/errors that we just created."* Same button, same unsaved-rules
-reasoning — a test that can only run the SAVED ruleset cannot show anyone what a change does before
-they commit to it.
-
-- **`srv/checks/data-scan.js` owns the scanning and knows nothing about S/4.** The readers are handed
-  in, exactly like `srv/ai/name-index.js`: `readPartners()` returns the General rows and
-  `readSection(section, partners)` returns `partner id -> rows`, because only the caller knows which
-  column a section is filtered on. That is what makes the whole thing testable with plain objects.
-- **It runs `runValidationRule` — the engine, not a copy of it.** A scan that judged the data by its
-  own reimplementation of the rules would be a second answer to the same question, which is the one
-  thing this button must not produce.
-- **Only the sections the ruleset actually reads are fetched.** A rule about an address country is no
-  reason to read every bank detail in the system; `sectionsUsedBy` walks each rule's own field and
-  its five condition fields. `General` is never a section read — it arrives with the partner.
-- **The customer/supplier tree is read by the number `A_BusinessPartner` itself carries**, never by
-  the partner number: CVI does not guarantee `Customer`/`Supplier` == `BusinessPartner` (the same
-  reason `resolveRelationNumber` exists). `scanKeyFieldFor` derives the key column from
-  `MAINTENANCE_ENTITIES`' own `parentKeyField`/`parentKeyFields`, so all 31 payload sections are
-  covered without a second hand-kept map.
-- **Every column of `A_BusinessPartner`, no projection.** A validation rule may name any General
-  field, and a fixed column list here would silently make those rules report nothing.
-- **A section that could not be read is NAMED in the report**, never treated as empty — a rule
-  reporting nothing because its data never arrived would read as a clean bill of health, which is
-  the wrong answer this codebase refuses everywhere.
-- **Findings and flagged partners are counted separately.** A rule that flags five addresses of one
-  partner is not the same news as one that flags five partners, so the report carries both, and
-  orders the rules loudest first.
-- **Capped at `MAX_PARTNERS` (2000) and refused above it**, rather than answered on a slice of the
-  population — the same call `testRuleset` makes at 5000 for its own, pairwise, cost. This scan is
-  linear in partners but pays a remote read per section per batch of 50.
-- **Delegated to `BusinessPartnerService`** from `DuplicateConfigService`, like `testRuleset`: one
-  S/4 connection, and no second one by the back door. With no `RulesJson` it runs what is stored, so
-  the action still answers on a page nobody has edited.
-
-##### A served flag that did not arrive read as "this needs a value"
-
-Reported the day after it shipped: *"Checking current validation rules gives error: Row 2: this
-comparison needs a value"* on a row whose comparison was **is not empty** - which compares against
-nothing. `_localProblems` and the Value cell's `enabled` binding both asked a `/needsValue` map,
-built on the page from the `needsValue` flag on each served comparison. A flag that does not arrive
-is `undefined`, `undefined !== false` is true, and the page read that as "this needs a value" and
-refused the rule.
-
-The fix is the shape the Workflow page already used: **name the two operators**
-(`EMPTINESS_COMPARISONS = ["empty", "notEmpty"]`, the engine's own constant) rather than be told
-over the wire which comparisons take a value. The vocabulary is closed and defined in
-srv/checks/rule-engine.js; a page does not have to be told. The `/needsValue` model property went
-with it - nothing else read it.
-
-
-#### Copy a rule, and bulk-edit the table in Excel (2026-08-28, asked for)
-
-Two more asks landed the same day, both scoped to this one page:
-
-- **Duplicate.** A "Duplicate" button on the toolbar (beside Delete until Delete Rule moved up next
-  to Add Rule on 2026-09-02) reads the selected row
-  (`context.getObject()`), strips its identity and managed columns (`STRIP_ON_COPY`: `ID`,
-  `@odata.etag`, `createdAt`/`createdBy`/`modifiedAt`/`modifiedBy` — sending any of those back on a
-  `POST` is either ignored or rejected depending on the column, never something worth relying on),
-  and feeds the copy into the same `binding.create()` call `onAddRule` already uses. **Simplified by
-  the 2026-08-31 revert to two fixed condition slots**: every field, conditions included, is now a
-  plain scalar on the rule itself, so one `binding.create(copy)` is the whole job — the original
-  version also created each condition as its own new `WorkflowRuleConditions` row against the fresh
-  rule's context, which went with the composition it copied. Nothing is saved automatically — same
-  as Add Rule, it only populates the (now dirty) table.
-- **Export to Excel / Import from Excel — a real `.xlsx`, not CSV** (rewritten 2026-08-31, on direct
-  feedback once conditions reverted to two fixed slots: *"op basis van al die fixed velden ... ervoor
-  te zorgen dat dit ook de .xlsx file wordt (baseer je op hoe BRF+ dit doet)"*). The CSV version
-  reasoned that a real `.xlsx` needed a third-party reader/writer this repo has never taken a
-  dependency on; that conclusion did not have to change, only the assumption that hand-rolling meant
-  giving up on the real format. A `.xlsx` is a ZIP of SpreadsheetML/OOXML parts, and the ZIP container
-  needs only STORE (uncompressed) entries to be valid — which sidesteps implementing DEFLATE for
-  *export*, and inline strings (`t="inlineStr"`) sidestep needing `xl/sharedStrings.xml` on write
-  either. So the write side is genuinely hand-rolled with no new dependency, mirroring BRF+'s own
-  decision-table Excel up/download: one worksheet, a bold + frozen header row, one data row per rule,
-  no packed cells.
-  - **Reading back has to cope with whatever real Excel saves, which is a different shape than what
-    export writes.** Excel always compresses with DEFLATE (method 8, never STORE) and always rewrites
-    inline strings into `xl/sharedStrings.xml` the moment a file is opened and saved again — proven
-    by round-tripping an export through `openpyxl` (a genuine third-party library, used only to
-    generate test fixtures, never as a runtime dependency of the app) and reading the result back.
-    DEFLATE decompression uses the browser's own `DecompressionStream('deflate-raw')` — a Web
-    Platform built-in, not a bundled inflate implementation — so import stays async where export
-    does not.
-  - **A tiny, targeted XML scanner (`matchTags`/`parseAttrs`), not `DOMParser`.** `DOMParser` would
-    do the job too, but every read-path function stays plain string scanning on purpose, the same
-    choice the CSV codec this replaces already made over adding a dependency — and it is what keeps
-    every one of these functions runnable, and testable, outside a browser (`node --test`, no DOM).
-  - **A self-closing empty cell was silently shifting every column after it, found by round-tripping
-    an `openpyxl`-edited file, not by inspection.** Real Excel writes an empty inline-string cell as
-    `<c r="D3" t="inlineStr" />` — note the space before `/>` — and a greedy attribute regex has no
-    way to tell that trailing `/` apart from an ordinary attribute character, so it gets swallowed
-    into the attributes and the tag reads as OPEN, consuming everything up to the next `</c>` it can
-    find (typically the following cell's own close) as this cell's content. Fixed by making the
-    attribute group lazy (`[^>]*?`), which stops expanding the instant `/>` matches. `test/workflow-
-    rules-page.test.js` pins this exact shape as a regression, alongside a full `openpyxl`-produced
-    fixture exercised end-to-end.
-  - **Cell/shared-string text needs unescaping on the way IN, separately from attribute values** — a
-    second real bug found the same way: `&amp;`/`&lt;`/`&gt;`/`&quot;` in a cell's own text content
-    (an approver list with an `&`, say) came back still entity-escaped, because only attribute values
-    were being unescaped. `xmlUnescape` is applied once, at the one place each leaf text node
-    (`<t>...</t>`) is actually read, rather than inside the generic tag scanner — which also returns
-    markup (another tag's own inner XML) that must not be entity-decoded a second time.
-  - **The columns mirror the page itself exactly, one Field/Operator/Value triple per fixed condition
-    slot** — `ID`, CR Type, Step, `Condition 1 Field`/`Operator`/`Value`, Logic, `Condition 2
-    Field`/`Operator`/`Value`, Approvers, Active. No condition-slot cap is needed any more: the page
-    itself is limited to two slots since the revert, so the spreadsheet's own column count and the
-    page's own column count are simply the same number now — `MAX_EXCEL_CONDITIONS` is gone.
-  - **Matched by header LABEL, not by fixed column position** — the frozen header row is what makes a
-    reordered or trimmed copy re-importable at all, the same BRF+-style tolerance the original design
-    already had.
-  - **Import REPLACES the table wholesale — no ID matching at all** (changed 2026-08-31, on direct
-    feedback: *"nu kijk je of er een id matched, maar eigenlijk mag je gewoon dus overriden met
-    hetgeen uit de excel komt"* — just override with whatever the file holds, matching by ID was
-    never the point). The first version of this feature (also 2026-08-31, and itself already a fix for
-    a live report: *"als ik een lijn verwijder... wordt dit niet effectief verwijderd"* — deleting a
-    row in Excel and re-importing did nothing) matched rows by `ID`: update the row a file row's ID
-    named, create one for an unrecognised ID, delete a currently-loaded row whose ID never came up.
-    That shipped and was immediately corrected the same day: matching by ID is not what "override"
-    means, and it kept a column (`ID`, the row's own generated key) that a requester could never fill
-    in for a new row anyway — the exact confusion a live question about that column had already
-    surfaced. `_applyImportedXlsx` now does the simpler thing directly: delete every row currently on
-    the page, then create a brand new row for every non-blank row in the file — no attempt to line an
-    imported row up with an existing one, so a row that happens to be data-identical to one already on
-    screen is still deleted and recreated (as a new record with a new generated ID) rather than left
-    alone. **`ID` left `xlsxColumns` on all four pages the same day**, for the reason above: nothing
-    reads it on either side of the round trip any more.
-  - **Import never saves by itself.** It only creates/deletes rows on the page, exactly like Add Rule
-    and Duplicate — the existing Save/Discard flow, and `_localProblems`'s validation, still have the
-    last word before anything reaches the service; an import that went wrong is a Discard away, the
-    same safety net as every other change this makes. A header-only file (no data rows at all) is the
-    wholesale-replace answer taken to its edge case — it clears the table, not special-cased away.
-  - **`isActive` is read tolerantly** (`true`/`1`/`yes`/`x`, case-insensitive, and a real boolean
-    cell `t="b"` from Excel's own checkbox-like values) rather than matching only the literal word,
-    because a business user filling this in quickly in Excel writes any of those as often as the
-    exact string.
-
-#### Duplicate and Excel rolled out to all four rule pages, behind one shared codec (2026-08-31, asked for)
-
-Everything above was built for WorkflowRuleList first; the same day, Duplicate and a real `.xlsx`
-Export/Import were asked for on the other three tiles too (Duplicate Check Rules, Validation Rules,
-Derivation Rules). Rather than copy the ~350 lines of ZIP/OOXML/DEFLATE handling three more times -
-exactly the surface a bug (the self-closing-tag fix above) would then need fixing on four separate
-times - it was extracted into `app/mdmrules/webapp/ext/util/XlsxCodec.js`, a plain `sap.ui.define([],
-...)` module with no dependencies of its own, and `WorkflowRuleList.controller.js` was refactored to
-use it too rather than keep a diverging first copy beside the new shared one.
-
-- **The codec's public surface is three functions**: `buildWorkbook(sheetName, columns, rows)`,
-  `async readWorkbook(bytes)`, and `isTruthyCell(value)`. `sheetName` is new (parameterised, where the
-  original WorkflowRuleList version hardcoded `"WorkflowRules"` into the workbook XML) so each page's
-  export names its own worksheet tab rather than every file reading "WorkflowRules" regardless of
-  which table it came from. Everything else - `crc32`, the ZIP reader/writer, the tag scanner - is
-  exposed too, but only for `test/xlsx-codec.test.js`'s own isolated tests; no page controller calls
-  any of them directly.
-- **Each page still owns its own `xlsxColumns()`** - a plain array of `{ key, label }` mirroring that
-  page's own table exactly, the same "de structuur die ook zichtbaar is in de app" reasoning as
-  before. Duplicate Check Rules' version leaves out `sequence` and `threshold` (neither is a column on
-  screen - see `onAddRule`'s own comment on why); Validation Rules' and Derivation Rules' both leave
-  out `sequence` for the same reason (it only orders the grid, `$orderby` already reads it).
-- **Each page still owns its own `_applyImportedXlsx`**, because the required-field check that decides
-  "does this file look like this table's own export" is different per table (WorkflowRules: CR Type +
-  Approvers; Duplicate Check Rules: Field + Comparison; Validation Rules: Field + Comparison;
-  Derivation Rules: Field + Value) - a single shared import function would have had to parameterise
-  that check anyway, so nothing was saved by sharing more than the codec.
-- **The wholesale-replace import (every existing row deleted, every file row created fresh, no ID
-  matching) shipped on all four from the start here** - it went through two shapes on WorkflowRuleList
-  mid-session (delete-what's-missing by ID match, then override-everything with no matching at all -
-  see "Import REPLACES the table wholesale" above for why the first shape did not survive the day),
-  and the other three pages were built directly against the second, final shape rather than needing
-  either fix applied to them separately afterwards.
-- **`onDuplicateRule` needed no codec at all** - copying a rule is `Object.assign` plus
-  `STRIP_ON_COPY`, identical on all four pages (`STRIP_ON_COPY` is duplicated as a small `var`, not
-  shared, since it is four identical lines and pulling it into `XlsxCodec` would have made a codec
-  module respons­ible for something that has nothing to do with spreadsheets).
-- **Tested at two levels, matching the split in the code**: `test/xlsx-codec.test.js` tests the
-  shared module in isolation (loaded via `new Function`-wrapping the AMD factory - not `vm.
-  createContext`/`runInContext`, which creates a genuinely separate JS realm and made an array the
-  module returned fail `assert.deepEqual` against an array built in the test file, "same structure but
-  not reference-equal" - found writing this, and `duplicate-rules-page.test.js`'s own
-  `loadController()` already carries the identical warning about its own vm-based harness). Each
-  page's own test file (`workflow-rules-page.test.js`, `duplicate-rules-page.test.js`,
-  `quality-rules-page.test.js` for both Validation and Derivation) tests that page's own `xlsxColumns`
-  shape and its own `_applyImportedXlsx` wholesale-replace behaviour - `duplicate-rules-page.test.js`
-  and `quality-rules-page.test.js` load the real controller through `vm.runInNewContext` (already
-  established there for `_localProblems`) with the sixth/ninth factory parameter now filled by a
-  small stub `XlsxCodec` and by `MessageBox`/`MessageToast` spies, rather than the hand-extracted
-  `new Function` harness `workflow-rules-page.test.js` uses for the same purpose - two different
-  vetted techniques for the same job, chosen per file by what that file already had.
-
-#### The approver picker is sourced from the subaccount, not from this app (2026-08-26)
-
-Until now the value help on the approver cell offered this app's own three-entry
-`ROLES` list (`Requester`/`Approver`/`DataSteward`, from `srv/checks/field-properties.js`)
-— a concept that has nothing to do with who can actually be assigned an approval:
-those three names are what the Field Property Profiles page conditions on, and
-`Requester`/`Approver` are not spellings SBPA would recognise as a role collection or
-a person. `srv/wf/btp-agents.js` replaces it with the subaccount's own **role
-collections** and **users**, read live from the BTP Authorization Management API.
-
-- **Role collections, not this app's own role concept — and only the ones meant for
-  this picker.** A subaccount has a role collection for every application in it, so
-  the list is filtered to those whose **Description** starts with `MDMLIGHT`
-  (`ROLE_COLLECTION_PREFIX`) — Description, never Name: the prefix is a convention
-  applied to the text an admin writes, not to the collection's own (often short,
-  unrelated) name. `ROLES`/`ROLE_TEXT` in `field-properties.js` are **untouched** and
-  still serve the Field Property Profiles page — a different picker, a different
-  question ("which role is this profile for", not "who approves this").
-- **Users too**, named by e-mail — the same address this app's own notifications and
-  SBPA already use — falling back to the username for one with none.
-- **A second, separate XSUAA instance.** The app's own `mdm-businesspartner-auth`
-  (plan `application`) authenticates users into this app and has no access to the
-  Authorization Management REST API; a dedicated `apiaccess`-plan instance
-  (`mdm-businesspartner-authmgmt`, added to `mta.yaml`) is what SAP's own docs call
-  for. Its service key carries `clientid`/`clientsecret`/`url` (for a
-  `client_credentials` token, same shape as `mdmlight-bpa-uaa`) plus `apiurl` — the
-  Authorization Management API host, a fixed region-wide address and not this
-  tenant's own login URL. `btp-agents.js` refuses to guess one when `apiurl` is
-  missing, the same discipline `ui-prefix.js` applies to a missing destination guid.
-  It is a **managed** service, so its credentials land under VCAP's `xsuaa` group
-  (told apart by name) rather than under `user-provided` like the BPA credentials.
-- **A broad, subaccount-wide read credential**, deliberately scoped to nowhere else:
-  it can list every role collection's name and description and every user's e-mail
-  in the subaccount. `btp-agents.js` is the only module that ever sees it.
-- **Best-effort, like every other BTP-platform read in this codebase**
-  (`workflow-rule-store.js`, `processAutomation.js`): an unreachable subaccount API,
-  or the service simply not bound yet, leaves the picker offering nothing rather than
-  failing the page — the cell still takes a typed e-mail address or role name either
-  way. The two lookups fail independently, so role collections still populate the
-  picker even if the `/Users` call is the one that is down.
-- **Cached 5 minutes** (`TTL_MS`), longer than the 60s the rule/profile tables use:
-  role collections and subaccount users do not change on a per-minute cadence, and
-  there is no reason to call BTP's management API on every dialog open.
-- **The F4 dialog is a real two-column table, not `sap.m.SelectDialog`.**
-  `RoleValueHelp.fragment.xml` was a `SelectDialog` (title/description/info on a
-  `StandardListItem`) — that control wraps a plain `sap.m.List` with no column
-  headers, and *Type* vs. *Name / E-mail* is exactly the distinction a combined
-  role-and-user picker has to make visible, so it is now a plain `sap.m.Dialog` +
-  `sap.m.Table` with two named columns, the same shape `FieldPropertyDialog.fragment.xml`
-  already uses elsewhere on this tile. Selecting a row (`onRolesChosen`) reads the
-  entry off its binding context — `{ type, value }` — before anything touches the
-  list, the same ordering the field value help follows and for the same reason: a
-  reset re-templates the rows and re-binds whatever now sits at the old position.
-- **`Agent { type, value }`** is the new CDS type on `WorkflowRuleOptions.agents`,
-  replacing the old `roles : array of Option`. Nothing else read that field.
-
-##### What actually goes over the wire (fixed 2026-08-21)
-
-`workflowContext` sends `approvers` as a **flat array of strings**, not the structured
-list the engine produces. Julien found this the hard way: the deployed process declares
-`approvers` as an array of strings and the runtime validates against it, so sending
-objects failed **every submit** with
-
-```
-[340,5] /approvers/0 The value must be of string type, but actual type is object.
-```
-
-That is a create refused over a routing hint, which is the exact failure mode the
-best-effort resolution was supposed to prevent — the guard covered a table that could
-not be *read*, not a payload SBPA would not *accept*.
-
-- **Flattened at the boundary only.** `resolveApprovers` still returns
-  `{ step, kind, value }`; the `.map` sits in `workflowContext` and nowhere else.
-- **What is genuinely lost is `step`.** Two steps arrive as one list. Restoring it is a
-  process-side schema change to an array of objects, after which the map comes off. Do
-  not "restore" it on this side alone — that is the change that broke every submit.
-- **`kind` is not lost**, only implicit: an entry carrying an `@` is a user, on either
-  side of the wire.
-
-##### A role entry is resolved to real e-mails before it crosses the wire (fixed 2026-08-27)
-
-Flattening to strings was not the last surprise this boundary had. Once the approver
-picker started offering BTP role collections (see "The approver picker is sourced from
-the subaccount"), an approver cell could hold something like `Approver Customer` - and
-`workflowContext` sent that name through unresolved, on the assumption stated everywhere
-else in this table's design: *"roles live in SBPA, and a copy kept here would go stale."*
-That assumption was wrong for Arthur's process - it does not resolve BTP role collection
-membership itself, so a role name reaching it as-is names nobody it can assign a task
-to, and the request routes to an approver list of one string nobody can act on.
-
-- **`workflowContext` now expands a `role` entry into its member e-mails itself**, via
-  `emailsForRoleCollections` (`srv/wf/btp-agents.js`) - the exact lookup
-  `dataStewardEmails` already used for its own fixed `DataSteward` role template,
-  generalised to take any list of role collection names. A `user` entry (already an
-  e-mail) is kept as-is; the two are merged and de-duplicated into `approverEmails`,
-  which is what `approvers` on the wire actually is now.
-- **The split happens in `workflowContext`, not in `resolveApprovers`.** The engine
-  still returns `{ step, kind, value }` and stays offline and deterministic - resolving
-  BTP membership is a network call, and mixing it into the same function that decides
-  WHICH rows match would make an unreachable subaccount block a submit over routing,
-  the one failure mode this whole table exists to avoid. `workflowContext` is where the
-  structured list already gets flattened for the wire, so it is also where the one
-  network-dependent step belongs.
-- **Best-effort, the same as everywhere else in this codebase's BTP reads**:
-  `emailsForRoleCollections` never throws, and a role that cannot be resolved (the
-  subaccount API down, or nobody carries it) contributes nobody rather than costing the
-  submit - the same trade `dataStewardEmails`/`workflowAgents` already make.
-- **`fetchStewardEmails` in `data-stewards.js` is now a thin wrapper** around this
-  shared function, kept only so that module's own `load()` and its tests read
-  unchanged - the membership lookup itself (match a role collection name against a
-  user's own `/Users` `groups`) is one piece of code, not two copies that could drift.
-- **What still does not resolve: `processorsFor`'s own approver list**, the one behind
-  the "who has it now" strip. That reads the same `WorkflowRules` table but is a
-  rendering answer, not a wire payload SBPA has to act on, so a role name shown there
-  unresolved is not the same failure - left as it is unless asked for.
-
-###### ...and then un-resolved again, once SBPA learned to do it itself (2026-08-31)
-
-Asked for directly, and confirmed with Arthur first given how deliberately the expansion above was
-built: his process now resolves BTP role collection membership on its own, which is exactly the gap
-that made the 2026-08-27 fix necessary in the first place. `workflowContext` no longer calls
-`emailsForRoleCollections` for this - `approvers` on the wire goes back to `[...new Set(approvers
-.map((approver) => approver.value))]`, a role entry's bare name (`"Approver Customer"`) and a user
-entry's e-mail both sent exactly as `resolveApprovers` returned them, undifferentiated by `kind` the
-same way the very first version of this table worked.
-
-- **`emailsForRoleCollections` is untouched in `srv/wf/btp-agents.js`** and stays imported by
-  `srv/wf/data-stewards.js`, which still uses it for `dataStewardEmails` - the resolved-to-e-mails
-  version did not go away, it just stopped being what `workflowContext` sends (see `datastewards`
-  below).
-- **Do not read this as "roles never need resolving here" as a general rule.** It is true only
-  because of a specific fact about Arthur's process today; if that process is ever rebuilt to NOT
-  resolve role collections again (or a different process definition is swapped in that doesn't),
-  this reverts back to the 2026-08-27 shape. The tell either way is a task landing with an approver
-  list of one unresolvable string - see that section's own diagnosis for what that looks like live.
-
-**`datastewards` got the identical reversion the same day, asked for separately.** It used to be
-`dataStewardEmails()` - every BTP subaccount user holding this app's own `DataSteward` role
-template, resolved to e-mails via the exact `emailsForRoleCollections` lookup `approvers` used to
-share. `workflowContext` now sends `dataStewardRoles()` instead: the **names** of the role
-collections carrying that template (`srv/wf/data-stewards.js`'s own `fetchDataStewardCollections`,
-already used internally but not previously exposed as a first-class export), unresolved, for the
-same reason and the same confirmation from Arthur as `approvers` above.
-
-- **`dataStewardEmails` was not deleted, and still has a live caller**: `processorsFor`'s own "who
-  has it now" strip (`header.status === 'checkAndEnrich'`) reads it unchanged. That is a rendering
-  answer for a human, not a wire payload SBPA has to act on - a role collection name shown there
-  would read as `datastewards` sending nobody understandable, the same reasoning that already kept
-  `processorsFor`'s own `approvers` list unresolved throughout the `approvers` story above. So this
-  module now genuinely needs both shapes, permanently, one per caller - not a transitional state.
-- **`dataStewardRoles` is its own cached function, not a parameter on `dataStewardEmails`.** The two
-  answer different questions (member e-mails vs. collection names) and are read by different
-  callers, so collapsing them into one function with a flag would have made the caller responsible
-  for knowing which shape it wanted - the same reasoning `fieldState`/`entityProperty` split apart
-  rather than merged. Same TTL, same best-effort discipline (never throws, empty list on any
-  failure), separate cache slot so a warm e-mail cache does not answer for a first call asking for
-  role names.
-
-**Save cannot claim what it did not do (2026-08-21).** A rule appeared to clear itself
-after being created. `hasPendingChanges` answers for **one update group**, so a create
-that never travelled leaves it false and the toast reports a save that did not happen —
-from the outside, a rule vanishing. `_transientRows()` now asks the rows directly: a
-context still transient after a submit was never written, and the page says so instead.
-That guard is worth keeping, but it was **not** the cause: Maarten's next report pinned
-it exactly — the row persisted and only the two list columns came back empty, which is
-the `context.setProperty` write path above, not a submit that never happened.
-
-**The guard itself had a race, and it is what made Add Rule need two presses of Save
-(fixed 2026-08-31).** Reported live: adding a rule and pressing Save once always answered
-"1 rule(s) were not saved... Reload before trying again" - and pressing Save again, with
-nothing left transient by then, always succeeded. `submitBatch(UPDATE_GROUP)`'s own
-promise can resolve before a freshly created context has actually flipped out of
-`isTransient()` - a real ordering gap in the OData v4 model, not something a retry
-happens to paper over by chance. `context.created()` is the promise that genuinely
-completes a create, and it never settles LATER than `submitBatch`'s own promise, only
-sometimes slightly after - so `onSave` now captures `_transientRows()` **before** the
-submit and, once `hasPendingChanges` has ruled out a genuine rejection, awaits
-`context.created()` (each wrapped in its own `.catch(() => {})`, since a rejected create
-is already reported by that same `hasPendingChanges` check) for every row it caught, before
-asking `_transientRows()` a second time to decide whether to show the warning. **Applied
-to all four rule pages** (`WorkflowRuleList`/`ValidationRuleList`/`DerivationRuleList`/
-`DuplicateRuleList`), since all four copy this exact save idiom and the race lives in the
-model, not in any one page's code - `ValidationRuleList`/`DerivationRuleList`/
-`DuplicateRuleList` never had the `_transientRows`/"not saved" guard to begin with, so
-without this they could have lost a row exactly this way with nothing on screen ever
-saying so.
-
-**Still open, and agreed as the next step:** wiring SBPA to actually consume
-`approvers`. Arthur's definition ignores the field today, so the list is sent and
-nothing reads it — the table is inert until his process assigns its approver task
-from it. And once that lands, offering multi-value conditions on the **other**
-rule tables is the follow-up Maarten asked for; the encoding is already shared for
-it, but each page needs its cell replaced and each engine needs `listMatches`
-where it compares one value today.
-
-A `draft` opens editable via `ChangeRequestEdit`. **Anything further along is not
-navigable from here at all** (changed 2026-08-13): the approve screen is reached
-from the approver's inbox and nowhere else, so a decision is always taken against
-a real task rather than by finding the request in a list. The
-`ChangeRequestApprove` route still exists — the inbox and `bpurl` use it — but
-nothing in this list points at it. The same is true of `ChangeRequestRework`
-(2026-08-19): it is reached by the `reworkurl` in the notification SPA sends on a
-rejection, and by nothing in this list either.
-
-Consequence, accepted while only the dev team files requests: with the list
-steward-gated, **a requester cannot reach their own saved draft**. Revisit when
-real requesters start using Save Request.
-
-Still open — ask before implementing any of them: staging retention after
-posting (deleting the header would destroy the `postedBP` idempotency guard
-against SPA retries), routing edit/change requests through staging (only create
-is redirected today), populating `sourceETag` (never set, so a request approved
-days later overwrites concurrent S/4 changes), and reading number ranges so
-users can key their own BP number when the grouping is externally numbered.
-
-#### Human-readable change request numbers (asked 2026-08-19, not built)
-
-A request is identified by its `cuid` UUID today, which is what the list, the
-approve screen and the workflow all show. Maarten wants MDG-style numbers
-instead — `$1`, `$2`, `$243`, up to `$999999` — because a 36-character hex string
-is not something a person can read out, quote in a mail, or recognise twice.
-
-**Do not do this by changing the key.** Two things make that the expensive
-version, and both are documented above:
-
-- The UUID is in the **SPA contract**. `changerequestid` in the workflow context,
-  the `decideRequest`/`completeRequest` payloads and the `bpurl` deep link all
-  carry it, so re-keying breaks Arthur's process definition and every approver
-  task already sitting in an inbox.
-- `cds-deploy` **refuses to change a key**, the same way it refuses to drop an
-  element. It would need a hand-written migration against a database that now
-  holds real requests.
-
-So the shape to build is **additive**: keep the UUID as the technical key and add
-a `changeRequestNumber` the UI displays everywhere the id is shown now. The number
-is a label, not a foreign key — nothing should start joining on it.
-
-The part that needs a decision before anyone writes code is **where the number
-comes from**. It has to be gap-tolerant and concurrency-safe, and a
-`SELECT max(...) + 1` is neither: two submits in the same second would collide,
-and the 2026-08-12 ZODATACR retry storm is the standing evidence that this app
-does produce bursts of near-simultaneous requests. A Postgres sequence is the
-obvious answer, but sequences are not in the CDS model, so it is either a
-`cds.tx` on a counter table with a locked read or a native `CREATE SEQUENCE` in a
-migration. Also undecided: what happens at `$999999`, and whether a *draft* gets a
-number at all — assigning one on Save Request means abandoned drafts burn numbers,
-assigning it on Submit means a draft has nothing to quote.
-
-### `srv/business-partner-service.js` — everything is one file, by design
-`BusinessPartnerService` (extends `cds.ApplicationService`) wires all handlers
-in `init()`, but the bulk of the file is pure helper functions above the class
-(query building, payload sanitization, string/name matching, JSON parsing).
-**All of it is exported** via `BusinessPartnerService._internals` specifically
-so `test/*.test.js` can unit-test these functions directly without spinning up
-a CAP server — when adding a new helper that has non-trivial logic, add it to
-`_internals` and give it a test.
-
-Key handler groups in `init()`:
-- **CRUD passthrough** — `createBusinessPartner` / `updateBusinessPartner`
-  actions translate to `cds.ql` INSERT/UPDATE against the remote
-  `API_BUSINESS_PARTNER` service (`s4 = cds.connect.to('API_BUSINESS_PARTNER')`),
-  not against a local entity.
-- **Full-screen maintenance** — `saveBusinessPartnerEntity` /
-  `deleteBusinessPartnerEntity` are generic, driven by the `MAINTENANCE_ENTITIES`
-  config map (per-entity remote name, navigation property, whether create/delete
-  is allowed, required fields). This is what backs the full-screen create/edit
-  flow for addresses, roles, tax numbers, bank details, identifications,
-  industries, customer/supplier data — adding a new maintainable child entity
-  means adding one entry to `MAINTENANCE_ENTITIES`, not new handler code.
-  `Customers`/`Suppliers` are `deletable: false` here **on purpose and
-  permanently** — `deleteBusinessPartnerEntity` rejects with 405 rather than
-  issue a plain OData `DELETE` against `A_Customer`/`A_Supplier`, which S/4 does
-  not support: a customer is retired via its own `DeletionIndicator` field, not
-  a delete verb. Do not flip this flag to fix a delete-button complaint — see
-  the staged maintenance screen's own `deletable` (`generate-maintenance-metadata.js`)
-  for the correct place that actually changed, below.
-- **Search** — `applyBusinessPartnerSearch` rewrites Fiori's OData `$search`
-  into an `or`-chain of `contains()` filters over `SEARCHABLE_FIELDS`, because
-  the remote OData V2 service has no native free-text search.
-- **Business Partner Assistant** — `askBusinessPartnerAssistant` is a
-  read-only, grounded Q&A action. It is intentionally *not* a general LLM
-  passthrough: `answerBusinessPartnerQuestion` and friends do local matching
-  against already-fetched partners/addresses (dedicated stop-word lists for
-  English and Dutch), and only fall through to SAP AI Core
-  (`srv/ai/business-partner-assistant.js`) when local matching is insufficient.
-  Only a bounded, explicit field allowlist (`ASSISTANT_FIELDS`,
-  `ASSISTANT_ADDRESS_FIELDS`) is ever sent off-box — bank and tax data must
-  never be added to that allowlist.
-- **Approval workflow** — creating a Business Partner (`createBusinessPartner`
-  and `saveBusinessPartner`) also calls `startWorkflow` from `srv/wf/processAutomation.js`
-  to kick off an SAP Build Process Automation approval workflow. This is
-  best-effort: a workflow-start failure does not fail the create — it returns
-  the created partner and surfaces a warning via `req.info(500, ...)`.
-  `saveBusinessPartner` currently has most of its own body commented out (only
-  the workflow-trigger side effect is active) — treat it as mid-refactor rather
-  than a template to copy.
-
-### `srv/wf/processAutomation.js` — BPA integration
-Talks to SAP Build Process Automation through the `SBPA_DESTINATION` CDS
-requires entry (a `rest`-kind destination, see `package.json`). Gets an OAuth2
-client-credentials token from the `mdmlight-bpa-uaa` user-provided service
-(cached until near expiry) and an API key from the same service, then POSTs a
-workflow-instance start to BPA's REST API with the `irpa-api-key` and bearer
-token headers. `mdmlight-bpa-key` / `mdmlight-bpa-uaa` are Cloud Foundry
-user-provided services, bound in `mta.yaml` and expected in `VCAP_SERVICES`
-locally when hybrid-testing this path.
-
-**Known bug, not yet fixed:** `srv/wf/processAutomation.js` reads `apiKey` from
-`mdmlight-bpa-uaa`, but that service holds `clientid`/`clientsecret`/`url`.
-`mdmlight-bpa-key` is bound in `mta.yaml` and never read, so the `irpa-api-key`
-header goes out `undefined` and the workflow start fails. Because
-`submitRequest` deliberately leaves a request in `draft` when the workflow will
-not start, the symptom is staging rows appearing with status `draft` and no
-approver task — that is the guard working, not a second bug. Confirm with
-Arthur which service actually holds the key before changing it.
-
-#### Multiple approvers: decide and post are separate
-
-SPA owns approval routing entirely — how many approvers a request needs, and
-which criteria pick them. CAP deliberately knows none of that:
-
-- `decideRequest` records an outcome **and, on approve, creates the business
-  partner** (changed 2026-08-25). It writes `approved` first, then posts: on
-  success the request is `posted` with the number; on failure it goes to
-  `reworkRequired` with the reason in `postError` and in the action's new
-  `ErrorMessage`. `reject` sends it to `reworkRequired` and back to the requester
-  — see "Rework" below. It is **not** terminal any more.
-- `completeRequest` is the same step, for SPA's callback. Its `postedBP` guard
-  makes it a no-op once approve has run; it still matters for a request approved
-  before this change, or one whose approve handler died between the status write
-  and the post. **Both entry points call one `postAndRecord`** so they cannot
-  drift on what they write or signal.
-
-This closes the TODO that used to sit further down: Arthur's process calls only
-`decideRequest` and expects the partner to exist afterwards, and until now it did
-not. `approved` is therefore a passing state, not a resting one. **`posted` is the
-only terminal status**; a withdrawn request is deleted rather than parked in one.
-Individual approvals are not stored anywhere in CAP, by decision — the UI cannot
-show "2 of 3 approved" without a new table.
-
-##### Several approvers, sequentially, in BPA's own chain (2026-09-01)
-
-Asked for directly: BPA now routes a change request through **multiple** approvers, one task at a
-time, and only the LAST one should actually decide anything in CAP - an earlier approve in the
-chain must not create the business partner (or even record a decision) before every approver has
-had their turn.
-
-**CAP still knows nothing about this**, by the same design as the paragraph above - no count, no
-sequence, no per-approver record. The task app (`app/bptask`) is where it is decided whether to
-call `decideRequest` at all:
-
-- **BPA maps two new, optional task inputs onto the task context**: `currentapprover` and
-  `totalapprovers` (both 1-indexed integers, `sap.bpa.task.inputs` in `app/bptask`'s
-  `manifest.json` - `applicationVersion` bumped 1.5.0 → 1.6.0 for the schema change, same rule as
-  every earlier addition to that schema). Absent - every task built before this existed, and every
-  single-approver flow - reads as "the only approver", the exact behaviour this app always had.
-  `_isFinalApprover(context)` is `current >= total`, with either value failing to parse as a number
-  treated the same as absent.
-- **`_completeTask(outcomeId)` in `Component.js` is where the gate sits.** An `"approve"` outcome
-  that is not yet final skips `_decideOnServer` entirely - `decideRequest` is never called, so
-  nothing is written in CAP and nothing is posted to S/4 - and only completes this one My Inbox
-  task. Completing the task is what BPA reads to advance its own routing to the next approver's
-  task, the same mechanism that already sends every other multi-step task in this app (rework,
-  data steward review) — CAP does not have to be told to do this, only to stay out of the way while
-  BPA is still collecting approvals.
-- **Reject is never gated on this.** Rejecting at any step in the chain still calls
-  `_decideOnServer("reject")` immediately and sends the whole request back to the requester - a
-  multi-approver chain is a chain of approvals, not a chain of independent decisions each approver
-  could make differently.
-- **The shared screen's own `onApprove`/`_decide` (`BusinessPartnerMaintenance.controller.js`) are
-  untouched and do not need this gate.** Embedded in My Inbox, the screen's own decision buttons
-  hide and `_addInboxActions` wires "Approve"/"Reject" straight to `_completeTask` - the shared
-  controller's `onApprove` is never reached that way. It is only reachable standalone (dev testing,
-  reached from nowhere real per "Rework — the requester's screen"), where single-approver semantics
-  are correct because there is no real BPA chain to be a step of.
-
-#### Rework — the requester's screen (2026-08-19)
-
-A rejection is a **loop, not an end**. The approver rejects, SPA notifies the
-requester, and they reopen the request, edit every field, and either resubmit it or
-withdraw it. `rejected` stays in the status enum because cds-deploy refuses to drop
-anything, but nothing writes it any more.
-
-`ChangeRequests/{changeRequest}/rework` renders the **same maintenance screen** in
-mode `rework`, which is deliberately the draft view with one different primary
-action: the emphasized button says **Resubmit** and routes to `resubmitRequest`.
-Withdraw sits beside it. `state.mode` is what `onSave` routes on, so the label and
-the route change together.
-
-Decisions behind it, each of which has a cheaper wrong version:
-
-- **The entry point was the deep link and nothing else — until a second one was
-  added deliberately (2026-08-21): a My Inbox task, assigned to the requester,
-  whose input carries `tasktype: "rework"`.** `reworkurl` still goes to SPA with
-  the *initial* workflow context (alongside `bpurl`), because SPA owns the
-  rejection branch and has it to hand there, and a task with no `tasktype` (every
-  task built before this existed) still opens the approver's decision screen — so
-  nothing already working needed its input mapping touched. The change request
-  list stays steward-gated either way, so neither path is a substitute for the
-  other existing; a workflow can use one, both, or keep only `reworkurl`. The
-  screen still has to cope with a link opened twice, for whichever entry point
-  reopens it. **My Inbox does not render an embedded app's `sap.m.Page` footer at
-  all** (found 2026-08-24, `Component.js` had asserted the opposite in a comment
-  for three days): every button in it was invisible on a task - Check, Duplicate
-  Check and Back on the approve task, Resubmit and Withdraw on a rework task. Only
-  Approve/Reject worked, because those come from `inboxAPI.addAction` rather than
-  from anything the footer draws. Two different fixes for two different kinds of
-  button, same day:
-  - **Check/Duplicate Check moved into the object page header actions, and stayed
-    there regardless of `env>/embedded`** (Maarten, later the same day): on a long
-    create form the footer is a scroll away from the fields being filled in, and
-    those two get pressed while typing. So unlike everything else on this list
-    they are deliberately in the header standalone too, and the footer's own
-    copies are gone rather than merely hidden there. Neither is a declared outcome
-    either way - there is nothing to put in `sap.bpa.task.outcomes` for "run a
-    check" - so the header was always the only way to reach them embedded.
-  - **Resubmit/Withdraw went through the header too, briefly, then back out**:
-    both ARE declared outcomes, so `_addReworkInboxActions` in `Component.js`
-    wires them to `inboxAPI.addAction` instead - the same native action-bar
-    location Approve/Reject already render in, rather than a second,
-    differently-styled button. Pressing one does not complete the task directly
-    the way Approve/Reject do: it only publishes onto the `"taskform"` event-bus
-    channel Julien's inbox-loading fix uses, and the shared controller (subscribed
-    in `onInit`) answers by running the exact `onSave`/`onWithdraw` flow the
-    footer button would have run — Check, the duplicate-check confirmation dialog
-    if one is needed, then the actual resubmit/withdraw. The task completes itself
-    only *after* that flow actually succeeds, via `_completeEmbeddedOutcome` in
-    the shared controller calling `completeOutcome` on the task app's Component —
-    the same `PATCH task-instances` the approve path sends, without a
-    `decideRequest` in front of it since `resubmitRequest`/`withdrawRequest`
-    already recorded the outcome server-side. The footer's own Resubmit/Withdraw
-    hide on `env>/embedded`, same as Approve/Reject always did — unlike
-    Check/Duplicate Check, there is nowhere they need to stay doubled up: one
-    place to press, and this time an inbox-chrome place that is reliably
-    rendered.
-- **Resubmit resumes, it does not restart.** The process instance stays parked
-  through the rejection, and `resubmitRequest` signals it with
-  `RESUBMITTED_SIGNAL` (`'resubmitted'`). One instance per change request means one
-  audit thread on Arthur's side however many rework rounds happen. A request with
-  no `processInstanceId` is refused rather than quietly given a fresh workflow,
-  which would hand it two audit threads and possibly two approver tasks.
-- **Resubmit runs every gate a first submit runs** — validations and the duplicate
-  check with its confirming second press. The requester may have changed the very
-  fields the duplicate check reads. Derivations still do not run on a submit path.
-- **A failed signal no longer blocks the resubmit (reversed 2026-08-24).** It used
-  to leave the request stuck at `reworkRequired`, on the same reasoning as a failed
-  start leaving a submit in `draft` — but live testing showed the signal failing
-  with `bpm.workflowruntime.rest.message.no.match` even for a genuinely reworked,
-  valid request, because the parked instance was not (or not yet) actually waiting
-  on `requesterCallBack`. That is a BPA-side gap (see "Not built on Arthur's side
-  yet" below), not a reason to strand a correct rework. The signal is now
-  best-effort, like `withdrawRequest`'s own callback always was: logged on failure,
-  never blocking. **What resumes the process is the rework task itself completing**
-  — the `PATCH task-instances` `_completeEmbeddedOutcome` sends once this action
-  returns — the same way completing the approver's decision task resumes the main
-  approval, no separate signal needed. `resubmitRequest` now returns `ContextJson`
-  (the rebuilt `businesspartnerinput` included) so that PATCH can carry the
-  reworked data as the task's own output, declared in `app/bptask`'s
-  `sap.bpa.task.outputs`, rather than only through the signal above.
-- **The approver's comment goes to `rejectionComment`, never over `reason`.**
-  Overwriting was harmless while a rejection was terminal; now the requester
-  reopens this record and would find their own justification replaced by the
-  verdict on it — and then resubmit the approver's words as their reason. The
-  comment leads the screen as a Warning strip, because "rejected" with no why is
-  not something anyone can act on. **The strip stopped repeating the comment's
-  own text on 2026-08-25** — it points at the conversation panel below instead
-  ("See the conversation below for the reason"), now that the panel is the one
-  place a comment's actual words are shown; showing it twice risked the two
-  going out of sync if a later change touched one wording and not the other.
-  `state.rejectionComment` still exists and is still read — only truthiness,
-  never the text itself, so the strip still tells "a reason was given" apart
-  from "none was recorded" (`claimRework`'s stopgap case, below).
-- **Where that comment comes from (2026-08-21): a `TextArea` at the bottom of
-  the approve screen's content**, bound to `context>/comment` — the same
-  property `_decideOnServer` in `app/bptask`'s Component.js already reads for
-  `decideRequest`'s `Comment`, so nothing on the server side changed. `context`
-  is a model only `app/bptask`'s Component sets, so this only appears embedded;
-  a standalone approve (dev testing only) has no comment path either way, same
-  as before. Visible only in approve mode — a rework/edit screen has nothing to
-  decide yet, and there is no equivalent field for it.
-  **Moved to the top of the content, beside the message panel, the same day**:
-  at the bottom it rendered but was cut off below the visible area — My Inbox
-  does not reliably give an embedded app's own lower content room either, the
-  same lesson the footer buttons already taught. The binding is unchanged, only
-  its position in the view.
-  **Moved again, 2026-08-27, to right after the conversation panel** (still
-  well above the actual Object Page form, so the earlier cut-off risk does not
-  apply — that was about the literal bottom of the whole page, not about being
-  sixth among the header-area panels instead of second): typing a reply
-  immediately under the thread it answers reads as what it is, where a box
-  positioned near the top with no visible connection to any conversation did
-  not. `reworkCommentBox`/`dataStewardCommentBox` moved with it, for the same
-  reason and because all three boxes have always lived together in the markup.
-- **The full conversation, not just the latest word (2026-08-24).** `reason` and
-  `rejectionComment` on the header are unchanged — both still work exactly as
-  before, and every existing reader of them still reads them — but they only ever
-  held one side's latest message, which reads as amnesia the second round a
-  request comes back. `ChangeRequestComments` is a new, append-only child entity
-  (one row per message, `role` + `author` + `text`), and `decideRequest` /
-  `resubmitRequest` both write to it *in addition to* the legacy fields.
-  `getRequestPayload` returns it as `CommentsJson`; the screen renders it as a
-  collapsible `Panel` (`commentsPanel`, oldest first, `StandardListItem` per
-  message naming who said it) — **last of the panels above the form** since
-  2026-08-27, see "Highlighting what changed" — on **every** mode
-  that has a thread to show — approve, rework, view, draft.
-- **Rework gets its own comment box, separate from the approver's.**
-  `approverCommentBox` is embedded-only (`context>/comment`, a model only
-  `app/bptask`'s Component sets) because approve is only ever reached that way in
-  practice. Rework is not — the `reworkurl` deep link opens it standalone too
-  (see below) — so `reworkCommentBox` binds to `maintenance>/reworkComment`
-  instead, works in both, and is sent as `resubmitRequest`'s existing `Reason`
-  parameter (declared since the action was written, never previously populated
-  from the UI). Optional: a resubmit needs no explanation, only the edit itself.
-  Echoed into the panel locally right after a successful resubmit, since the
-  request becomes read-only from there and nothing reloads it again to pick the
-  server's own copy up.
-- **`claimRework` is a stopgap for the missing reject callback (2026-08-20).** The
-  approver presses Reject in My Inbox, SPA notifies the requester with the
-  `reworkurl` — and never calls `decideRequest`, so the request is still
-  `inApproval` when the rework screen opens it. Every gate downstream reads the
-  status, so the screen offered no buttons, refused to edit, and `resubmitRequest`
-  would have 409'd. `claimRework` moves `inApproval` → `reworkRequired` on the
-  rework route only, treating arrival on that link as the evidence of a rejection —
-  the link is only ever sent by the rejection branch. It is a no-op on any other
-  status, refuses a request carrying `postedBP`, and deliberately does **not**
-  signal the workflow: the process already took its rejection branch.
-  **The accepted cost:** the link stays in the requester's mailbox, so clicking it
-  again *after* a resubmit pulls a live approval back into rework. Maarten chose
-  this over an explicit "take back" press, with the hazard on the table. **Delete
-  the handler, the controller call and their tests once Arthur's rejection branch
-  calls `decideRequest`** — that is the real transition, and it carries the comment
-  this path cannot (the screen says "No reason was recorded with it" instead).
-- **`reworkRequired` is an ACTIVE_REQUEST_STATUS.** It looks finished, but the
-  requester is about to edit and resubmit, so the partner stays locked. Leaving it
-  out would unlock the partner for a second editor mid-rework.
-- **No Save Request in rework**, and not only because two buttons is what was
-  asked for: Save Request drops the screen out of editing and offers Edit, which
-  re-enters `edit` mode — and `onSave` would then route to `submitRequest`,
-  starting a second workflow for a request whose own instance is still parked.
-
-**Withdraw deletes.** `withdrawRequest` removes the staged children explicitly and
-then the header, rather than trusting the compositions' cascade through the
-hand-written `ON` backlinks. Two guards are load-bearing: a request carrying
-`postedBP` can never be withdrawn (destroying that guard would let an SPA retry
-create a second business partner), and only `draft`/`reworkRequired` are
-withdrawable at all. It is **idempotent** — a missing request returns
-`Deleted: false` rather than a 404, so a double press is not an error to interpret.
-The workflow is told (`'withdrawn'`) before the delete, best-effort: no ordering
-avoids stranding something, so this follows the rule every other workflow side
-effect here follows — the local record is what must be right, a BPA outage must not
-stop a requester withdrawing their own request, and the failure is surfaced via
-`req.info` rather than swallowed.
-
-Open TODOs on this, agreed and deliberately deferred:
-
-- **`completeRequest` has no scope restriction.** It writes to S/4, so as it
-  stands any authenticated user can force a post and bypass approval entirely.
-  Restrict it to the SPA technical user before this goes anywhere real.
-- ~~**Arthur's workflow still calls only `decideRequest`**~~ — closed 2026-08-25:
-  approve posts, so a request no longer sits at `approved` waiting for a
-  `completeRequest` nobody sends.
-
-##### Signalling the outcome, and three traps found on the way (2026-08-25)
-
-The instance is told the *result* of the post through its own trigger,
-`waitForResult`, whose inputs are exactly `businesspartnerid`,
-`businesspartnerfullname`, `status` (`success`/`error`) and `errormessage`.
-`executionId` is `ChangeRequests.processInstanceId`, the same correlation the
-decision triggers use. It has no `result` key, so it cannot go through
-`sendTrigger`; `triggerPostResult` posts it through the same destination.
-
-`SignalWorkflow: false` — the task form saying "completing the task already
-delivers the decision" — deliberately does **not** silence this. The decision and
-the result are different waits, and the process needs the result whichever way the
-decision arrived. Signalling is best-effort and never throws: the partner exists in
-S/4 whatever the call does, and losing it over a timed-out signal is the worse of
-the two failures.
-
-Three things that were broken or unsafe, found while wiring this and fixed with it:
-
-- **`completeRequest` threw a ReferenceError on every completion.** It called
-  `notifyWorkflow`, a `const` declared *inside* the `decideRequest` handler — so
-  after creating the partner and writing `posted`, the handler died and the caller
-  saw a 500. On the failure path too. `test/approve-posts.test.js` now pins that
-  `notifyWorkflow` is only called where it is declared.
-- **A status write immediately before `req.reject` never persists.** `req.reject`
-  throws, CAP rolls the transaction back, and the write goes with it — so the old
-  `failed` write was lost and the request stayed `approved`. That is why a failed
-  post is **returned** as `ErrorMessage` with `Status: reworkRequired` instead of
-  rejecting the action. Both screens read that field; an empty `BusinessPartner`
-  used to mean "rejected" and now also means "the post failed".
-- **Rework after a partial post could create a second partner.** A create whose
-  post half-succeeds leaves a real partner in S/4; the requester reworks,
-  resubmits, and the next approve would create another. So `postToS4` now persists
-  the number the moment S/4 hands it over — before the child nodes, which can
-  still throw — and `isCreate` is `requestType === 'create' && !businessPartner`,
-  making the retry an update.
-- **The same partial-post retry could ALSO try to re-create a CHILD node S/4
-  already has** (fixed 2026-08-31, reported live: approving a resubmit failed with
-  *"Error during request to remote service: BP role FLVN01 already exists for
-  partner"*). Only `header.businessPartner` and `ROLE_NODES` (`Customers`/
-  `Suppliers`) were retry-safe — the root record via the bullet above, the role
-  nodes because their own `isCreate` reads `relationValue == null`, which
-  naturally resolves non-null once CVI has created the customer/vendor master.
-  **Every other child section, `BusinessPartnerRoles` included, decided
-  create-vs-update purely from the staged `action` column**, which never learned
-  that its own create had, in fact, already gone through on an earlier partial
-  post — a rework that fixed the node that actually failed still replayed a
-  `saveBusinessPartnerEntity` create for every node that had already succeeded,
-  and S/4 correctly refused all of them as duplicates. `postToS4` now flips a
-  successfully-created row's own `action` to `'U'` right after the save succeeds
-  — the same "persist immediately, because a later node can still throw"
-  reasoning as `header.businessPartner` above, just per row instead of once per
-  request. **The symmetric gap on deletes got the same fix**: a successfully
-  deleted row is removed from staging entirely (there is nothing left to
-  represent once it is gone from both sides), so a retry cannot try to delete it
-  a second time either.
-
-Still open, and Julien's call rather than the code's: a failed post from **My
-Inbox** completes the task anyway. The decision stands and the task is done either
-way, and the approver is shown the error — but if a failed post should leave the
-task open instead, that is a change to `_completeTask` in `app/bptask`.
-
-#### Data steward enrichment (2026-08-26)
-
-A third loop, parallel to rework rather than a step inside it: a data steward can
-be handed a request mid-approval to add or correct data, then send it back — to
-the approver if they made it work, to the requester if they could not. Built by
-copying rework's own shape wherever the two are genuinely the same thing, and
-diverging only where the roles differ.
-
-- **`checkAndEnrich` is its own status** (`db/staging.cds`), not a value of
-  `reworkRequired` — a data steward's edit and a rejection are different events,
-  and collapsing them would make the screen unable to tell "the requester is
-  reworking this" from "the steward is". It joined `EDITABLE_STATUSES`,
-  `ACTIVE_REQUEST_STATUSES` and `IN_PROGRESS_REQUEST_STATUSES` for exactly the
-  reasons `reworkRequired` is in each: a payload someone may still edit, a
-  partner still locked, a request still owned by a human. `WITHDRAWABLE_STATUSES`
-  aliases `EDITABLE_STATUSES` (test-pinned), so a data steward who cannot make a
-  request work may withdraw it the same way a requester withdraws a rework —
-  accepted rather than special-cased, though nothing in the UI offers a Withdraw
-  button in this mode today.
-- **`claimDataStewardReview` is `claimRework`'s own pattern**: arrival on the
-  screen (via the `datastewardurl` deep link or a My Inbox task carrying
-  `tasktype: "datasteward"`) moves `inApproval` → `checkAndEnrich`, because
-  nothing on Arthur's side calls a CAP action to make this transition — the
-  process routing a task here is taken as the evidence, same as claimRework's own
-  reasoning, and no workflow signal is sent for the same reason claimRework sends
-  none.
-- **`decideDataStewardReview` is two different existing shapes under one action**,
-  picked by `Decision`: `'complete'` is **`resubmitRequest`'s own body** — persist,
-  the same validation/duplicate-check gates, `Confirm` included, rebuild the
-  workflow context, hand the **same parked instance** back to `inApproval`. A data
-  steward enriching data is reworking the payload, just under a different status,
-  so nothing about the gates changes. `'reject'` is **`decideRequest`'s reject
-  branch** instead: no payload to persist, straight to `reworkRequired` with the
-  steward's note on `rejectionComment`, because the steward could not make the
-  request work and it goes back to whoever raised it — never back to the
-  approver, who never asked the steward anything.
-- **Both are placed after `withdrawRequest`, not beside `claimRework`.** Several
-  tests slice `serviceJs` from `resubmitRequest` to `withdrawRequest` expecting an
-  exact shape (an exact `workflowContext` call count, no workflow signal inside
-  `claimRework`'s own slice); inserting the new handlers between `claimRework` and
-  `withdrawRequest` would have landed inside those slices and broken assertions
-  about behaviour that did not change. Ordering in the file is not the same as
-  ordering in the CDS service definition, and does not need to be.
-- **Two new signals, `DataStewardComplete` / `DataStewardRejected`, are
-  unconfirmed placeholders** — like `WITHDRAWN_SIGNAL` was until confirmed,
-  nothing on Arthur's side listens for either yet. `triggerRequesterCallback` is
-  reused rather than duplicated: it was already generic, told apart only by
-  `result`, and now carries four signals instead of two.
-- **The screen is the same shared `BusinessPartnerMaintenance` screen**, in a
-  fourth mode (`"datasteward"`, alongside `"approve"`/`"edit"`/`"rework"`/`"view"`),
-  reached by `_onDataStewardRoute` and the route `ChangeRequests/{id}/datasteward`
-  in both `app/businesspartner` and `app/bptask`. Editable like rework
-  (`showSaveButton`/`showSaveRequestButton` both false, unlike rework, because
-  there is no generic Save — only the two decision buttons below), and the field
-  property profile is read under the `DataSteward` role rather than `Requester` or
-  `Approver` — a role that already existed in `srv/checks/field-properties.js`'s
-  `ROLES` for exactly this, unused until now.
-- **Two buttons, not one primary action like rework's Resubmit.** *Complete
-  Review* goes through `_sendChangeRequest("decideDataStewardReview")`, which gets
-  it the same Check/duplicate-confirm dialog dance as Resubmit (it edits the
-  payload too) and, on success, `_completeEmbeddedOutcome("enrich", ...)`.
-  *Reject* is a plain decision — `onRejectDataStewardReview` confirms, then
-  `_declineDataStewardReview` calls the action directly with no gates, mirroring
-  `onReject`/`_decide`'s shape rather than `_sendChangeRequest`'s. A
-  `dataStewardCommentBox`, not embedded-only (same reasoning as
-  `reworkCommentBox`: the deep link reaches this screen standalone too), carries
-  the steward's note either way.
-- **The task app's outcome ids are `"enrich"` and `"reject"` — Reject reuses the
-  approve task type's own id rather than a new one (changed 2026-08-26 on
-  Julien's ask; the first version used `"decline"`).** `sap.bpa.task.outcomes`
-  is one flat array across every task type this app handles, and an id only has
-  to be unique **within** it, not per handler: `_addInboxActions` (approve type)
-  and `_addDataStewardInboxActions` (data steward type) both register `"reject"`,
-  each with its own callback, and that is safe because the two task types never
-  coexist on one task instance — `_initTaskForm` picks exactly one branch per
-  task, so only one handler for `"reject"` is ever registered at a time. Reusing
-  the id also means the Lobby needs no new outcome mapped for the data steward
-  step beyond `"enrich"`, which has no existing outcome to reuse. Both go through
-  `_addDataStewardInboxActions`, event-bus-publish only like
-  `_addReworkInboxActions` (never `_completeTask` directly, unlike the approve
-  task type's own `"reject"`) — Complete Review needs the shared screen's gates
-  to run first, and Reject needs `decideDataStewardReview`'s result before the
-  task can be patched. `applicationVersion` was bumped `1.3.0` → `1.4.0` → `1.5.0`
-  across the two changes (outcomes added, then the id reused), per the rule
-  pinned in `test/task-form.test.js`: the Lobby only re-reads `sap.bpa.task` when
-  the task is re-pointed at a new version.
-- **The processors strip and the merged search list both learned the new status.**
-  `request-processors.js` gained a `checkAndEnrich` branch (step "Data Steward
-  Review", named by whichever `dataStewardEmails()` resolves — read only while the
-  status actually is `checkAndEnrich`, the same discipline `approvers` follows for
-  `inApproval`) and `search-results.js`'s `IN_PROGRESS_REQUEST_STATUSES` /
-  `STATUS_LABELS` both list it, for the same reason `reworkRequired` is in both: a
-  human still owns the request.
-- **Not built on Arthur's side at all yet** — this is further behind than rework
-  was at the equivalent point, because nothing routes a task to a data steward in
-  the first place: which condition sends a request to `checkAndEnrich` instead of
-  straight through approval, how the parked instance is told to wait for
-  `DataStewardComplete`/`DataStewardRejected`, and re-pointing whichever user task
-  in the Lobby is meant to render `mdm.md.businesspartner.task` for this step. CAP
-  and the UI hold up their end (the status, the actions, the screen, the task
-  type) and wait for the process side the same way rework's did before Arthur
-  wired up the rejection branch.
-
-#### Highlighting what changed (2026-08-27)
-
-A data steward enriching a request, or a requester reworking one, edits a record
-somebody else already filled in - and until now nothing on screen said which
-fields that touched. `BusinessPartnerMaintenance.controller.js` now colours a
-changed value **light red** and an added one **light orange**, and leads the
-screen with a collapsible three-column list of exactly what moved.
-
-**A baseline is required, and it is not the same baseline for every request
-type.** `state.trackChanges` decides whether one is meaningful at all:
-
-- **A plain new create has none, on purpose.** `state.trackChanges` stays `false`
-  (the `_emptyState()` default) all the way through `_onCreateRoute` - there is
-  nothing to compare a brand new record against, so "changed" would mean nothing
-  and "added" would mean everything, which is the one wrong answer this feature
-  exists to avoid giving.
-- **Editing a live Business Partner** (`_loadBusinessPartner`, `_onEditRoute`)
-  compares against the values exactly as read from S/4, a moment before the
-  requester or steward can touch them - `state.originalRoot`/`originalSections`
-  are cloned right after that read, and `state.trackChanges = editing`.
-- **A staged request** (`_loadStagedRequest` - rework, data steward review,
-  approve, view, and the requester's own not-yet-submitted draft) tracks changes
-  everywhere **except** a create-type draft reopened by its own requester:
-  `state.trackChanges = state.requestType === "change" || mode !== "edit"`. That
-  one exception is the same reasoning as the plain create route - continuing your
-  own unsubmitted work is not a round somebody else is reviewing.
-- **A change-type request is judged against S/4's OWN current values, re-read
-  live**, never against staging's own copy. Staging holds the *merged* result -
-  the partner's original fields and this round's edits sitting in the same
-  object - so cloning it would compare a record against itself. `_loadChangeBaseline`
-  calls `_fetchLiveSnapshotForDiff`, which repeats `_loadBusinessPartner`'s own
-  root-plus-sections read (reusing `_loadSection` so the two cannot drift) rather
-  than trusting anything carried over from an earlier load. Best-effort, the same
-  discipline every other live S/4 read in this codebase follows: a re-read that
-  fails leaves the as-loaded snapshot in place (a diff one round behind) rather
-  than none at all, logged with `console.warn` and never shown to the user - they
-  came here to review a record, not to hear about a comparison that could not run.
-- **A create-type staged request's baseline is server-persisted**
-  (`ChangeRequests.baselineDataJson`, `db/staging.cds`) - **revised the same day**
-  after the first version (clone `state.root`/`state.sections` as this screen
-  loaded them) shipped a real gap: a data steward's edits coloured correctly on
-  their OWN screen, but the moment the request moved on to the approver, THAT
-  screen's own load re-snapshotted against itself and the colouring vanished -
-  exactly the "also in the following steps" case that was asked for. `submitRequest`
-  and `resubmitRequest` write `req.data.DataJson` into it the moment the status
-  becomes `inApproval` - a first submit's baseline is trivially its own data,
-  which is why nothing is highlighted on a brand new create until someone edits
-  it later. `getRequestPayload` returns it as `BaselineDataJson`, and
-  `_loadChangeBaseline` parses it into `state.originalRoot`/`originalSections`
-  when present, falling back to the as-loaded snapshot when it is not (a request
-  never yet submitted - `trackChanges` is false there anyway - or a parse
-  failure, logged rather than thrown).
-  **Deliberately NOT reset by `decideDataStewardReview`'s own `'complete'`
-  branch, and — reversed later the same day — not by `resubmitRequest` either.**
-  The first cut of this feature had `resubmitRequest` write a fresh
-  `baselineDataJson` on the reasoning that a resubmit follows a rejection and
-  starts a new round, so whoever reviews it next should see only what changed
-  since then. That shipped and was wrong: it is backwards from what was actually
-  asked for. The requester's OWN rework edits are exactly what the next
-  reviewer - an approver, or a data steward again - is meant to see highlighted,
-  the same way a data steward's edits already stay visible through to the
-  approver. So `resubmitRequest`'s final `UPDATE(HEADER)` no longer touches
-  `baselineDataJson` at all, and **nothing after the very first successful
-  `submitRequest` ever writes this column again**, however many rework rounds a
-  request goes through: the baseline set at first submit is what a create
-  request compares against for its entire lifetime.
-  **The same guarantee is what makes it work when a rejection sends the
-  request back to the REQUESTER instead** (confirmed 2026-08-27, asked for
-  explicitly): `decideRequest`'s reject branch and `claimRework` - the stopgap
-  for the missing reject callback - both only ever write `status` (and, for
-  `decideRequest`, `rejectionComment`); neither touches `baselineDataJson`. So
-  by the time the rework screen loads, the baseline is still whatever
-  `submitRequest` last wrote - the pre-steward data - and the requester sees
-  exactly what the steward changed, the same colours the approver would have
-  seen had the request been accepted instead. Nothing extra had to be built for
-  this; it falls out of the same one column never being reset except at the
-  very first submit.
-
-**Rows are matched by CONTENT against the baseline, never by `record.__state`**
-- revised twice the same day, and the second revision is the one that stuck.
-The first version read `__state` directly (`"new"` set by the Add/Edit dialog,
-`"modified"`/`"changed"` by an edit or an accepted proposal) and coloured the
-row straight off it - wrong, because that flag is staged as the DB `action`
-column and **survives every reload**: a row the ORIGINAL requester added still
-comes back `"new"` when a data steward opens the very same request. The second
-version kept content-matching but still used `__state === "new"` as a
-**tiebreaker** for an unmatched row - also wrong, and for the identical reason:
-editing ONE field of that same original row (City, say) still failed the exact
-match, `__state` still said `"new"`, and the row was classified as an ADDITION
-against an empty baseline (`{}`) rather than a CHANGE against its real one. The
-reported symptom was exact: changing City painted the whole row and listed
-every one of its fields - Street, Country, everything - as "changed" in the
-summary, because none of them were actually being compared against anything.
-
-`matchSectionRows(records, baselineRecords, fieldNames)` now runs in two
-passes and reads `__state` **not at all**:
-
-1. **Exact matches are consumed first** - every field equal, in either order of
-   the two lists - so an untouched row is never coloured just because some
-   OTHER row in the section moved, and two identical rows are never both
-   matched to the same baseline row.
-2. **Whatever is left is paired off by BEST MATCH** (changed 2026-08-31, was
-   array order): the remaining current row and remaining baseline row sharing
-   the most fields are paired first, picked greedily across the whole
-   remaining pool, repeated until one side runs out. A row is a CHANGE against
-   its best-remaining baseline for as long as any remain, and only becomes an
-   ADDITION once they run out - i.e. only once this section actually ends up
-   with more rows than the baseline had. A row's own history (whether S/4 has
-   ever seen it) plays no part any more; only whether a same-shaped baseline
-   row still exists to have been edited FROM does.
-
-This is still not exact without a stable row key (staging has one, a cuid, but
-`getRequestPayload` strips it before it ever reaches the client) - an edit is
-paired with the best-scoring remaining baseline row, not necessarily the one a
-person would say it "really" came from. But array order was worse than merely
-imprecise, and a live report on 2026-08-31 is what found it: a section with
-several rows, **none of them edited by the requester**, still lit up with
-"random" changed fields. Two rows can each fail the exact-match pass without
-either being a real edit - one genuinely changed, forcing a reindex, and
-another merely drifted in formatting a reload can introduce (a trimmed space,
-a recast boolean) - and array order then pairs whatever is left purely by
-position, so the two could get shuffled against EACH OTHER: the diff reports a
-change in every field neither person touched. `sharedFieldCount` scores every
-remaining (current, baseline) pair and the highest score is assigned first,
-which is what makes the common case - one row genuinely edited among untouched
-ones - behave exactly as before (there is only ever one pair left to score,
-so nothing about the ranking can move it) while a multi-row mismatch no longer
-compounds into unrelated fields lighting up. Still not perfect - two rows that
-are GENUINELY both edited, in a way that scores identically against each
-other's baseline, remain a coin flip a stable key would settle outright - but
-undercounting additions is still the safe direction on the side that remains:
-it never invents a change nobody made, which a `__state`-based guess already
-proved capable of doing twice.
-
-**A DELETED row - reported 2026-08-28, "als er een lijn verwijderd is kan je dit
-niet meer zien met kleurencode, maar moet dit bovenaan wel vermeld worden".**
-Whatever is still unconsumed in `remaining` once every current row has been
-matched or paired off is a baseline row nothing corresponds to any more - a row
-somebody deleted. It used to be dropped on the floor at the end of the function;
-it now rides along as `results.deleted`, a property on the returned array rather
-than a second return value, so every existing caller that reads the result as a
-plain per-record array keeps working unchanged and only `_refreshChangeSummary`
-reads it.
-
-- **There is no row left in the table to colour**, which is exactly the
-  complaint: a deletion is invisible by construction once the record is gone.
-  The change summary panel is therefore the only place left that can still say
-  so, and it does - one line per POPULATED field of the deleted row (mirroring
-  how an ADDED row lists every field it populated, just with the value sides
-  read the other way: old value shown, new value `"(removed)"`, `kind:
-  "removed"`). A deleted row that was never actually filled in (added, then
-  removed again without ever being edited) still gets one summary line, "Row
-  removed", so the deletion itself is not lost even though it has no field
-  worth naming.
-- **The header counts removals separately from field changes** - "3 fields
-  changed, 1 row removed" rather than folding a removed row's several fields
-  into one combined number, which would overstate how many edits actually
-  happened. This is what makes the removal visible "at the top" (asked for)
-  even with the panel collapsed, the same way every other panel's header
-  already summarises what it holds without being opened.
-- `ObjectStatus`'s existing two-way ternary (`added` → Warning, else → Error)
-  needed no view change: `"removed"` already falls into the `else` branch, and
-  the `newValue` text itself says `"(removed)"`, so it reads as a distinct kind
-  even sharing Error's colour with `"changed"`.
-
-**`_renderSection` and `_refreshChangeSummary` both call the same function**
-over the same two arrays, so the row a table colours and the row the summary
-panel lists fields for are always the same row, matched the same way.
-
-**Root fields have no row to match, so they are diffed value by value** -
-`fieldChangeKind(baselineValue, currentValue)`: nothing when both sides agree,
-`"added"` when the baseline was empty and this one is not, `"changed"`
-otherwise - which deliberately also covers a field that was **cleared**: undoing
-a value that was there is a change to the record, not nothing.
-`BusinessPartnerFullName` is excluded everywhere this runs, root and summary
-alike - it is S/4's own derivation (see "`BusinessPartnerFullName` is derived,
-never stored" above), never something a requester or steward typed, so a diff
-entry for it would report a change nobody made.
-
-**The colour lives on the control, not in a binding**, because the root form is
-built imperatively (`_createFieldGrid`/`_createFieldControl`), not from a model
-path - a field's background is fixed at the moment its `VBox` wrapper is
-constructed. `_createForm`/`_createFieldGrid` gained an optional trailing
-`baseline` parameter for exactly this, and `_onFieldCommitted` re-renders the
-whole root form after every commit (`change`, not `liveChange` - the field has
-already lost focus) so a freshly typed value gets its class the same way a
-freshly loaded one does. `_renderRootSection` and `_openAdditionalFields` pass
-`state.originalRoot`, gated on `trackChanges` the same way the row colour is.
-
-**A CHANGED row colours only the cell(s) that actually differ, not the whole
-row** - reversed the same day it was first built for the same reason as the
-`__state` fix above: colouring the entire `ColumnListItem` for one changed
-field is indistinguishable, to someone looking at the table, from the bug
-where every field was wrongly reported as changed. `_renderSection` now walks
-`summaryFields` per row and calls `fieldChangeKind` against `match.baseline`
-for **that field only**, colouring just its `Text` cell. **An ADDED row is
-still tinted whole** (`mdmAddedRow`) - every one of its fields genuinely is
-new, so there is nothing selective left to compute, and the whole-row
-treatment costs nothing there. There is deliberately no `mdmChangedRow` class
-any more.
-
-**A section's Add/Edit dialog gets a baseline too now** - reversed the same
-day from "never": colouring only the outer row left nobody able to see, while
-actually editing a record, WHICH field inside the dialog differed from what it
-used to be. `_openExistingRecord` resolves the matching row through
-`_rowBaseline` - the exact same `matchSectionRows` call `_renderSection`'s own
-row colour comes from, so the dialog can never disagree with the row it was
-opened from - and `_openNewRecord` passes `{}` (every field typed into a
-brand-new row is an addition, same as the row itself once it lands in the
-table). `_createFieldGrid` already took a `baseline` parameter; `_createFieldTable`
-(the compact layout `_createForm` uses for Customer/Supplier's grouped fields,
-which sit directly above their own child tables in the same dialog) gained one
-too, colouring the field control itself since a table cell has no label
-wrapper to carry the class the way the grid's `VBox` does. One thing this does
-**not** do: track further edits live while the dialog stays open the way the
-root form does on every commit - the colouring is computed once, when the
-dialog opens, against the values as loaded.
-
-Hosted child sections (the ones a grouped dialog renders inline via
-`childSections` - Customer/Supplier's own sales-area or tax tables) needed no
-separate work: they render through `_renderSection` like any top-level
-section, so the row-level fix above already covers them.
-
-**A value picked from the F4 help never coloured either, on a root field or
-inside a dialog** (found the same day, from a live report: a data steward
-changed a root field through its value help and nothing lit up). The root
-cause is `sap.m.SelectDialog`'s own `confirm` event, which is not the target
-`Input`'s `change` event - `_attachCommitTrigger` listens for `change`, so
-`_onFieldCommitted` (the one place the root form's recolouring, the summary
-refresh, a tax number's registry trigger, and the debounced auto-check all
-live) never ran for a value chosen this way, only for one typed. `_openValueHelp`'s
-`confirm` handler now calls `this._onFieldCommitted(this._valueHelpTarget.section,
-this._valueHelpTarget.field)` directly, straight after writing the value -
-reusing the function rather than copying pieces of it, so a value-help-driven
-field ends up handled identically to a typed one, not almost.
-
-**The summary panel is a genuine three-column table** (`changeSummaryPanel`,
-`Field` / `Previous Value` / `New Value`), not `sap.m.SelectDialog`'s pseudo-
-columns - the same reasoning "The approver picker is sourced from the subaccount"
-above already applied to the Workflow Agent Determination F4 help. The colour
-sits on the **New Value** cell, via `ObjectStatus`'s `state` (`Warning` for an
-addition, `Error` for a change), rather than on the row - keeping the panel to
-exactly the three columns asked for while still carrying the colour. Built by
-`_refreshChangeSummary`, which is the one place root and section diffs are
-turned into `{ field, oldValue, newValue, kind }` rows; a **new** section row
-lists each of its own populated fields against `"—"` rather than trying to name
-a baseline that does not exist for it, and a **changed** row is matched against
-its own baseline row by `matchSectionRows` - the same function and the same call
-`_renderSection` makes, so the fields listed here are exactly the fields of the
-row shown red or orange in the table.
-
-**The panel is collapsible and empty-hides**, the same shape every other panel
-above the form uses (`_setDuplicatePanel`, `_setCommentsPanel`): `visible` is
-bound to `changeSummary.length > 0`, and the header carries a count so a
-collapsed panel still says how much it holds.
-
-**The comment thread moved to be the last panel above the form** (asked for the
-same day): `commentsPanel` used to sit second, right after the message panel: it
-now comes after the duplicate findings and the new change summary, immediately
-before the `ObjectPageLayout` - nothing stands between the conversation and the
-Business Partner's own name any more except that conversation itself.
-
-##### The change summary names WHY a field changed, not only that it did (2026-08-31)
-
-Asked for directly, alongside the field-property gating above: "Proposal info meenemen naar Changed
-Fields overview... User input vermelden als 'User change/input'." A row in the panel used to say a
-field changed and to what; it could not say whether that value came from VIES, a steward's typed
-correction, or an accepted normalisation - three very different things to an approver deciding
-whether to trust it.
-
-**A fourth column, Why**, added to `changeSummaryPanel`'s table using the exact convention the
-proposal dialog's own Why column already established: the three-word `reason` shown, the full
-`detail` sentence on hover (`wrapping="false"` plus a `tooltip` binding - see "The Why column is
-three words, with the sentence on hover" above). Reusing the convention rather than inventing a
-second one answers the "met/zonder hover?" half of the ask: consistency with the dialog the requester
-already saw the same reason in.
-
-**Content-matched, the same choice `matchSectionRows` itself made for rows.** `state.proposalProvenance`
-(`{ root: { field: {value, reason, detail} }, sections: { sectionId: [ {field: {...}} ] } }`) is
-written by `_recordProvenance`, called from every one of `_applyProposals`'s three write points - a
-plain field, a row-creating lead field, and that row's own key `extras` (all sharing the row's single
-Why, the same way `_derivationRow` already shows one Why for a whole keyed row). `_provenanceFor`
-reads it back and returns the stored `reason`/`detail` **only while the field still carries EXACTLY
-the value the proposal wrote** (compared through the same `displayValue` formatter both diff sides
-already use); anything else - never proposed, or proposed and then typed over - is `"User
-change/input"` with no tooltip. This is deliberately the same design as row matching: nothing has to
-remember to *clear* an entry when a field is edited again, because a further edit simply stops
-matching on its own. The trade-off is the same one already accepted for row provenance being
-index-keyed rather than a stable id: a section row that reorders (matchSectionRows re-pairs against a
-different baseline row) can point a stale entry at the wrong index, which is a cosmetic mislabel, not
-a data problem - nothing here writes to the request payload.
-
-**`proposalProvenance` resets with the rest of `_emptyState()`** - a provenance entry only ever
-describes the record currently on screen, and is never sent anywhere: `getRequestPayload`/`DataJson`
-carry no such column, `db/staging.cds` has none, and nothing about it crosses to S/4 or to the next
-person who opens the request. It exists purely to answer "why does this cell hold this value" for the
-person looking at it right now.
-
-**A removed row's summary lines get no Why at all** (`why: ""`) - there is no current value left to
-attribute a source to, only the value that used to be there.
-
-#### The approve screen as a BPA UI5 Task Form
-
-**The task form is its own app since 2026-08-20: `app/bptask`
-(`mdm.md.businesspartner.task`), freestyle UI5.** It used to be this Fiori
-Elements app — `sap.bpa.task` in its manifest, `Component.js` implementing the
-inbox contract on top of `sap.fe.core.AppComponent`. SAP documents UI5 task UIs
-for **freestyle** apps; FE as a task host is not a combination they bless, and
-"we embedded a Fiori Elements app as a task form" is where an incident stalls.
-See "The shared maintenance screen" below for how the screen is shared rather
-than copied. The contract itself is unchanged, and still comes from SAP Help,
-*Technical Information for Adapting the SAPUI5 Application*.
-
-**The outcome labels are literal text, not `{{...}}` keys — do not "fix" them
-back.** Maarten set them this way on 2026-08-20: `{{Approve}}` resolves out of
-the app's own i18n bundle, which is not where the Lobby looks, so the two i18n
-keys went with them. `inputs` and `outputs` stay as they are; they declare the
-task context for the Lobby, while the runtime reads none of it — `Component.js`
-fetches `/task-instances/{id}/context` itself and PATCHes the whole context back.
-`test/task-form.test.js` pins the labels.
-
-**Nothing in the app's own footer reaches anybody in My Inbox.** That is the trap
-this section cost most time to: the footer renders standalone, the tests only read
-source, and the inbox chrome quietly drops it. Anything that must be pressable on a
-task goes in the header actions or through `inboxAPI.addAction`.
-
-**Verified end to end on 2026-08-20**: the partner app opens from the Work Zone
-tile (so `resourceRoots` resolves the shared screen at runtime), and Arthur
-re-pointed the SBPA user task at `mdm.md.businesspartner.task`, which rendered.
-The `inputs`/`outputs` schemas above are the ones that worked — Arthur emptied
-them on the old app in `1f5988f`; that is not needed and was not carried over.
-**Re-pointing the user task in the Lobby is a manual step**: the app id changed,
-so the process definition had to be edited and released. A future task UI rename
-costs the same step.
-
-- **Never put a comment key in `app/businesspartner/xs-app.json`.** It ships into
-  the HTML5 apps repository with the app and is schema-validated there; an
-  unknown property in a route makes the whole app version unservable and every
-  resource - `manifest.json`, `Component.js`, the preload - returns **500**. The
-  app then fails to load with `adding element with duplicate id
-  '<app id>-content'`, which names nothing relevant. Cost an afternoon on
-  2026-08-13.
-- **`app/businesspartner/xs-app.json` needs `^/api/(.*)$` as its FIRST route**,
-  to `com.sap.spa.processautomation` / endpoint `api`. Without it the form loads
-  and every workflow call 404s — which reads as "the form is broken" and was the
-  thing the BAS generator would have added.
-- The runtime base URL is **derived**: `/{sap.cloud.service}.{sap.app.id}/api/
-  public/workflow/rest/v1`, dots stripped. Renaming either breaks it, which
-  `test/task-form.test.js` pins.
-- **Verifying `manifest.json` over HTTP proves nothing about what the app is
-  running.** `build:cf` uses `ui5 build preload`, and `Component-preload.js`
-  **embeds the manifest** — the runtime reads it from the bundle, not from the file.
-  So fetching `…/manifest.json` can show a fix that the running app does not have,
-  because the bundle at an unchanged version URL is still cached. Cost half an hour
-  on 2026-08-21. To test a task-app change, disable the browser cache or move the
-  app version; to check what is live, look at the URL the app actually requests.
-- **The OData `dataSources` carry the DESTINATION SERVICE INSTANCE GUID as a prefix,
-  and that is what makes the destination resolve** (2026-08-21, identified 2026-08-25).
-  Proven by requesting the same resource two ways from a launchpad session:
-
-  ```
-  /mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/businesspartner/$metadata      500
-  /5db4d34d-….mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/businesspartner/…   200
-  ```
-
-  Without the leading UUID the approuter cannot tell WHICH DESTINATION SERVICE INSTANCE
-  to resolve `mdm-businesspartner-srv-api` from. `/api/` never needed it because it
-  resolves a **`service`** (`com.sap.spa.processautomation`) rather than a
-  **`destination`**, so no destination lookup happens at all — which is exactly why that
-  one route worked throughout and sent the diagnosis down two wrong paths (a stale app
-  version, then browser cache).
-
-  **It is the instance GUID of `mdm-businesspartner-destination-service`** — confirmed
-  2026-08-25 with `cf service mdm-businesspartner-destination-service --guid`. It is NOT
-  a Work Zone content provider id, which is what this file called it for four days and
-  what sent the next search to Channel Manager: a content provider ID is "up to 20
-  alphanumeric characters, dots, or underscores" (SAP Help, *Multi-Tenancy
-  Consumption*), so a 36-character hyphenated UUID can never be one. Nor is it the
-  app-host GUID, the other plausible candidate.
-
-  **It is landscape-specific and created by this MTA**, so it does not exist until the
-  first deploy of a given subaccount finishes. That is what makes build-time
-  substitution awkward: `mbt build` fixes `manifest.json` inside the app zip before any
-  resource exists. Shipping this to a customer needs one of the routes under "Deriving
-  it" below, not a literal.
-- **The OData `dataSources` are ABSOLUTE, on that same derived app path** (fixed
-  2026-08-21) — `/mdmmdbusinesspartner.mdmmdbusinesspartnertask/service/…/`, not
-  `service/…/`. Embedded in My Inbox the app is served out of the HTML5 repository
-  at its **version-stamped** path, and `/service/*` is not proxied there, so a
-  relative uri resolved against it and every OData call answered **500 without ever
-  reaching CAP** — nothing in `cf logs`, which is what made it look like a server
-  fault for an afternoon. The evidence, from one page load:
-
-  ```
-  …mdmmdbusinesspartnertask-1.2.0/service/changerequest/$metadata   500
-  …mdmmdbusinesspartnertask-1.2.0/reuse/view/…view.xml              200
-  …mdmmdbusinesspartnertask/api/public/workflow/…/context           200
-  ```
-
-  Statics come from the versioned path; the approuter applies `xs-app.json` on the
-  **unversioned** one. `Component.js` was already building its `/api/` URL that way,
-  which is why the task context loaded while the data did not. **`app/businesspartner`
-  keeps its relative uris** — it is served at the approuter app path with a
-  cachebuster, where relative resolves correctly. Do not "make them consistent".
-- **The prefix is carried in the TASK CONTEXT, because nothing else can carry it** (2026-08-25).
-  `workflowContext()` sends `prefix` (the destination service instance GUID, read out of
-  `VCAP_SERVICES` by `srv/ui-prefix.js`); `_initTaskForm` reads it off the loaded task context and
-  `_appPath()` composes `/{prefix}.{sap.cloud.service}.{sap.app.id}/` in front of the still-relative
-  `dataSources` uri. **`manifest.json` declares no OData model**, because a `dataSource`-backed one
-  is built at init, long before any context exists.
-
-  **Only the GUID crosses the wire, not the whole path.** The app already derives
-  `{service}.{appid}` for its `/api/` URL, so CAP never has to know which of the three UI apps a
-  task belongs to, and renaming the task app costs no CAP change.
-
-  **The ordering is the design.** `_loadPermissions` and `getRouter().initialize()` moved out of
-  `init()` into `_begin()`, which runs only once the prefix is known: both read models, and the
-  models cannot exist earlier. Standalone calls `_begin("")` — no prefix, relative uri, which is
-  what `ui5.yaml`'s `fiori-tools-proxy` serves.
-
-  **A task with no `prefix` is reported, never guessed.** Falling back to relative would resolve
-  against the launchpad root and 404 every call, which reads as a broken service rather than an
-  unmapped task input — the exact misreading that cost 2026-08-25.
-
-  Three routes were considered; the other two are recorded so nobody re-runs them:
-
-  1. **Derive it from the URL the component loaded from — TRIED AND REVERTED.** `_appPath()` built
-     from `sap.ui.require.toUrl(getComponentName())` with the version stamp stripped. Deployed,
-     every call 404'd: the resource root is `/mdmmdbusinesspartner.mdmmdbusinesspartnertask-1.2.0/`
-     — versioned and **unprefixed**. The app is served from a path that does not name the
-     destination service instance, while `/service/*` is only routed on one that does.
-
-     **What made it look derivable was an ellipsis.** The 2026-08-21 evidence is written
-     `…mdmmdbusinesspartnertask-1.2.0/reuse/view/…view.xml`, and the `…` sits exactly where a GUID
-     would be. It was read as proof the prefix was present. When an abbreviated URL is the evidence
-     for a claim about a URL, get the full one.
-  2. **Route `/service/*` as a business service so no GUID is needed — RULED OUT.** A route may
-     reference a `sap.cloud.service`, but only for a *Business Service*: one whose VCAP_SERVICES
-     credentials publish `sap.cloud.service` and `endpoints`, "provided via the `onBind` hook in the
-     service-broker implementation" (SAP Help, *Integration with Business Services*). SBPA qualifies
-     as a subscribed SaaS that registers itself; this CAP app is a plain CF app behind a destination,
-     so it would need a service broker and a SaaS-registry registration.
-  3. **Build-time substitution — not possible in one pass.** The destination service instance is a
-     resource of this same MTA, so its GUID does not exist until the first deploy of a subaccount
-     finishes, and `mbt build` has already sealed `manifest.json` inside the app zip by then.
-
-  `UI_PATH_PREFIX` overrides the lookup if a landscape ever needs it named by hand.
-- My Inbox renders the buttons. `Component.js` registers them with
-  `inboxAPI.addAction`, ids matching `sap.bpa.task.outcomes`, and the app's own
-  footer Approve/Reject hide on `env>/embedded` so there is one place to press.
-- Completion is `PATCH task-instances/{id}` with `status: COMPLETED`, the context
-  and `decision`, after fetching an `X-CSRF-Token`.
-- **Order matters**: `decideRequest` runs *before* the PATCH, because completing
-  the task resumes the workflow, which calls `completeRequest` and posts to S/4 —
-  the request has to be `approved` by then.
-- `decideRequest` takes `SignalWorkflow`. The task form passes `false`:
-  completing the task is already the signal, and `triggerApprovalDecision` as
-  well would deliver the same decision twice.
-- Embedded, `window.location` is the **host's**. The change request id comes from
-  the loaded task **context**, never from the hash.
-- **A service model is read through `_serviceModel()`, never straight off the view**
-  (fixed 2026-08-21). The handover calls `_loadStagedRequest` from `onInit`, and a
-  view has not inherited its component's models at that point — propagation happens
-  when it is placed in the control tree. `getView().getModel("cr")` answered
-  `undefined`, so the first action call popped **"Cannot read properties of
-  undefined (reading 'bindContext')"** and the form opened empty. The accessor tries
-  the view first, so every routed path is untouched, and falls back to the
-  component — the same fallback the rule pages use for their `dc` model, for the
-  same reason. Only the readers that can run before the view is placed use it; the
-  value-help dialog and the assistant are opened by a press, long after.
-
-#### Contract the SPA side depends on
-
-Changing any of these breaks Arthur's process definition, so agree the change
-first rather than "fixing" it locally:
-
-- Approver task URL: `<app-url>#/ChangeRequests/{changeRequestId}/approve`
-- Requester rework URL: `<site-url>#BusinessPartner-manage&/ChangeRequests/{id}/rework`
-- Data steward review URL: `<site-url>#BusinessPartner-manage&/ChangeRequests/{id}/datasteward`
-  (sent as `datastewardurl`, added 2026-08-26 - not yet used by any process definition, see "Data
-  steward enrichment")
-
-**Both deep links are Work Zone intents, not approuter paths (fixed 2026-08-19).** They were built
-as `<approuter-host>/mdmmdbusinesspartnermanage/index.html#<route>`, which is the standalone
-approuter's shape - and that module was removed on 2026-08-13, so every link 404'd with
-"Requested route does not exist". The managed approuter serves the app through the Work Zone site,
-so a link is the **site URL plus a cross-navigation intent**, with the app's own route after `&/`.
-The base comes from **`WORKZONE_URL`** (a literal in `mta.yaml`, from Site Manager). `APPROUTER_URL`
-is deliberately no longer read: it was still set on the deployed app and kept producing the dead
-host, so the variable was renamed rather than reused - unset now yields `''`, and a missing link is
-diagnosable where a 404 is not. The intent must match the `BusinessPartner-manage` inbound.
-- Workflow context sent at submit:
-  `{ changerequestid, requesttype, businesspartner, emailadressinitiator, bpurl, reworkurl,
-  datastewardurl, prefix, businesspartnerinput, bpduplicates, approvers, criticalfield, datastewards }`
-- **`prefix` must be mapped onto the approval AND rework task inputs** (added 2026-08-25, agreed
-  with Maarten). It is the destination service instance GUID, and it is the only way the task UI
-  can learn its own OData path — see "The task app". Declared in `app/bptask`'s `sap.bpa.task.inputs`
-  as an optional string, so a task built before it existed still opens; the app then reports the
-  missing input rather than 404ing every call. **An undeclared key never becomes task context**, so
-  sending it is not enough on its own — the process definition has to declare and map it.
-- `approvers` is an **array of strings** from the `WorkflowRules` table — e-mail
-  addresses and role names mixed, `kind` derivable from the `@`. It is **not** an
-  array of objects: see "What actually goes over the wire" under "Workflow rules".
-- `criticalfield` (lowercase on the wire, like every other key here) is a
-  **scalar `'X'`/`' '` flag**, never a list — see "Critical
-  fields, entity-level only, and who to notify". `datastewards` is an **array of
-  strings** — role collection NAMES since 2026-08-31 (`dataStewardRoles`), not
-  resolved member e-mails — read fresh from BTP role collections, the same shape
-  discipline and the same reversion as `approvers` for the same reason.
-
-**Not built on Arthur's side yet — rework needs three things from his definition,
-and the loop does not close without them:**
-
-1. On reject, **call `decideRequest` with `Decision: 'reject'` and the approver's
-   comment**, then **notify the requester** with `reworkurl`, and **do not complete
-   the instance** — park it waiting. `resubmitRequest` hands the request back to
-   that same instance. As of 2026-08-20 the notification arrives but the callback
-   does not, which is why `claimRework` exists — see the Rework section.
-2. Handle the approval-decision trigger input `result: 'Resubmitted'` by routing
-   the request back to the approver, the way a first submit does. **Capitalised**,
-   unlike `approved`/`rejected` - his spelling, agreed 2026-08-19. The resubmit
-   payload is:
-
-   ```json
-   { "executionId": "<process instance>",
-     "inputs": { "result": "Resubmitted", "changerequestid": "...",
-                 "businesspartnerinput": {}, "bpduplicates": [], "...": "..." } }
-   ```
-
-   The BP context sits **flat inside `inputs`, next to `result`**, and is the same
-   object a first submit sends as its workflow context - `workflowContext()` builds
-   it for both, so the two cannot drift. It is rebuilt *after* `persist()`, or the
-   approver would be handed the version they had already rejected. `executionId` is
-   the BPA process instance; Arthur calls it the CR id, and it is **not** the change
-   request UUID.
-3. Handle `result: 'withdrawn'` by terminating the instance and clearing any open
-   approver task. CAP has already deleted the request by the time this arrives.
-- Decision callback: `POST /service/changerequest/decideRequest` with
-  `{ ChangeRequest, Decision: 'approve'|'reject', Comment }`
-- Post trigger, once every approval is in:
-  `POST /service/changerequest/completeRequest` with `{ ChangeRequest }`
-- Workflow definition ID:
-  `eu10.alluvion-dev-cf.mdmlightapproval.mDM_LIGHT_APPROVAL_WF`
-- `businesspartnerinput` is **gone** from the create path — the approve view
-  fetches from staging instead.
-
-The SPA calls `decideRequest` on the CAP app directly, not through the
-approuter. The browser does go through the approuter, so any new CAP service
-path also needs a route in `app/businesspartner/xs-app.json` — the catch-all
-sends anything unmatched to the HTML5 repo, where it 404s instead of erroring
-usefully.
-
-### `srv/ai/` — SAP AI Core orchestration
-`business-partner-assistant.js` calls the Generative AI Hub via
-`@sap-ai-sdk/orchestration`, bound through the `extended`-plan AI Core service
-`mdm-businesspartner-aicore` (created/bound automatically by the MTA). Model
-and fallback chain are set via `AICORE_MODEL` / `AICORE_FALLBACK_MODELS` /
-`AICORE_RESOURCE_GROUP` on the `mdm-businesspartner-srv` module in `mta.yaml`
-(currently `anthropic--claude-4.5-haiku` with fallbacks `gemini-3.5-flash`,
-`gpt-5-mini`). The primary is deliberately **not** a reasoning model: the
-assistant summarizes a pre-filtered context and gains nothing from reasoning,
-while `gpt-5` as primary was slower and could spend its whole budget on hidden
-reasoning. `gpt-5`/`o*` models take `max_completion_tokens` instead of
-`max_tokens`, and an undersized budget then returns empty content instead of
-erroring (`isReasoningModel` / `modelParams` handle this distinction; keep it
-if you promote a reasoning model back to primary).
-
-`ASSISTANT_INTENT_SOURCE: model` in `mta.yaml` switches intent parsing from the
-regex heuristics to `srv/ai/intent.js`. This is what makes "maak BP X aan"
-reliably yield a `companyName`, which is what triggers the duplicate check —
-the check itself is unconditional on intent. The regex parser stays as the
-fallback whenever `parseIntent` returns null.
-`company-research.js` provides a separate lookup used to suggest company data
-and flag potential duplicates before creating a new Business Partner
-(`findPotentialDuplicates` uses Dice-coefficient name similarity, not exact
-match).
-
-**The Wikipedia branch never had a `suggestedAddress` (fixed 2026-08-26).** The
-REST summary API is a prose extract, nothing structured, and Wikipedia is the
-branch a well-known company *always* takes — it is tried first and wins
-whenever a search hit resolves to a non-empty summary, ahead of the DuckDuckGo-
-backed public-web fallback that is the only place `suggestedAddress` was ever
-built. So `businessPartnerCreationSuggestion` (`srv/business-partner-service.js`)
-kept getting `research.suggestedAddress === undefined` for exactly the
-companies most likely to have one, and "Create Suggested Business Partner"
-filled in General only — no address row, nothing else, whatever the chat prose
-said about the company. `addressFromPublicWeb` now runs the same DuckDuckGo
-snippet search the fallback path uses, as a **supplementary** call once
-Wikipedia has already answered, and merges its result in. Best-effort like
-every other lookup here: wrapped in its own `try/catch`, so a failed or
-fruitless address search costs only `suggestedAddress: null`, never the
-Wikipedia result it was enriching.
-
-**`CorrespondenceLanguage` joined the suggestion the same day, inferred from the
-address country — `COUNTRY_LANGUAGE` in `srv/business-partner-service.js`.**
-Deliberately narrow: only `NL`/`DE`/`FR`/`GB` map to a language, because those
-are the only countries in reach where one business language is unambiguous.
-`BE` and `LU` are left silent on purpose — Belgium splits Dutch/French, Luxembourg
-Luxembourgish/French/German — a wrong guess there is worse than an empty field
-the requester fills in themselves. `_onCreateRoute`'s allowlist grew the one key
-to match.
-
-#### Registry enrichment joined the suggestion (2026-08-27)
-
-**The suggestion vocabulary now reaches a `TaxNumbers` row, and it does so through
-the same GLEIF/VIES tools the duplicate check already trusts** — asked for
-directly: "die VIES Check enz ook in die AI assistent... dat hij die tools ook kan
-gebruiken om die BP data uit te breiden". `registryEnrichment` in
-`srv/business-partner-service.js` calls `enrichCandidate`
-(`srv/ai/registry.js`) with the requested company name and no typed tax numbers,
-which runs GLEIF's name search on its own (VIES has nothing to validate yet).
-
-Two things make this **narrower** than "let the assistant use the registry
-tools", deliberately:
-
-- **A tax number is only ever proposed once VIES has confirmed it, and only for
-  Belgium.** GLEIF's `registeredAs` is a local company number (for Belgium, the
-  KBO enterprise number) and `registeredAt` is a GLEIF registration-authority id
-  (e.g. `RA000402`) — **neither is an SAP `BPTaxType`**, and proposing either
-  directly would silently mis-file or corrupt the tax number on create. A Belgian
-  enterprise number doubles as the base of the Belgian VAT number (`BE` + 10
-  digits, zero-padded from 9) — the one enterprise-number-to-VAT-number
-  relationship this app already relies on elsewhere — so `belgianEnterpriseNumber`
-  derives the candidate and `checkVatNumber('BE', ...)` has to answer `VALID`
-  before `BPTaxType: 'BE0'` is proposed. Any other country's GLEIF hit still
-  contributes name and address, never a tax number: the equivalent
-  register-number-to-VAT relationship is not something this app can generalise
-  correctly today.
-- **Registry data outranks the DuckDuckGo research, never the reverse.** In
-  `businessPartnerCreationSuggestion`, a confirmed VIES name/address wins, then
-  GLEIF's, then Wikipedia's title, then the plain requested name — each source is
-  more authoritative about what the company actually is than the one before it.
-- **Best-effort like every other lookup in this flow.** `registryEnrichment`
-  never throws: a GLEIF or VIES outage costs the enrichment, never the
-  assistant's answer. It runs unconditionally alongside `researchCompany`,
-  because unlike Wikipedia/DuckDuckGo it needs no prior "which company" step —
-  GLEIF searches by name directly.
-
-#### A VAT number typed directly in the chat is answered directly (2026-08-27)
-
-`registryEnrichment` only ever reaches VIES *indirectly*, by chaining off a GLEIF
-name match — so a requester who pastes a VAT number straight into the chat
-("BP ING aanmaken met VIes nummer BE0403.200.393") got a Wikipedia summary and a
-suggestion to "check the official VIES-checker yourself", even though the number
-was right there. Reported directly: the assistant already has VIES, it should
-use it. `extractVatNumber` finds a VAT number in free text (a VIES-recognised
-2-letter country code followed by 7–14 digits, dots/spaces/dashes tolerated —
-`nationalNumber` in `srv/ai/vies.js` already strips those), and `directVatLookup`
-calls `checkVatNumber` with it directly, independent of whether a company name
-was even resolved.
-
-- **Answered whatever VIES says, not only when it confirms.** The old
-  Wikipedia-only path went silent on a VAT number entirely; `directVatLookup`
-  returns the raw verdict (`invalid` / `unknown` / `not_applicable`) too, and
-  `directVatAnswerLine` turns it into a plain sentence ("VIES says VAT number
-  BE0403200393 is not registered.") — because staying silent on a number the
-  requester explicitly gave it is the exact failure being fixed.
-- **A confirmed direct hit outranks a name-matched one.** When
-  `directVatLookup` returns `VALID`, its name/address/taxNumber replace whatever
-  `registryEnrichment` found by name — the requester asked about this number
-  specifically, which is a stronger signal than an inferred name match. The
-  same BE-only tax-number discipline applies (`registryEnrichment`'s own
-  reasoning): a non-Belgian confirmation still contributes name and address,
-  never a tax number.
-- **`businessPartnerCreationSuggestion` can now be named by the registry
-  alone.** A requester who pastes only a VAT number, no company name, used to
-  get no proposal at all (`name` resolved to `''` and the function returned
-  `null`). It now falls back to `registry?.name` after the text-based
-  extractors, so a confirmed VIES hit is enough on its own to name the
-  proposal.
-- **`check.vatNumber` is always the national number, without the country
-  prefix** — `checkVatNumber` returns it that way on every verdict, confirmed
-  or not, so `directVatLookup` builds every branch off the check's own fields
-  rather than the raw regex match. Building a display label from the raw match
-  instead doubled the prefix (`BEBE0403200393`) the first time this shipped —
-  caught by a test, not by inspection.
-
-**The model was never told about any of this, and that was the real bug.**
-`registryEnrichment`/`directVatLookup` results only ever reached
-`fallbackAnswer`, the deterministic string used when AI Core is off or fails —
-the live model's own prompt context (`promptContext` in
-`srv/ai/business-partner-assistant.js`) carried `externalResearch` (Wikipedia/
-DuckDuckGo) but nothing from VIES or GLEIF. So the model, running normally,
-had no VIES data to work with and reasoned its way to "tell the user to check
-VIES themselves" — a plausible-sounding answer built from a genuinely empty
-context, not a fallback-string bug. `registryFindings` is now a fourth
-prompt-context field (`{registry, directVat}`, alongside `askSapAiCore`'s
-existing `fallbackAnswer`/`externalResearch`/`duplicateCandidates`) and the
-system prompt says plainly what it is and that the lookup already happened —
-without that instruction the model has no reason not to hedge with "I cannot
-access VIES" the way it would for anything else outside its context.
-
-#### A requested role gets a role row, and the account group follows the existing derivation (2026-08-27)
-
-Asking the assistant to create a supplier or customer used to propose General/
-Addresses/TaxNumbers only — no `BusinessPartnerRoles` row, which meant the
-existing `cvi_account_group` derivation (see "The account group derivation"
-above) had nothing to key off, so the Customers/Suppliers section stayed empty
-too even though the requester asked for one by name. `detectRequestedRoles` in
-`srv/business-partner-service.js` matches `customer`/`klant`/`afnemer` → `FLCU01`
-and `supplier`/`vendor`/`leverancier` → `FLVN01` against the free-text question
-(a plain regex, not a model call — always on, unlike the model-based intent
-parser which is `ASSISTANT_INTENT_SOURCE`-gated) and both can fire at once.
-
-**The suggestion adds only the role row, deliberately nothing else.** The
-Customers/Suppliers section itself is left empty: `cvi_account_group` already
-fills it from `TBD001`/`TBC001` the moment Check or Duplicate Check runs, and that
-is the same proposal-only path every other derivation in this pipeline follows —
-inventing the account group here would bypass the requester ticking it, the exact
-thing "A derivation may create the row it needs" (above) was built to avoid.
-
-#### The transport became one JSON blob, because a tax number is a row (2026-08-27)
-
-**`SuggestedData` is no longer flat.** It used to be root fields plus five
-hard-coded `Address*` keys; it is now `{ root: {...}, sections: { Addresses: [...],
-TaxNumbers: [...] } }` — the same `{root, sections}` shape a staged request
-payload already uses elsewhere in this codebase. The registry enrichment above is
-exactly why: a `TaxNumbers` row is a child entity, and no amount of widening a
-flat key list can express one.
-
-- **The client-side transport followed the shape change.**
-  `BusinessPartnerAssistant.js`'s "Create Suggested Business Partner" button no
-  longer serialises `draft` into `?key=value&...` — it JSON-encodes the whole
-  object into a single `?draft=...` query parameter
-  (`HashChanger.getInstance().setHash("BusinessPartners/create?draft=" +
-  encodeURIComponent(JSON.stringify(draft)))`). `SuggestedData` was already
-  JSON-parsed into `draft` before this point (`resultInfo`), so nothing changed on
-  that side — only how it crosses into the hash.
-- **`_onCreateRoute` parses `query.draft` and applies the two halves
-  differently.** Root fields still come off an explicit allowlist,
-  `ROOT_DRAFT_FIELDS` (a module-level constant, same five keys as before) —
-  kept as a named allowlist rather than merging `draft.root` wholesale, because
-  the create route is still a URL a query string can be hand-built against, even
-  though in practice `draft` is server-generated. Section rows are applied by id:
-  any key in `draft.sections` that matches a known section on `state.sections` is
-  taken as an array of rows, each stamped `__state: "new"` the same way a manually
-  added row is — an unknown section key is silently ignored rather than refused,
-  since the source is this app's own suggestion, not a user typing arbitrary JSON.
-- **No manifest change was needed.** The `BusinessPartners/create:?query:` route
-  pattern already accepts any query key; `draft` is just one more.
-
-`externalResearchAnswer` gets the registry result as a third, optional argument
-and appends one line the chat prose is missing otherwise: "VIES confirms NAME —
-VAT number BE0…" when confirmed, "GLEIF lists NAME in CITY (not confirmed via
-VIES)" when it is not. This is the chat surfacing the same registry lookup the
-Suggested Business Partner data already carries — asked for directly ("de AI moet
-… direct alle beschikbare data opjalen en voorstellen"), so the answer text and
-the create-form suggestion are never telling the requester two different stories
-about what was found.
-
-**The chat is a coloured list of turns, not a growing block of plain text
-(2026-08-26, asked for).** `BusinessPartnerAssistant.js` used to hold one
-`TextArea` and a `transcript` string, appending `"You: "` / `"Assistant: "`
-prefixes to it — legible only by reading the prefixes out of a wall of text
-that kept growing. It is now a `sap.m.List` of `sap.m.FeedListItem`s bound to a
-`JSONModel` of `{ role, sender, text }` turns, built by a **factory** rather
-than a static template — a factory is what lets each row's *style class* (its
-colour) depend on which row it is, which a template cannot. Three roles, three
-CSS classes, all keyed off SAP's own semantic background tokens
-(`--sapInformationBackground`/`--sapSuccessBackground`/`--sapWarningBackground`
-in `css/maintenance.css`) rather than fixed hex, so the colours stay
-theme-correct without this file knowing which theme is active:
-
-- `bpChatUser` — the requester's own question.
-- `bpChatAssistant` — every assistant reply, including the transient "Looking
-  up live S/4HANA data..." placeholder, which `popMessage()` removes once the
-  real answer (or an error) is known rather than leaving it stacked above it.
-- `bpChatSystem` — the one-time intro line only. It is not a turn either side
-  spoke, so it gets its own colour rather than reading as the assistant's
-  first reply.
-
-One `pushMessage(role, sender, text)` helper is the only writer, so the screen
-and the colour can never drift from each other the way two independent code
-paths eventually would. `conversationHistory` — the narrower `{role, content}`
-list actually sent to the model as `ConversationJson`, capped to the last 10
-turns — is unchanged and stays deliberately separate from the screen's own
-record: the system intro and error text belong on screen, never in what the
-model reasons over next.
-
-### UI (`app/businesspartner`) — Fiori Elements, extended
-This is a separate npm project (own `package.json`, own `node_modules`) driven
-by `@sap/ux-ui5-tooling`/`@ui5/cli`, not by the root CAP project. It is a
-standard List Report / Object Page Fiori Elements app
-(`webapp/manifest.json`) with custom extensions layered on top rather than a
-hand-rolled UI5 app:
-- The **maintenance screen itself is not here any more** — the controller, its
-  view, `BusinessPartnerMetadata.js` and `BusinessPartnerAssistant.js` moved to
-  `app/reuse` on 2026-08-20 so the task UI can render the same screen. See "The
-  shared maintenance screen". `scripts/generate-maintenance-metadata.js` still
-  lives here but writes into the library; re-run `npm run generate:metadata`
-  (also part of `build`/`build:cf`) after changing `MAINTENANCE_ENTITIES` on the
-  service side or the maintained entities won't line up.
-- `webapp/ext/controller/ListReportExtension.controller.js` — controller
-  extension for list-report behaviour.
-- `webapp/ext/CustomActions.js` — custom toolbar actions, calling the
-  `askBusinessPartnerAssistant` and `saveBusinessPartner*` actions on the CAP
-  service.
-- `ui5.yaml` (real backend) vs `ui5-mock.yaml` (local mock data) are separate
-  UI5 tooling configs — pick the matching npm script (`start` vs
-  `start-mock`) rather than editing one to behave like the other.
+Rendered by `app/businesspartner` and `app/bptask`. It moved rather than being copied, because a second
+copy of a 2,400-line controller drifts and nobody notices until the two screens disagree. **It is
+freestyle** — a plain `sap/ui/core/mvc/Controller` over `sap.m`/`sap.uxap` — and **must not gain a
+`sap.fe` dependency**; `test/task-form.test.js` fails if it does, because the task app has no Fiori
+Elements libraries.
+
+**It is copied at build time, not deployed as a library.** `tools/sync-reuse.js` copies the folder into
+each consumer's `webapp/reuse` (gitignored, never edited) and each manifest maps
+`"resourceRoots": { "mdm.md.businesspartner.reuse": "./reuse" }`, so module names are identical in both
+apps and there is one copy in git. **A deployed UI5 library is the textbook answer and the wrong one
+here** — it is addressed by a version-stamped URL, and a stale version reference is exactly what 404'd
+the task UI. `app/reuse` is still shaped as a real library project so that can be revisited; nothing
+loads `library.js` today.
+
+- **`npm run generate:metadata` writes into the library.** Both consumers pick it up on their next build.
+- **Every build runs `sync:reuse` first** — editing `webapp/reuse` directly is pointless.
+- **The controller attaches only to routes its host declares** — the partner app routes all six, the
+  task app only approve, rework and datasteward. `onInit` skips a missing route rather than throwing.
+- `ui5 build preload` bundles `webapp/reuse/**` under the consuming app's own namespace, which is not
+  the name the runtime asks for, so shared modules load as individual files and the bundle carries
+  unused copies. Works, not free; excluding them is a worthwhile follow-up.
+
+### Highlighting what changed
+
+A changed value is **light red**, an added one **light orange**, and a collapsible three-column summary
+leads the screen. `state.trackChanges` decides whether a baseline is meaningful:
+
+- **A plain new create has none** — `_onCreateRoute` leaves it `false`.
+- **Editing a live BP** compares against the values as read from S/4 (cloned right after the read).
+- **A staged request** tracks changes everywhere **except** a create-type draft reopened by its own
+  requester: `state.trackChanges = state.requestType === "change" || mode !== "edit"`.
+- **A change-type request is judged against S/4's own current values, re-read live** —
+  `_loadChangeBaseline` → `_fetchLiveSnapshotForDiff` (reusing `_loadSection`). Staging holds the
+  *merged* result, so cloning it would compare a record against itself. Best-effort: a failed re-read
+  leaves the as-loaded snapshot (a diff one round behind), logged, never shown.
+- **A create-type request's baseline is server-persisted** in `ChangeRequests.baselineDataJson`, written
+  by `submitRequest` **only**, returned as `BaselineDataJson`. **Nothing after the first successful
+  submit ever writes this column again** — not `resubmitRequest`, not `decideDataStewardReview`, not
+  `decideRequest`'s reject branch, not `claimRework`. That is deliberate and load-bearing: a steward's
+  edits stay visible to the approver, and a requester reworking sees exactly what the steward changed.
+  A client-side snapshot cannot do this — the next screen's own load re-snapshots against itself and the
+  colouring vanishes.
+
+**Rows are matched by CONTENT, never by `record.__state`.** That flag is staged as the DB `action`
+column and **survives every reload**, so a row the original requester added still comes back `"new"` for
+the next person. `matchSectionRows(records, baselineRecords, fieldNames)` runs two passes and does not
+read it at all:
+
+1. **Exact matches consumed first** (every field equal, either direction), so an untouched row is never
+   coloured because some other row moved, and two identical rows never match one baseline row.
+2. **The rest paired off by BEST MATCH** — `sharedFieldCount` scores every remaining (current, baseline)
+   pair and the highest is assigned first, greedily. A row is a CHANGE for as long as any baseline rows
+   remain and only becomes an ADDITION once the section genuinely has more rows than the baseline.
+   Array order was worse than imprecise: two rows can each fail the exact pass without either being a
+   real edit (one genuinely changed, another merely drifted in formatting on reload), and positional
+   pairing then shuffles them against each other, reporting a change in every field nobody touched.
+
+Still not exact without a stable row key — staging has a cuid, but `getRequestPayload` strips it before
+it reaches the client. Two genuinely-edited rows scoring identically remain a coin flip. Undercounting
+additions is the safe direction: it never invents a change nobody made.
+
+**Deleted rows.** Whatever is unconsumed in `remaining` is a row somebody deleted; it rides along as
+`results.deleted`, a property on the returned array so every existing caller keeps working. There is no
+row left to colour, so the summary panel is the only place that can say so: one line per **populated**
+field (old value shown, new value `"(removed)"`, `kind: "removed"`), or one "Row removed" line for a row
+that was never filled in. **The header counts removals separately** ("3 fields changed, 1 row removed").
+`ObjectStatus`'s existing ternary needed no change — `"removed"` falls into the Error branch.
+
+- **Root fields are diffed value by value** — `fieldChangeKind(baseline, current)`: nothing when equal,
+  `"added"` when the baseline was empty, `"changed"` otherwise, **including a field that was cleared**.
+  `BusinessPartnerFullName` is excluded everywhere, root and summary alike.
+- **The colour lives on the control, not in a binding** — the root form is built imperatively, so a
+  field's background is fixed when its `VBox` wrapper is constructed. `_createForm`/`_createFieldGrid`
+  take an optional trailing `baseline`, and `_onFieldCommitted` re-renders the whole root form after
+  every commit (`change`, not `liveChange`).
+- **A CHANGED row colours only the cells that differ, not the whole row** — colouring the whole
+  `ColumnListItem` for one changed field is indistinguishable from the bug where every field was wrongly
+  reported. There is deliberately no `mdmChangedRow` class. **An ADDED row is still tinted whole**
+  (`mdmAddedRow`).
+- **The Add/Edit dialog gets a baseline too** — `_openExistingRecord` resolves the row through
+  `_rowBaseline` (the same `matchSectionRows` call `_renderSection` uses, so the two cannot disagree) and
+  `_openNewRecord` passes `{}`. `_createFieldTable` colours the field control itself, since a table cell
+  has no label wrapper. It is computed once, when the dialog opens — it does not track edits live.
+- Hosted child sections (`childSections`) render through `_renderSection` and needed no separate work.
+- **A value picked from the F4 help must be committed explicitly.** `sap.m.SelectDialog`'s `confirm` is
+  not the `Input`'s `change` event, so `_onFieldCommitted` never ran for a chosen value. `_openValueHelp`'s
+  confirm handler calls it directly after writing the value.
+- **The summary panel is a real four-column table** (`changeSummaryPanel`: Field / Previous Value /
+  New Value / Why), collapsible, `visible` bound to `changeSummary.length > 0`, with a count in the
+  header. The colour sits on the **New Value** cell via `ObjectStatus`'s `state`. `_refreshChangeSummary`
+  is the one place root and section diffs become `{field, oldValue, newValue, kind, why}` rows; a new
+  section row lists its populated fields against `"—"`.
+- **The Why column names the SOURCE of a value**, using the proposal dialog's own convention (three-word
+  reason, full sentence on hover). `state.proposalProvenance` is written by `_recordProvenance` from all
+  three of `_applyProposals`' write points (plain field, row-creating lead, and that row's key `extras`,
+  which share the row's single Why). `_provenanceFor` returns the stored reason **only while the field
+  still carries exactly the value the proposal wrote** — anything else is `"User change/input"`. Nothing
+  has to remember to clear an entry, because a further edit stops matching on its own.
+  `proposalProvenance` resets with `_emptyState()` and is **never sent anywhere** — no staging column, no
+  `DataJson` key. A removed row's lines get no Why at all.
+
+## `srv/business-partner-service.js` — everything is one file, by design
+
+`BusinessPartnerService` (extends `cds.ApplicationService`) wires handlers in `init()`, but the bulk of
+the file is pure helper functions above the class. **All of it is exported** via
+`BusinessPartnerService._internals` so `test/*.test.js` can unit-test them without a CAP server — add a
+new non-trivial helper to `_internals` and give it a test.
+
+Handler groups:
+
+- **CRUD passthrough** — `createBusinessPartner`/`updateBusinessPartner` translate to `cds.ql`
+  INSERT/UPDATE against the remote service, not a local entity.
+- **Full-screen maintenance** — `saveBusinessPartnerEntity`/`deleteBusinessPartnerEntity` are generic,
+  driven by the `MAINTENANCE_ENTITIES` config map (remote name, navigation property, create/delete
+  allowed, required fields). Adding a maintainable child entity means adding one entry, not new handler
+  code. **`Customers`/`Suppliers` are `deletable: false` here permanently** — S/4 has no DELETE verb for
+  a customer/vendor master (retirement is `DeletionIndicator`), so it rejects with 405. **Do not flip
+  this to fix a delete-button complaint**: it is unrelated code to the generated metadata's own
+  `deletable`, which only decides whether the staged maintenance screen draws a Delete button. Those two
+  are `true` (Customer/Supplier Data are deletable on screen), and that is safe because
+  `writeStagedNodes`' `!config.many` branch has no `deleted[section]` handling at all — removing the row
+  just means nothing is re-inserted, so no delete is ever forwarded anywhere.
+- **Search** — `applyBusinessPartnerSearch` rewrites Fiori's `$search` into an `or`-chain of `contains()`
+  over `SEARCHABLE_FIELDS`; the remote V2 service has no native free-text search.
+- **Business Partner Assistant** — `askBusinessPartnerAssistant` is read-only and grounded, **not** a
+  general LLM passthrough: local matching against already-fetched partners/addresses (English and Dutch
+  stop-word lists) falls through to AI Core only when insufficient. Only the bounded allowlists
+  `ASSISTANT_FIELDS`/`ASSISTANT_ADDRESS_FIELDS` are ever sent off-box — **bank and tax data must never
+  be added to them.**
+- **Approval workflow** — creating a BP also calls `startWorkflow`; best-effort, surfaced via
+  `req.info(500, …)`. `saveBusinessPartner` has most of its body commented out (only the workflow side
+  effect is active) — treat it as mid-refactor, not a template.
+
+## `srv/ai/` — SAP AI Core orchestration
+
+`business-partner-assistant.js` calls the Generative AI Hub via `@sap-ai-sdk/orchestration`, bound
+through the `extended`-plan service `mdm-businesspartner-aicore`. Model and fallbacks are set by
+`AICORE_MODEL`/`AICORE_FALLBACK_MODELS`/`AICORE_RESOURCE_GROUP` in `mta.yaml` (currently
+`anthropic--claude-4.5-haiku`, fallbacks `gemini-3.5-flash`, `gpt-5-mini`). **The primary is
+deliberately not a reasoning model** — the assistant summarises a pre-filtered context and gains
+nothing from reasoning, while `gpt-5` as primary was slower and could spend its whole budget on hidden
+reasoning. `gpt-5`/`o*` models take `max_completion_tokens` instead of `max_tokens`, and an undersized
+budget returns empty content instead of erroring (`isReasoningModel`/`modelParams` handle this — keep
+them if a reasoning model is ever promoted back).
+
+`ASSISTANT_INTENT_SOURCE: model` switches intent parsing from the regex heuristics to `srv/ai/intent.js`,
+which is what makes "maak BP X aan" reliably yield a `companyName`. The regex parser stays as the
+fallback whenever `parseIntent` returns null. `company-research.js` is a separate lookup;
+`findPotentialDuplicates` uses Dice-coefficient name similarity, not exact match.
+
+- **The Wikipedia branch has no structured data.** The REST summary API is prose, and Wikipedia is the
+  branch a well-known company always takes (tried first, wins on any non-empty summary), so
+  `suggestedAddress` was permanently `undefined` for exactly the companies most likely to have one.
+  `addressFromPublicWeb` runs the DuckDuckGo snippet search as a **supplementary** call afterwards and
+  merges the result, in its own try/catch.
+- **`CorrespondenceLanguage` is inferred from the address country** — `COUNTRY_LANGUAGE`, deliberately
+  narrow: only `NL`/`DE`/`FR`/`GB`. `BE` and `LU` are left silent on purpose (Dutch/French,
+  Luxembourgish/French/German) — a wrong guess is worse than an empty field.
+- **Registry enrichment joined the suggestion.** `registryEnrichment` calls `enrichCandidate` with the
+  requested name and no typed tax numbers (GLEIF searches by name; VIES has nothing to validate yet).
+  **A tax number is only ever proposed once VIES has confirmed it, and only for Belgium** — GLEIF's
+  `registeredAs` is a local company number and `registeredAt` a registration-authority id
+  (e.g. `RA000402`); **neither is an SAP `BPTaxType`**. A Belgian enterprise number is the base of the
+  Belgian VAT number (`BE` + 10 digits, zero-padded from 9), so `belgianEnterpriseNumber` derives the
+  candidate and `checkVatNumber('BE', …)` must answer `VALID` before `BPTaxType: 'BE0'` is proposed.
+  Any other country's GLEIF hit contributes name and address only. **Registry outranks the research**:
+  confirmed VIES, then GLEIF, then Wikipedia's title, then the plain requested name.
+- **A VAT number typed in the chat is answered directly.** `extractVatNumber` finds a VIES-recognised
+  2-letter code followed by 7–14 digits (dots/spaces/dashes tolerated) and `directVatLookup` calls VIES
+  independently of any name match — **answered whatever VIES says**, including `invalid`/`unknown`/
+  `not_applicable`, because staying silent on a number the requester explicitly gave is the failure being
+  fixed. A confirmed direct hit outranks a name-matched one. **`check.vatNumber` is always the national
+  number without the country prefix**, so build every branch off the check's own fields — building a
+  label from the raw regex match doubled the prefix (`BEBE0403200393`).
+- **The model must be TOLD about the registry results.** `registryEnrichment`/`directVatLookup` once
+  reached only `fallbackAnswer`, so the live model had an empty context and reasoned its way to "check
+  VIES yourself" — a plausible answer from a genuinely empty context, not a fallback-string bug.
+  `registryFindings` (`{registry, directVat}`) is a fourth `promptContext` field, and the system prompt
+  says plainly what it is and that the lookup already happened.
+- **A requested role gets a role row.** `detectRequestedRoles` matches `customer`/`klant`/`afnemer` →
+  `FLCU01` and `supplier`/`vendor`/`leverancier` → `FLVN01` against the free text (a plain regex, always
+  on, unlike the `ASSISTANT_INTENT_SOURCE`-gated parser); both can fire. **Only the role row is added** —
+  `cvi_account_group` fills Customers/Suppliers from `TBD001`/`TBC001` on the next Check, through the
+  proposal path every other derivation follows.
+- **`SuggestedData` is `{ root, sections }`**, the same shape a staged payload uses — a `TaxNumbers` row
+  is a child entity and no flat key list can express one. The client JSON-encodes the whole object into a
+  single `?draft=` query parameter. `_onCreateRoute` applies root fields off the explicit allowlist
+  `ROOT_DRAFT_FIELDS` and section rows by id, stamping each `__state: "new"`; an unknown section key is
+  ignored rather than refused. The `BusinessPartners/create:?query:` route already accepts any key.
+- **The chat is a coloured list of turns** — a `sap.m.List` of `FeedListItem`s over
+  `{ role, sender, text }`, built by a **factory** (a template cannot vary a row's style class). Three
+  classes keyed off SAP semantic tokens (`--sapInformationBackground`/`--sapSuccessBackground`/
+  `--sapWarningBackground`), never fixed hex: `bpChatUser`, `bpChatAssistant` (including the transient
+  "Looking up live S/4HANA data…" placeholder, which `popMessage()` removes), `bpChatSystem` (the
+  one-time intro only). `pushMessage(role, sender, text)` is the only writer. `conversationHistory` — the
+  narrower `{role, content}` list sent as `ConversationJson`, capped to the last 10 turns — stays
+  deliberately separate: the system intro and error text belong on screen, never in what the model
+  reasons over.
+
+## UI (`app/businesspartner`) — Fiori Elements, extended
+
+A separate npm project driven by `@sap/ux-ui5-tooling`/`@ui5/cli`, not by the root CAP project. A
+standard List Report / Object Page app with extensions layered on:
+
+- The **maintenance screen is not here any more** (see `app/reuse`).
+  `scripts/generate-maintenance-metadata.js` still lives here but writes into the library; re-run
+  `npm run generate:metadata` after changing `MAINTENANCE_ENTITIES`.
+- `webapp/ext/controller/ListReportExtension.controller.js` — list-report behaviour.
+- `webapp/ext/CustomActions.js` — toolbar actions calling `askBusinessPartnerAssistant` and
+  `saveBusinessPartner*`.
+- `ui5.yaml` (real backend) vs `ui5-mock.yaml` (mock data) are separate configs — pick the matching npm
+  script rather than editing one to behave like the other.
+
+## Deployment
 
 ### No approuter module — managed approuter via Work Zone
 
-**The standalone approuter was removed 2026-08-13.** The app is served by the
-**managed** approuter through SAP Build Work Zone, standard edition.
+The standalone approuter was removed. `app/businesspartner/xs-app.json` is the routing config and the
+only one: `build:cf` copies it into `dist/` so it ships to the HTML5 repo, and the managed approuter
+applies it. That is why every `/service/*` route lives there.
 
-`app/businesspartner/xs-app.json` is the routing config, and it is the only one:
-`build:cf` copies it into `dist/` so it ships to the HTML5 repo alongside the
-app, and the managed approuter applies it. That is why every `/service/*` route
-lives there and why a new CAP service path still needs an entry in that file —
-the mechanism did not change, only who reads it.
+Why: the BAS Workflow UI generator crashes on a project declaring both a standalone `approuter.nodejs`
+module and the managed-approuter markers, and SAP's guide requires Managed Approuter for the workflow UI
+template. The MTA was scaffolded for managed all along.
 
-Why it changed: the BAS Workflow UI generator (`@bas-dev/routing-config`)
-crashes on a project that declares both a standalone `approuter.nodejs` module
-and the managed-approuter markers, and SAP's own guide requires
-**Managed Approuter** for the workflow UI template. The MTA was scaffolded for
-managed all along — `deploy_mode: html5-repo`, the app-host/app-runtime
-resources, destination content carrying `sap.cloud.service`, `manifest.json`
-declaring the same service with `public: true`, and `HTML5Runtime_enabled: true`
-on the destination service. The standalone module was the outlier.
+- The dev-space mapped route is gone; access is the Work Zone site URL.
+- `mdm-businesspartner-repo-runtime` is required by no module and kept deliberately.
+- If login loops after adding the app to a site, check XSUAA `redirect-uris` in `mta.yaml` —
+  `https://*.${default-domain}/**` may not cover the Work Zone launchpad host.
 
-Consequences to know:
+### MTA (`mta.yaml`)
 
-- **The dev-space mapped route is gone.** Access is the Work Zone site URL.
-- `mdm-businesspartner-repo-runtime` is no longer required by any module. It is
-  kept deliberately — the managed runtime serves the app out of the repo.
-- If login loops or fails after adding the app to a site, check the XSUAA
-  `redirect-uris` in `mta.yaml`: `https://*.${default-domain}/**` may not cover
-  the Work Zone launchpad host, which sits on a different subdomain.
+Four modules — CAP service (`mdm-businesspartner-srv`), HTML5 app-content deployer, destination-content
+— plus resources (XSUAA, HTML5 repo host/runtime, destination service, connectivity, AI Core `extended`,
+`mdm-businesspartner-authmgmt`, and the BPA user-provided services). **The CAP module path is `gen/srv`
+(the `cds build` output), not `srv/`** — always rebuild before assuming `mbt build` picked up service
+changes.
 
-### MTA / deployment (`mta.yaml`)
-Four modules: CAP service (`mdm-businesspartner-srv`),
-HTML5 app-content deployer, destination-content, plus the resources they bind
-to (XSUAA, HTML5 apps repo host/runtime, destination service, connectivity,
-AI Core `extended`, and the existing BPA user-provided services). The CAP
-service module path is `gen/srv` (the `cds build` output), not `srv/` — always
-rebuild before assuming `mta.yaml`/`mbt build` picks up service-code changes.
+### The PostgreSQL deployer blocks on any dropped column
 
-Bump the `version` in `mta.yaml` for every deploy. Several different artifacts
-have shipped as `1.13.2`, which makes the deploy log useless for working out
-whose build is actually running.
+`mdm-businesspartner-db-deployer` runs `cds-deploy` as a one-off task, evolving the schema against the
+previously deployed model CAP stores in table `cds_model`. Any removal fails with
+`Error: Dropping elements is not supported (in entity:"…"/element:"…")`, identically on every retry
+(compile-time — the deployer never reaches the database). `--auto-undeploy` is HDI-only. While staging
+holds nothing worth keeping the fix is to wipe and redeploy; once it holds real requests, write a
+migration.
 
-### The PostgreSQL deployer will block on any dropped column
+**Diagnose a deploy failure from the MTA operation log, not the `cf deploy` console output**, which only
+says a task failed: `cf mta-ops` lists every operation on an MTA ID (including other developers'), and
+`cf dmol -i <operation-id> -d <dir>` downloads the per-module logs.
 
-`mdm-businesspartner-db-deployer` runs `cds-deploy` as a one-off task and
-evolves the schema against a copy of the previously deployed model that CAP
-stores **in the database** (table `cds_model`). CAP refuses to drop elements
-during schema evolution, so any model change that removes a column fails the
-task with:
+Before the first deploy of a subaccount, verify `postgresql-db`'s plan name — it varies by entitlement
+and `mta.yaml` requests `free`: `cf marketplace -e postgresql-db`.
 
-```
-Error: Dropping elements is not supported (in entity:"..."/element:"...")
-```
+`tools/wipe-staging.js` does the wipe (lists what it would drop, stops without `--yes`). Two BTP
+constraints it already handles: the bound role does **not** own schema `public` (so it drops objects
+individually) and `public` contains extension objects owned by someone else (filtered on
+`pg_get_userbyid(c.relowner) = current_user`).
 
-It fails identically on all retries because it is a compile-time error — the
-deployer never reaches the database. `--auto-undeploy` is HDI-only and does
-nothing here. While staging holds nothing worth keeping, the fix is to wipe and
-redeploy; once it holds real change requests, write a migration instead.
-
-Before the very first deploy of a subaccount, verify `postgresql-db`'s plan
-name — it varies by entitlement, and `mta.yaml` currently requests `free`:
-```bash
-cf marketplace -e postgresql-db
-```
-
-`tools/wipe-staging.js` does the wipe. It lists what it would drop and stops
-unless given `--yes`. Note two BTP-specific constraints it already handles: the
-bound role does **not** own schema `public` (so `DROP SCHEMA` is refused — it
-drops objects individually), and `public` also contains extension objects owned
-by someone else (so it filters on `pg_get_userbyid(c.relowner) = current_user`).
-
-The endpoint is private — nothing connects from a laptop or from BAS, and the
-BAS Database Explorer only ever lists HANA instances. Two ways in:
+The endpoint is private — nothing connects from a laptop or BAS, and the BAS Database Explorer only lists
+HANA. Two ways in:
 
 ```bash
 # in CF, where the address routes - no tunnel
@@ -4544,57 +1575,37 @@ cf unset-env mdm-businesspartner-db-deployer WIPE_JS
 cf ssh mdm-businesspartner-srv -L 15432:<hostname>:<port> -N &
 ```
 
-Pass the payload through an env var as above rather than inlining it in
-`--command`; long single-token commands get line-wrapped in transit and the
-container's bash then executes the fragments as separate commands.
+Pass the payload through an env var rather than inlining it in `--command` — long single-token commands
+get line-wrapped in transit and bash executes the fragments separately.
 
-For simply reading staged data, prefer the OData service over SQL —
-`ChangeRequests` is exposed read-only and expands to every node:
+For reading staged data, prefer OData over SQL:
+`<srv-url>/service/changerequest/ChangeRequests?$expand=general,addresses,roles,findings`
 
-```
-<srv-url>/service/changerequest/ChangeRequests?$expand=general,addresses,roles,findings
-```
-
-Note that `cds build` also materialises all 65 imported `API_BUSINESS_PARTNER`
-entity sets as physical tables and views, despite nothing ever reading them.
-They are empty noise in the schema, not state — do not "fix" bugs by looking at
-them.
+Note `cds build` also materialises all 65 imported `API_BUSINESS_PARTNER` entity sets as physical tables
+and views despite nothing reading them. Empty noise, not state — do not "fix" bugs by looking at them.
 
 ## Configuration notes
 
-- `.cdsrc.json` — checked in, sets CAP build target (`gen`) and requires
-  `xsuaa` auth in production.
-- `.cdsrc-private.json` — gitignored, holds hybrid-profile service bindings
-  (destinations, connectivity, AI Core, BPA) tied to a specific CF
-  org/space; regenerate locally with `cds bind` rather than hand-editing paths
-  from another environment.
-- Local secrets (`.env`, `default-env.json`, `credentials.json`) are
-  gitignored — never commit S/4 or BPA credentials into `mta.yaml`,
-  `.cdsrc-private.json`, or source files.
+- `.cdsrc.json` — checked in; CAP build target (`gen`), `xsuaa` auth in production.
+- `.cdsrc-private.json` — gitignored; hybrid-profile bindings tied to a specific CF org/space. Regenerate
+  with `cds bind` rather than hand-editing paths from another environment.
+- Local secrets (`.env`, `default-env.json`, `credentials.json`) are gitignored — never commit S/4 or BPA
+  credentials into `mta.yaml`, `.cdsrc-private.json`, or source.
 
 ## Working alongside the other developers
 
-Several people push to `main` in the same CF space, so a failure is often
-someone else's build rather than your code.
+Several people push to `main` in the same CF space, so a failure is often someone else's build.
 
-**Before assuming a deploy failure is a bug, check what you are deploying.** MTA
-deploys take a per-MTA-ID, per-space lock; a second `cf deploy` while one is in
-flight aborts with a conflicting-process error that reads like a broken
-deployment. If a colleague reverted something, their build and yours are
-different apps even at the same version number.
+**Check what you are deploying before assuming a bug.** MTA deploys take a per-MTA-ID, per-space lock; a
+second `cf deploy` while one is in flight aborts with a conflicting-process error that reads like a
+broken deployment. Check `cf mta-ops` for a colleague's `RUNNING` operation before deploying or retrying.
 
-**Do not revert the staging feature to unblock a deploy.** It has been reverted
-once already (`dec9278`, restored by `0a0daaa`) when the real cause was
-elsewhere, and reverting has a trap: once a commit is reverted on `main`, git
-considers it merged, so re-merging the feature branch brings back *nothing*. The
-feature only returns if the revert is itself reverted. If a deploy is blocked,
-diagnose it — the deployer failures seen so far were a corrupt lockfile and a
-dropped column, neither of which had anything to do with the feature.
+**Do not revert the staging feature to unblock a deploy.** It has been reverted once already (`dec9278`,
+restored by `0a0daaa`) when the real cause was elsewhere, and reverting has a trap: once a commit is
+reverted on `main`, git considers it merged, so re-merging the feature branch brings back *nothing* — the
+feature only returns if the revert is itself reverted.
 
-**Watch merges of long-lived branches.** The `Adding-WF` merge (`32b92c7`)
-auto-merged by concatenating both sides rather than conflicting: it produced a
-`package-lock.json` containing two complete lockfile documents (~10k lines,
-`"lockfileVersion"` twice) and a test file with two adjacent tests joined
-without the closing `});`. Both looked like unrelated bugs. After merging a
-branch that has drifted, sanity-check `package-lock.json` and run `npm test`
-before concluding anything about a deploy failure.
+**Watch merges of long-lived branches.** The `Adding-WF` merge (`32b92c7`) auto-merged by concatenating
+both sides rather than conflicting, producing a `package-lock.json` with two complete lockfile documents
+and a test file with two tests joined without the closing `});`. After merging a drifted branch,
+sanity-check `package-lock.json` and run `npm test` before concluding anything about a deploy failure.
