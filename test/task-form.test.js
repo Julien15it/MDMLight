@@ -194,18 +194,8 @@ test('the outcome labels are literal, not i18n placeholders', () => {
  * new version URL also guarantees nothing serves the old manifest from a cache.
  */
 test('the task app version is pinned, so the process keeps pointing at it', () => {
-  // Raised 1.3.0 -> 1.4.0 -> 1.5.0 (2026-08-26): the data steward task type/outcomes joined
-  // sap.bpa.task, then the Reject outcome id changed to reuse "reject" - each is a schema
-  // change the Lobby only re-reads when the task is re-pointed.
-  // Raised 1.5.0 -> 1.6.0 (2026-09-01): currentapprover/totalapprovers joined sap.bpa.task.inputs
-  // for multiple approvers - another schema change.
-  // PUT BACK to 1.5.0 (2026-09-02, `3f5bf77`, pinned here on Maarten's instruction). The manifest
-  // still DECLARES currentapprover/totalapprovers while carrying the version that predates them,
-  // so this pin now records a known drift rather than a clean contract: the Lobby only re-reads
-  // sap.bpa.task when the task is re-pointed at a NEW version, so until it is, neither input
-  // becomes task context. `_isFinalApprover` then reads both as absent - "the only approver" -
-  // and the FIRST approver of a multi-approver chain decides and posts the business partner.
-  // Raise this to 1.6.0 again together with the manifest once Arthur re-points the task.
+  // Known drift: the manifest declares currentapprover/totalapprovers but sits on the version
+  // that predates them, so neither reaches the context and the first approver posts.
   assert.equal(manifest['sap.app'].applicationVersion.version, '1.5.0');
 });
 

@@ -1047,12 +1047,10 @@ decide anything in CAP. **CAP still knows nothing about this**; `app/bptask` dec
 `decideRequest` at all. BPA maps two optional task inputs, `currentapprover` and `totalapprovers`
 (1-indexed), and `_isFinalApprover(context)` is `current >= total` — absent, or unparseable, reads as
 "the only approver". `_completeTask("approve")` skips `_decideOnServer` when not final and only completes
-the one task, which is what BPA reads to advance. **Both inputs are declared in `app/bptask`'s manifest
-but its `applicationVersion` was put back to `1.5.0` on 2026-09-02 (`3f5bf77`), the version that
-predates them** — so until the task is re-pointed at a new version the Lobby serves the old schema,
-neither input becomes context, and every approver reads as the last one: the FIRST approver decides and
-posts. `test/task-form.test.js` pins `1.5.0` and records the drift. Raise the manifest and that pin
-together once Arthur re-points. **Reject is never gated** — a chain of approvals is not
+the one task, which is what BPA reads to advance. **Both inputs are declared while
+`applicationVersion` sits at `1.5.0`, which predates them** — until the task is re-pointed the Lobby
+serves the old schema, neither input arrives, and the first approver posts. Raise the manifest and the
+pin in `test/task-form.test.js` together. **Reject is never gated** — a chain of approvals is not
 a chain of independent decisions. The shared screen's own `onApprove`/`_decide` need no gate: embedded,
 `_addInboxActions` wires the buttons straight to `_completeTask`, and standalone there is no real chain.
 
