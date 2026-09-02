@@ -373,6 +373,49 @@ test('a sanitized proposal carries a short reason and a full detail', () => {
 });
 
 // A hover that shows nothing reads as a broken tooltip, not as "nothing more to say".
+// --- fieldEditable: the same predicate a derivation is gated by (srv/checks/pipeline.js) also
+// gates a normalisation, since rewriting a value is an edit too. A role that cannot touch a field
+// must get no proposal for it - not from the model, and not from the deterministic uppercaser.
+
+test('normalisableFields drops a field fieldEditable refuses', () => {
+  const fields = normalisableFields(
+    payload({ OrganizationBPName1: 'alluvion bvba' }, { Addresses: [{ StreetName: 'kerkstraat' }] }),
+    null,
+    (target) => target !== 'Addresses'
+  );
+  assert.deepEqual(fields.map((entry) => entry.field), ['OrganizationBPName1']);
+});
+
+test('deterministicProposals drops a code field fieldEditable refuses', () => {
+  const proposals = deterministicProposals(
+    payload({}, { Addresses: [{ Country: 'be' }] }),
+    () => false
+  );
+  assert.deepEqual(proposals, []);
+});
+
+test('proposeNormalisations offers nothing for a role every field is locked for', async () => {
+  const proposals = await proposeNormalisations({
+    payload: payload({ OrganizationBPName1: 'alluvion bvba' }, { Addresses: [{ Country: 'be' }] }),
+    env,
+    fieldEditable: () => false,
+    Client: fakeClient(JSON.stringify({
+      proposals: [{ target: 'root', index: 0, field: 'OrganizationBPName1', proposed: 'Alluvion BVBA', reason: 'legal form' }]
+    }))
+  });
+  assert.deepEqual(proposals, [], 'neither the deterministic uppercaser nor the model call had anything to offer');
+});
+
+test('proposeNormalisations still proposes for the fields fieldEditable allows', async () => {
+  const proposals = await proposeNormalisations({
+    payload: payload({ OrganizationBPName1: 'alluvion bvba' }, { Addresses: [{ Country: 'be' }] }),
+    env,
+    fieldEditable: (target) => target === 'Addresses',
+    Client: fakeClient(JSON.stringify({ proposals: [] }))
+  });
+  assert.deepEqual(proposals.map((entry) => entry.field), ['Country']);
+});
+
 test('a proposal with no detail still gets a sentence to hover', () => {
   const fields = normalisableFields(payload({ OrganizationBPName1: 'acme' }));
   const [proposal] = sanitizeProposals({

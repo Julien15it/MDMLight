@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 
 const { createRegistryStages } = require('../srv/checks/registry-checks');
 const { runChecks } = require('../srv/checks/pipeline');
+const { proposeNormalisations } = require('../srv/checks/normalise');
 const fieldPropertyStore = require('../srv/checks/field-property-store');
 const { fieldState } = require('../srv/checks/field-properties');
 
@@ -19,6 +20,12 @@ const { fieldState } = require('../srv/checks/field-properties');
  * calls runRequestChecks at all) - but Check/Duplicate Check are still offered on the approve screen,
  * and rely on an Approver-scoped profile marking the relevant entities hidden or read-only for THIS
  * second layer to suppress proposals. Without such a profile, fieldEditable defaults to true.
+ *
+ * Normalisations (AI Core reformatting proposals, srv/checks/normalise.js) were the gap: `runChecks`
+ * never threaded `fieldEditable` into `propose`, so an Approver could still get a "reformat this"
+ * proposal for a field the profile hid or froze, even once derivations were correctly suppressed.
+ * `runRequestChecks` now builds `propose` with `fieldEditable` too (same predicate) - see the last
+ * two tests below, which reproduce that exact wiring.
  */
 
 const payload = (root = {}, sections = {}) => ({ root, sections });
@@ -85,4 +92,43 @@ test('a profile scoped to a different role does not suppress the derivation', as
   );
 
   assert.ok(result.derivations.some((entry) => entry.target === 'Addresses' && entry.field === 'StreetName'));
+});
+
+// The `propose` closure below is the exact shape `runRequestChecks` builds - see
+// srv/change-request-service.js: `propose: async (derived) => proposeNormalisations({ payload:
+// derived, scope, aiEnabled, fieldEditable })`. `aiEnabled: false` keeps this to the deterministic
+// uppercase-code proposal, so no AI Core call is needed to prove the gating.
+
+test('a normalisation proposal fires for a role no profile restricts', async () => {
+  const fieldEditable = await fieldEditableFor('Requester', { profiles: [], settings: [] });
+
+  const result = await runChecks(
+    payload({}, { Addresses: [{ Country: 'be' }] }),
+    {
+      checkDuplicates: async () => [],
+      propose: async (derived) => proposeNormalisations({ payload: derived, aiEnabled: false, fieldEditable })
+    }
+  );
+
+  assert.deepEqual(result.normalisations, [{
+    target: 'Addresses', index: 0, field: 'Country',
+    current: 'be', proposed: 'BE', reason: 'Uppercase code',
+    detail: 'Country is a code and is stored in capitals, so “be” is proposed as “BE”.'
+  }]);
+});
+
+test('an Approver profile hiding Addresses suppresses the normalisation proposal too', async () => {
+  const profiles = [{ ID: 'p1', requestType: '*', role: 'Approver', isActive: true }];
+  const settings = [{ profile_ID: 'p1', section: 'Addresses', element: null, property: 'hidden' }];
+  const fieldEditable = await fieldEditableFor('Approver', { profiles, settings });
+
+  const result = await runChecks(
+    payload({}, { Addresses: [{ Country: 'be' }] }),
+    {
+      checkDuplicates: async () => [],
+      propose: async (derived) => proposeNormalisations({ payload: derived, aiEnabled: false, fieldEditable })
+    }
+  );
+
+  assert.deepEqual(result.normalisations, [], 'nothing is proposed for a field the role cannot see');
 });

@@ -114,12 +114,16 @@ function normaliseConfig(modelName, maxTokens) {
 }
 
 // Only populated fields — an empty one has nothing to reformat. `scope` narrows to one target, so a
-// a scoped call asks about one section rather than the whole record.
-function normalisableFields(payload = {}, scope = null) {
+// a scoped call asks about one section rather than the whole record. `fieldEditable` is the same
+// predicate the derivations are gated by (see srv/checks/pipeline.js): a normalisation rewrites a
+// value exactly like a derivation fills one, so a field the caller's role cannot touch is dropped
+// here too — not offered to the model, and so not proposable even if the model invented it anyway.
+function normalisableFields(payload = {}, scope = null, fieldEditable = () => true) {
   const inScope = (target) => !scope || scope === target;
   const fields = [];
   if (inScope('root')) {
     for (const field of NORMALISABLE.root) {
+      if (!fieldEditable('root', field)) continue;
       const value = payload.root?.[field];
       if (typeof value === 'string' && value.trim()) {
         fields.push({ target: 'root', index: 0, field, current: value });
@@ -132,6 +136,7 @@ function normalisableFields(payload = {}, scope = null) {
     if (!Array.isArray(rows)) continue;
     rows.forEach((row, index) => {
       for (const field of names) {
+        if (!fieldEditable(section, field)) continue;
         const value = row?.[field];
         if (typeof value === 'string' && value.trim()) {
           fields.push({ target: section, index, field, current: value });
@@ -246,13 +251,14 @@ function sanitizeProposals(raw, fields) {
 }
 
 /** Code fields uppercased. Same proposal shape as the model's, so the accept dialog is shared. */
-function deterministicProposals(payload = {}) {
+function deterministicProposals(payload = {}, fieldEditable = () => true) {
   const proposals = [];
   for (const [section, names] of Object.entries(UPPERCASE_CODES)) {
     const rows = payload.sections?.[section];
     if (!Array.isArray(rows)) continue;
     rows.forEach((row, index) => {
       for (const field of names) {
+        if (!fieldEditable(section, field)) continue;
         const current = row?.[field];
         if (typeof current !== 'string' || !current.trim()) continue;
         const proposed = current.trim().toLocaleUpperCase('en-US');
@@ -283,12 +289,12 @@ function mergeProposals(deterministic, modelled) {
 
 /** Falls back to the deterministic proposals alone whenever the model cannot be reached or trusted. */
 async function proposeNormalisations({
-  payload, scope = null, aiEnabled = true, env = process.env, Client
+  payload, scope = null, aiEnabled = true, env = process.env, Client, fieldEditable = () => true
 } = {}) {
   // Scoped too, or a root-scoped call would report Country casing from a section nobody touched.
-  const deterministic = deterministicProposals(payload)
+  const deterministic = deterministicProposals(payload, fieldEditable)
     .filter((proposal) => !scope || proposal.target === scope);
-  const fields = normalisableFields(payload, scope);
+  const fields = normalisableFields(payload, scope, fieldEditable);
   if (!fields.length || !aiEnabled || !hasAiCoreBinding(env)) return deterministic;
 
   try {

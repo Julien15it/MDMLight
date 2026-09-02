@@ -834,7 +834,10 @@ class ChangeRequestService extends cds.ApplicationService {
             ? async (derived) => proposeNormalisations({
               payload: derived,
               scope: scope || null,
-              aiEnabled: await aiAssistanceEnabled()
+              aiEnabled: await aiAssistanceEnabled(),
+              // Same predicate as the derivations above: a normalisation rewrites a value too, so a
+              // field the caller's role cannot touch (hidden or read-only) gets no proposal either.
+              fieldEditable
             })
             : undefined,
           // Only where a human is looking, only for the whole record, and only on the DATA STEWARD
