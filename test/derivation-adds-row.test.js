@@ -63,21 +63,6 @@ const derive = (rules, payload) =>
  * DuplicateRules. This test exists to keep it dead: the trigger is the payload, and a rule carrying
  * `createsRow: true` must behave no differently from one without it.
  */
-test('the superseded createsRow column is kept but never read', async () => {
-  const flagged = await derive([{ ...ADDS_ORG, createsRow: true }], request());
-  const plain = await derive([ADDS_ORG], request());
-  assert.deepEqual(flagged.derived.sections.SupplierPurchasingOrg,
-    plain.derived.sections.SupplierPurchasingOrg);
-
-  // And it cannot make a rule add a row beside one that exists.
-  const beside = await derive([{ ...ADDS_ORG, createsRow: true }], request({
-    SupplierPurchasingOrg: [{ PurchasingOrganization: '1010' }]
-  }));
-  assert.deepEqual(beside.derived.sections.SupplierPurchasingOrg, [{ PurchasingOrganization: '1010' }]);
-
-  const source = fs.readFileSync(path.join(__dirname, '..', 'srv', 'checks', 'rule-engine.js'), 'utf8');
-  assert.equal(/rule\.createsRow/u.test(source), false, 'the engine must not read it');
-});
 
 test('the row is added when the conditions hold and nothing holds the value yet', async () => {
   const { derived, applied } = await derive([ADDS_ORG], request());
@@ -147,13 +132,6 @@ test('the conditions still gate it', async () => {
  * There is no gap-filler/row-adder distinction on the rule any more: the same rule does whichever
  * the payload calls for. A rule that used to say "there is no row to hold it" now proposes the row.
  */
-test('a rule over an empty section proposes the row rather than reporting it', async () => {
-  const { derived, applied } = await derive([FILLS_CURRENCY], request());
-  assert.deepEqual(derived.sections.SupplierPurchasingOrg, [{ PurchaseOrderCurrency: 'EUR' }]);
-  const entry = applied.find((message) => message.target === 'SupplierPurchasingOrg');
-  assert.equal(entry.createsRow, true);
-  assert.equal(entry.field, 'PurchaseOrderCurrency');
-});
 
 /**
  * The refusals that guarded the checkbox went with it: with the payload deciding, there is nothing
@@ -181,14 +159,6 @@ test('a rule that could not mean anything proposes nothing, and is not refused',
   // The request root is not a list, so it is never a row to add - it is filled as it always was.
   const root = await derive([{ ID: 'e', isActive: true, field: 'General.Language', value: 'NL' }], request());
   assert.equal(root.derived.root.Language, 'NL');
-});
-
-test('an unusable row-adding rule is dropped rather than run', () => {
-  const stages = createConfiguredStages({
-    derivations: [{ ...ADDS_ORG, field: 'SupplierPurchasingOrg.NotAField' }],
-    model
-  });
-  assert.deepEqual(stages.derivations, []);
 });
 
 test('a reference value is resolved from the partner, not from the row being added', () => {

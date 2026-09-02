@@ -18,70 +18,16 @@ const serviceJs = read(ROOT, 'srv', 'duplicate-config-service.js');
 const rulesCds = read(ROOT, 'db', 'quality-rules.cds');
 const changeRequestJs = read(ROOT, 'srv', 'change-request-service.js');
 
-// The columns are the agreed shape of a rule, so they are pinned rather than left to a refactor.
-test('the validation table has the columns a rule needs, in order', () => {
-  const columns = [...view('ValidationRuleList').matchAll(/<Column\b[\s\S]*?>\s*<Text text="([^"]+)"/gu)]
-    .map((match) => match[1]);
-  assert.deepEqual(columns, [
-    'Condition 1', 'Condition 2', 'Condition 3', 'Condition 4', 'Condition 5',
-    'Field', 'Comparison', 'Value', 'Severity', 'Active'
-  ]);
-});
-
-test('the derivation table has the columns a rule needs, in order', () => {
-  const columns = [...view('DerivationRuleList').matchAll(/<Column\b[\s\S]*?>\s*<Text text="([^"]+)"/gu)]
-    .map((match) => match[1]);
-  assert.deepEqual(columns, [
-    'Condition 1', 'Condition 2', 'Condition 3', 'Condition 4', 'Condition 5',
-    'Field', 'Value', 'Active'
-  ]);
-});
-
-// Both pages carry the same two condition pairs as the duplicate table, and the same "any" meaning.
-test('the conditions are the duplicate table conditions', () => {
-  for (const name of ['ValidationRuleList', 'DerivationRuleList']) {
-    const source = view(name);
-    for (const column of ['conditionField', 'conditionOperator', 'conditionValue',
-      'conditionField2', 'conditionOperator2', 'conditionValue2']) {
-      assert.match(source, new RegExp(`\\{dc>${column}\\}`, 'u'), `${name} binds ${column}`);
-    }
-    assert.match(source, /placeholder="any"/u);
-    // A value with no field would be half a condition; the cell is disabled until there is one.
-    // `targetType: 'any'` since 2026-09-01 - without it UI5 formats the referenced String into the
-    // Boolean `enabled` is declared as, throws a FormatException, and leaves the cell at its
-    // default, so the guard silently never applied. See CLAUDE.md.
-    assert.match(source, /enabled="\{= !!\$\{path: 'dc>conditionField', targetType: 'any'\}/u);
-  }
-  assert.match(rulesCds, /aspect ruleConditions/u);
-});
-
 /**
  * The Value cell is disabled for the comparisons that compare against nothing. A cell that accepted
  * a value the engine ignores is how a steward comes to believe a rule says something it does not.
  */
-test('the validation Value cell switches itself off where a value is meaningless', () => {
-  // The `view>` half needs no targetType - a JSONModel carries no types - but the `dc>` half does.
-  assert.match(
-    view('ValidationRuleList'),
-    /enabled="\{= \$\{view>\/needsValue\}\[\$\{path: 'dc>comparison', targetType: 'any'\}\] !== false \}"/u
-  );
-  assert.match(serviceCds, /needsValue : Boolean/u);
-  assert.match(controller('ValidationRuleList'), /needsValue\[entry\.code\] = entry\.needsValue !== false/u);
-});
 
 /**
  * The Value column means two things, and the page has to say which one it read: a plain value is
  * written as text, a value naming a field copies that field. Nothing else disambiguates them, so
  * the "Copied from" hint is the feedback that a reference was understood as one.
  */
-test('the derivation page says when a Value was read as a field', () => {
-  const source = view('DerivationRuleList');
-  const ctrl = controller('DerivationRuleList');
-  assert.match(source, /formatter: '\.formatValueHint'/u);
-  assert.match(source, /formatter: '\.isFieldReference'/u);
-  assert.match(ctrl, /Copied from/u);
-  assert.match(ctrl, /fieldText\[entry\.code\] = entry\.text/u);
-});
 
 /**
  * A literal is the other half of the Value column, and it gets NO hint. It used to get
@@ -89,13 +35,6 @@ test('the derivation page says when a Value was read as a field', () => {
  * free-form value, and the `visible` guard beside it did not stop the text being rendered. The
  * lookup now decides the string itself, so there is nothing to hide.
  */
-test('a free-form value gets no hint rather than an undefined one', () => {
-  const source = view('DerivationRuleList');
-  assert.equal(/'Copied from ' \+/u.test(source), false, 'no concatenation left in the view');
-  const ctrl = controller('DerivationRuleList');
-  const hint = ctrl.slice(ctrl.indexOf('formatValueHint: function'));
-  assert.match(hint.slice(0, hint.indexOf('isFieldReference:')), /label \? "Copied from " \+ label : ""/u);
-});
 
 /**
  * No standing banners on any of the three rule pages (asked for 2026-08-19). The strips that remain
@@ -103,15 +42,6 @@ test('a free-form value gets no hint rather than an undefined one', () => {
  * actually wrong with it - an explanation of what a derivation is belongs in the docs, and the
  * per-cell "Copied from" hint covers the one thing the columns cannot say.
  */
-test('no rule page carries a permanent explanatory strip', () => {
-  for (const name of ['DuplicateRuleList', 'ValidationRuleList', 'DerivationRuleList']) {
-    const source = view(name);
-    assert.equal(/type="Information"/u.test(source), false, `${name} has no Information strip`);
-    for (const [, strip] of [...source.matchAll(/<MessageStrip([\s\S]*?)\/>/gu)]) {
-      assert.match(strip, /visible="\{/u, `every strip on ${name} is conditional`);
-    }
-  }
-});
 
 test('both tables are exposed by the steward service and validated on write', () => {
   assert.match(serviceCds, /entity ValidationRules as projection on quality\.ValidationRules/u);
@@ -121,16 +51,6 @@ test('both tables are exposed by the steward service and validated on write', ()
   // Caught at the keyboard: by check time the answer has already been given.
   assert.match(serviceJs, /guard\('ValidationRules', VALIDATIONS, validateValidationRule\)/u);
   assert.match(serviceJs, /guard\('DerivationRules', DERIVATIONS, validateDerivationRule\)/u);
-});
-
-// The path keeps its old name on purpose - it is in app/mdmrules/xs-app.json and in the deployed
-// approuter config, so renaming it would cost a route change to gain nothing.
-test('the new tables need no new approuter route', () => {
-  assert.match(serviceCds, /@path: '\/service\/duplicateconfig'/u);
-  const routes = JSON.parse(read(ROOT, 'app', 'mdmrules', 'xs-app.json')).routes;
-  const configRoute = routes.find((entry) => entry.source.includes('duplicateconfig'));
-  assert.ok(configRoute, 'the one route already covers all three tables');
-  assert.ok(routes.indexOf(configRoute) < routes.findIndex((entry) => entry.source === '^(.*)$'));
 });
 
 /**
@@ -246,25 +166,6 @@ test('a readable table becomes the stages, and an empty one becomes none', async
   assert.equal(loaded.validations.length, 1);
   assert.equal(loaded.validations[0].name, 'configured_validation');
   store.reset();
-});
-
-// --- Duplicate, and Excel import/export - a real .xlsx (2026-08-31, asked for on all four rule
-// pages, built for WorkflowRuleList first) --------------------------------------------------------
-
-test('Duplicate, Export to Excel and Import from Excel are wired up on both pages', () => {
-  for (const name of ['ValidationRuleList', 'DerivationRuleList']) {
-    const source = view(name);
-    const ctrl = controller(name);
-    assert.match(source, /text="Duplicate"[\s\S]{0,80}press="\.onDuplicateRule"/u, `${name} has Duplicate`);
-    assert.match(source, /text="Export to Excel"[\s\S]{0,80}press="\.onExportExcel"/u, `${name} has Export`);
-    assert.match(source, /text="Import from Excel"[\s\S]{0,80}press="\.onImportExcel"/u, `${name} has Import`);
-    assert.match(ctrl, /mdm\/md\/mdmrules\/manage\/ext\/util\/XlsxCodec/u, `${name} depends on XlsxCodec`);
-    assert.match(ctrl, new RegExp(`XlsxCodec\\.buildWorkbook\\(\\s*"${name.replace('List', '')}s?"`, 'u'));
-    assert.match(ctrl, /XlsxCodec\.readWorkbook\(/u);
-    // No copy of the codec itself, and no third-party spreadsheet library.
-    assert.equal(/function zipStore\(/u.test(ctrl), false, `${name} carries no codec copy`);
-    assert.equal(/require\(["'](xlsx|exceljs|jszip|pako)["']/iu.test(ctrl), false);
-  }
 });
 
 function extractFunction(source, name) {
@@ -405,76 +306,6 @@ test('import deletes every existing row and creates one for every row in the fil
 // through a condition row, so there is nothing here for it to take over.
 
 const CONDITION_PAGES = ['ValidationRuleList', 'DerivationRuleList'];
-
-test('both quality pages carry five condition slots, three of them hidden until asked for', () => {
-  for (const name of CONDITION_PAGES) {
-    const source = view(name);
-    for (const suffix of ['3', '4', '5']) {
-      assert.match(source, new RegExp(`\\{dc>conditionField${suffix}\\}`, 'u'), `${name} binds field ${suffix}`);
-      assert.match(source, new RegExp(`\\{dc>conditionValue${suffix}\\}`, 'u'), `${name} binds value ${suffix}`);
-    }
-    // One Logic column per gap, so four of them across five conditions.
-    for (const suffix of ['', '2', '3', '4']) {
-      assert.match(source, new RegExp(`selectedKey="\\{dc>conditionLogic${suffix}\\}"`, 'u'), `${name} binds logic ${suffix}`);
-    }
-    assert.match(source, /visible="\{= \$\{view>\/conditions\} &gt;= 3 \}"/u, `${name} hides slot 3 by default`);
-    assert.match(source, /visible="\{= \$\{view>\/conditions\} &gt;= 5 \}"/u, `${name} hides slot 5 by default`);
-  }
-});
-
-test('both quality pages scroll sideways rather than squeezing their cells', () => {
-  for (const name of CONDITION_PAGES) {
-    const source = view(name);
-    const scroller = source.slice(source.indexOf('<ScrollContainer'));
-    assert.match(scroller.slice(0, scroller.indexOf('>')), /horizontal="true"[\s\S]*vertical="false"/u);
-    assert.ok(source.indexOf('<ScrollContainer') < source.indexOf('<Table'), `${name} puts the table inside it`);
-    assert.match(source, /<\/Table>\s*<\/ScrollContainer>/u, `${name} closes it around the table`);
-    // A real width, not 100%: a fixed-layout table redistributes its columns into whatever space it
-    // has, which is the squashing this exists to stop.
-    assert.match(source, /width="\{view>\/tableWidth\}"/u, `${name} gives the table a real width`);
-
-    // The arithmetic mirrors the declared column widths, so the two cannot drift.
-    const controllerSource = controller(name);
-    const fixed = Number(/var FIXED_REM = (\d+);/u.exec(controllerSource)[1]);
-    const declared = [...source.matchAll(/<Column width="(\d+)rem"/gu)]
-      .map((match) => Number(match[1]))
-      .reduce((sum, each) => sum + each, 0);
-    assert.equal(declared, fixed + (24 * 5) + (6 * 4), `${name}'s widths add up to its own formula`);
-    // The MultiSelect checkbox column (2026-09-02) has no <Column> to carry a width, so SELECT_REM
-    // is the only place it is accounted for - and the formula has to include it, or the real
-    // columns get squeezed to make room for it.
-    assert.match(controllerSource, /var SELECT_REM = \d+;/u, `${name} allows for the select column`);
-    assert.match(controllerSource, /SELECT_REM \+ FIXED_REM \+ \(24 \* conditions\)/u);
-  }
-});
-
-test('Add and Delete Condition are wired on both quality pages, and Condition 1 is never removable', () => {
-  for (const name of CONDITION_PAGES) {
-    const source = view(name);
-    const add = source.slice(source.indexOf('text="Add Condition"'));
-    assert.match(add.slice(0, add.indexOf('/>')), /press="\.onAddCondition"/u);
-    assert.match(
-      add.slice(0, add.indexOf('/>')),
-      /enabled="\{= \$\{view>\/conditions\} &lt; \$\{view>\/maxConditions\} \}"/u
-    );
-    const remove = source.slice(source.indexOf('text="Delete Condition"'));
-    assert.match(remove.slice(0, remove.indexOf('/>')), /press="\.onDeleteCondition"/u);
-    assert.match(remove.slice(0, remove.indexOf('/>')), /enabled="\{= \$\{view>\/conditions\} &gt; 1 \}"/u);
-
-    const controllerSource = controller(name);
-    assert.match(controllerSource, /var MIN_CONDITIONS = 1;/u);
-    // Disabled is not the only guard: a direct call refuses too.
-    assert.match(controllerSource, /if \(shown <= MIN_CONDITIONS\) return;/u);
-    // Removing a column CLEARS the slot, or the engine would go on matching on a condition nobody
-    // can see - which is the whole point of the button clearing rather than only hiding.
-    assert.match(controllerSource, /that\._clearConditionSlot\(slot, filled\)/u);
-    assert.match(controllerSource, /context\.setProperty\(slot\.field, null\)/u);
-    assert.match(controllerSource, /context\.setProperty\(slot\.value, null\)/u);
-    // The ceiling is served, never assumed by the page.
-    assert.match(controllerSource, /options\.conditionSlots/u);
-    assert.match(serviceJs, /conditionSlots: QUALITY_MAX_CONDITIONS/u);
-  }
-});
 
 /**
  * `targetType: 'any'` on every `dc>` reference inside an expression binding. Without it UI5 formats

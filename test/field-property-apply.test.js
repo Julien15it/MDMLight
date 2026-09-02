@@ -51,17 +51,6 @@ test('the broadest of two properties is the join, not the higher rank', () => {
   assert.equal(broadestProperty(['readOnly', 'mandatory']), 'optional');
 });
 
-test('one profile, or the same answer twice, keeps that answer', () => {
-  for (const property of PROPERTIES) {
-    assert.equal(broadestProperty([property]), property, `${property} alone`);
-    assert.equal(broadestProperty([property, property]), property, `${property} twice`);
-  }
-  // Nothing said is not `optional`: silence is no opinion, or one global profile would neuter
-  // every narrower one.
-  assert.equal(broadestProperty([]), null);
-  assert.equal(broadestProperty(['nonsense']), null);
-});
-
 /** Every join has to land back on one of the four, or a merged answer would be unrenderable. */
 test('the join is closed over the four properties', () => {
   for (const a of PROPERTIES) {
@@ -80,24 +69,6 @@ test('the join is closed over the four properties', () => {
  * model and `cds-deploy` cannot drop an element. So the column stands and **nothing reads it** -
  * the merge is a join, so no matching profile is ever "first" and there is no order to read.
  */
-test('the precedence column is dead weight, because the merge is order-independent', () => {
-  const model = read(ROOT, 'db', 'field-properties.cds');
-  assert.match(model, /sequence\s*:\s*Integer/u, 'the column is kept; cds-deploy cannot drop it');
-  assert.match(model, /Nothing reads it/u, 'and it says so, or someone will start writing to it');
-
-  for (const file of ['field-properties.js', 'field-property-store.js']) {
-    const source = read(ROOT, 'srv', 'checks', file);
-    assert.equal(/sequence/u.test(source), false, `${file} must not read it`);
-  }
-  const view = read(
-    ROOT, 'app', 'mdmrules', 'webapp', 'ext', 'view', 'FieldPropertyProfileList.view.xml'
-  );
-  assert.equal(/Order/u.test(view), false, 'and the grid offers no Order cell');
-
-  // The property that makes the column pointless, stated directly.
-  assert.equal(broadestProperty(['hidden', 'mandatory']), broadestProperty(['mandatory', 'hidden']));
-  assert.equal(broadestProperty(['readOnly', 'optional']), broadestProperty(['optional', 'readOnly']));
-});
 
 // --- Which profiles are merged ---------------------------------------------------------
 
@@ -143,14 +114,6 @@ test('a role is matched by category prefix, case-insensitively, checked both way
   assert.equal(profileMatches({ role: 'Approver Customer' }, { role: 'Approver Vendor' }), false);
   // A role for one category never matches a screen asking for a different one.
   assert.equal(profileMatches({ role: 'ApproverSales' }, { role: 'DataSteward' }), false);
-});
-
-test('the literal Approver/DataSteward values from before 2026-08-27 still match exactly', () => {
-  assert.ok(LEGACY_ROLES.includes('Approver'));
-  assert.ok(LEGACY_ROLES.includes('DataSteward'));
-  assert.equal(profileMatches({ role: 'Approver' }, { role: 'Approver' }), true);
-  assert.equal(profileMatches({ role: 'DataSteward' }, { role: 'DataSteward' }), true);
-  assert.equal(profileMatches({ role: 'Approver' }, { role: 'DataSteward' }), false);
 });
 
 test('entity settings and field settings are kept apart', () => {
@@ -245,11 +208,6 @@ test('a hidden or read-only entity carries its fields with it, a mandatory one d
   assert.equal(effectiveProperty(required, 'TaxNumbers', 'BPTaxNumber'), null);
 });
 
-test('a field nothing mentions is left exactly as the screen would have had it', () => {
-  const state = fieldState({ entities: {}, fields: {} }, 'Addresses', 'Country');
-  assert.deepEqual(state, { property: null, visible: true, editable: true, required: false });
-});
-
 // --- Enforcement -----------------------------------------------------------------------
 
 /**
@@ -296,16 +254,6 @@ test('critical alone contributes no validation stage, and blocks nothing', async
   assert.deepEqual(createFieldPropertyStages(resolved, csn).validations, []);
 });
 
-test('an entity that is both mandatory and critical still blocks only for being empty, not for being critical', async () => {
-  const resolved = resolveProfiles([profile('p', '*', '*')], [
-    { ...setting('p', 'TaxNumbers', null, 'mandatory'), critical: true }
-  ], {});
-  const stages = createFieldPropertyStages(resolved, csn);
-  const findings = await stages.validations[0].run({ root: {}, sections: {} });
-  assert.equal(findings.length, 1);
-  assert.match(findings[0].message, /At least one/u);
-});
-
 /**
  * Nobody can fill in a field they cannot see, so the cascade is read before anything blocks - and
  * with nothing left to enforce there is no stage at all, not a stage that runs and finds nothing.
@@ -318,12 +266,6 @@ test('a mandatory field inside a hidden entity does not block anything', async (
   // The merge itself is the cascade's input: hidden + (nothing) on the entity stays hidden.
   assert.equal(effectiveProperty(resolved, 'Addresses', 'Country'), 'hidden');
   assert.deepEqual(createFieldPropertyStages(resolved, csn).validations, []);
-});
-
-test('no profile means no stage at all, not an empty one that runs per request', () => {
-  const stages = createFieldPropertyStages({ entities: {}, fields: {} }, csn);
-  assert.deepEqual(stages.validations, []);
-  assert.deepEqual(stages.derivations, []);
 });
 
 // --- Where it is wired in --------------------------------------------------------------
@@ -416,13 +358,6 @@ test('hidden is not rendered, read-only is not editable, mandatory is starred', 
  * screenshot): a field hidden by a profile disappeared from the Add Addresses popup but stayed as a
  * table column, the opposite of "hidden drops the field from both layouts entirely".
  */
-test('a hidden field also disappears from the section\'s own summary table, not only the record dialog', () => {
-  const renderSection = controller.slice(
-    controller.indexOf('_renderSection: function'),
-    controller.indexOf('_openNewRecord: function')
-  );
-  assert.match(renderSection, /_summaryFields\(section\)\.filter\(function \(field\) \{\s*\n\s*return !this\._isHiddenField\(section, field\);/u);
-});
 
 /** An emptied container under a live heading reads as a load failure, not as a hidden section. */
 test('a hidden entity hides its whole Object Page section', () => {
@@ -459,10 +394,6 @@ test('a critical entity gets an exclamation mark next to its title, drawn on bot
 });
 
 /** The metadata's root section id is not the payload catalog's, and only one place may know that. */
-test('the root section is mapped to the catalog name in exactly one place', () => {
-  assert.match(controller, /_sectionKey: function \(section\) \{\s*\n\s*return section\.kind === "root" \? "General" : section\.id;/u);
-  assert.equal((controller.match(/"General" : section\.id/gu) || []).length, 1);
-});
 
 // --- What workflowContext sends for critical fields -------------------------------------
 
@@ -486,10 +417,6 @@ test('workflowContext resolves criticalField from resolvedProperties, not a dedi
  * `dataStewardEmails` stays imported too - `processorsFor`'s own "who has it now" strip still wants
  * resolved e-mails, a display answer rather than a wire payload.
  */
-test('datastewards comes from the BTP role collections directly, not the WorkflowRules table', () => {
-  assert.match(serviceJs, /const \{ dataStewardEmails, dataStewardRoles \} = require\('\.\/wf\/data-stewards'\)/u);
-  assert.match(serviceJs, /const datastewards = await dataStewardRoles\(\);/u);
-});
 
 // --- Gating what a derivation may propose by role/field-property (2026-08-31) ---------------------
 

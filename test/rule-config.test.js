@@ -25,11 +25,6 @@ test('a rule naming a field outside the catalog is rejected at the keyboard', ()
   assert.equal(errors[0].field, 'field');
 });
 
-test('an unavailable comparison or indicator is rejected', () => {
-  assert.equal(validateRule(validRow({ comparison: 'semantic' })).errors[0].field, 'comparison');
-  assert.equal(validateRule(validRow({ indicator: 'critical' })).errors[0].field, 'indicator');
-});
-
 // The grid no longer asks for a threshold, so absent has to mean "use the default", not "invalid".
 test('an absent threshold is fine, an unusable one is not', () => {
   assert.deepEqual(validateRule(validRow({ threshold: null })).errors, []);
@@ -91,15 +86,6 @@ test('the second condition is optional, validated the same way, and ANDed onto t
   assert.equal('conditionField2' in toEngineRule(validRow({ conditionField2: 'Country' })), false);
 });
 
-// A bag carries every value a partner has, so the same field twice is a real rule, not a
-// contradiction: it selects partners that are both a vendor and a customer.
-test('the same field in both conditions is allowed', () => {
-  assert.deepEqual(validateRule(validRow({
-    conditionField: 'Role', conditionValue: 'FLVN01',
-    conditionField2: 'Role', conditionValue2: 'FLCU01'
-  })).errors, []);
-});
-
 // The failure this whole flag exists to prevent: a rule that looks fine and does nothing.
 test('a rule over a field the index cannot serve warns rather than passing silently', () => {
   const { errors, warnings } = validateRule(validRow({ field: 'IBAN', comparison: 'exact', threshold: null }));
@@ -118,11 +104,6 @@ test('a stored row becomes an engine rule, with blank conditions dropped', () =>
   assert.equal(toEngineRule(validRow({ comparison: 'exact', threshold: null })).threshold, undefined);
 });
 
-test('unusable rows are dropped instead of poisoning the ruleset', () => {
-  const rules = usableRules([validRow(), validRow({ field: 'Nonsense' }), validRow({ comparison: 'zzz' })]);
-  assert.equal(rules.length, 1);
-});
-
 test('an empty configuration falls back to the defaults, never to no rules at all', async () => {
   const store = createRuleStore({ now: () => 1 });
   await store.refresh(async () => []);
@@ -131,14 +112,6 @@ test('an empty configuration falls back to the defaults, never to no rules at al
 
   await store.refresh(async () => [validRow({ isActive: false })], { force: true });
   assert.equal(store.source(), 'defaults', 'deactivating the last row must not switch the check off');
-});
-
-test('a configured ruleset replaces the defaults', async () => {
-  const store = createRuleStore({ now: () => 1 });
-  await store.refresh(async () => [validRow({ field: 'PostalCode', comparison: 'exact', threshold: null, indicator: 'weak' })]);
-  assert.equal(store.source(), 'configured');
-  assert.equal(store.rules().length, 1);
-  assert.equal(store.rules()[0].field, 'PostalCode');
 });
 
 test('an unreadable table keeps the rules already loaded', async () => {

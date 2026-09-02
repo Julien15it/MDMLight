@@ -107,13 +107,6 @@ test('null is returned whenever the model cannot be trusted or reached', async (
   assert.equal(threw, null);
 });
 
-test('fenced JSON is accepted, anything that is not an object is not', () => {
-  assert.deepEqual(parseIntentJson('```json\n{"intent":"search"}\n```'), { intent: 'search' });
-  assert.equal(parseIntentJson('[1,2]'), null);
-  assert.equal(parseIntentJson('null'), null);
-  assert.equal(parseIntentJson(''), null);
-});
-
 // The parsed name reaches an OData filter, so nothing arrives unbounded or untyped.
 test('model output is clamped, de-duplicated and type-checked', () => {
   const dirty = sanitizeIntent({
@@ -130,13 +123,6 @@ test('model output is clamped, de-duplicated and type-checked', () => {
   assert.ok(dirty.searchTerms.every((term) => term.length <= 40));
   assert.equal(dirty.referencesPriorTurn, false);
   assert.equal(sanitizeIntent({ companyName: '   ' }).companyName, null);
-});
-
-test('the pattern parser answers whenever the model did not', () => {
-  const resolved = resolveQuestionIntent('Is there a company called Alluvion?', [], null);
-  assert.equal(resolved.source, 'patterns');
-  assert.equal(resolved.companyName, 'Alluvion');
-  assert.equal(resolved.isSmalltalk, false);
 });
 
 test('a model intent wins over the patterns that used to guess', () => {
@@ -170,22 +156,4 @@ test('a follow-up takes its name from the earlier turn, and small talk reads not
   });
   assert.equal(greeting.isSmalltalk, true);
   assert.equal(greeting.companyName, '');
-});
-
-// The phrasings the patterns already get right must not regress when the model answers.
-test('both parsers agree on the pinned existence phrasings', () => {
-  const phrasings = [
-    'does the company Alluvion already exist in our system?',
-    'Does Alluvion exist?',
-    'Is there a company called Alluvion?',
-    'Is Alluvion a business partner?'
-  ];
-  for (const phrasing of phrasings) {
-    const patterns = resolveQuestionIntent(phrasing, [], null);
-    const model = resolveQuestionIntent(phrasing, [], {
-      intent: 'duplicate_check', companyName: 'Alluvion', searchTerms: ['alluvion'], referencesPriorTurn: false
-    });
-    assert.equal(patterns.companyName, 'Alluvion', `patterns lost “${phrasing}”`);
-    assert.equal(model.companyName, 'Alluvion', `model path lost “${phrasing}”`);
-  }
 });

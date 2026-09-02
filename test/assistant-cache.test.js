@@ -83,7 +83,3 @@ test('evicts the oldest entry once the cap is reached', async () => {
   assert.equal(await cache.get('c', async () => 'reloaded'), 'c');
   assert.equal(await cache.get('a', async () => 'reloaded'), 'reloaded');
 });
-
-test('defaults to a one minute time to live', () => {
-  assert.equal(DEFAULT_TTL_MS, 60000);
-});

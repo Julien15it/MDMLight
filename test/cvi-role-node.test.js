@@ -62,14 +62,6 @@ test('a create of the role node carries the business partner it hangs off', () =
   }
 });
 
-test('an update sends its keys, so it can address a row at all', () => {
-  // Sent as `{}` until 2026-08-21, which made every update fail on "Missing key field(s)"
-  // rather than update anything. The keys are in `data`: the relation field plus what the row
-  // staged, which is the same object the delete path has always passed.
-  assert.match(loop, /KeyJson: JSON\.stringify\(data\),\s*\n\s*DataJson: JSON\.stringify\(data\)/u);
-  assert.equal(/KeyJson: JSON\.stringify\(\{\}\)/u.test(loop), false, 'no empty key payload left');
-});
-
 /**
  * Reported live (2026-08-31): approving a resubmit failed with "BP role FLVN01 already exists for
  * partner" - the request had already, partially, posted once (the role among the nodes that

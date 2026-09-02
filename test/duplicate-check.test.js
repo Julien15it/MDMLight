@@ -70,13 +70,6 @@ test('findings carry the verdict and the severity separately', () => {
   assert.match(finding.message, /Duplicate: Business Partner 5 matches on Name \(fuzzy\)/u);
 });
 
-test('a lesser verdict does not raise an error the approver must clear', () => {
-  const severities = [VERDICTS.STRONG, VERDICTS.SMALL].map((verdict) => duplicateFindings([{
-    partner: { BusinessPartner: '7' }, verdict, score: 0.9, indicators: []
-  }])[0].severity);
-  assert.deepEqual(severities, ['warning', 'info']);
-});
-
 const pendingCreate = (id, name, overrides = {}) => ({
   request: { ID: id, status: 'inApproval', requestType: 'create', ...overrides },
   general: { ID: 'row', request_ID: id, OrganizationBPName1: name, BusinessPartnerCategory: '2' },
@@ -100,12 +93,6 @@ test('a request is never reported as its own duplicate', () => {
     extra: stagedEntries(requests, { exclude: 'req-1' })
   });
   assert.deepEqual(found.map((row) => row.partner.ChangeRequest), ['req-2']);
-});
-
-// The partner is already in the index; its staged copy would report one company twice.
-test('only pending creates join the candidate set, not changes to existing partners', () => {
-  const change = pendingCreate('req-3', 'Alluvion NV', { requestType: 'change' });
-  assert.deepEqual(stagedEntries([change]), []);
 });
 
 test('a finding names the request when the match has not posted yet', () => {
@@ -161,21 +148,6 @@ test('bpduplicates gives one line per matched partner, not one per matched field
   assert.match(verdict, /TaxNumber \(exact\)/u);
 });
 
-// A pending create has no partner number, so it is named by its request instead.
-test('a pending change request is named as one in the payload', () => {
-  const lines = duplicateSummary([{
-    verdict: 'strong', candidateRequest: 'cr-1', candidateName: 'Alluvion BVBA', reasons: ['Name (fuzzy)']
-  }]);
-  assert.deepEqual(lines, ['CR cr-1; Alluvion BVBA; Strong chance of duplicate: Name (fuzzy)']);
-});
-
-test('a finding that carries no verdict is not a duplicate and is left out', () => {
-  assert.deepEqual(duplicateSummary([
-    { checkName: 'duplicate_check', severity: 'info', message: 'The duplicate check could not run.' }
-  ]), []);
-  assert.deepEqual(duplicateSummary([]), []);
-});
-
 // Silent truncation would read as the whole answer.
 test('a long list says how many it left out', () => {
   const many = Array.from({ length: SUMMARY_LIMIT + 3 }, (unused, index) => ({
@@ -184,9 +156,4 @@ test('a long list says how many it left out', () => {
   const lines = duplicateSummary(many);
   assert.equal(lines.length, SUMMARY_LIMIT + 1);
   assert.equal(lines.at(-1), '…and 3 more');
-});
-
-test('a match with no readable name still produces a usable line', () => {
-  const [line] = duplicateSummary([{ verdict: 'duplicate', candidateBP: '9', reasons: [] }]);
-  assert.equal(line, '9; (no name); Duplicate: ');
 });

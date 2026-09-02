@@ -708,8 +708,10 @@ convention, each `CONDITION_PAIRS` names its own.
   a horizontal `ScrollContainer` (`vertical="false"`) and `view>/tableWidth` gives it something to
   overflow with, because a fixed-layout `sap.m.Table` at `width="100%"` redistributes its columns into
   whatever space it has. `tableWidthFor` is the arithmetic (24rem per condition, 6 per Logic column of
-  which there is one fewer, plus `SELECT_REM = 3` for the invisible MultiSelect column), and tests add
-  the declared `<Column width>`s up against it. `growingScrollToLoad` is off so the More button still
+  which there is one fewer, plus `SELECT_REM = 3` for the invisible MultiSelect column). The tests
+  that added the declared `<Column width>`s up against it were removed in the 2026-09-02 test cull as
+  layout churn, so nothing now catches the two drifting apart — check the arithmetic by hand when you
+  add or resize a column. `growingScrollToLoad` is off so the More button still
   works. `_applyTableWidth` is the single setter, which is what stops Add Condition undoing a resize.
 - **The engine folds LEFT TO RIGHT, one logic per gap** — `foldConditions` in
   `srv/checks/value-lists.js`. `A OR B AND C` is `(A OR B) AND C`; there is no precedence. Zero and one
@@ -1045,7 +1047,10 @@ decide anything in CAP. **CAP still knows nothing about this**; `app/bptask` dec
 `decideRequest` at all. BPA maps two optional task inputs, `currentapprover` and `totalapprovers`
 (1-indexed), and `_isFinalApprover(context)` is `current >= total` — absent, or unparseable, reads as
 "the only approver". `_completeTask("approve")` skips `_decideOnServer` when not final and only completes
-the one task, which is what BPA reads to advance. **Reject is never gated** — a chain of approvals is not
+the one task, which is what BPA reads to advance. **Both inputs are declared while
+`applicationVersion` sits at `1.5.0`, which predates them** — until the task is re-pointed the Lobby
+serves the old schema, neither input arrives, and the first approver posts. Raise the manifest and the
+pin in `test/task-form.test.js` together. **Reject is never gated** — a chain of approvals is not
 a chain of independent decisions. The shared screen's own `onApprove`/`_decide` need no gate: embedded,
 `_addInboxActions` wires the buttons straight to `_completeTask`, and standalone there is no real chain.
 

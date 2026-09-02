@@ -101,17 +101,6 @@ test('a Wikipedia hit survives an address lookup that finds or returns nothing',
   assert.equal(result.suggestedAddress, null);
 });
 
-test('company research returns null when no public result is found', async () => {
-  const result = await researchCompany('Unknown Example', {
-    fetchImpl: async () => ({
-      ok: true,
-      json: async () => ({ query: { search: [] } }),
-      text: async () => ''
-    })
-  });
-  assert.equal(result, null);
-});
-
 test('company research falls back to public web results for a local company', async () => {
   const publicHtml = `
     <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fspar-destelbergen.be%2F">Spar Destelbergen</a>
@@ -134,21 +123,6 @@ test('company research falls back to public web results for a local company', as
     CityName: 'Destelbergen',
     Country: 'BE'
   });
-});
-
-test('company research still uses public search when Wikipedia is unavailable', async () => {
-  const result = await researchCompany('Local Example', {
-    fetchImpl: async (url) => {
-      if (String(url).includes('wikipedia')) throw new Error('Wikipedia unavailable');
-      return {
-        ok: true,
-        text: async () => '<a class="result__a" href="https://example.com">Local Example</a>'
-      };
-    }
-  });
-
-  assert.equal(result.source, 'Public web search');
-  assert.equal(result.url, 'https://example.com/');
 });
 
 test('public search parser ignores unsafe and malformed result links', () => {

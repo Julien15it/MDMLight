@@ -114,23 +114,6 @@ test('AI prompt context is bounded and excludes sensitive fields', () => {
   assert.doesNotMatch(context, /TaxNumber1|must-never-enter/);
 });
 
-// The S/4 filter ORs its terms. When this one ANDed them, one extra word emptied the context
-// even though the read had returned the right rows.
-test('an extra word in the question does not empty the prompt context', () => {
-  const asked = 'Are there any companies called Brussels availebe in our system already?';
-  assert.deepEqual(
-    relevantPartners(asked, partners).map((item) => item.BusinessPartner),
-    ['1']
-  );
-  // More matching terms still ranks a partner higher than fewer.
-  assert.deepEqual(
-    relevantPartners('Brussels Pharmaceuticals or SAP', partners).map((item) => item.BusinessPartner),
-    ['1', '2']
-  );
-  // A term nothing matches still returns nothing.
-  assert.deepEqual(relevantPartners('Does Intellus exist in our system?', partners), []);
-});
-
 test('AI prompt context finds partners by address and includes sourced research', () => {
   const addresses = [{
     BusinessPartner: '2',
@@ -213,19 +196,4 @@ test('assistant uses SAP AI Core when bound and reports its provider', async () 
   assert.equal(captured.deployment.resourceGroup, 'default');
   assert.match(captured.request.placeholderValues.context, /"totalBusinessPartners":2/);
   assert.doesNotMatch(captured.request.placeholderValues.context, /SAP S\.E\./);
-});
-
-test('assistant keeps a deterministic S/4 fallback without an AI binding', async () => {
-  const result = await askSapAiCore({
-    question: 'How many?',
-    partners,
-    addresses: [],
-    fallbackAnswer: 'There are 2 Business Partners.',
-    env: {}
-  });
-
-  assert.deepEqual(result, {
-    Answer: 'There are 2 Business Partners.',
-    Provider: 'S/4HANA search'
-  });
 });

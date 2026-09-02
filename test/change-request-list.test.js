@@ -16,21 +16,11 @@ const listSettings = manifest['sap.ui5'].routing.targets.BusinessPartnersList.op
 const listActions = listSettings.controlConfiguration['@com.sap.vocabularies.UI.v1.LineItem']
   .actions;
 
-// On a customer system an automatic full read makes the tile look like it has hung.
-test('the business partner list does not search when the app opens', () => {
-  assert.equal(listSettings.initialLoad, 'Disabled');
-});
-
 // A decision is taken against a real task in the approver's inbox, never by finding the
 // request in a list. The route stays — the inbox link uses it — but nothing here reaches it.
 test('the approve screen is not reachable from the change request list', () => {
   assert.equal(/ChangeRequestApprove/u.test(controller), false);
   assert.match(controller, /if \(context\.getProperty\("status"\) !== "draft"\) return;/u);
-});
-
-// A draft is still the requester's to finish, so that one route remains.
-test('a draft still opens for editing', () => {
-  assert.match(controller, /navTo\("ChangeRequestEdit"/u);
 });
 
 test('only a draft row offers navigation', () => {

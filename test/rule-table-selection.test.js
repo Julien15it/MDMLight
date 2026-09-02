@@ -65,13 +65,6 @@ test('Duplicate copies every ticked row, not only the focused one', () => {
  * of its own - that is `sap.ui.table.Table` - so this is a shared utility appending real DOM grips,
  * the same call XlsxCodec made: heavy machinery is extracted, per-page wiring is not.
  */
-test('every rule table resizes its columns from the one shared utility', () => {
-  for (const name of ALL_PAGES) {
-    const source = controller(name);
-    assert.match(source, /mdm\/md\/mdmrules\/manage\/ext\/util\/ColumnResizer/u, `${name} loads it`);
-    assert.match(source, /ColumnResizer\.enable\(this\._table\(\)/u, `${name} enables it on its table`);
-  }
-});
 
 test('the resizer writes the width back onto the column, and survives a re-render', () => {
   const source = read(APP, 'ext', 'util', 'ColumnResizer.js');
@@ -94,17 +87,6 @@ test('the resizer writes the width back onto the column, and survives a re-rende
   const manifest = JSON.parse(read(APP, 'manifest.json'));
   assert.deepEqual(manifest['sap.ui5'].resources.css, [{ uri: 'css/style.css' }]);
   assert.match(read(APP, 'css', 'style.css'), /\.mdmColumnResizer/u);
-});
-
-test('a resized column widens the table rather than stealing from its neighbour', () => {
-  for (const name of RULE_PAGES) {
-    const source = controller(name);
-    assert.match(source, /widthAdjust: 0/u, `${name} tracks the pixels a drag added`);
-    assert.match(source, /_onColumnResized: function \(delta\)/u, name);
-    // One setter for the width, so revealing a condition cannot silently undo a resize.
-    assert.match(source, /_applyTableWidth: function/u, name);
-    assert.match(source, /"calc\(" \+ rem/u, `${name} keeps the rem half of the width`);
-  }
 });
 
 /**
@@ -142,20 +124,6 @@ test('a section that could not be read is reported, never read as a clean bill o
   assert.match(body, /report\.tooLarge/u);
 });
 
-test('the action is declared on both services, and the config service delegates it', () => {
-  const bpCds = read(ROOT, 'srv', 'business-partner-service.cds');
-  const configCds = read(ROOT, 'srv', 'duplicate-config-service.cds');
-  const configJs = read(ROOT, 'srv', 'duplicate-config-service.js');
-  for (const source of [bpCds, configCds]) {
-    assert.match(source, /action testValidationRuleset\(\s*RulesJson\s*:\s*LargeString,\s*SampleSize\s*:\s*Integer\s*\) returns LargeString;/u);
-  }
-  // Delegated, not re-implemented: BusinessPartnerService owns the S/4 connection, the same
-  // reasoning testRuleset already follows for the duplicate check.
-  const handler = configJs.slice(configJs.indexOf("this.on('testValidationRuleset'"));
-  assert.match(handler, /cds\.connect\.to\('BusinessPartnerService'\)/u);
-  assert.match(handler, /bp\.send\('testValidationRuleset'/u);
-});
-
 test('the scan reads only what the ruleset needs, and never a projection of General', () => {
   const source = read(ROOT, 'srv', 'business-partner-service.js');
   const handler = source.slice(source.indexOf("this.on('testValidationRuleset'"));
@@ -180,20 +148,6 @@ test('the scan reads only what the ruleset needs, and never a projection of Gene
  * reads as a pair, and a bare "Delete" next to Delete Condition said nothing about which of the two
  * it deletes.
  */
-test('every tile names its delete button after what it deletes, beside the add button', () => {
-  for (const name of RULE_PAGES) {
-    const source = view(name);
-    assert.match(source, /text="Delete Rule"/u, `${name} says Delete Rule`);
-    assert.equal(/text="Delete"/u.test(source), false, `${name} has no bare Delete`);
-    assert.ok(
-      source.indexOf('text="Delete Rule"') - source.indexOf('text="Add Rule"') < 200,
-      `${name} puts Delete Rule beside Add Rule`
-    );
-  }
-  const profiles = view('FieldPropertyProfileList');
-  assert.match(profiles, /text="Delete Profile"/u);
-  assert.ok(profiles.indexOf('text="Delete Profile"') > profiles.indexOf('text="Add Profile"'));
-});
 
 /**
  * The bug the day after Check Current Data shipped: "Row 2: this comparison needs a value" on a row

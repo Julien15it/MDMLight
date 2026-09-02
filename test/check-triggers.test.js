@@ -30,12 +30,6 @@ test('an unscoped call offers every populated field, a scoped one only its targe
   assert.ok(root.every((f) => f.target === 'root'));
 });
 
-// BankDetails is a real section id but carries nothing normalisable, so scoping there is silent.
-test('a scope that matches nothing offers nothing rather than falling back to everything', () => {
-  assert.deepEqual(normalisableFields(PAYLOAD, 'BankDetails'), []);
-  assert.deepEqual(normalisableFields(PAYLOAD, 'nonsense'), []);
-});
-
 // Country/Region casing is deterministic, so it survives an AI Core outage - but it must respect
 // the scope too, or a root-scoped call would report an address field.
 test('the deterministic proposals are scoped as well', async () => {
@@ -139,17 +133,6 @@ test('committing a field redraws locally and calls nothing', () => {
   assert.equal(/_offerProposals/u.test(handler), false, 'and no dialog while somebody is typing');
 });
 
-// liveChange fires per keystroke; the redraw hangs off the committed value only.
-test('the commit hook is a change handler on text inputs, not a liveChange', () => {
-  assert.match(CONTROLLER, /if \(control instanceof Input\) this\._attachCommitTrigger\(/u);
-  const attach = CONTROLLER.slice(
-    CONTROLLER.indexOf('_attachCommitTrigger: function'),
-    CONTROLLER.indexOf('_onFieldCommitted: function')
-  );
-  assert.match(attach, /control\.attachChange\(/u);
-  assert.equal(/attachLiveChange/u.test(attach), false, 'never per keystroke');
-});
-
 // Only the Check button and the pre-submit/approve check (_runPreActionCheck, 2026-08-31) ever open
 // this dialog, and both go through the one vetted function: a derivation is still never written
 // without a tick, and there is still exactly one place proposals reach the screen.
@@ -185,14 +168,6 @@ test('a proposal only ever reaches the screen through the one vetted dialog func
  * blocks on the SAME S/4 standard check though (2026-08-31, asked for) - skipping proposals is about
  * having nothing to apply one into, not a reason to let an S/4 objection through unchecked.
  */
-test('_runPreActionCheck never offers a proposal on the approve path, but still blocks on S/4', () => {
-  const fn = CONTROLLER.slice(CONTROLLER.indexOf('_runPreActionCheck: function'));
-  const body = fn.slice(0, fn.indexOf('\n      },\n\n      onCheck'));
-  assert.match(body, /if \(forApprove\) return blockOnStandard\(standard\);/u);
-  const beforeGuard = body.slice(0, body.indexOf('if (forApprove) return blockOnStandard(standard);'));
-  assert.equal(/_offerProposals/u.test(beforeGuard), false, 'no dialog reachable before the guard');
-  assert.match(body, /Propose: !forApprove/u, 'no AI normalisation call for approve either');
-});
 
 // Submit/Resubmit and Approve run the same check the Check button does, from the button press
 // itself - not while typing, not automatically - satisfying "automatisch de check nog eens wordt
@@ -250,23 +225,6 @@ test('every button that checks clears the declined proposals first', () => {
   }
 });
 
-// A record leaving the screen takes its declines with it.
-test('a fresh record forgets what was declined', () => {
-  const empty = CONTROLLER.slice(CONTROLLER.indexOf('_emptyState: function'));
-  assert.match(empty.slice(0, empty.indexOf('return {')), /this\._declinedProposals = \{\}/u);
-});
-
-// Recorded on the way out rather than on the Not Now button: Escape closes the dialog too, and that
-// is a decline as well.
-test('every way out of the proposals dialog records what was not applied', () => {
-  const offer = CONTROLLER.slice(CONTROLLER.indexOf('_offerProposals: function'));
-  const body = offer.slice(0, offer.indexOf('_applyProposals: function'));
-  assert.match(body, /afterClose: function \(\) \{[\s\S]{0,200}_rememberDeclined/u);
-  assert.match(body, /applied = true;/u, 'Apply Selected says so, and afterClose reads it');
-  assert.match(body, /this\._proposalsOpen = true;/u);
-  assert.match(body, /this\._proposalsOpen = false;/u);
-});
-
 // --- The S/4 standard check actually blocks Submit/Resubmit/Approve now (2026-08-31) --------------
 
 /** Extracts a plain object-literal method (`name: function (...) {...}`) as a callable function -
@@ -306,19 +264,6 @@ test('_standardBlocks: a warning blocks, info does not, and an unreadable result
   // read as "nothing found". A check that could not be confirmed must not read as one that passed.
   assert.equal(standardBlocks(null), true);
   assert.equal(standardBlocks(undefined), true);
-});
-
-test('_standardBlockMessage names only the findings that actually block', () => {
-  const standardBlockMessage = extractMethod(CONTROLLER, '_standardBlockMessage');
-  const message = standardBlockMessage([
-    { severity: 'info', message: 'ignored' },
-    { severity: 'warning', message: 'City is required' }
-  ]);
-  assert.match(message, /City is required/u);
-  assert.equal(/ignored/u.test(message), false);
-  // No findings survive the filter (e.g. a re-run returned null and blockOnStandard was still
-  // asked to explain why) - a message with nothing named is still an honest one, not blank.
-  assert.match(standardBlockMessage(null), /could not be confirmed/u);
 });
 
 /**

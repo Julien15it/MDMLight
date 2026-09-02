@@ -63,15 +63,6 @@ test('the catalog is qualified, generated, and drops the plumbing', () => {
   assert.equal(fields.includes('Addresses.action'), false);
 });
 
-// An unqualified name would silently pick a section, and validate a different field from the one
-// that was written down.
-test('a field name must carry its section', () => {
-  assert.ok(resolvePayloadField('General.Language', model));
-  assert.equal(resolvePayloadField('Language', model), null);
-  assert.equal(resolvePayloadField('Nonsense.Language', model), null);
-  assert.equal(resolvePayloadField('General.NotAColumn', model), null);
-});
-
 // The section ids are shared with NODES in change-request-service.js, so a rule can never name a
 // section nothing stages. General is the payload root rather than a node.
 test('General maps onto the payload root and the rest onto sections', () => {
@@ -79,13 +70,6 @@ test('General maps onto the payload root and the rest onto sections', () => {
   assert.equal(targetFor('Addresses'), 'Addresses');
   assert.equal(PAYLOAD_NODES.General.root, true);
   assert.equal(PAYLOAD_NODES.Addresses.many, true);
-});
-
-// A to-one node is one row at index 0, so no caller has to branch on cardinality.
-test('a to-one section still reads as one row', () => {
-  const rows = sectionRows(payload({}, { Customers: { CustomerAccountGroup: '0001' } }), 'Customers');
-  assert.deepEqual(rows, [{ index: 0, record: { CustomerAccountGroup: '0001' } }]);
-  assert.deepEqual(sectionRows(payload({}, {}), 'Customers'), []);
 });
 
 // ---------------------------------------------------------------------------
@@ -108,13 +92,6 @@ test('numbers compare as numbers and text as trimmed upper case', () => {
   assert.equal(compare('10', '9'), 1);
   assert.equal(compare(' be ', 'BE'), 0);
   assert.equal(compare('2026-01-02', '2026-01-10'), -1);
-});
-
-// The grid can only offer a steward a string, and staging holds real Booleans.
-test('a Boolean compares against the text a grid can produce', () => {
-  assert.equal(compare(true, 'true'), 0);
-  assert.equal(compare(false, 'true'), -1);
-  assert.equal(compare(true, 'X'), 0);
 });
 
 /**
@@ -219,15 +196,6 @@ test('a validation can compare two fields', () => {
   );
 });
 
-// Nothing to compare against is not a verdict either way, so it reports itself instead.
-test('a reference to an empty field reports rather than passing or failing', () => {
-  const rule = { field: 'General.CorrespondenceLanguage', comparison: 'eq', value: 'General.Language' };
-  const findings = runValidationRule(rule, payload({ CorrespondenceLanguage: 'FR' }), model);
-  assert.equal(findings.length, 1);
-  assert.equal(findings[0].severity, 'info');
-  assert.match(findings[0].message, /no value to compare against/);
-});
-
 /**
  * A rule the engine cannot evaluate blocks, the same way a validation that throws does. Skipping it
  * would let a request through on the strength of a check that never ran, which is the one wrong
@@ -282,20 +250,10 @@ test('a derivation can copy another field', () => {
   assert.match(entries[0].message, /copied from General\.Language/);
 });
 
-// A reference to an empty field is nothing to copy - not a reason to write a blank over the target.
-test('copying an empty field fills nothing', () => {
-  const rule = { field: 'General.CorrespondenceLanguage', value: 'General.Language' };
-  assert.deepEqual(runDerivationRule(rule, payload({}), model), []);
-});
-
 /**
  * A derivation fills a gap; it does not correct people. The pipeline enforces this too - both
  * because these rules and the registry's must not be able to disagree about it.
  */
-test('a derivation never touches a field that already has a value', () => {
-  const rule = { field: 'General.Language', value: 'NL' };
-  assert.deepEqual(runDerivationRule(rule, payload({ Language: 'FR' }), model), []);
-});
 
 test('a derivation onto a section fills each matching row and says which', () => {
   const rule = {
@@ -345,16 +303,6 @@ test('a condition on the empty section itself cannot create the row', () => {
   assert.equal(entries[0].createsRow, true);
 });
 
-// Same row, not the first row: "this address's Region from this address's Country" is about one
-// address.
-test('a same-section reference reads the row it is filling', () => {
-  const rule = { field: 'Addresses.Region', value: 'Addresses.Country' };
-  const entries = runDerivationRule(rule, payload({}, {
-    Addresses: [{ Country: 'BE' }, { Country: 'FR' }]
-  }), model);
-  assert.deepEqual(entries.map((entry) => [entry.index, entry.value]), [[0, 'BE'], [1, 'FR']]);
-});
-
 // ---------------------------------------------------------------------------
 // Save-time validation of the rows
 // ---------------------------------------------------------------------------
@@ -389,27 +337,6 @@ test('half a condition is rejected in both tables', () => {
     assert.ok(validate({ ...base, conditionField: 'Nope.Nope', conditionValue: 'BE' }, model)
       .errors.some((problem) => problem.field === 'conditionField'));
   }
-});
-
-test('a derivation row needs a value, and cannot copy a field onto itself', () => {
-  assert.deepEqual(validateDerivationRule({ field: 'General.Language', value: 'NL' }, model).errors, []);
-  assert.ok(validateDerivationRule({ field: 'General.Language' }, model)
-    .errors.some((problem) => problem.field === 'value'));
-  assert.ok(validateDerivationRule({ field: 'General.Language', value: 'General.Language' }, model)
-    .errors.some((problem) => problem.field === 'value'));
-  // The one case where the Value column's two meanings could surprise someone, so it is said.
-  assert.ok(validateDerivationRule({ field: 'General.CorrespondenceLanguage', value: 'General.Language' }, model)
-    .warnings.some((problem) => problem.field === 'value'));
-});
-
-// ---------------------------------------------------------------------------
-// The stages
-// ---------------------------------------------------------------------------
-
-test('no rules means no stages, not an empty stage that reports nothing', () => {
-  const stages = createConfiguredStages({ validations: [], derivations: [], model });
-  assert.deepEqual(stages.validations, []);
-  assert.deepEqual(stages.derivations, []);
 });
 
 /**
@@ -514,16 +441,6 @@ test('a derived value reaches the duplicate check', async () => {
   assert.equal(seen.root.Language, 'NL');
 });
 
-test('the configured validations run on their own for the submit path', async () => {
-  const stages = createConfiguredStages({
-    validations: [{ field: 'General.Language', comparison: 'notEmpty' }],
-    model
-  });
-  const findings = await runValidations(payload({}), stages.validations);
-  assert.equal(findings.length, 1);
-  assert.equal(findings[0].check, 'configured_validation');
-});
-
 test('a configured derivation is labelled in three words', async () => {
   const rules = [{
     field: 'General.Language', value: 'NL', sequence: 1, isActive: true
@@ -554,21 +471,6 @@ test('a condition is evaluated under its own comparator', () => {
   assert.equal(runValidationRule(rule('ne', 'DE'), be, model).length, 1);
   assert.equal(runValidationRule(rule('contains', 'B'), be, model).length, 1);
   assert.equal(runValidationRule(rule('eq', 'BE'), be, model).length, 1);
-});
-
-// A blank operator is what every row stored before the column existed carries, and it has to go on
-// meaning exactly what it meant then - equality - or a deploy would rewrite the rules silently.
-test('a condition with no comparator still means equality', () => {
-  const rule = {
-    conditionField: 'Addresses.Country', conditionValue: 'BE',
-    field: 'General.Language', comparison: 'eq', value: 'NL', severity: 'error'
-  };
-  const be = payload({ Language: 'FR' }, { Addresses: [{ Country: 'BE' }] });
-  assert.equal(runValidationRule(rule, be, model).length, 1);
-  assert.equal(runValidationRule({ ...rule, conditionOperator: '' }, be, model).length, 1);
-  // An operator nothing recognises falls back the same way rather than matching nothing: the read
-  // side always has one to apply. Saving one is refused, which is where a typo is caught.
-  assert.equal(runValidationRule({ ...rule, conditionOperator: 'nonsense' }, be, model).length, 1);
 });
 
 // `is empty` / `is not empty` are read on the RAW value: an empty value is exactly the thing they

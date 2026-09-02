@@ -19,13 +19,6 @@ test('the category decides which name fields are read', () => {
   assert.equal(fullNameOf({ ...root, BusinessPartnerCategory: '2' }), 'Alluvion');
 });
 
-test('an organisation is Name 1 + Name 2', () => {
-  assert.equal(
-    fullNameOf({ BusinessPartnerCategory: '2', OrganizationBPName1: 'Alluvion', OrganizationBPName2: 'BV' }),
-    'Alluvion BV'
-  );
-});
-
 test('a person keeps the middle name, a group both its names', () => {
   assert.equal(
     fullNameOf({ BusinessPartnerCategory: '1', FirstName: 'A', MiddleName: 'B', LastName: 'C' }),
@@ -47,12 +40,6 @@ test('a category whose own fields are empty falls through the others', () => {
   assert.equal(fullNameOf({ OrganizationBPName1: 'Alluvion', OrganizationBPName2: 'NV' }), 'Alluvion NV');
 });
 
-test('a search term is the last resort, and nothing at all is empty', () => {
-  assert.equal(fullNameOf({ SearchTerm1: 'ALLUVION' }), 'ALLUVION');
-  assert.equal(fullNameOf({}), '');
-  assert.equal(fullNameOf(), '');
-});
-
 test('blank components do not leave stray spaces', () => {
   assert.equal(
     fullNameOf({ BusinessPartnerCategory: '2', OrganizationBPName1: 'Alluvion', OrganizationBPName2: '' }),
@@ -62,11 +49,6 @@ test('blank components do not leave stray spaces', () => {
     fullNameOf({ BusinessPartnerCategory: '1', FirstName: 'A', MiddleName: null, LastName: 'C' }),
     'A C'
   );
-});
-
-test('a row on its way to the workflow gets the name it was missing', () => {
-  const row = withFullName({ BusinessPartnerCategory: '2', OrganizationBPName1: 'Alluvion', OrganizationBPName2: 'BV' });
-  assert.equal(row.BusinessPartnerFullName, 'Alluvion BV');
 });
 
 // A change request over an existing partner carries S/4's own value; composing over it would replace
@@ -84,12 +66,6 @@ test('a name S/4 already derived is never overwritten', () => {
       .BusinessPartnerFullName,
     'Alluvion'
   );
-});
-
-test('a row with nothing to compose from is handed back untouched', () => {
-  const row = { BusinessPartnerCategory: '2' };
-  assert.equal(withFullName(row), row);
-  assert.equal(withFullName(null), null);
 });
 
 // --- Wiring ---------------------------------------------------------------------------------

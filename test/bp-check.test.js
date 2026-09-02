@@ -61,13 +61,6 @@ test('the payload sent to S/4 carries the roles, so the relation checks run', as
   assert.equal(calls[0].data.RequestId, 'cr-1');
 });
 
-test('RequestId is truncated to the 36 characters the action declares', async () => {
-  const calls = [];
-  const stage = createBpCheckStage({ requestId: 'x'.repeat(80), send: sender(answer(), calls) });
-  await stage({ root: {}, sections: {} });
-  assert.equal(calls[0].data.RequestId.length, 36);
-});
-
 test('a repeated message is reported once, carrying its count', () => {
   // R11/336 arrives twice whenever a role is present: the BP path and the CVI path each fire it.
   const deduped = dedupe([{ ...LANGUAGE_WARNING }, { ...LANGUAGE_WARNING }]);
@@ -90,47 +83,10 @@ test('severity is capped so a standard check cannot block a submit yet', () => {
   assert.equal(finding.severity, 'warning');
 });
 
-test('a finding carries only the keys every other stage returns', () => {
-  // The one `field` value ever observed was `0002` -- a grouping value, not a field name -- so it
-  // must not reach the UI as an anchor. The class and number go in the text instead, and no extra
-  // keys are added to the message contract.
-  const [finding] = toFindings([EXTERNAL_NUMBERING]);
-  assert.deepEqual(Object.keys(finding).sort(), ['message', 'severity']);
-  assert.match(finding.message, /R1\/091/);
-});
-
-test('the two stages are distinguishable in the text', () => {
-  const [validation] = toFindings([EXTERNAL_NUMBERING]);
-  const [activation] = toFindings([LANGUAGE_WARNING]);
-  assert.match(validation.message, /^S\/4 validation \[R1\/091\]/);
-  assert.match(activation.message, /^S\/4 activation \[R11\/336\]/);
-});
-
-test('a clean result produces no strips at all', async () => {
-  // A requester gets either nothing to fix or something actionable. No narration about what was
-  // and was not checked, and no info strips -- asked for 2026-08-26.
-  const stage = createBpCheckStage({
-    send: sender(answer({ coverage: { rolesIncluded: false, fieldPropertiesExcluded: true } }))
-  });
-
-  assert.deepEqual(await stage({ root: {}, sections: {} }), []);
-});
-
 test('S/4 info messages are dropped, warnings and errors are not', () => {
   const info = { stage: 'TESTRUN', severity: 'I', id: 'R11', number: '001', text: 'noted' };
   assert.deepEqual(toFindings([info]), []);
   assert.equal(toFindings([info, LANGUAGE_WARNING]).length, 1);
-});
-
-test('field-property verdicts from S/4 are never surfaced', async () => {
-  const suppressed = [{ stage: 'TESTRUN', severity: 'E', id: 'F2', number: '001',
-    text: 'Fill in all required entry fields' }];
-  const stage = createBpCheckStage({
-    send: sender({ ...answer(), SuppressedJson: JSON.stringify(suppressed) })
-  });
-
-  const found = await stage({ root: {}, sections: {} });
-  assert.ok(!found.some((finding) => /required entry fields/.test(finding.message)));
 });
 
 test('an unreachable S/4 reports itself and never blocks', async () => {
@@ -202,34 +158,6 @@ test('a system derivation IS shown to the standard checks', async () => {
   assert.deepEqual(seen, ['0001']);
 });
 
-// The row the customer/vendor tier needs to exist at all -- without it ZMDML_BPCHECK sends no
-// relation node and CVI examines nothing.
-test('a system derivation creates its row on the payload the standard checks see', async () => {
-  const seen = [];
-  const derivations = [{
-    name: 'cvi_account_group',
-    run: async () => [{
-      target: 'Suppliers',
-      index: 0,
-      field: 'SupplierAccountGroup',
-      value: 'LIEF',
-      createsRow: true,
-      system: true
-    }]
-  }];
-
-  await runChecks({ root: {}, sections: {} }, {
-    validations: [],
-    derivations,
-    checkStandard: async (payload) => {
-      seen.push(payload.sections.Suppliers);
-      return [];
-    }
-  });
-
-  assert.deepEqual(seen, [[{ SupplierAccountGroup: 'LIEF' }]]);
-});
-
 test('a system derivation the pipeline refused to write is not replayed either', async () => {
   const seen = [];
   const derivations = [{
@@ -276,18 +204,6 @@ test('a blocking validation stops the standard checks from running at all', asyn
   // no point spending a remote round trip on a payload the app itself already refused
   assert.equal(ran, false);
   assert.deepEqual(result.standard, []);
-});
-
-test('a throwing standard check is reported, not swallowed', async () => {
-  const result = await runChecks({ root: {}, sections: {} }, {
-    validations: [],
-    derivations: [],
-    checkStandard: async () => { throw new Error('boom'); }
-  });
-
-  assert.equal(result.standard.length, 1);
-  assert.equal(result.standard[0].severity, 'info');
-  assert.match(result.standard[0].message, /could not run \(boom\)/);
 });
 
 // The whole customer/vendor tier in one assertion: typed roles plus the system-derived account

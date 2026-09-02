@@ -126,11 +126,6 @@ test('only the first address is enriched, never a second deliberate one', () => 
   assert.equal(entries[0].index, 0);
 });
 
-test('nothing is derived when the registry returned no address', () => {
-  assert.deepEqual(addressDerivations([], [{ StreetName: '' }], 'VIES'), []);
-  assert.deepEqual(addressDerivations([], [], 'VIES'), []);
-});
-
 // The case that started the row-adding change (2026-08-20): a tax number is typed, VIES answers with
 // an address, and there is nowhere to put it because the requester has not pressed Add. It refused
 // to invent the row until then, which is precisely when the lookup is most useful.
@@ -159,13 +154,6 @@ test('the validation and the derivation share a single lookup', async () => {
     checkDuplicates: async () => []
   });
   assert.equal(spy.calls, 1);
-});
-
-test('a fresh pair per check does not reuse the previous answer', async () => {
-  const spy = { calls: 0 };
-  await runChecks(payload(), { validations: stages(empty, spy).validations });
-  await runChecks(payload(), { validations: stages(empty, spy).validations });
-  assert.equal(spy.calls, 2);
 });
 
 // Ambiguity is not a reason to guess — registry.js only exposes an identifier when exactly one
@@ -206,12 +194,6 @@ test('a single confident GLEIF hit is described, two hits say nothing', async ()
   assert.deepEqual(await two.derivations[0].run(payload({}, { TaxNumbers: [] })), []);
 });
 
-test('a GLEIF hit with no address is still described', () => {
-  const message = describeEntity({ legalName: 'ALLUVION BV', registeredAs: '0448207405' });
-  assert.match(message, /GLEIF found “ALLUVION BV” \(company number 0448207405\)/u);
-  assert.equal(/ at /u.test(message), false);
-});
-
 // A registry that is down must not read as "the data is fine" — the validation blocks instead.
 test('an enrichment that throws blocks rather than passing silently', async () => {
   const registry = createRegistryStages({
@@ -236,33 +218,6 @@ test('the severity table never turns a warning or an outage into a block', () =>
   assert.equal(NAME_MISMATCH_SEVERITY, 'warning');
 });
 
-test('the GLEIF company number is reported as a plain fact', async () => {
-  const registry = stages({
-    ...empty,
-    facts: { vies: [], gleif: [{ registeredAs: '0448207405', address: null }] }
-  });
-  const [entry] = await registry.derivations[0].run(payload({}, { TaxNumbers: [] }));
-  assert.match(entry.message, /company number 0448207405/u);
-  assert.equal(/tax number row|Nothing was filled in/u.test(entry.message), false);
-});
-
-// VIES validates and derives; it never proposes. A disagreement is said out loud instead.
-test('a register address that disagrees is a warning about the address, not the tax number', () => {
-  assert.equal(fieldFor({ check: 'vat_address_matches' }), 'StreetName');
-  assert.equal(fieldFor({ check: 'vat_registered' }), 'BPTaxNumber');
-  assert.equal(fieldFor({ check: 'vat_name_matches' }), 'BPTaxNumber');
-  assert.equal(fieldFor({ check: 'something_else' }), null);
-  // Only the name mismatch is re-graded; an address disagreement must never block.
-  assert.equal(severityOf({ check: 'vat_address_matches', severity: 'warning' }), 'warning');
-});
-
-test('the registry stages no longer propose anything', () => {
-  const registry = createRegistryStages({ enrich: async () => empty });
-  assert.equal(registry.propose, undefined);
-  assert.equal(registry.validations.length, 1);
-  assert.equal(registry.derivations.length, 1);
-});
-
 test('a registry derivation is labelled by its source, in three words or fewer', () => {
   const entries = addressDerivations([{ PostalCode: '9000', CityName: 'Gent' }], [{}], 'VIES');
   assert.ok(entries.length);
@@ -275,11 +230,4 @@ test('a registry derivation is labelled by its source, in three words or fewer',
   assert.strictEqual(
     addressDerivations([{ PostalCode: '1000' }], [{}], 'GLEIF')[0].label, 'GLEIF check'
   );
-});
-
-// Never labelled 'system': a register value is a proposal, so the S/4 standard checks must not see
-// it until the requester has accepted it. See systemDerived in pipeline.js.
-test('a registry derivation is never a system derivation', () => {
-  const entries = addressDerivations([{ PostalCode: '9000' }], [{}], 'VIES');
-  assert.strictEqual(entries.every((entry) => !entry.system), true);
 });

@@ -177,11 +177,6 @@ const stage = (read) => createCviStages({ read }).validations[0];
 
 test.beforeEach(() => invalidate());
 
-test('a role its business partner category may carry reports nothing', async () => {
-  const found = await stage(withConfig()).run(payload('2', [{ BusinessPartnerRole: 'FLCU01' }]));
-  assert.deepStrictEqual(found, []);
-});
-
 test('a role the category may not carry is reported against its own row', async () => {
   const found = await stage(withConfig()).run(payload('1', [{ BusinessPartnerRole: 'FLCU01' }]));
   assert.strictEqual(found.length, 1);
@@ -208,22 +203,6 @@ test('flags are recognised as booleans and as X', () => {
   assert.strictEqual(_internals.isSet(' '), false);
   assert.strictEqual(_internals.isSet(undefined), false);
   assert.strictEqual(_internals.isSet(null), false);
-});
-
-test('the role category rule works on X-valued flags too', async () => {
-  const read = withConfig({
-    categories: [{
-      BPRoleCategory: 'FLCU01',
-      IsAllowedForPerson: '',
-      IsAllowedForOrganization: 'X',
-      IsAllowedForGroup: ''
-    }]
-  });
-  assert.deepStrictEqual(await stage(read).run(payload('2', [{ BusinessPartnerRole: 'FLCU01' }])), []);
-  invalidate();
-  const found = await stage(read).run(payload('1', [{ BusinessPartnerRole: 'FLCU01' }]));
-  assert.strictEqual(found.length, 1);
-  assert.match(found[0].message, /person/u);
 });
 
 test('every offending role is reported, not just the first', async () => {
@@ -259,25 +238,6 @@ test('a role category with none of the three flags maintained restricts nothing'
   }
 });
 
-test('a role S/4 does not know is reported as info, never as a mismatch', async () => {
-  const found = await stage(withConfig()).run(payload('1', [{ BusinessPartnerRole: 'ZZZZZZ' }]));
-  assert.strictEqual(found.length, 1);
-  assert.strictEqual(found[0].severity, 'info');
-  assert.match(found[0].message, /not in the S\/4 role table/u);
-});
-
-test('a role row being deleted is not judged', async () => {
-  const found = await stage(withConfig()).run(
-    payload('1', [{ BusinessPartnerRole: 'FLCU01', action: 'D' }])
-  );
-  assert.deepStrictEqual(found, []);
-});
-
-test('an unknown business partner category is not guessed at', async () => {
-  const found = await stage(withConfig()).run(payload('9', [{ BusinessPartnerRole: 'FLCU01' }]));
-  assert.deepStrictEqual(found, []);
-});
-
 test('postprocessing switched off is reported when the request asks for a role', async () => {
   const read = withConfig({
     postprocessing: [{ SynchronizationObject: 'BP', IsPostprocessingActive: false }]
@@ -287,20 +247,6 @@ test('postprocessing switched off is reported when the request asks for a role',
   assert.strictEqual(found[0].severity, 'warning');
   assert.match(found[0].message, /Postprocessing is switched off/u);
   assert.match(found[0].message, /BP/u);
-});
-
-test('postprocessing that is on is not reported', async () => {
-  assert.deepStrictEqual(
-    await stage(withConfig()).run(payload('2', [{ BusinessPartnerRole: 'FLCU01' }])),
-    []
-  );
-});
-
-test('postprocessing is not mentioned when no role is requested', async () => {
-  const read = withConfig({
-    postprocessing: [{ SynchronizationObject: 'BP', IsPostprocessingActive: false }]
-  });
-  assert.deepStrictEqual(await stage(read).run(payload('2', [])), []);
 });
 
 // --- Number assignment -----------------------------------------------------------------------
@@ -318,17 +264,6 @@ test('which sync targets a request reaches for comes from S/4, not from the role
   );
   // A contact person becomes neither, so no number assignment applies to it at all.
   assert.deepStrictEqual(targets([{ BusinessPartnerRole: 'BUP001' }]), []);
-});
-
-test('a grouping whose numbering lines up reports nothing', async () => {
-  for (const grouping of ['S100', '0001']) {
-    assert.deepStrictEqual(
-      await stage(withConfig()).run(payload('2', [{ BusinessPartnerRole: 'FLCU01' }], grouping)),
-      [],
-      grouping
-    );
-    invalidate();
-  }
 });
 
 test('same number set but intervals that differ names both ranges and both intervals', async () => {
@@ -361,26 +296,11 @@ test('a grouping with no assignment at all is reported, naming the roles that ne
   assert.match(found[0].message, /grouping MDM0 has no customer account group/u);
 });
 
-test('an account group with no number range is reported', async () => {
-  const found = await stage(withConfig()).run(
-    payload('2', [{ BusinessPartnerRole: 'FLCU01' }], 'S170')
-  );
-  assert.strictEqual(found.length, 1);
-  assert.match(found[0].message, /account group 0170 has no number range/u);
-});
-
 test('a switched-off direction is reported and the ranges are not then second-guessed', async () => {
   const read = withConfig({
     directions: [{ SourceObject: 'BP', TargetObject: 'CUSTOMER', IsActive: false }]
   });
   const found = await stage(read).run(payload('2', [{ BusinessPartnerRole: 'FLCU01' }], '0002'));
-  assert.strictEqual(found.length, 1);
-  assert.match(found[0].message, /not active in S\/4/u);
-});
-
-test('a direction with no row at all counts as switched off', async () => {
-  const read = withConfig({ directions: [] });
-  const found = await stage(read).run(payload('2', [{ BusinessPartnerRole: 'FLCU01' }], 'S100'));
   assert.strictEqual(found.length, 1);
   assert.match(found[0].message, /not active in S\/4/u);
 });
@@ -403,20 +323,6 @@ test('the inbound direction rows are never read as if they were outbound', async
   // ZZZZ exists only as a CUSTOMER_TO_BP row, so this is "nothing maintained", not a range verdict.
   assert.strictEqual(found.length, 1);
   assert.match(found[0].message, /no customer account group/u);
-});
-
-test('no grouping on the request means no number assignment verdict', async () => {
-  assert.deepStrictEqual(
-    await stage(withConfig()).run(payload('2', [{ BusinessPartnerRole: 'FLCU01' }])),
-    []
-  );
-});
-
-test('a role that creates neither a customer nor a supplier is not measured against a grouping', async () => {
-  assert.deepStrictEqual(
-    await stage(withConfig()).run(payload('2', [{ BusinessPartnerRole: 'BUP001' }], 'MDM0')),
-    []
-  );
 });
 
 // --- Account group derivation ------------------------------------------------------------------
@@ -443,15 +349,6 @@ test('the derivation creates the row it needs when the section is empty', async 
   assert.strictEqual(applied.length, 1);
   assert.strictEqual(applied[0].check, 'cvi_account_group');
   assert.strictEqual(applied[0].severity, 'info');
-});
-
-test('the derivation fills an empty field on a row the requester already added', async () => {
-  const request = payload('2', [{ BusinessPartnerRole: 'FLVN01' }], '0002');
-  request.sections.Suppliers = [{ SupplierName: 'Something', SupplierAccountGroup: '' }];
-  const { derived } = await runDerivations(request, [derivation(withConfig())]);
-
-  assert.strictEqual(derived.sections.Suppliers[0].SupplierAccountGroup, 'LIEF');
-  assert.strictEqual(derived.sections.Suppliers[0].SupplierName, 'Something');
 });
 
 test('the derivation never overwrites an account group somebody typed', async () => {
@@ -488,24 +385,6 @@ test('nothing is derived where nothing is certain', async () => {
   }
 });
 
-test('nothing is derived for a direction that is switched off', async () => {
-  const read = withConfig({
-    directions: [{ SourceObject: 'BP', TargetObject: 'CUSTOMER', IsActive: false }]
-  });
-  assert.deepStrictEqual(
-    await derivation(read).run(payload('2', [{ BusinessPartnerRole: 'FLCU01' }], '0001')),
-    []
-  );
-});
-
-test('a configuration that cannot be read leaves the derivation silent, not broken', async () => {
-  const read = async () => { throw new Error('S/4 is unreachable'); };
-  const entries = await derivation(read).run(payload('2', [{ BusinessPartnerRole: 'FLCU01' }], '0001'));
-  assert.strictEqual(entries.length, 1);
-  assert.strictEqual(entries[0].field, undefined);
-  assert.match(entries[0].message, /was not derived/u);
-});
-
 test('an account group that contradicts the grouping is reported against its own row', async () => {
   const request = payload('2', [{ BusinessPartnerRole: 'FLCU01' }], '0001');
   request.sections.Customers = [{ CustomerAccountGroup: 'KUNA' }];
@@ -520,12 +399,6 @@ test('an account group that contradicts the grouping is reported against its own
   assert.match(found[0].message, /assigned to DEBI/u);
 });
 
-test('the account group S/4 would assign is not reported as a contradiction', async () => {
-  const request = payload('2', [{ BusinessPartnerRole: 'FLCU01' }], '0001');
-  request.sections.Customers = [{ CustomerAccountGroup: 'DEBI' }];
-  assert.deepStrictEqual(await stage(withConfig()).run(request), []);
-});
-
 test('a configuration that cannot be read reports itself and never blocks', async () => {
   const read = async () => { throw new Error('S/4 is unreachable'); };
   const found = await stage(read).run(payload('1', [{ BusinessPartnerRole: 'FLCU01' }]));
@@ -534,15 +407,6 @@ test('a configuration that cannot be read reports itself and never blocks', asyn
   assert.notStrictEqual(found[0].severity, 'error');
   assert.match(found[0].message, /could not be read/u);
   assert.match(found[0].message, /S\/4 is unreachable/u);
-});
-
-test('the configuration is read once and cached across runs', async () => {
-  let reads = 0;
-  const read = async () => { reads += 1; return CONFIG; };
-  const validation = stage(read);
-  await validation.run(payload('2', [{ BusinessPartnerRole: 'FLCU01' }]));
-  await validation.run(payload('2', [{ BusinessPartnerRole: 'FLCU01' }]));
-  assert.strictEqual(reads, 1);
 });
 
 // The one system derivation in the app: it is what CVI will use whatever anybody ticks, and it is

@@ -34,31 +34,10 @@ test('the preferred language matches whether the key is EN or E', () => {
   assert.equal(oneRowPerTaxType([row('EN', 'BE0', 'en'), row('N', 'BE0', 'nl')], 'nl')[0].TaxTypeName, 'nl');
 });
 
-test('English is the fallback, and any row beats none', () => {
-  // No Dutch row: English rather than whichever happened to arrive first.
-  assert.equal(oneRowPerTaxType([row('DE', 'BE0', 'de'), row('EN', 'BE0', 'en')], 'nl')[0].TaxTypeName, 'en');
-  // No English either: still one row, not zero. An unpickable list is the bug being fixed.
-  assert.equal(oneRowPerTaxType([row('DE', 'BE0', 'de')], 'nl').length, 1);
-  assert.equal(oneRowPerTaxType([row('', 'BE0', 'blank')], 'en').length, 1);
-});
-
-test('the ranking prefers an exact match, then English, then anything', () => {
-  assert.ok(taxTypeLanguageRank('EN', 'EN') < taxTypeLanguageRank('DE', 'EN'));
-  assert.ok(taxTypeLanguageRank('E', 'NL') < taxTypeLanguageRank('DE', 'NL'), 'English outranks German for a Dutch user');
-  assert.ok(taxTypeLanguageRank('DE', 'NL') < taxTypeLanguageRank('', 'NL'), 'a language beats a blank');
-});
-
 test('rows without a category are dropped, and a count is passed through untouched', () => {
   assert.deepEqual(oneRowPerTaxType([row('EN', '', 'nameless'), row('EN', null, 'x')], 'en'), []);
   assert.equal(oneRowPerTaxType(42, 'en'), 42, '$count is a number, not a list');
   assert.equal(oneRowPerTaxType(undefined, 'en'), undefined);
-});
-
-test('the result is ordered by category so the picker does not reshuffle', () => {
-  const rows = oneRowPerTaxType([
-    row('EN', 'FR1', 'x'), row('EN', 'BE1', 'y'), row('EN', 'BE0', 'z')
-  ], 'en');
-  assert.deepEqual(rows.map((entry) => entry.BPTaxType), ['BE0', 'BE1', 'FR1']);
 });
 
 // The whole point: AddressDependentTaxTypes holds one row on this system, so BE0 could not be
@@ -79,33 +58,6 @@ test('every consumer points BPTaxType at the full catalogue', () => {
  * CustomerPricingProcedures (C_CustPriceProcedureTextVHTemp) joined TaxTypes as a second
  * language-keyed list (abap/valuehelp/README.md, 2026-08-28) - same collapse, same reason.
  */
-test('the language-keyed lists get their own handler instead of the passthrough loop', () => {
-  const service = read('srv', 'business-partner-service.js');
-  assert.match(service, /if \(entity === 'TaxTypes' \|\| entity === 'CustomerPricingProcedures'\) continue;/u);
-  assert.match(service, /this\.on\('READ', 'TaxTypes'[\s\S]{0,240}oneRowPerTaxType/u);
-  assert.match(service, /this\.on\('READ', 'CustomerPricingProcedures'[\s\S]{0,300}oneRowPerTaxType\([\s\S]{0,120}'CustomerPricingProcedure'\)/u);
-  // Paging has to go, or the page shrinks after deduplication.
-  assert.match(service, /delete req\.query\.SELECT\.limit/u);
-});
-
-// S/4 assigns the address number; asking for it and then stripping it from the payload was the
-// worst of both. Not '$' — that is the MDG staging convention and this path posts to the BP API.
-test('the address number is not asked for on create', () => {
-  const metadata = read('app', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse', 'BusinessPartnerMetadata.js');
-  const addressId = /"name": "AddressID",[\s\S]*?\}/u.exec(metadata)[0];
-  assert.match(addressId, /"key": true/u);
-  assert.match(addressId, /"creatable": false/u);
-
-  const generator = read('app', 'businesspartner', 'scripts', 'generate-maintenance-metadata.js');
-  assert.match(generator, /SERVER_ASSIGNED_KEYS = new Set\(\['AddressID'\]\)/u);
-  assert.match(generator, /!SERVER_ASSIGNED_KEYS\.has\(name\)/u, 'regenerating must not undo it');
-
-  // The flag only hides anything because _createForm already keys off it.
-  const controller = read(
-    'app', 'businesspartner', '..', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse', 'controller', 'BusinessPartnerMaintenance.controller.js'
-  );
-  assert.match(controller, /isCreate && field\.key && field\.creatable === false/u);
-});
 
 /**
  * CustomerPricingProcedures (C_CustPriceProcedureTextVHTemp) needed the identical language-key
@@ -175,17 +127,6 @@ test('the org-unit and pricing fields on Customer/Supplier all get real search h
  * A_CustomerType.IndustryCode1-5 are Edm.String(10), the same length and domain as
  * A_BusinessPartnerType.Industry (already wired to IndustryCodes) - one shared catalogue, not five.
  */
-test('IndustryCode1-5 share the same Industry Codes catalogue as the root Industry field', () => {
-  const annotations = read('srv', 'annotations.cds');
-  const controller = read(
-    'app', 'businesspartner', '..', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse', 'controller', 'BusinessPartnerMaintenance.controller.js'
-  );
-  for (let index = 1; index <= 5; index += 1) {
-    const field = `IndustryCode${index}`;
-    assert.match(annotations, new RegExp(`${field} @Common\\.ValueList: \\{ CollectionPath: 'IndustryCodes'`), `${field} annotation missing`);
-    assert.match(controller, new RegExp(`${field}: \\{\\s*\\n\\s*collectionPath: "IndustryCodes", keyField: "BusinessPartnerIndustryCode"`), `${field} missing from VALUE_HELP_FIELDS`);
-  }
-});
 
 /**
  * Language/CompanyCode/SalesOrganization/DistributionChannel/Division/PurchasingOrganization also

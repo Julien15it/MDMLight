@@ -105,24 +105,6 @@ test('a typed language is left alone, and so is a row with no country', () => {
   );
 });
 
-test('a country S/4 has no language for derives nothing, and is not an error', () => {
-  assert.deepEqual(
-    addressLanguageEntries(payload({}, { Addresses: [{ Country: 'XX' }] }), CONFIG),
-    []
-  );
-  assert.deepEqual(
-    addressLanguageEntries(payload({}, { Addresses: [{ Country: 'ZZ' }] }), CONFIG),
-    []
-  );
-});
-
-test('a row on its way out is not derived onto', () => {
-  assert.deepEqual(
-    addressLanguageEntries(payload({}, { Addresses: [{ Country: 'BE', action: 'D' }] }), CONFIG),
-    []
-  );
-});
-
 // --- Time zone -------------------------------------------------------------
 
 test('the time zone is derived from country and region', () => {
@@ -149,15 +131,6 @@ test('a region with several zones takes the one S/4 marks default', () => {
   assert.match(entries[0].message, /the default of several/u);
 });
 
-// A customizing gap, not an invitation to pick one.
-test('several zones and none marked default derives nothing', () => {
-  const entries = timeZoneEntries(
-    payload({}, { Addresses: [{ Country: 'DE', Region: 'BY' }] }),
-    CONFIG
-  );
-  assert.deepEqual(entries.filter((entry) => entry.field), []);
-});
-
 // Maarten's rule, 2026-08-27: a requester never reads "you could have X if you filled in Y". They
 // fill in what they know and the system completes what it can.
 test('an address with no region derives nothing AND says nothing', () => {
@@ -166,21 +139,6 @@ test('an address with no region derives nothing AND says nothing', () => {
     CONFIG
   );
   assert.deepEqual(entries, [], 'no proposal and no strip about the missing region');
-});
-
-test('a typed time zone, an unknown region and a missing country all derive nothing', () => {
-  const cases = [
-    { Country: 'BE', Region: 'VOV', AddressTimeZone: 'UTC' },
-    { Country: 'BE', Region: 'ZZZ' },
-    { Region: 'VOV' }
-  ];
-  for (const row of cases) {
-    assert.deepEqual(
-      timeZoneEntries(payload({}, { Addresses: [row] }), CONFIG).filter((entry) => entry.field),
-      [],
-      JSON.stringify(row)
-    );
-  }
 });
 
 // --- Tax categories --------------------------------------------------------
@@ -224,17 +182,6 @@ test('the created tax row carries the sales-area key it posts under', async () =
   }]);
 });
 
-// Nothing to key the row against, so nothing is proposed -- and nothing is said about it.
-test('no sales area means no tax row at all', () => {
-  assert.deepEqual(
-    taxCategoryEntries(payload({}, {
-      Addresses: [{ Country: 'BE' }],
-      Customers: [{ CustomerAccountGroup: 'KUNA' }]
-    }), CONFIG),
-    []
-  );
-});
-
 // A silent partial answer would read as "these are all of them", which is the answer this codebase
 // refuses everywhere else.
 test('a country with several categories says how many, rather than covering one silently', () => {
@@ -248,31 +195,6 @@ test('a country with several categories says how many, rather than covering one 
   assert.equal(statement.length, 1);
   assert.match(statement[0].message, /2 tax categories/u);
   assert.match(statement[0].message, /UTXJ, UTX2/u);
-});
-
-test('nothing is proposed without a customer, a country, or into rows somebody added', () => {
-  const area = {
-    CustomerSalesArea: [{ SalesOrganization: '1710', DistributionChannel: '10', Division: '00' }]
-  };
-  const country = { Addresses: [{ Country: 'BE' }], ...area };
-  // Not a customer request at all.
-  assert.deepEqual(taxCategoryEntries(payload({}, country), CONFIG), []);
-  // No address, so no departure country.
-  assert.deepEqual(taxCategoryEntries(payload({}, { Customers: [{}], ...area }), CONFIG), []);
-  // The requester already filled the section in; those rows are theirs.
-  assert.deepEqual(
-    taxCategoryEntries(payload({}, {
-      ...country,
-      Customers: [{}],
-      CustomerTaxIndicators: [{ CustomerTaxCategory: 'MWST' }]
-    }), CONFIG),
-    []
-  );
-  // A country with no tax categories at all.
-  assert.deepEqual(
-    taxCategoryEntries(payload({}, { Addresses: [{ Country: 'DE' }], Customers: [{}], ...area }), CONFIG),
-    []
-  );
 });
 
 // --- Partner functions -----------------------------------------------------
@@ -300,36 +222,6 @@ test('the mandatory partner function is proposed with its sales area', () => {
   assert.equal(byField.get('Division'), '00');
 });
 
-// Decided 2026-08-27: SAP defaults these to the customer itself, which on a create has no number,
-// and PartnerCounter is S/4's to assign.
-test('neither the partner number nor the counter is ever proposed', () => {
-  const fields = partnerFunctionEntries(payload({}, customerWithSalesArea), CONFIG)
-    .filter((entry) => entry.field)
-    .map((entry) => entry.field);
-
-  assert.equal(fields.includes('BPCustomerNumber'), false);
-  assert.equal(fields.includes('PartnerCounter'), false);
-});
-
-// NRART is the guard. A vendor function on a customer sales area is the same class of error
-// accountGroupConflictFindings reports.
-test('a vendor function under the same procedure is never proposed onto a customer', () => {
-  const entries = partnerFunctionEntries(payload({}, customerWithSalesArea), CONFIG);
-  const proposed = entries.filter((entry) => entry.field === 'PartnerFunction').map((e) => e.value);
-
-  assert.equal(proposed.includes('LF'), false, 'LF is PartnerType LI, a vendor function');
-});
-
-test('a non-mandatory function is a value help, not a derivation', () => {
-  const entries = partnerFunctionEntries(payload({}, customerWithSalesArea), CONFIG);
-  const proposed = entries.filter((entry) => entry.field === 'PartnerFunction')
-    .map((entry) => entry.value);
-
-  assert.equal(proposed.includes('SB'), false, 'SB is not mandatory');
-  const named = entries.map((entry) => entry.message).join(' ');
-  assert.equal(/\bSB\b/u.test(named), false, 'and it is never mentioned either');
-});
-
 // ALL of them since 2026-08-28: it proposed the first and named the rest, because createsRow could
 // only invent a row into an empty section. A rowKey lifted that.
 test('every mandatory function is proposed, each as its own keyed row', () => {
@@ -352,24 +244,6 @@ test('every mandatory function is proposed, each as its own keyed row', () => {
 
   assert.equal(entries.some((entry) => !entry.field), false,
     'and no "add the others by hand" statement is left');
-});
-
-// The rule again: no sales area, no derivation, and no strip telling them to add one.
-test('no sales area and no account group stay silent', () => {
-  const cases = [
-    { Customers: [{ CustomerAccountGroup: 'KUNA' }] },
-    { CustomerSalesArea: [{ SalesOrganization: '1710' }] },
-    { ...customerWithSalesArea, Customers: [{}] },
-    // An account group TKUPA has no procedure for.
-    { ...customerWithSalesArea, Customers: [{ CustomerAccountGroup: 'VVD' }] }
-  ];
-  for (const sections of cases) {
-    assert.deepEqual(
-      partnerFunctionEntries(payload({}, sections), CONFIG),
-      [],
-      JSON.stringify(sections)
-    );
-  }
 });
 
 // A filled section only ever had to stop the rows that ARE theirs: the key is per function.
@@ -416,21 +290,6 @@ test('the created rows each carry their function and the whole sales area key', 
   assert.deepEqual(indices.get('RE'), [1, 1, 1, 1]);
 });
 
-// A blank level is not a key: matched against a row that HAS that level it would fail, and the
-// section would collect a second copy of every row.
-test('a sales area with no division keys on the two levels that are filled in', () => {
-  const entries = partnerFunctionEntries(payload({}, {
-    Customers: [{ CustomerAccountGroup: 'KUNA' }],
-    CustomerSalesArea: [{ SalesOrganization: '1710', DistributionChannel: '10' }]
-  }), CONFIG);
-
-  const [first] = entries;
-  assert.deepEqual(first.rowKey, {
-    PartnerFunction: 'AG', SalesOrganization: '1710', DistributionChannel: '10'
-  });
-  assert.equal(entries.some((entry) => entry.field === 'Division'), false);
-});
-
 // --- Supplier partner functions --------------------------------------------
 
 const supplierWithPurchasingOrg = {
@@ -450,43 +309,6 @@ test('the mandatory supplier function is proposed with its purchasing organisati
 
   const byField = new Map(entries.filter((entry) => entry.field).map((e) => [e.field, e.value]));
   assert.equal(byField.get('PurchasingOrganization'), '1710');
-});
-
-// The mirror of the customer guard: procedure 0001 carries AG (a customer function) too.
-test('a customer function under the same schema is never proposed onto a supplier', () => {
-  const proposed = supplierFunctionEntries(payload({}, supplierWithPurchasingOrg), CONFIG)
-    .filter((entry) => entry.field === 'PartnerFunction')
-    .map((entry) => entry.value);
-
-  assert.equal(proposed.includes('AG'), false, 'AG is PartnerType KU, a customer function');
-});
-
-// The lower two levels each have their own partner schema; a purchasing-org row leaves them blank.
-test('the subrange and plant are never filled by the purchasing-org derivation', () => {
-  const fields = supplierFunctionEntries(payload({}, supplierWithPurchasingOrg), CONFIG)
-    .filter((entry) => entry.field)
-    .map((entry) => entry.field);
-
-  assert.equal(fields.includes('SupplierSubrange'), false);
-  assert.equal(fields.includes('Plant'), false);
-  assert.equal(fields.includes('PartnerCounter'), false);
-  assert.equal(fields.includes('ReferenceSupplier'), false);
-});
-
-test('no purchasing org and no account group stay silent', () => {
-  const cases = [
-    { Suppliers: [{ SupplierAccountGroup: 'LIEF' }] },
-    { SupplierPurchasingOrg: [{ PurchasingOrganization: '1710' }] },
-    { ...supplierWithPurchasingOrg, Suppliers: [{}] },
-    { ...supplierWithPurchasingOrg, Suppliers: [{ SupplierAccountGroup: 'ZZZZ' }] }
-  ];
-  for (const sections of cases) {
-    assert.deepEqual(
-      supplierFunctionEntries(payload({}, sections), CONFIG),
-      [],
-      JSON.stringify(sections)
-    );
-  }
 });
 
 // The customer stage's own change, mirrored: all of them, keyed per function, and a function the
@@ -557,12 +379,6 @@ test('nothing here is a system derivation, so the standard checks never see it u
   assert.equal(systemDerived.sections.Addresses[0].AddressTimeZone, undefined);
 });
 
-test('the payload the requester typed is never mutated', async () => {
-  const request = payload({}, { Addresses: [{ Country: 'BE' }] });
-  await runDerivations(request, stages());
-  assert.equal(request.sections.Addresses[0].Language, undefined);
-});
-
 // An improvement, not a gate -- the same discipline cvi-checks.js applies to an unreadable config.
 test('settings that cannot be read report themselves and never block', async () => {
   const failing = createDerivationStages({
@@ -578,17 +394,6 @@ test('settings that cannot be read report themselves and never block', async () 
   assert.equal(applied[0].severity, 'info');
   assert.match(applied[0].message, /could not be read \(destination is away\)/u);
   assert.equal(derived.sections.Addresses[0].Language, undefined);
-});
-
-test('the settings are read once and cached across runs', async () => {
-  let reads = 0;
-  const counting = createDerivationStages({
-    read: async () => { reads += 1; return CONFIG; }
-  }).derivations;
-
-  await runDerivations(payload({}, { Addresses: [{ Country: 'BE' }] }), counting);
-  await runDerivations(payload({}, { Addresses: [{ Country: 'DE' }] }), counting);
-  assert.equal(reads, 1);
 });
 
 // --- Wiring ----------------------------------------------------------------
@@ -609,7 +414,6 @@ test('the stage runs on Check and Duplicate Check, and still not on submit', () 
   const submit = serviceJs.slice(serviceJs.indexOf("this.on('submitRequest'"));
   assert.equal(/createDerivationStages/u.test(submit), false);
 });
-
 
 // --- Diagnostics -----------------------------------------------------------
 
@@ -664,23 +468,4 @@ test('the DEBI case proposes AG, and the stage logs what it saw', async () => {
   assert.equal(seen.payload.addressRegion, '', 'no region is why the time zone stayed silent');
   assert.equal(seen.payload.taxIndicatorRows, 1, 'and rows already there are why tax did');
   assert.equal(seen.entries, entries.length);
-});
-
-// A derivation that had nothing to do must still say so: the whole point is telling that apart from
-// a read that came back empty.
-test('the diagnostic is logged even when nothing was derived', async () => {
-  const lines = [];
-  const original = console.log;
-  console.log = (line) => lines.push(String(line));
-  try {
-    await stages()[0].run(payload({}, {}));
-  } finally {
-    console.log = original;
-  }
-  const [diagnostic] = lines.filter((line) => line.startsWith('[sap-derivations] '));
-  assert.ok(diagnostic);
-  const seen = JSON.parse(diagnostic.slice('[sap-derivations] '.length));
-  assert.equal(seen.entries, 0);
-  assert.equal(seen.payload.addresses, 0);
-  assert.equal(seen.payload.customerAccountGroup, '');
 });

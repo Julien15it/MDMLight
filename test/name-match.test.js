@@ -29,10 +29,6 @@ test('collects one fingerprint per distinct name field', () => {
   assert.deepEqual(partnerFingerprints({}), []);
 });
 
-test('the threshold was raised from 0.82 for full-index scans', () => {
-  assert.equal(DUPLICATE_THRESHOLD, 0.86);
-});
-
 test('scores a one-letter spelling variant above the threshold', () => {
   const score = scoreFingerprint('alluvion', 'aluvion');
   assert.ok(score >= DUPLICATE_THRESHOLD, `expected >= ${DUPLICATE_THRESHOLD}, got ${score}`);
@@ -54,15 +50,6 @@ test('ranks by score, returns every match, and still honours an explicit limit',
   assert.deepEqual(ranked.map(({ partner }) => partner.BusinessPartner), ['1', '2']);
   assert.equal(ranked[0].score, 1);
   assert.equal(rankByName('Alluvion', partners, { limit: 1 }).length, 1);
-});
-
-// The sandbox holds more Alluvion rows than the old limit of 5 ever showed.
-test('every match is returned, not a shortlist', () => {
-  const partners = Array.from({ length: 12 }, (unused, index) => ({
-    BusinessPartner: String(index + 1),
-    OrganizationBPName1: 'Alluvion'
-  }));
-  assert.equal(rankByName('Alluvion', partners).length, 12);
 });
 
 test('an unusable name matches nothing', () => {

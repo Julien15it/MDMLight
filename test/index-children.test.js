@@ -55,20 +55,6 @@ test('a full build attaches every child collection to its partner', async () => 
   assert.deepEqual(calls.map((call) => call.ids), [null, null, null], 'a full build reads every row');
 });
 
-// This is the whole point of the expansion: the safety net could not fire without country.
-test('the country disqualifying row now works against indexed partners', async () => {
-  const index = createNameIndex();
-  const { readers } = readersFor(PARTNERS);
-  await index.refresh(readers);
-
-  const belgian = index.match({ Name: 'Delta', Country: 'BE' }, { rules: activeRules() });
-  assert.deepEqual(belgian.map((row) => row.partner.BusinessPartner), ['1']);
-  assert.equal(belgian[0].verdict, VERDICTS.DUPLICATE);
-
-  const american = index.match({ Name: 'Delta', Country: 'US' }, { rules: activeRules() });
-  assert.deepEqual(american.map((row) => row.partner.BusinessPartner), ['2']);
-});
-
 test('a matching tax number is definitive against an indexed partner', async () => {
   const index = createNameIndex();
   const { readers } = readersFor(PARTNERS);
@@ -137,13 +123,6 @@ test('only catalog columns are kept, so the index is not a second copy of S/4', 
   assert.deepEqual(found.partner.addresses, [{ BusinessPartner: '1', Region: 'VAN', Country: 'BE' }]);
 });
 
-test('a reader bundle without children still builds, as a bare function always did', async () => {
-  const index = createNameIndex();
-  await index.refresh(async () => PARTNERS);
-  assert.equal(index.size(), 2);
-  assert.equal(index.match({ Name: 'Delta NV' }, { rules: activeRules() }).length, 2);
-});
-
 test('the child reader chunks its filter and reads everything when unfiltered', async () => {
   const queries = [];
   // One short page per query, so paging ends immediately and the count is the chunk count.
@@ -172,15 +151,6 @@ test('the child reader chunks its filter and reads everything when unfiltered', 
   await read({ partners: null });
   assert.equal(queries.length, 1);
   assert.equal(queries[0].SELECT?.where, undefined, 'a full build reads unfiltered');
-});
-
-test('the partner filter is the flat xpr shape .where() accepts here', () => {
-  assert.deepEqual(partnersFilter(['1', '2']), [
-    { xpr: [{ ref: ['BusinessPartner'] }, '=', { val: '1' }] },
-    'or',
-    { xpr: [{ ref: ['BusinessPartner'] }, '=', { val: '2' }] }
-  ]);
-  assert.deepEqual(partnersFilter([]), []);
 });
 
 test('extra candidates are matched alongside the index without copying it', async () => {

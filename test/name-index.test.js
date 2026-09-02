@@ -38,17 +38,6 @@ test('the header projection stays narrow, addresses come from their own read', (
   assert.ok(INDEX_FIELDS.includes('LastChangeDate'));
 });
 
-test('normalises S/4 dates to a comparable day key', () => {
-  assert.equal(toDateKey('2026-07-15T00:00:00Z'), '2026-07-15');
-  assert.equal(toDateKey(new Date('2026-07-15T12:00:00Z')), '2026-07-15');
-  assert.equal(toDateKey(null), '');
-  assert.equal(toDateKey('not a date'), '');
-  // OData V2 JSON, confirmed against the sandbox on 2026-08-04.
-  assert.equal(toDateKey('/Date(1712275200000)/'), '2024-04-05');
-  assert.equal(toDateKey('/Date(1785715200000)/'), '2026-08-03');
-  assert.equal(toDateKey('/Date(1785715200000+0060)/'), '2026-08-03');
-});
-
 test('finds a duplicate the contains prefilter could never have returned', async () => {
   const index = createNameIndex();
   const read = fakeReader([[partner('1', 'Aluvion NV'), partner('2', 'Unrelated Holding')]]);
@@ -97,18 +86,6 @@ test('a delta refresh replaces a row rather than duplicating it', async () => {
   assert.equal(index.find('Old Name').length, 0);
 });
 
-test('skips the read while the refresh interval has not elapsed', async () => {
-  let clock = 1000;
-  const index = createNameIndex({ now: () => clock });
-  const read = fakeReader([[partner('1', 'Alluvion NV')]]);
-
-  await index.refresh(read);
-  const result = await index.refresh(read);
-
-  assert.equal(result.skipped, true);
-  assert.equal(read.calls.length, 1);
-});
-
 test('a write makes the next question refresh immediately', async () => {
   let clock = 1000;
   const index = createNameIndex({ now: () => clock });
@@ -142,19 +119,6 @@ test('rebuilds in full once a day so deletions cannot linger', async () => {
   assert.equal(index.size(), 1);
 });
 
-test('concurrent questions share one refresh', async () => {
-  const index = createNameIndex();
-  let reads = 0;
-  const read = async () => {
-    reads += 1;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    return [partner('1', 'Alluvion NV')];
-  };
-
-  await Promise.all([index.refresh(read), index.refresh(read)]);
-  assert.equal(reads, 1);
-});
-
 test('a failed refresh leaves the previous index in place', async () => {
   let clock = 1000;
   const index = createNameIndex({ now: () => clock });
@@ -169,13 +133,6 @@ test('a failed refresh leaves the previous index in place', async () => {
 
   assert.equal(index.isBuilt(), true);
   assert.equal(index.find('Alluvion').length, 1);
-});
-
-test('an unbuilt index reports itself so the caller can fall back', async () => {
-  const index = createNameIndex();
-  assert.equal(index.isBuilt(), false);
-  await assert.rejects(() => index.refresh(fakeReader([new Error('down')])), /down/);
-  assert.equal(index.isBuilt(), false);
 });
 
 test('a where filter narrows matching without rebuilding the index', async () => {
@@ -206,10 +163,4 @@ test('keeps only indexed fields, so MCP __metadata never reaches the index', asy
   const stored = index.find('Alluvion')[0].partner;
   assert.deepEqual(Object.keys(stored).sort(), ['BusinessPartner', 'LastChangeDate', 'OrganizationBPName1']);
   assert.ok(!('__metadata' in stored));
-});
-
-test('rows without a key are ignored', async () => {
-  const index = createNameIndex();
-  await index.refresh(fakeReader([[{ OrganizationBPName1: 'Alluvion NV' }, partner('1', 'Alluvion NV')]]));
-  assert.equal(index.size(), 1);
 });

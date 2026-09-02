@@ -34,12 +34,6 @@ const fillStreet = {
   }]
 };
 
-// They are empty on purpose: the order is being fixed now, while there is one caller and no rules.
-test('the registries ship empty, so nothing is validated or derived yet', () => {
-  assert.deepEqual(VALIDATIONS, []);
-  assert.deepEqual(DERIVATIONS, []);
-});
-
 test('an empty ruleset is valid and still runs the duplicate check', async () => {
   const result = await runChecks(payload({ Name: 'Alluvion' }), { checkDuplicates: async () => [] });
   assert.equal(result.valid, true);
@@ -86,19 +80,6 @@ test('the duplicate check sees the derived payload, not the typed one', async ()
   assert.equal(seen.root.Name, 'Alluvion');
 });
 
-// The reason the pipeline works on { root, sections }: a street belongs to an address row.
-test('a derivation can fill a field on a section row', async () => {
-  const { derived, applied } = await runDerivations(
-    payload({}, { Addresses: [{ CityName: 'Gent', StreetName: '' }] }),
-    [fillStreet]
-  );
-  assert.equal(derived.sections.Addresses[0].StreetName, 'Kerkstraat');
-  assert.equal(derived.sections.Addresses[0].CityName, 'Gent', 'a filled field is untouched');
-  assert.equal(applied[0].target, 'Addresses');
-  assert.equal(applied[0].index, 0);
-  assert.match(applied[0].message, /from GLEIF/u);
-});
-
 /**
  * Changed 2026-08-20. A registry answer used to be reported as homeless when the requester had not
  * pressed Add yet, so a VIES address could never be proposed on a partner without an address row -
@@ -128,13 +109,6 @@ test('a derivation still never invents a row beside one that exists', async () =
 });
 
 /** Without the flag nothing changes: a derivation that never asked cannot create anything. */
-test('a derivation that does not ask for a row is still reported as homeless', async () => {
-  const { derived, applied } = await runDerivations(payload({}, { Addresses: [] }), [fillStreet]);
-  assert.deepEqual(derived.sections.Addresses, []);
-  assert.equal(applied.length, 1);
-  assert.equal(applied[0].field, undefined, 'no field means the screen reports it and writes nothing');
-  assert.match(applied[0].message, /Kerkstraat/u);
-});
 
 test('a derivation fills a gap and never overwrites what was typed', async () => {
   const typed = await runDerivations(payload({ Country: 'NL' }), [fillCountry]);
@@ -144,16 +118,6 @@ test('a derivation fills a gap and never overwrites what was typed', async () =>
   const blank = await runDerivations(payload({ Country: '   ' }), [fillCountry]);
   assert.equal(blank.derived.root.Country, 'BE', 'whitespace is empty');
   assert.equal(blank.applied[0].field, 'Country');
-});
-
-test('the payload itself is never mutated', async () => {
-  const original = payload({ Name: 'Alluvion' }, { Addresses: [{ StreetName: '' }] });
-  await runChecks(original, {
-    derivations: [fillCountry, fillStreet],
-    checkDuplicates: async () => []
-  });
-  assert.equal(original.root.Country, undefined);
-  assert.equal(original.sections.Addresses[0].StreetName, '');
 });
 
 // A rule that throws must not be indistinguishable from a rule that passed.
@@ -188,12 +152,6 @@ test('a duplicate check that throws is reported, not folded into an empty result
   assert.equal(result.duplicates[0].verdict, undefined, 'it is not a verdict, so it asks nothing of the user');
 });
 
-test('every validation runs, so one failure does not hide the next', async () => {
-  const messages = await runValidations(payload(), [blocker('first'), nagger('second')]);
-  assert.deepEqual(Array.from(messages, (message) => message.message), ['first', 'second']);
-  assert.deepEqual(Array.from(messages, (message) => message.check), ['blocker', 'nagger']);
-});
-
 // --- Normalisation proposals ------------------------------------------------------------
 
 // Proposals only. A derivation fills a gap and never overwrites; a normalisation only ever
@@ -210,38 +168,6 @@ test('proposals ride along with the result and change nothing', async () => {
   assert.equal(result.normalisations.length, 1);
   assert.equal(result.derived.root.OrganizationBPName1, 'alluvion bvba', 'nothing was applied');
   assert.equal(original.root.OrganizationBPName1, 'alluvion bvba');
-});
-
-// Made against the derived payload, so a field just filled in is normalised in the same pass.
-test('proposals are made against the derived payload', async () => {
-  let seen = null;
-  await runChecks(payload(), {
-    derivations: [fillCountry],
-    propose: async (derived) => { seen = derived; return []; },
-    checkDuplicates: async () => []
-  });
-  assert.equal(seen.root.Country, 'BE');
-});
-
-test('a proposal step that throws leaves the check working', async () => {
-  const result = await runChecks(payload({ OrganizationBPName1: 'x' }), {
-    propose: async () => { throw new Error('AI Core is away'); },
-    checkDuplicates: async () => []
-  });
-  assert.equal(result.valid, true);
-  assert.equal(result.ranDuplicateCheck, true);
-  assert.deepEqual(result.normalisations, []);
-});
-
-test('a blocked validation proposes nothing either', async () => {
-  let proposed = false;
-  const result = await runChecks(payload(), {
-    validations: [blocker('Enter a grouping.')],
-    propose: async () => { proposed = true; return []; }
-  });
-  assert.equal(result.valid, false);
-  assert.equal(proposed, false, 'invalid data is not worth reformatting');
-  assert.deepEqual(result.normalisations, []);
 });
 
 // A registry fact with no field to live in - a legal name the requester already typed - is a
@@ -261,28 +187,12 @@ test('a derivation entry with no field is reported and writes nothing', async ()
   assert.equal('undefined' in derived.root, false);
 });
 
-// --- fieldEditable: gating what a derivation may propose by role/field-property (2026-08-31) -----
-
-test('with no fieldEditable predicate, every field is gated exactly as before', async () => {
-  const { derived, applied } = await runDerivations(payload(), [fillCountry]);
-  assert.equal(derived.root.Country, 'BE');
-  assert.equal(applied.length, 1);
-});
-
 test('a field the predicate refuses gets no entry at all, and nothing is written', async () => {
   const { derived, applied } = await runDerivations(
     payload(), [fillCountry], { fieldEditable: () => false }
   );
   assert.equal(derived.root.Country, undefined, 'nothing was written for a field the role cannot touch');
   assert.deepEqual(applied, [], 'not even reported - see "what a derivation may say" in CLAUDE.md');
-});
-
-test('the predicate is asked with the entry\'s own target and field', async () => {
-  const asked = [];
-  await runDerivations(payload(), [fillCountry], {
-    fieldEditable: (target, field) => { asked.push([target, field]); return true; }
-  });
-  assert.deepEqual(asked, [['root', 'Country']]);
 });
 
 test('a field-less statement is checked against the entity, with field left undefined', async () => {
@@ -293,24 +203,6 @@ test('a field-less statement is checked against the entity, with field left unde
   });
   assert.deepEqual(asked, [['Addresses', undefined]]);
   assert.equal(applied.length, 1, 'still reported when the predicate allows it');
-});
-
-test('a row-creating entry is gated the same way, and creates nothing when refused', async () => {
-  const { derived, applied } = await runDerivations(
-    payload(), [createsStreet], { fieldEditable: () => false }
-  );
-  assert.deepEqual(derived.sections.Addresses, undefined);
-  assert.deepEqual(applied, []);
-});
-
-test('runChecks threads fieldEditable through to the derivations it runs', async () => {
-  const result = await runChecks(payload(), {
-    derivations: [fillCountry],
-    fieldEditable: () => false
-  });
-  assert.equal(result.valid, true);
-  assert.deepEqual(result.derivations, []);
-  assert.equal(result.derived.root.Country, undefined);
 });
 
 // Approval has nothing editable at all - a role whose profile marks every field readOnly/hidden

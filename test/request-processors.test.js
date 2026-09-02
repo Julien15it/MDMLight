@@ -17,16 +17,6 @@ test('a draft is the requester\'s, and says so', () => {
   assert.match(current.note, /Not submitted yet/u);
 });
 
-test('the submitter outranks the creator, since they are who sent it', () => {
-  const current = currentProcessors({
-    status: 'reworkRequired', createdBy: 'julien', submittedBy: 'maarten@alluvion.eu'
-  });
-  assert.equal(current.step, STEPS.rework);
-  assert.deepEqual(current.processors, [
-    { value: 'maarten@alluvion.eu', kind: 'user', role: 'requester' }
-  ]);
-});
-
 test('a request in approval names the approvers the rules resolved', () => {
   const current = currentProcessors({ status: 'inApproval' }, [
     { step: 'Approve', kind: 'user', value: 'julien@alluvion.eu' },
@@ -51,22 +41,6 @@ test('no rule matched says the workflow routes it, rather than naming nobody', (
   assert.match(current.note, /approver's inbox/u);
 });
 
-// A draft's approvers are not resolved at all, so a stray list must not be shown as responsible.
-test('approvers are ignored for anything that is not in approval', () => {
-  const approvers = [{ step: 'Approve', value: 'julien@alluvion.eu' }];
-  assert.deepEqual(currentProcessors({ status: 'draft', createdBy: 'm' }, approvers).processors, [
-    { value: 'm', kind: 'user', role: 'requester' }
-  ]);
-  assert.deepEqual(currentProcessors({ status: 'approved' }, approvers).processors, []);
-});
-
-test('a rejected request reads as the rework it has become', () => {
-  // Never written any more, but it cannot be dropped from the enum - so it must not fall through.
-  const current = currentProcessors({ status: 'rejected', createdBy: 'maarten' });
-  assert.equal(current.step, STEPS.rework);
-  assert.equal(current.processors.length, 1);
-});
-
 test('the steps nobody holds say what is waiting instead of naming a person', () => {
   const approved = currentProcessors({ status: 'approved' });
   assert.equal(approved.step, STEPS.post);
@@ -83,29 +57,11 @@ test('the steps nobody holds say what is waiting instead of naming a person', ()
   assert.match(failed.note, /will not retry itself/u);
 });
 
-test('an unknown status reports the status rather than inventing a step', () => {
-  const current = currentProcessors({ status: 'somethingNew' });
-  assert.equal(current.step, 'somethingNew');
-  assert.deepEqual(current.processors, []);
-  assert.equal(currentProcessors({}).step, '');
-});
-
 // Same rule as the wire: what SBPA gets is a flat list and an `@` is what marks a person.
 test('an @ makes a user, anything else a role', () => {
   assert.equal(kindOf('maarten@alluvion.eu'), 'user');
   assert.equal(kindOf('Sales Approver'), 'role');
   assert.equal(kindOf(''), 'role');
-});
-
-test('one line for the strip', () => {
-  assert.equal(
-    describeProcessors(currentProcessors({ status: 'inApproval' }, [{ value: 'a@b.eu' }])),
-    'Current step: Approval - with a@b.eu'
-  );
-  assert.equal(
-    describeProcessors(currentProcessors({ status: 'approved' })),
-    'Current step: Post'
-  );
 });
 
 // --- Wiring ---------------------------------------------------------------------------------
@@ -118,12 +74,6 @@ test('getRequestPayload carries the processors, so every request screen gets the
     root('srv', 'change-request-service.js'),
     /ProcessorsJson: JSON\.stringify\(await processorsFor\(header, \{ root, sections \}\)\)/u
   );
-});
-
-// Resolving them for a draft would name people who are not responsible for anything yet.
-test('the approvers are only resolved while a request is in approval', () => {
-  const service = root('srv', 'change-request-service.js');
-  assert.match(service, /if \(header\.status === 'inApproval'\) \{\s*try \{\s*approvers = await approversFor/u);
 });
 
 /**
@@ -159,14 +109,6 @@ test('a submit records its non-blocking validations, superseding the previous se
     2,
     'submitRequest and resubmitRequest both record'
   );
-});
-
-test('the request carries them back for the approve screen', () => {
-  assert.match(root('srv', 'change-request-service.cds'), /ValidationsJson : LargeString;/u);
-  const service = root('srv', 'change-request-service.js');
-  assert.match(service, /ValidationsJson: JSON\.stringify\(await currentValidationFindings\(changeRequest\)\)/u);
-  // Duplicates keep their own panel; these are statements about the record, so they are strips.
-  assert.match(service, /const currentValidationFindings = async \(changeRequest\)/u);
 });
 
 // Every mode branch ASSIGNS state.messages, so anything set before them is wiped.

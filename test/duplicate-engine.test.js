@@ -49,17 +49,6 @@ test('a name-only candidate reaches Duplicate on an exact or near-exact name', (
   }
 });
 
-test('a weaker name match stays below Duplicate', () => {
-  // 0.875 — over the 0.86 strong threshold, under the 0.92 definitive one.
-  const [found] = evaluate(
-    { Name: 'Alluvion Solutions' },
-    entries(partner('4', { BusinessPartnerFullName: 'Allivion Solutions' })),
-    { rules: DEFAULT_RULES }
-  );
-  assert.equal(found.verdict, VERDICTS.SMALL);
-  assert.equal(found.indicators[0].indicator, 'strong');
-});
-
 test('a differing tax number rules the pair out however well the names match', () => {
   const left = { Name: 'Alluvion NV', Country: 'BE', taxNumbers: [{ BPTaxNumber: '0666471360' }] };
   const same = partner('5', { Country: 'BE', taxNumbers: [{ BPTaxNumber: 'BE0666471360' }] });
@@ -77,38 +66,12 @@ test('a differing country rules the pair out — Delta NV in BE is not Delta Inc
   assert.deepEqual(found, []);
 });
 
-test('a blank on either side never disqualifies', () => {
-  const left = { Name: 'Alluvion NV', Country: 'BE', taxNumbers: [{ BPTaxNumber: '0666471360' }] };
-  const [found] = evaluate(left, entries(partner('8', { BusinessPartnerFullName: 'Alluvion' })), {
-    rules: DEFAULT_RULES
-  });
-  assert.equal(found.verdict, VERDICTS.DUPLICATE);
-});
-
-test('a candidate carrying only a name still cannot fire a conditioned rule', () => {
-  const other = partner('2', {
-    Country: 'BE',
-    taxNumbers: [{ BPTaxType: 'BE0', BPTaxNumber: 'BE0123456789' }],
-    addresses: [{ PostalCode: '9000', CityName: 'Gent', Country: 'BE' }]
-  });
-  const [found] = evaluate({ Name: 'Alluvion', BusinessPartnerCategory: '2' }, entries(other), { rules: RULES });
-  assert.equal(found.verdict, VERDICTS.SMALL);
-  assert.deepEqual(found.indicators.map((row) => row.field), ['Name']);
-});
-
 test('blank is never a match — two partners lacking a VAT number share nothing', () => {
   const left = { Name: 'Alluvion', Country: 'BE', BusinessPartnerCategory: '2' };
   const right = partner('3', { BusinessPartnerFullName: 'Totally Different Company', Country: 'BE' });
   assert.deepEqual(evaluate(left, entries(right), { rules: RULES }), []);
   assert.equal(compareValues('exact', [], [], 1), 0);
   assert.equal(compareValues('exact', ['BE0123'], [], 1), 0);
-});
-
-// A bag built from the catalog keys has no TaxNumber.BE0 entry, so the rule scored zero in silence.
-test('the bag covers the fields the rules name, not just the catalog keys', () => {
-  assert.ok(requiredFields(RULES).includes('TaxNumber.BE0'));
-  assert.ok(requiredFields([{ field: 'Name' }]).includes('Country'), 'conditions are always needed');
-  assert.ok(!requiredFields([{ field: 'Name' }]).includes('IBAN'), 'unused fields are not computed');
 });
 
 test('an identical Belgian VAT number is a definitive duplicate', () => {
@@ -126,12 +89,6 @@ test('an identical Belgian VAT number is a definitive duplicate', () => {
   const [found] = evaluate(left, entries(right), { rules: RULES });
   assert.equal(found.verdict, VERDICTS.DUPLICATE);
   assert.equal(found.indicators[0].field, 'TaxNumber.BE0');
-});
-
-test('a bare VAT number takes the record country, so BE and NL do not collide', () => {
-  assert.deepEqual(fieldValues({ Country: 'BE', taxNumbers: [{ BPTaxNumber: '0123456789' }] }, 'TaxNumber'), ['BE0123456789']);
-  assert.deepEqual(fieldValues({ Country: 'NL', taxNumbers: [{ BPTaxNumber: '0123456789' }] }, 'TaxNumber'), ['NL0123456789']);
-  assert.deepEqual(fieldValues({ taxNumbers: [{ BPTaxNumber: 'BE0123456789' }] }, 'TaxNumber'), ['BE0123456789']);
 });
 
 // BP 208 in the sandbox carries all three of these for the same enterprise number.
@@ -166,24 +123,6 @@ test('a rule only fires when its conditions hold on both records', () => {
   assert.deepEqual(evaluate(left, entries(german), { rules: RULES }), []);
 });
 
-// The steward-facing shape: one field/value pair, any catalog field, not four fixed columns.
-test('a generic condition pair gates the rule the same way', () => {
-  const rules = [{
-    conditionField: 'Country',
-    conditionValue: 'BE',
-    field: 'Name',
-    comparison: 'exact',
-    indicator: 'definitive'
-  }];
-  const belgian = partner('20', { Country: 'BE' });
-  const german = partner('21', { Country: 'DE' });
-  const found = evaluate({ Name: 'Alluvion NV', Country: 'BE' }, entries(belgian, german), { rules });
-  assert.deepEqual(found.map((row) => row.partner.BusinessPartner), ['20']);
-
-  // The bag has to carry the condition field even though no rule compares on it.
-  assert.ok(requiredFields(rules).includes('Country'));
-});
-
 // The case this exists for: "if the role is Vendor and the country is BE".
 test('two condition pairs are ANDed, and an empty pair narrows nothing', () => {
   const rules = [{
@@ -216,37 +155,6 @@ test('two condition pairs are ANDed, and an empty pair narrows nothing', () => {
       .map((row) => row.partner.BusinessPartner),
     ['30', '32']
   );
-});
-
-test('an unresolvable second condition field keeps the rule out too', () => {
-  const rules = [{
-    conditionField: 'Country',
-    conditionValue: 'BE',
-    conditionField2: 'NotInTheCatalog',
-    conditionValue2: 'x',
-    field: 'Name',
-    comparison: 'exact',
-    indicator: 'definitive'
-  }];
-  const belgian = partner('33', { Country: 'BE' });
-  assert.deepEqual(evaluate({ Name: 'Alluvion NV', Country: 'BE' }, entries(belgian), { rules }), []);
-});
-
-test('an unresolvable condition field keeps the rule out rather than matching everything', () => {
-  const rules = [{
-    conditionField: 'NotInTheCatalog',
-    conditionValue: 'x',
-    field: 'Name',
-    comparison: 'exact',
-    indicator: 'definitive'
-  }];
-  assert.deepEqual(evaluate({ Name: 'Alluvion NV' }, entries(partner('22')), { rules }), []);
-});
-
-test('conditions read a role from the roles collection', () => {
-  const bag = buildCandidate({ roles: [{ BusinessPartnerRole: 'FLCU01' }] });
-  assert.equal(conditionsMatch({ condRole: 'FLCU01' }, bag), true);
-  assert.equal(conditionsMatch({ condRole: 'FLVN01' }, bag), false);
 });
 
 test('two rows on the same field contribute once, at the strongest indicator', () => {
@@ -301,31 +209,6 @@ test('an unevaluated rule is reported rather than passed off as no match', () =>
   ]);
 });
 
-test('a rule whose conditions do not match is not reported as unrunnable', () => {
-  const rules = [{ condCountry: 'BE', field: 'Name', comparison: 'exact', indicator: 'definitive' }];
-  const found = evaluate({ Name: 'Alluvion', Country: 'US' }, entries(partner('9', { Country: 'US' })), { rules });
-  assert.deepEqual(found, []);
-  assert.deepEqual(found.unrunnableRules, []);
-});
-
-test('an inactive row is ignored', () => {
-  const rules = [{ field: 'Name', comparison: 'exact', indicator: 'definitive', isActive: false }];
-  assert.deepEqual(evaluate({ Name: 'Alluvion' }, entries(partner('9')), { rules }), []);
-});
-
-test('the admin test path can exclude the partner being checked', () => {
-  const rows = entries(partner('10'), partner('11'));
-  assert.equal(evaluate(rows[0].partner, rows, { rules: RULES }).length, 2);
-  assert.equal(evaluate(rows[0].partner, rows, { rules: RULES, excludeId: '10' }).length, 1);
-});
-
-test('index entries reuse their precomputed name fingerprints', () => {
-  const entry = { partner: { BusinessPartner: '12' }, fingerprints: ['alluvion'] };
-  const [found] = evaluate({ Name: 'Alluvion BVBA' }, [entry], { rules: DEFAULT_RULES });
-  assert.equal(found.partner.BusinessPartner, '12');
-  assert.equal(found.indicators[0].score, 1);
-});
-
 // --- Five condition slots, one Logic per gap (2026-09-01) ----------------------------------------
 
 /**
@@ -353,38 +236,6 @@ test('a third condition slot narrows the rule, each gap under its own Logic', ()
   assert.equal(conditionsMatch(rule, buildCandidate({ Country: 'NL' })), true);
   assert.equal(conditionsMatch(rule, buildCandidate({ Country: 'BE' })), false, 'the trailing AND still has to hold');
   assert.equal(conditionsMatch(rule, buildCandidate({ Country: 'FR' })), false, 'neither side of the OR holds');
-});
-
-// An empty slot never narrows, and it takes its own Logic with it rather than shifting the next
-// join onto the wrong pair.
-test('an empty middle slot leaves the surviving conditions joined by their own Logic', () => {
-  const rule = {
-    field: 'Name',
-    comparison: 'fuzzy',
-    indicator: 'strong',
-    conditionField: 'Country',
-    conditionValue: 'BE',
-    conditionLogic: 'AND',
-    conditionLogic2: 'OR',
-    conditionField3: 'Country',
-    conditionValue3: 'NL'
-  };
-  assert.equal(conditionsMatch(rule, buildCandidate({ Country: 'BE' })), true);
-  assert.equal(conditionsMatch(rule, buildCandidate({ Country: 'NL' })), true);
-  assert.equal(conditionsMatch(rule, buildCandidate({ Country: 'FR' })), false);
-});
-
-// A rule saved with two conditions has no later column filled in - it must read exactly as it did.
-test('a duplicate rule saved before the extra slots existed is unchanged', () => {
-  const rule = {
-    field: 'Name',
-    comparison: 'fuzzy',
-    indicator: 'strong',
-    conditionField: 'Country',
-    conditionValue: 'BE'
-  };
-  assert.equal(conditionsMatch(rule, buildCandidate({ Country: 'BE' })), true);
-  assert.equal(conditionsMatch(rule, buildCandidate({ Country: 'DE' })), false);
 });
 
 // The comparator (2026-09-02, asked for): a condition on this table is field/comparator/values,

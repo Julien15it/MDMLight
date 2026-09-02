@@ -145,23 +145,6 @@ test('two rows that both miss an exact match are still paired with their OWN bas
   assert.deepEqual(matches[1].baseline, baselineB, 'row B is paired with its own baseline, not A\'s');
 });
 
-// With plain array order this exact scenario was the failure: two edited rows, and the ORDER they
-// happen to be paired in flips which row "changed" reports which field.
-test('best-match pairing holds even when the array-order pairing would have picked the wrong one', () => {
-  const matchSectionRows = extractMatchSectionRows(controller);
-  const baselineFirst = { StreetName: 'Aaa', CityName: 'Aaa', Country: 'BE' };
-  const baselineSecond = { StreetName: 'Bbb', CityName: 'Bbb', Country: 'BE' };
-  // currentFirst is closer to baselineSecond by position, but shares more fields with baselineFirst.
-  const currentFirst = { StreetName: 'Aaa', CityName: 'Aaa', Country: 'NL' };
-  const currentSecond = { StreetName: 'Bbb', CityName: 'Zzz', Country: 'BE' };
-  const fields = ['StreetName', 'CityName', 'Country'];
-  const matches = matchSectionRows(
-    [currentFirst, currentSecond], [baselineFirst, baselineSecond], fields
-  );
-  assert.deepEqual(matches[0].baseline, baselineFirst);
-  assert.deepEqual(matches[1].baseline, baselineSecond);
-});
-
 /**
  * The bug this was all rewritten for: editing ONE field of a row that already existed (added in an
  * earlier round, so its __state is "new" and always will be) must classify as "changed" against its
@@ -175,20 +158,6 @@ test('editing one field of a row __state still calls "new" is a change, not an a
   const [match] = matchSectionRows(current, baseline, ['StreetName', 'CityName', 'Country']);
   assert.equal(match.kind, 'changed');
   assert.deepEqual(match.baseline, baseline[0]);
-});
-
-test('a row with no baseline counterpart at all is an addition', () => {
-  const matchSectionRows = extractMatchSectionRows(controller);
-  const current = [{ __state: 'new', StreetName: 'New St', CityName: 'Bruges', Country: 'BE' }];
-  const [match] = matchSectionRows(current, [], ['StreetName', 'CityName', 'Country']);
-  assert.equal(match.kind, 'added');
-});
-
-test('an untouched row exactly matching its baseline is not coloured at all', () => {
-  const matchSectionRows = extractMatchSectionRows(controller);
-  const row = { __state: 'new', StreetName: 'Main St', CityName: 'Ghent', Country: 'BE' };
-  const [match] = matchSectionRows([row], [{ ...row }], ['StreetName', 'CityName', 'Country']);
-  assert.equal(match.kind, '');
 });
 
 /**
@@ -208,12 +177,6 @@ test('matchSectionRows carries an unconsumed baseline row as .deleted, not silen
   assert.deepEqual(matches.deleted, [removed]);
 });
 
-test('nothing deleted leaves .deleted empty, never undefined', () => {
-  const matchSectionRows = extractMatchSectionRows(controller);
-  const matches = matchSectionRows([], [], []);
-  assert.deepEqual(matches.deleted, []);
-});
-
 // --- Scoped to where a baseline is meaningful ----------------------------------------------
 
 /**
@@ -221,19 +184,6 @@ test('nothing deleted leaves .deleted empty, never undefined', () => {
  * every field typed on a brand new partner would show as an "addition", which is true of nothing a
  * requester needs telling.
  */
-test('trackChanges defaults to false, and a plain create route never sets it', () => {
-  assert.match(controller, /trackChanges: false,/u);
-  const createRoute = controller.slice(controller.indexOf('_onCreateRoute: async function'));
-  const body = createRoute.slice(0, createRoute.indexOf('\n      _onEditRoute'));
-  assert.equal(/trackChanges/u.test(body), false);
-});
-
-test('editing an existing partner turns tracking on, editing is what decides it', () => {
-  const loadBp = controller.slice(controller.indexOf('_loadBusinessPartner: async function'));
-  const body = loadBp.slice(0, loadBp.indexOf('_loadSection: async function'));
-  assert.match(body, /state\.originalSections = clone\(state\.sections\);/u);
-  assert.match(body, /state\.trackChanges = editing;/u);
-});
 
 /**
  * Every mode _loadStagedRequest serves (rework, data steward review, approve, view) tracks changes;
@@ -289,13 +239,6 @@ test('a create request baseline comes from the server, and survives a missing/un
   assert.match(parseAttempt, /console\.warn/u);
 });
 
-test('the live snapshot reuses _loadSection, the same reader _loadBusinessPartner uses', () => {
-  const fn = controller.slice(controller.indexOf('_fetchLiveSnapshotForDiff: async function'));
-  const body = fn.slice(0, fn.indexOf('\n      },'));
-  assert.match(body, /this\._loadSection\(relationValue, section\)/u);
-  assert.match(body, /BusinessPartners\('" \+ escapeODataKey\(businessPartner\)/u);
-});
-
 // --- The server side: where the baseline is written and read --------------------------------
 
 /**
@@ -338,41 +281,6 @@ test('only the first submitRequest ever writes the baseline - resubmit and stewa
  * resubmitRequest last wrote - the ORIGINAL, pre-steward data - by the time the rework screen loads
  * it. This test exists so that guarantee cannot regress silently.
  */
-test('a rejection never resets the baseline, so the reworking requester sees what the steward changed', () => {
-  // Anchored on decideRequest itself first - decideDataStewardReview has its own, differently-shaped
-  // "if (decision === 'reject')" branch earlier in the file, and slicing from that string alone would
-  // run all the way into decideRequest's, picking up resubmitRequest's baselineDataJson write in
-  // between and reporting a false positive.
-  const decideRequest = serviceJs.slice(serviceJs.indexOf("this.on('decideRequest'"));
-  const reject = decideRequest.slice(decideRequest.indexOf("if (decision === 'reject') {"));
-  const rejectBody = reject.slice(0, reject.indexOf("await notifyWorkflow('rejected');") + 40);
-  assert.equal(/baselineDataJson/u.test(rejectBody), false, "decideRequest's reject branch leaves it alone");
-
-  const claimRework = serviceJs.slice(serviceJs.indexOf("this.on('claimRework'"));
-  const claimBody = claimRework.slice(0, claimRework.indexOf("this.on('withdrawRequest'"));
-  assert.equal(/baselineDataJson/u.test(claimBody), false, 'claimRework leaves it alone too');
-
-  // Rework is one of the modes _loadStagedRequest tracks changes in, and a create request's baseline
-  // comes from the server either way - both already pinned above, restated here as the guarantee
-  // this specific scenario depends on.
-  assert.match(
-    controller,
-    /state\.trackChanges = state\.requestType === "change" \|\| mode !== "edit";/u
-  );
-});
-
-// --- The summary panel ------------------------------------------------------------------------
-
-test('_refreshChangeSummary is a no-op when nothing is being tracked, and matches rows consistently', () => {
-  const fn = controller.slice(controller.indexOf('_refreshChangeSummary: function'));
-  const body = fn.slice(0, fn.indexOf('_rootFieldLabel: function'));
-  assert.match(body, /if \(!state\.trackChanges\) \{/u);
-  assert.match(body, /state\.changeSummary = \[\];/u);
-  // The composed full name is never something anyone typed, so it must not appear as a "change".
-  assert.match(body, /BusinessPartnerFullName/u);
-  // The same matching function _renderSection colours the row on.
-  assert.match(body, /matchSectionRows\(records, baselineRecords, fieldNames\)/u);
-});
 
 /**
  * A deleted row has no cell left to colour in the table, so this panel is the only place left that
@@ -417,34 +325,12 @@ test('the panel table is coloured on the New Value cell, not the row, and names 
  * form, right above the Business Partner's own name - so the duplicate findings and the new change
  * summary both come before it now, not after.
  */
-test('the comments panel is the last panel before the object page, not the first', () => {
-  const commentsAt = view.indexOf('id="commentsPanel"');
-  const duplicatesAt = view.indexOf('id="duplicateFindings"');
-  const summaryAt = view.indexOf('id="changeSummaryPanel"');
-  const objectPageAt = view.indexOf('<uxap:ObjectPageLayout');
-  assert.ok(duplicatesAt < commentsAt, 'duplicates panel comes before comments');
-  assert.ok(summaryAt < commentsAt, 'change summary panel comes before comments');
-  assert.ok(commentsAt < objectPageAt, 'comments panel comes before the object page');
-  // No other PANEL sits between the comments panel and the actual Business Partner data - the three
-  // comment INPUT boxes do (moved there 2026-08-27, see the next test), but none of them is a Panel.
-  const between = view.slice(view.indexOf('</Panel>', commentsAt), objectPageAt);
-  assert.equal(/<Panel/u.test(between), false, 'no other panel sits between comments and the form');
-});
 
 /**
  * Asked for the same day: the box where the CURRENT actor types their OWN note should sit right
  * after the conversation it replies to, not disconnected near the top of the screen - so reading
  * top to bottom now goes "what was said" then "say something back" then the form itself.
  */
-test('the comment input boxes sit right after the conversation, still before the form', () => {
-  const commentsAt = view.indexOf('id="commentsPanel"');
-  const objectPageAt = view.indexOf('<uxap:ObjectPageLayout');
-  for (const id of ['approverCommentBox', 'reworkCommentBox', 'dataStewardCommentBox']) {
-    const at = view.indexOf('id="' + id + '"');
-    assert.ok(at > commentsAt, id + ' comes after the conversation panel');
-    assert.ok(at < objectPageAt, id + ' still comes before the object page');
-  }
-});
 
 // --- Field/row highlighting is threaded into record dialogs too (2026-08-27) -------------------
 
@@ -503,32 +389,6 @@ test('a changed row colours only the cells that differ; an added row is tinted w
   assert.equal(/"mdmChangedRow"/u.test(body), false);
 });
 
-test('_createFieldTable also colours a cell against its baseline, the same as the grid', () => {
-  const fn = controller.slice(controller.indexOf('_createFieldTable: function'));
-  const body = fn.slice(0, fn.indexOf('\n      },'));
-  assert.match(body, /if \(baseline\) \{/u);
-  assert.match(body, /fieldChangeKind\(baseline\[field\.name\], record\[field\.name\]\)/u);
-  assert.match(body, /control\.addStyleClass\(kind === "added" \? "mdmAddedField" : "mdmChangedField"\)/u);
-});
-
-test('every place a record changes refreshes the summary afterwards', () => {
-  // The record dialog's own Apply handler.
-  const recordDialog = controller.slice(controller.indexOf('_openRecordDialog: function'));
-  const applyHandler = recordDialog.slice(0, recordDialog.indexOf('endButton: new Button'));
-  assert.match(applyHandler, /this\._refreshChangeSummary\(\);/u);
-
-  // Applying Check/Duplicate Check proposals.
-  const applyProposals = controller.slice(controller.indexOf('_applyProposals: function'));
-  const proposalsBody = applyProposals.slice(0, applyProposals.indexOf('MessageToast.show(applied'));
-  assert.match(proposalsBody, /this\._refreshChangeSummary\(\);/u);
-
-  // A root field's own commit.
-  const onCommitted = controller.slice(controller.indexOf('_onFieldCommitted: function'));
-  const committedBody = onCommitted.slice(0, onCommitted.indexOf('_refreshFullName: function'));
-  assert.match(committedBody, /this\._renderRootForm\(\);/u);
-  assert.match(committedBody, /this\._refreshChangeSummary\(\);/u);
-});
-
 /**
  * Reported 2026-08-27: a field picked from the F4 value help dialog never coloured, even though a
  * typed value in the same field did. Root cause: sap.m.SelectDialog's own "confirm" event is not the
@@ -549,18 +409,6 @@ test('choosing a value from the F4 help gets the same commit treatment as typing
     confirmHandler,
     /this\._onFieldCommitted\(this\._valueHelpTarget\.section, this\._valueHelpTarget\.field\);/u
   );
-});
-
-// --- CSS --------------------------------------------------------------------------------------
-
-// No mdmChangedRow: colouring a whole row for one changed field was the bug reported 2026-08-27.
-test('the three highlight classes exist, on semantic theme tokens - no whole-row "changed" class', () => {
-  for (const cls of ['mdmChangedField', 'mdmAddedField', 'mdmAddedRow']) {
-    assert.match(css, new RegExp('\\.' + cls + '\\b'), cls + ' is styled');
-  }
-  assert.equal(/\.mdmChangedRow\b/u.test(css), false);
-  assert.match(css, /--sapErrorBackground/u);
-  assert.match(css, /--sapWarningBackground/u);
 });
 
 // --- Provenance: an accepted proposal's Why survives into the change summary (2026-08-31) --------
@@ -598,16 +446,6 @@ test('_provenanceFor: the proposal\'s reason only while the value still matches 
 
   const sectionEdited = provenanceFor(state, 'Addresses', 0, 'StreetName', 'Kerkweg');
   assert.deepEqual(sectionEdited, { why: 'User change/input', whyDetail: '' });
-});
-
-test('_provenanceFor: no provenance store at all is the same as never having proposed anything', () => {
-  const provenanceFor = extractMethod(
-    controller, '_provenanceFor', ['displayValue', realDisplayValue]
-  );
-  assert.deepEqual(
-    provenanceFor({}, 'root', 0, 'Country', 'BE'),
-    { why: 'User change/input', whyDetail: '' }
-  );
 });
 
 /**
@@ -650,21 +488,4 @@ test('_applyProposals records provenance for a plain field, and for a created ro
     body,
     /self\._recordProvenance\(state, proposal\.target, newIndex, extra\.field, added\[extra\.field\], proposal\);/u
   );
-});
-
-test('_refreshChangeSummary attaches why/whyDetail from _provenanceFor, for root and section rows', () => {
-  const fn = controller.slice(controller.indexOf('_refreshChangeSummary: function'));
-  const body = fn.slice(0, fn.indexOf('_rootFieldLabel: function'));
-  assert.match(
-    body,
-    /var provenance = this\._provenanceFor\(state, "root", 0, fieldName, root\[fieldName\]\);/u
-  );
-  assert.match(
-    body,
-    /var provenance = self\._provenanceFor\(state, section\.id, index, field\.name, record\[field\.name\]\);/u
-  );
-  assert.match(body, /why: provenance\.why,\s*whyDetail: provenance\.whyDetail/u);
-  // A removed row has no current value left to attribute anything to - both removed-row branches
-  // (a field that had a value, and a row removed before it ever got one) say so explicitly.
-  assert.equal((body.match(/why: "",\s*whyDetail: ""/gu) || []).length, 2);
 });

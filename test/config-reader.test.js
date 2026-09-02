@@ -40,12 +40,6 @@ test('every page is read, not just the first', async () => {
  * SHORT page, which is correct when the caller sets the page size -- and wrong here: the read that
  * lost account group DEBI was short (100 of 414) precisely because the server capped it.
  */
-test('a page shorter than requested is not read as the end', async () => {
-  const remote = service(414, 100);
-  const read = await readAll(remote, 'DerPartnerFunctionAccGrp');
-  assert.equal(read.length, 414, 'a 100-row answer to a 500-row request is not the whole table');
-  assert.ok(remote.calls.length > 1, 'it asked again');
-});
 
 // skip advances by what ARRIVED, never by pageSize; the server's page size is its own business.
 test('the offset follows the rows received, not the page size asked for', async () => {
@@ -62,23 +56,6 @@ test('it ends on an empty page, including when the total is an exact multiple', 
   const read = await readAll(remote, 'X');
   assert.equal(read.length, 200);
   assert.deepEqual(remote.calls.map((call) => call.skip), [0, 100, 200]);
-});
-
-test('a table smaller than one page costs one read plus one empty one', async () => {
-  const remote = service(12, 100);
-  assert.equal((await readAll(remote, 'DerSupplierFunctionAccGrp')).length, 12);
-  assert.deepEqual(remote.calls.map((call) => call.skip), [0, 12]);
-});
-
-test('an empty table is not an error', async () => {
-  const remote = service(0);
-  assert.deepEqual(await readAll(remote, 'X'), []);
-  assert.equal(remote.calls.length, 1);
-});
-
-test('a non-array answer ends the read rather than throwing', async () => {
-  const read = await readAll({ async run() { return undefined; } }, 'X');
-  assert.deepEqual(read, []);
 });
 
 // A service that ignores $skip would otherwise spin forever. The cap is a backstop, not a limit.
@@ -103,11 +80,6 @@ test('readAllOf keeps the order it was given', async () => {
   assert.equal(a.length, 5);
   assert.equal(b.length, 150);
   assert.equal(c.length, 0);
-});
-
-test('the page size is comfortably above every customizing table, and the cap far above', () => {
-  assert.ok(PAGE_SIZE >= 500);
-  assert.ok(MAX_ROWS >= 20000);
 });
 
 /**

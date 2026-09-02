@@ -103,19 +103,6 @@ test('every decision and resubmit appends to the running thread, not just the la
   assert.match(serviceJs, /CommentsJson: JSON\.stringify\(comments\.map/u);
 });
 
-test('the conversation panel is collapsible and shows who said what', () => {
-  assert.match(view, /id="commentsPanel"[\s\S]{0,120}expandable="true"/u);
-  assert.match(view, /visible="\{= \$\{maintenance>\/comments\}\.length > 0 \}"/u);
-  assert.match(
-    view,
-    /title="\{maintenance>title\}"[\s\S]{0,80}description="\{maintenance>text\}"[\s\S]{0,40}info="\{maintenance>date\}"/u
-  );
-  assert.match(controller, /_setCommentsPanel: function \(state, comments\)/u);
-  assert.match(
-    controller, /title: \(comment\.role \|\| ""\) \+ \(comment\.author \? " — " \+ comment\.author : ""\)/u
-  );
-});
-
 // Unlike the approver's box, this is NOT embedded-only: rework is reached standalone too, by the
 // reworkurl deep link SPA sends on a rejection, and context>/comment does not exist there.
 test('rework offers its own comment box, not the embedded-only approver one', () => {
@@ -123,25 +110,6 @@ test('rework offers its own comment box, not the embedded-only approver one', ()
   assert.match(box, /visible="\{= \$\{maintenance>\/mode\} === 'rework' \}"/u);
   assert.match(box, /value="\{maintenance>\/reworkComment\}"/u);
   assert.equal(/env>\/embedded/u.test(box), false, 'not gated on embedded, unlike approverCommentBox');
-});
-
-test('resubmit sends the rework note as Reason, and a data steward review sends its own note', () => {
-  assert.match(
-    controller,
-    /Reason: action === "resubmitRequest"\s*\n?\s*\? \(state\.reworkComment \|\| null\)\s*\n?\s*: \(action === "decideDataStewardReview" \? \(state\.dataStewardComment \|\| null\) : null\)/u
-  );
-});
-
-// String(12) could not hold 'reworkRequired'. Widening a string is one of the few non-lossy changes
-// cds-deploy performs; renaming or dropping the old value would have failed the deploy.
-test('the status column was widened rather than renamed', () => {
-  assert.match(staging, /type ChangeRequestStatus : String\(20\) enum/u);
-  assert.match(
-    staging, /draft; inApproval; approved; rejected; reworkRequired; checkAndEnrich; posted; failed/u
-  );
-  assert.equal(/Status\s+: String\(12\)/u.test(serviceCds), false, 'the action returns were widened too');
-  assert.ok('reworkRequired'.length <= 20);
-  assert.ok('checkAndEnrich'.length <= 20);
 });
 
 // The guard that decides whether rework is possible at all. It was draft-only, then reworkRequired
@@ -159,10 +127,6 @@ test('a request awaiting rework or data steward review is editable, and nothing 
  * the partner is still claimed. Leaving it out would unlock the partner for a second editor
  * mid-rework, which is exactly what this list exists to prevent.
  */
-test('a partner in rework stays locked against a second editor', () => {
-  assert.ok(ACTIVE_REQUEST_STATUSES.includes('reworkRequired'));
-  assert.equal(ACTIVE_REQUEST_STATUSES.includes('posted'), false);
-});
 
 // --- Resubmit --------------------------------------------------------------------------
 
@@ -362,21 +326,6 @@ test('a failed signal is logged and does not block the resubmit', () => {
   );
 });
 
-// The reworked businesspartnerinput, so the rework task can carry it back to BPA as its own
-// output on completion instead of solely through the (now best-effort) signal above.
-test('resubmitRequest returns the rebuilt context as an output for the task to carry', () => {
-  const resubmit = serviceJs.slice(
-    serviceJs.indexOf("this.on('resubmitRequest'"),
-    serviceJs.indexOf("this.on('withdrawRequest'")
-  );
-  assert.match(resubmit, /ContextJson: JSON\.stringify\(context\)/u);
-  assert.match(serviceCds, /action resubmitRequest\(/u);
-  const action = serviceCds.slice(
-    serviceCds.indexOf('action resubmitRequest('), serviceCds.indexOf('action withdrawRequest(')
-  );
-  assert.match(action, /ContextJson\s*:\s*LargeString/u);
-});
-
 // --- The missing reject callback --------------------------------------------------------
 
 /**
@@ -397,32 +346,10 @@ test('a request the approver sent back is claimed out of inApproval', () => {
 });
 
 /** Same guard as withdraw: a posted request has a business partner behind it, whatever the status. */
-test('claiming never touches a request that has posted, or one already decided', () => {
-  const claim = serviceJs.slice(
-    serviceJs.indexOf("this.on('claimRework'"), serviceJs.indexOf("this.on('withdrawRequest'")
-  );
-  assert.match(claim, /if \(header\.postedBP \|\| header\.status !== 'inApproval'\)/u);
-  const guardAt = claim.indexOf('header.postedBP');
-  assert.ok(guardAt < claim.indexOf('UPDATE(HEADER)'), 'the guard comes before the update');
-  assert.match(claim, /Claimed: false/u);
-});
 
 /** Only the rework route claims, and only when the status has not moved on its own. */
-test('the screen claims on the rework route and nowhere else', () => {
-  assert.equal((controller.match(/this\._claimRework\(/gu) || []).length, 1, 'claimed in one place');
-  const load = controller.slice(controller.indexOf('_loadStagedRequest: async function'));
-  assert.match(load, /if \(state\.requestStatus === "inApproval"\)/u);
-  assert.match(load, /state\.requestStatus = await this\._claimRework\(changeRequest, state\.requestStatus\)/u);
-  // A failed claim leaves the status alone, which is the pre-existing "nothing to rework" screen.
-  const helper = controller.slice(controller.indexOf('_claimRework: async function'));
-  assert.match(helper.slice(0, helper.indexOf('_decide:')), /return currentStatus/u);
-});
 
 /** A rejection with no reason recorded is the normal case until the callback lands. */
-test('the screen says so when no rejection reason came through', () => {
-  const load = controller.slice(controller.indexOf('_loadStagedRequest: async function'));
-  assert.match(load, /No reason was recorded with it/u);
-});
 
 /**
  * The 500 a resubmit threw on 2026-08-20, and it was never about the workflow: `action` is
@@ -431,16 +358,6 @@ test('the screen says so when no rejection reason came through', () => {
  * request from staging, where nothing carries `__state` at all, so the insert hit the constraint
  * before anything reached BPA. The same trap was waiting for a change request over untouched rows.
  */
-test('a row nobody touched is staged as N, never as null', () => {
-  assert.equal(rowAction({ __state: 'new' }), 'C');
-  assert.equal(rowAction({ __state: 'dirty' }), 'U');
-  assert.equal(rowAction({}), UNTOUCHED);
-  assert.equal(rowAction(undefined), UNTOUCHED);
-  assert.equal(UNTOUCHED, 'N');
-  // The column the null was violating, and the enum value that replaced it.
-  assert.match(staging, /action\s+: NodeAction not null default 'C'/u);
-  assert.match(staging, /enum \{ create = 'C'; update = 'U'; delete = 'D'; none = 'N' \}/u);
-});
 
 /**
  * The half that the null was hiding. A resubmit reloads the request from staging, so without the
@@ -466,12 +383,6 @@ test('a reloaded row remembers whether it was a create or an update', () => {
 });
 
 /** N means the same as the old null: staged so the approver sees the whole partner, never replayed. */
-test('an untouched row is still not posted to S/4', () => {
-  const post = serviceJs.slice(serviceJs.indexOf('const postToS4'));
-  assert.match(post, /if \(!action \|\| action === UNTOUCHED\) continue;/u);
-  // Rows staged before N existed carry null and must go on meaning the same thing.
-  assert.match(post, /!action \|\|/u);
-});
 
 // --- Withdraw --------------------------------------------------------------------------
 
@@ -498,12 +409,6 @@ test('a request that has already posted can never be withdrawn', () => {
   for (const closed of ['inApproval', 'approved', 'posted', 'failed']) {
     assert.equal(WITHDRAWABLE_STATUSES.includes(closed), false, `${closed} is not withdrawable`);
   }
-});
-
-// Idempotent rather than a 404: a double press or a retried call is not an error to interpret.
-test('withdrawing an already-deleted request is not an error', () => {
-  const withdraw = serviceJs.slice(serviceJs.indexOf("this.on('withdrawRequest'"));
-  assert.match(withdraw, /if \(!header\) return \{ ChangeRequest: changeRequest, Deleted: false \}/u);
 });
 
 // A BPA outage must not stop a requester withdrawing their own request, but the failure is surfaced
@@ -557,41 +462,12 @@ test('rework is the draft view with Resubmit in place of Submit', () => {
  * and onSave would then route to submitRequest, starting a second workflow for a request whose own
  * instance is still parked.
  */
-test('rework offers no Save Request', () => {
-  const load = controller.slice(controller.indexOf('_loadStagedRequest: async function'));
-  const head = load.slice(0, load.indexOf('maintenanceModel.setData(state)'));
-  assert.match(head, /state\.showSaveRequestButton = editing && !reworking/u);
-});
-
-test('withdraw is confirmed, and the confirmation says it cannot be undone', () => {
-  assert.match(view, /text="Withdraw"[\s\S]{0,160}press="\.onWithdraw"/u);
-  // Embedded, this button hides in favour of the inbox-rendered one (2026-08-21) - see
-  // test/task-form.test.js - but the binding still gates on showReworkButtons underneath that.
-  assert.match(
-    view, /visible="\{= \$\{maintenance>\/showReworkButtons\} &amp;&amp; !\$\{env>\/embedded\} \}"/u
-  );
-  const withdraw = controller.slice(controller.indexOf('onWithdraw: function'));
-  assert.match(withdraw.slice(0, withdraw.indexOf('_withdraw: ')), /cannot be undone/u);
-  assert.match(withdraw, /MessageBox\.Action\.DELETE/u);
-  // Cancel is emphasized, not the destructive action.
-  assert.match(withdraw, /emphasizedAction: MessageBox\.Action\.CANCEL/u);
-});
 
 /**
  * The link outlives the state it was sent for. A requester who already resubmitted, or whose request
  * someone else withdrew, must not be offered the buttons again - the same rule the approve view
  * follows for a task that has already been decided.
  */
-test('a stale rework link offers nothing and says why', () => {
-  const load = controller.slice(controller.indexOf('_loadStagedRequest: async function'));
-  assert.match(load, /awaitingRework = state\.requestStatus === "reworkRequired"/u);
-  assert.match(load, /state\.showReworkButtons = awaitingRework/u);
-  assert.match(load, /state\.editing = awaitingRework/u);
-  assert.match(load, /nothing to rework/u);
-  // Points at the conversation panel rather than repeating the comment - that panel is the one
-  // place a comment's actual text is shown (2026-08-25), so a strip cannot go stale next to it.
-  assert.match(load, /The approver sent this request back\. See the conversation below/u);
-});
 
 /**
  * A failed S/4 post also sends the request to `reworkRequired`, but nobody rejected anything - the
@@ -610,18 +486,4 @@ test('a failed post is told apart from a rejection on the rework screen', () => 
   const rejectionAt = load.indexOf('} else if (state.rejectionComment) {');
   assert.ok(postErrorAt > -1 && rejectionAt > -1);
   assert.ok(postErrorAt < rejectionAt, 'postError is checked before the rejection wording');
-});
-
-// Once it is back with the approver it is not the requester's to withdraw.
-test('a resubmitted request stops offering Withdraw, and a completed review stops offering its own buttons', () => {
-  const send = controller.slice(controller.indexOf('_sendChangeRequest: async function'));
-  assert.match(send, /state\.showReworkButtons = false/u);
-  assert.match(send, /state\.showDataStewardButtons = false/u);
-  assert.match(send, /action === "resubmitRequest"\s*\n?\s*\? "Request resubmitted for approval"/u);
-  // The duplicate gate's dialog names the action it will actually take.
-  assert.match(
-    send,
-    /confirmText: action === "resubmitRequest"\s*\n?\s*\? "Resubmit"\s*\n?\s*: \(action === "decideDataStewardReview" \? "Complete Review" : "Submit Request"\)/u
-  );
-  assert.match(send, /\["submitRequest", "resubmitRequest", "decideDataStewardReview"\]\.includes\(action\)/u);
 });

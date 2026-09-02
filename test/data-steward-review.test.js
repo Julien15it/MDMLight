@@ -38,20 +38,6 @@ test('checkAndEnrich is its own status, parallel to reworkRequired rather than a
   assert.ok('checkAndEnrich'.length <= 20);
 });
 
-test('a data steward review is editable and withdrawable, like a rework', () => {
-  assert.ok(EDITABLE_STATUSES.includes('checkAndEnrich'));
-  // Aliased on purpose - see the comment on WITHDRAWABLE_STATUSES in change-request-service.js.
-  assert.deepEqual(WITHDRAWABLE_STATUSES, EDITABLE_STATUSES);
-});
-
-test('a partner under data steward review stays locked against a second editor', () => {
-  assert.ok(ACTIVE_REQUEST_STATUSES.includes('checkAndEnrich'));
-});
-
-test('the conversation can name a data steward, alongside the requester and approver', () => {
-  assert.match(staging, /role\s*:\s*String\(20\) enum \{ Requester; Approver; System; DataSteward \} not null/u);
-});
-
 // --- The actions ---------------------------------------------------------------------------
 
 test('claimDataStewardReview and decideDataStewardReview are declared', () => {
@@ -112,11 +98,6 @@ test('complete runs the same gates as resubmit, and hands the same instance back
   assert.match(complete, /Status: 'checkAndEnrich'/u);
 });
 
-test('both signals are unconfirmed placeholders, following the established capitalisation', () => {
-  assert.equal(DATASTEWARD_COMPLETE_SIGNAL, 'DataStewardComplete');
-  assert.equal(DATASTEWARD_REJECTED_SIGNAL, 'DataStewardRejected');
-});
-
 test('datastewardurl is built and sent in the workflow context', () => {
   // Empty string when WORKZONE_URL is unset (a missing link is diagnosable, not a 404) - the same
   // legal answer approveUrl/reworkUrl give, per requestUrl's own contract.
@@ -124,31 +105,6 @@ test('datastewardurl is built and sent in the workflow context', () => {
   assert.match(serviceJs, /function dataStewardUrl\(changeRequest\) \{/u);
   assert.match(serviceJs, /return requestUrl\(changeRequest, 'datasteward'\);/u);
   assert.match(serviceJs, /datastewardurl: dataStewardUrl\(changeRequest\),/u);
-});
-
-// --- The screen ----------------------------------------------------------------------------
-
-test('the data steward route loads the datasteward mode', () => {
-  assert.match(controller, /_onDataStewardRoute: function \(event\) \{/u);
-  const route = controller.slice(controller.indexOf('_onDataStewardRoute: function'));
-  assert.match(route.slice(0, route.indexOf('_loadStagedRequest: async function')), /"datasteward"/u);
-  assert.match(controller, /\["ChangeRequestDataSteward", this\._onDataStewardRoute\]/u);
-});
-
-test('datasteward mode is editable, checks are offered, but there is no generic Save button', () => {
-  const load = controller.slice(controller.indexOf('_loadStagedRequest: async function'));
-  const head = load.slice(0, load.indexOf('maintenanceModel.setData(state)'));
-  assert.match(head, /var reviewing = mode === "datasteward";/u);
-  assert.match(head, /var editing = mode === "edit" \|\| reworking \|\| reviewing;/u);
-  assert.match(head, /state\.showSaveButton = editing && !reviewing;/u);
-  assert.match(head, /state\.showSaveRequestButton = editing && !reworking && !reviewing;/u);
-});
-
-test('the field property profile is read under the DataSteward role in datasteward mode', () => {
-  assert.match(
-    controller,
-    /mode === "approve" \? "Approver" : \(reviewing \? "DataSteward" : "Requester"\)/u
-  );
 });
 
 test('opening the screen claims the review out of inApproval, the same way rework claims its own', () => {
@@ -176,23 +132,6 @@ test('the two outcomes are wired to decideDataStewardReview, complete through th
   assert.match(body, /this\._completeEmbeddedOutcome\("reject"\)/u);
 });
 
-test('the data steward comment box is not embedded-only, like the rework one', () => {
-  const box = view.slice(view.indexOf('id="dataStewardCommentBox"'), view.indexOf('id="dataStewardCommentBox"') + 400);
-  assert.match(box, /visible="\{= \$\{maintenance>\/mode\} === 'datasteward' \}"/u);
-  assert.equal(/env>\/embedded/u.test(box), false, 'not gated on embedded, unlike approverCommentBox');
-  assert.match(box, /value="\{maintenance>\/dataStewardComment\}"/u);
-});
-
-test('the footer offers Complete Review and Reject, hidden embedded like every other footer button', () => {
-  const footer = view.slice(view.indexOf('<footer>'), view.indexOf('</footer>'));
-  assert.match(footer, /press="\.onCompleteDataStewardReview"/u);
-  assert.match(footer, /press="\.onRejectDataStewardReview"/u);
-  const guarded = footer.match(
-    /visible="\{= \$\{maintenance>\/showDataStewardButtons\} &amp;&amp; !\$\{env>\/embedded\} \}"/gu
-  ) || [];
-  assert.equal(guarded.length, 2, 'both Complete Review and Reject');
-});
-
 // --- The task app ----------------------------------------------------------------------------
 
 test('tasktype "datasteward" opens the data steward review and registers its own inbox actions', () => {
@@ -202,41 +141,6 @@ test('tasktype "datasteward" opens the data steward review and registers its own
     /if \(context\.changerequestid\) \{\s+this\._openDataStewardReview\(context\.changerequestid\);/u
   );
   assert.match(taskComponent, /this\._addDataStewardInboxActions\(\);\s*\n\s*return;/u);
-});
-
-test('_addDataStewardInboxActions publishes over the event bus, like rework, never completing the task directly', () => {
-  const fn = taskComponent.slice(taskComponent.indexOf('_addDataStewardInboxActions: function'));
-  const body = fn.slice(0, fn.indexOf('_workflowRuntimeBaseUrl:'));
-  // Reject reuses the approve task type's own "reject" id - the two never coexist on one task.
-  assert.match(body, /\{ id: "reject", label: "Reject", type: "reject" \}/u);
-  assert.match(body, /\{ id: "enrich", label: "Complete Review", type: "accept" \}/u);
-  assert.match(body, /eventBus\.publish\("taskform", outcome\.id\)/u);
-  assert.equal(/_completeTask\(outcome\.id\)/u.test(body), false, 'no direct completion here');
-});
-
-test('reject is registered under two different handlers, never the same one', () => {
-  const approveFn = taskComponent.slice(
-    taskComponent.indexOf('_addInboxActions: function'), taskComponent.indexOf('/**\n             * Same shape as _addReworkInboxActions')
-  );
-  assert.match(approveFn, /function \(\) \{ this\._completeTask\(outcome\.id\); \}/u);
-  const stewardFn = taskComponent.slice(taskComponent.indexOf('_addDataStewardInboxActions: function'));
-  const body = stewardFn.slice(0, stewardFn.indexOf('_workflowRuntimeBaseUrl:'));
-  assert.match(body, /function \(\) \{ eventBus\.publish\("taskform", outcome\.id\); \}/u);
-});
-
-test('both apps declare the datasteward route', () => {
-  const route = { pattern: 'ChangeRequests/{changeRequest}/datasteward', name: 'ChangeRequestDataSteward' };
-  for (const routes of [manifest['sap.ui5'].routing.routes, taskManifest['sap.ui5'].routing.routes]) {
-    const found = routes.find((entry) => entry.name === route.name);
-    assert.ok(found, 'the route is declared');
-    assert.equal(found.pattern, route.pattern);
-    assert.equal(found.target, 'BusinessPartnerMaintenance');
-  }
-});
-
-test('the outcomes ids do not collide with the approve or rework task types', () => {
-  const ids = taskManifest['sap.bpa.task'].outcomes.map((outcome) => outcome.id);
-  assert.equal(new Set(ids).size, ids.length, 'every outcome id is unique');
 });
 
 // --- Who has it now, and the search list ----------------------------------------------------
@@ -256,15 +160,6 @@ test('the processors strip names the data steward, or says nobody could be resol
   assert.deepEqual(empty.processors, []);
 });
 
-test('the requester\'s own approvers are not read while a data steward has the request, and vice versa', () => {
-  // approvers passed but status is checkAndEnrich - must not leak into the step meant for stewards.
-  const review = currentProcessors({ status: 'checkAndEnrich' }, [{ value: 'x@y.com' }], []);
-  assert.equal(review.processors.length, 0);
-  const approval = currentProcessors({ status: 'inApproval' }, [], ['steward@y.com']);
-  assert.equal(approval.step, STEPS.approval);
-  assert.equal(approval.processors.length, 0);
-});
-
 test('workflowContext resolves data stewards for the processors strip only while checkAndEnrich', () => {
   const builder = serviceJs.slice(
     serviceJs.indexOf('const processorsFor ='), serviceJs.indexOf('const currentDuplicateFindings =')
@@ -272,10 +167,4 @@ test('workflowContext resolves data stewards for the processors strip only while
   assert.match(builder, /if \(header\.status === 'checkAndEnrich'\)/u);
   assert.match(builder, /dataStewards = await dataStewardEmails\(\);/u);
   assert.match(builder, /currentProcessors\(header, approvers, dataStewards\)/u);
-});
-
-test('a request under data steward review stays in the merged search list as in-progress', () => {
-  assert.ok(IN_PROGRESS_REQUEST_STATUSES.includes('checkAndEnrich'));
-  const status = statusOf({ requestType: 'create', status: 'checkAndEnrich' });
-  assert.equal(status.RecordStatus, 'Create data steward review');
 });

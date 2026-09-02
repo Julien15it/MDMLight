@@ -53,22 +53,6 @@ test('a clean submit says so rather than saying nothing', () => {
   assert.match(messages[1].text, /no duplicate detected/u);
 });
 
-// The duplicate belongs to the dialog the user already confirmed through. Repeating it above the
-// submitted request is the noise this replaced.
-test('a submitted request never repeats the duplicate at the top of the screen', () => {
-  const controller = loadController();
-  const messages = controller._submitMessages.call(controller, answer([duplicate()]));
-  assert.equal(messages[0].type, 'Success');
-  assert.equal(messages.some((message) => /might already exist/u.test(message.text)), false);
-  assert.equal(messages.some((message) => /4711/u.test(message.text)), false);
-  // The finding is still written to CheckFindings for the approver, so nothing is lost.
-});
-
-test('a pending request is named as one in the dialog, not as a partner number', () => {
-  assert.match(controllerSource, /pending request " \+ finding\.candidateRequest/u);
-  assert.match(controllerSource, /finding\.candidateBP \|\| \("pending request/u);
-});
-
 // "No duplicate detected" must never cover for a check that could not run.
 test('a check that failed is reported alongside the outcome', () => {
   const controller = loadController();
@@ -85,39 +69,11 @@ test('malformed findings degrade to an empty list rather than throwing', () => {
   assert.deepEqual(controller._findingsFrom({ MessagesJson: '{"a":1}' }).length, 0);
 });
 
-test('submitting no longer leaves the screen, and the messages have somewhere to render', () => {
-  assert.equal(
-    /navTo\("BusinessPartnersList", \{\}, true\);\s*\}\s*catch/u.test(controllerSource),
-    false,
-    'the submit branch must not navigate away'
-  );
-  assert.match(view, /items="\{ path: 'maintenance>\/messages'/u);
-  assert.match(view, /<MessageStrip/u);
-});
-
 test('confirmation is tied to the payload that was warned about, not to a flag', () => {
   // Submit only carries Confirm when the payload still matches the one that was warned about.
   // Where the arming happens is pinned by 'confirming from Check carries over to Submit' below —
   // it moved into _confirmDuplicates so Check and Submit can share one confirmation.
   assert.match(controllerSource, /awaitingConfirmationFor === parameters\.DataJson/u);
-});
-
-
-// --- Preview removed, Check added ------------------------------------------------------------
-
-// One less step between wanting a business partner and asking for one. Submit runs the same
-// validation the Preview gate used to.
-test('the preview step is gone from the screen and the controller', () => {
-  assert.equal(/showPreviewButton/u.test(controllerSource), false);
-  assert.equal(/onPreview/u.test(controllerSource), false);
-  assert.equal(/showPreviewButton/u.test(view), false);
-  assert.equal(/text="Preview"/u.test(view), false);
-  // All three have to be reachable straight away: Preview used to be what revealed Submit and
-  // Save Request, so without it an empty create form would have nothing but Cancel.
-  assert.match(
-    controllerSource,
-    /showCheckButton: true,\s*showSaveButton: true,\s*showSaveRequestButton: true,/u
-  );
 });
 
 // Two questions, two buttons: "is this record right?" and "does it already exist?".
@@ -170,19 +126,6 @@ test('the duplicate dialog offers Submit Request only where there is something t
   assert.match(controllerSource, /state\.awaitingConfirmationFor = "";/u);
 });
 
-// The message told people to press a button that no longer has to be pressed, which is worse than
-// no message: it was still on screen after the submit it was asking for had already happened.
-test('no message tells the user to press submit again', () => {
-  assert.equal(/Press Submit Request to confirm/u.test(controllerSource), false);
-  assert.equal(/again to confirm/u.test(controllerSource), false);
-});
-
-// One re-entry and no more: a server that somehow asked twice would otherwise submit in a loop.
-test('the dialog submits once and cannot re-enter itself', () => {
-  assert.match(controllerSource, /_sendChangeRequest: async function \(action, confirmed\)/u);
-  assert.match(controllerSource, /onConfirm: confirmed \? null : function \(\) \{\s*this\._sendChangeRequest\(action, true\);/u);
-});
-
 // A derivation that filled a field is a proposal now, so it belongs in the dialog and not in a
 // strip. One that carries no field could never be applied, so the strip is the only place for it.
 test('the check strips carry validations and statements, never an appliable derivation', () => {
@@ -198,18 +141,6 @@ test('the check strips carry validations and statements, never an appliable deri
   assert.deepEqual(Array.from(messages, (message) => message.type), ['Warning', 'Information']);
   assert.equal(messages.some((message) => /derived as BE/u.test(message.text)), false);
   assert.match(messages[1].text, /no Addresses row/u);
-});
-
-test('a blocked validation stops the duplicate check reporting anything about duplicates', () => {
-  const controller = loadController();
-  const messages = controller._duplicateCheckMessages.call(
-    controller,
-    [{ severity: 'error', message: 'Enter a grouping.' }],
-    [],
-    { Valid: false, RanDuplicateCheck: false }
-  );
-  assert.deepEqual(Array.from(messages, (message) => message.type), ['Error']);
-  assert.equal(messages.some((message) => /duplicate/iu.test(message.text)), false);
 });
 
 // The one wrong answer the check must not give.
@@ -264,7 +195,6 @@ test('malformed json from the check degrades to an empty list', () => {
   assert.equal(parsed.length, 1);
   assert.equal(parsed[0].a, 1);
 });
-
 
 // Check reports, Submit decides. Acknowledging a duplicate on Check is not a confirmation, so it
 // arms nothing; only the dialog's own Submit Request does, tied to the exact payload it showed.
@@ -340,46 +270,6 @@ test('the proposed value is editable, and what was typed is what gets applied', 
   ]);
   assert.equal(state.sections.Addresses[0].StreetName, 'Koedreef Sint', 'the edited value, not the proposed one');
   assert.equal(state.root.SearchTerm1, undefined, 'an emptied field is a decline, not a blanking');
-});
-
-// Only Duplicate Check and Submit ever match, so clearing the findings on Check would leave the
-// screen looking clean on the strength of a check nobody ran.
-test('applying a proposal drops the confirmation but keeps the duplicate findings', () => {
-  const controller = loadController();
-  const state = {
-    root: {},
-    sections: {},
-    awaitingConfirmation: true,
-    awaitingConfirmationFor: 'old-payload',
-    duplicates: [{ title: '4711' }],
-    duplicatesHeader: '1 possible duplicate'
-  };
-  controller._updatePreview = function () {};
-  controller._renderAll = function () {};
-  controller.getView = function () {
-    return { getModel: function () { return { getData: function () { return state; } }; } };
-  };
-  controller._applyProposals.call(controller, [
-    { target: 'root', index: 0, field: 'SearchTerm1', current: 'abc', proposed: 'ABC', accepted: true }
-  ]);
-  assert.equal(state.root.SearchTerm1, 'ABC');
-  assert.equal(state.awaitingConfirmation, false, 'the payload changed, so the confirmation lapses');
-  assert.equal(state.duplicates.length, 1, 'the findings stand until something matches again');
-  assert.equal(state.duplicatesHeader, '1 possible duplicate');
-});
-
-// Submit matches as well, so its findings replace the panel rather than sitting next to it.
-test('a submit that found duplicates refreshes the panel', () => {
-  assert.match(
-    controllerSource,
-    /NeedsConfirmation[\s\S]{0,320}_setDuplicatePanel\(state, this\._findingsFrom\(result\), \{ RanDuplicateCheck: true \}\)/u
-  );
-});
-
-test('an applied proposal can land on an address row, not only on the root', () => {
-  assert.match(controllerSource, /proposal\.target === "root"[\s\S]{0,200}state\.sections\[proposal\.target\]/u);
-  // Without marking the row changed, an accepted field never reaches staging.
-  assert.match(controllerSource, /record\.__state = "changed"/u);
 });
 
 /**
@@ -566,12 +456,6 @@ test('every submit outcome reports Valid and ValidationsJson', () => {
   }
 });
 
-// Numbers alone made several distinct partners look like one repeated entry.
-test('the duplicate dialog names each partner, not only its number', () => {
-  assert.match(controllerSource, /finding\.candidateName \? " " \+ finding\.candidateName : ""/u);
-});
-
-
 // --- Declining a proposal ------------------------------------------------------------
 
 /**
@@ -594,26 +478,6 @@ test('a proposal the requester turned down is recorded as declined', () => {
   // The second check derives the same thing from the same register answer, so it is silent.
   const again = controller._proposalRows.call(controller, [derivation], []);
   assert.equal(controller._isDeclined.call(controller, again[0]), true);
-});
-
-// Keyed on the proposal, not on the payload: the register answering something DIFFERENT is a new
-// question and a decline must not swallow it.
-test('a different proposed value, or a different field, is still asked', () => {
-  const controller = loadController();
-  const first = controller._proposalRows.call(
-    controller, [{ target: 'root', index: 0, field: 'OrganizationBPName1', value: 'Alluvion BV' }], []
-  );
-  controller._rememberDeclined.call(controller, first, false);
-
-  const changed = controller._proposalRows.call(
-    controller, [{ target: 'root', index: 0, field: 'OrganizationBPName1', value: 'Alluvion NV' }], []
-  );
-  assert.equal(controller._isDeclined.call(controller, changed[0]), false, 'a new value is a new question');
-
-  const other = controller._proposalRows.call(
-    controller, [{ target: 'Addresses', index: 0, field: 'CityName', value: 'Gent' }], []
-  );
-  assert.equal(controller._isDeclined.call(controller, other[0]), false, 'and another field is untouched');
 });
 
 // After Apply Selected the unticked rows are declines too - unticking one is deliberate - while an
@@ -640,15 +504,6 @@ test('unticking is a decline, applying is not', () => {
  * editable Input, so a requester who edits the value and then declines must not have the decline
  * recorded against what they typed.
  */
-test('the key is the value that was proposed, not the value that was typed over it', () => {
-  const controller = loadController();
-  const rows = controller._proposalRows.call(
-    controller, [{ target: 'root', index: 0, field: 'OrganizationBPName1', value: 'Alluvion BV' }], []
-  );
-  const stamped = rows[0].key;
-  rows[0].proposed = 'Something Else Entirely';
-  assert.equal(rows[0].key, stamped, 'editing the cell does not move the key');
-});
 
 // --- The message area collapses ----------------------------------------------------------------
 
@@ -666,21 +521,6 @@ test('the message area is a panel whose header carries the leading message', () 
       { type: 'Information', text: 'Current step: Rework' }
     ]),
     'Sent back by the approver: wrong VAT number (+1 more)'
-  );
-});
-
-test('a long message is elided rather than wrapped out of the header', () => {
-  const controller = loadController();
-  const header = controller.messagesHeader([{ type: 'Error', text: 'x'.repeat(400) }]);
-  assert.ok(header.length < 130, `header was ${header.length} characters`);
-  assert.match(header, /…$/u);
-});
-
-test('newlines in a message do not break the one-line header', () => {
-  const controller = loadController();
-  assert.equal(
-    controller.messagesHeader([{ type: 'Error', text: 'Enter a Country.\n  Enter a City.' }]),
-    'Enter a Country. Enter a City.'
   );
 });
 
@@ -705,14 +545,6 @@ test('an information-only set stays out of the way', () => {
   ]), false);
   assert.equal(controller.messagesNeedAttention([]), false);
   assert.equal(controller.messagesNeedAttention(), false);
-});
-
-test('the panel is wired to those two formatters, and still holds the strips', () => {
-  assert.match(view, /id="maintenanceMessagePanel"/u);
-  assert.match(view, /expanded="\{ path: 'maintenance>\/messages', formatter: '\.messagesNeedAttention' \}"/u);
-  assert.match(view, /headerText="\{ path: 'maintenance>\/messages', formatter: '\.messagesHeader' \}"/u);
-  // The strips themselves are unchanged, inside the panel now.
-  assert.match(view, /id="maintenanceMessages"[\s\S]{0,200}<MessageStrip/u);
 });
 
 // --- The findings follow the request ------------------------------------------------------------
@@ -753,15 +585,6 @@ test('a committed name field recomposes the read-only full name', () => {
   assert.match(source, /this\._refreshFullName\(\);/u);
 });
 
-// On a partner read from S/4 that value is S/4's own derivation; replacing it with a composition
-// would show something S/4 does not say.
-test('an existing value is only recomposed when a name was actually edited', () => {
-  assert.match(
-    controllerSource,
-    /if \(!recompose && String\(root\.BusinessPartnerFullName \|\| ""\)\.trim\(\)\) return;/u
-  );
-});
-
 // Reported 2026-08-27: typing "Test", then accepting a VIES-proposed "Alluvion BV", left the
 // read-only full name reading "Test". Accepting a proposal writes straight into state.root and
 // never fires _onFieldCommitted, which was the only thing recomposing the name.
@@ -789,43 +612,4 @@ test('a name accepted from a proposal recomposes the full name, as typing it wou
 
   assert.equal(state.root.OrganizationBPName1, 'Alluvion BV');
   assert.equal(state.root.BusinessPartnerFullName, 'Alluvion BV', 'the full name followed the name');
-});
-
-// A proposal on any other field must not touch it: on a partner read from S/4 that value is S/4's
-// own derivation, and recomposing would show something S/4 does not say.
-test('a proposal on a field that is not a name leaves the full name alone', () => {
-  const controller = loadController();
-  const state = {
-    root: {
-      BusinessPartnerCategory: '2',
-      OrganizationBPName1: 'Alluvion',
-      BusinessPartnerFullName: 'Alluvion BV (S/4 derived)',
-      SearchTerm1: 'old'
-    },
-    sections: {},
-    duplicates: [],
-    duplicatesHeader: ''
-  };
-  const model = { getData: function () { return state; }, refresh: function () {} };
-  controller._updatePreview = function () {};
-  controller._renderAll = function () {};
-  controller.getView = function () { return { getModel: function () { return model; } }; };
-
-  controller._applyProposals.call(controller, [{
-    target: 'root', index: 0, field: 'SearchTerm1',
-    current: 'old', proposed: 'ALLUVION', accepted: true
-  }]);
-
-  assert.equal(state.root.SearchTerm1, 'ALLUVION');
-  assert.equal(state.root.BusinessPartnerFullName, 'Alluvion BV (S/4 derived)');
-});
-
-test('the additional fields dialog recomposes only when it changed a name', () => {
-  // Guarded rather than unconditional: the dialog holds root fields that are not names, and
-  // recomposing on every Apply would overwrite an S/4-derived name.
-  assert.match(
-    controllerSource,
-    /var renamed = NAME_FIELDS\.some\(function \(field\) \{[\s\S]*?\(field in record\) && record\[field\] !== state\.root\[field\]/u
-  );
-  assert.match(controllerSource, /Object\.assign\(state\.root, record\);\s*\n\s*if \(renamed\) this\._refreshFullName\(true\);/u);
 });

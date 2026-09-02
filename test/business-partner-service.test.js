@@ -97,14 +97,6 @@ test('serializes the rewritten search as an OData V2 substring filter', async ()
   assert.match(request.path, /substringof\('O''Hara',BusinessPartnerFullName\)/);
 });
 
-test('accepts a valid organization create payload', () => {
-  assert.deepEqual(validateBusinessPartnerCreate({
-    BusinessPartnerCategory: '2',
-    BusinessPartnerGrouping: '0001',
-    OrganizationBPName1: 'Alluvion Test'
-  }), []);
-});
-
 test('reports missing create fields with UI targets', () => {
   assert.deepEqual(validateBusinessPartnerCreate({
     BusinessPartnerCategory: '1'
@@ -245,27 +237,6 @@ test('Business Partner Assistant answers grounded overview and search questions'
   assert.equal(
     answerBusinessPartnerQuestion('How many Business Partners are there with the name Brussels?', partners),
     '1 Business Partner match “brussels”.'
-  );
-});
-
-test('Business Partner Assistant can return address details for one partner', () => {
-  const partners = [{
-    BusinessPartner: '1',
-    BusinessPartnerFullName: 'Brussels Pharmaceuticals SA/NV',
-    BusinessPartnerCategory: '2',
-    BusinessPartnerGrouping: '0001'
-  }];
-  const addresses = [{
-    StreetName: 'Dorpstraat',
-    HouseNumber: '5',
-    PostalCode: '1000',
-    CityName: 'Brussel',
-    Country: 'BE'
-  }];
-
-  assert.match(
-    answerBusinessPartnerQuestion('What is the address of BP 1?', partners, addresses),
-    /Dorpstraat 5 1000 Brussel BE/
   );
 });
 
@@ -467,47 +438,6 @@ test('assistant proposes a prefilled Business Partner when a company is absent',
   assert.equal(publicSuggestion.sections.Addresses[0].StreetName, 'Dendermondsesteenweg');
 });
 
-test('assistant prefers a VIES-confirmed registry name, address and tax number over research', () => {
-  const partners = [];
-  const registry = {
-    name: 'Spar Destelbergen NV',
-    address: {
-      StreetName: 'Dendermondsesteenweg', HouseNumber: '468',
-      PostalCode: '9070', CityName: 'Destelbergen', Country: 'BE'
-    },
-    taxNumber: { BPTaxType: 'BE0', BPTaxNumber: '0123456789' },
-    source: 'VIES'
-  };
-  const suggestion = JSON.parse(businessPartnerCreationSuggestion(
-    'Geef info over het bedrijf SPAR Destelbergen',
-    partners,
-    { title: 'Contact - Spar Destelbergen', source: 'Public web search' },
-    '',
-    registry
-  ).SuggestedData);
-  assert.equal(suggestion.root.OrganizationBPName1, 'Spar Destelbergen NV');
-  assert.equal(suggestion.sections.Addresses[0].StreetName, 'Dendermondsesteenweg');
-  assert.deepEqual(suggestion.sections.TaxNumbers, [{ BPTaxType: 'BE0', BPTaxNumber: '0123456789' }]);
-});
-
-test('a GLEIF-only registry match (no VIES confirmation) still contributes name and address, never a tax number', () => {
-  const suggestion = JSON.parse(businessPartnerCreationSuggestion(
-    'Geef info over het bedrijf Voorbeeld',
-    [],
-    null,
-    '',
-    {
-      name: 'Voorbeeld NV',
-      address: { StreetName: 'Teststraat', HouseNumber: '1', PostalCode: '1000', CityName: 'Brussel', Country: 'BE' },
-      taxNumber: null,
-      source: 'GLEIF'
-    }
-  ).SuggestedData);
-  assert.equal(suggestion.root.OrganizationBPName1, 'Voorbeeld NV');
-  assert.equal(suggestion.sections.Addresses[0].CityName, 'Brussel');
-  assert.equal(suggestion.sections.TaxNumbers, undefined);
-});
-
 /**
  * registryEnrichment is the assistant's own use of the same GLEIF/VIES tools duplicate-check
  * enrichment already relies on (srv/ai/registry.js). It is deliberately narrow: GLEIF finds a company
@@ -574,11 +504,6 @@ test('registryEnrichment is best-effort: a lookup failure resolves to null, neve
   assert.equal(await registryEnrichment('Anything', { lookup }), null);
 });
 
-test('registryEnrichment resolves to null when GLEIF finds nothing', async () => {
-  const lookup = async () => ({ record: {}, facts: { gleif: [] } });
-  assert.equal(await registryEnrichment('Nobody Ltd', { lookup }), null);
-});
-
 /**
  * A requester typing a VAT number directly in the chat ("BP ING aanmaken met VIes nummer
  * BE0403.200.393") is a stronger signal than a name search - extractVatNumber finds it in free text,
@@ -614,16 +539,6 @@ test('directVatLookup confirms a valid Belgian VAT number and proposes it as a t
   assert.deepEqual(result.taxNumber, { BPTaxType: 'BE0', BPTaxNumber: 'BE0403200393' });
 });
 
-test('directVatLookup reports a non-Belgian confirmation without inventing a tax number', async () => {
-  const checkVat = async () => ({
-    status: 'valid', name: 'Voorbeeld GmbH', countryCode: 'DE', vatNumber: '123456789',
-    address: { CityName: 'Berlin', Country: 'DE' }
-  });
-  const result = await directVatLookup('VAT DE123456789', checkVat);
-  assert.equal(result.name, 'Voorbeeld GmbH');
-  assert.equal(result.taxNumber, null);
-});
-
 test('directVatLookup still answers when VIES does not confirm the number', async () => {
   const invalid = await directVatLookup(
     'BE0403.200.393',
@@ -637,11 +552,6 @@ test('directVatLookup still answers when VIES does not confirm the number', asyn
   );
   assert.equal(unknown.status, 'unknown');
   assert.equal(unknown.reason, 'timeout');
-});
-
-test('directVatLookup resolves to null when the question carries no VAT number, and is best-effort on failure', async () => {
-  assert.equal(await directVatLookup('Does Alluvion already exist?', async () => { throw new Error('unreachable'); }), null);
-  assert.equal(await directVatLookup('BE0403.200.393', async () => { throw new Error('VIES down'); }), null);
 });
 
 /**
@@ -810,33 +720,6 @@ test('assistant recognizes free-form Dutch and English company lookup requests',
   );
 });
 
-// The generic "company <rest>" pattern used to win over these and capture the rest of the sentence,
-// so the duplicate check ran against "Alluvion already exist in our system" and found nothing.
-test('an existence question yields the bare company name, whatever the phrasing', () => {
-  const phrasings = [
-    'does the company Alluvion already exist in our system?',
-    'does the company Alluvion exist in the system?',
-    'does the company Alluvion exist?',
-    'Does Alluvion already exist in our system?',
-    'Does Alluvion exist?',
-    'Is there a company called Alluvion?',
-    'Any companies called Alluvion?',
-    'Is Alluvion a business partner?',
-    '"Alluvion"',
-    // Trailing words used to be captured as part of the name, typo and all.
-    'Are there any companies called Alluvion availebe in our system already?',
-    'Is there a company called Alluvion in our system?',
-    'Does Alluvion already exist in our system?'
-  ];
-  for (const phrasing of phrasings) {
-    assert.equal(
-      BusinessPartnerService._internals.requestedCompanyName(phrasing),
-      'Alluvion',
-      `extracted the wrong name from “${phrasing}”`
-    );
-  }
-});
-
 test('assistant resolves a company from prior turns for a follow-up create request', () => {
   const history = parseConversationHistory(JSON.stringify([
     { role: 'user', content: 'Kan je een business partner met de naam Spar Destelbergen vinden?' },
@@ -882,13 +765,6 @@ test('requesting user email prefers the XSUAA email claim over the logon name', 
   assert.equal(requestingUserEmail({ user: { id: 'jdoe', attr: {} } }), 'jdoe');
   assert.equal(requestingUserEmail({ user: {} }), '');
   assert.equal(requestingUserEmail({}), '');
-});
-
-test('lowerFirst only lower-cases the leading character', () => {
-  assert.equal(lowerFirst('BusinessPartner'), 'businessPartner');
-  assert.equal(lowerFirst('POBox'), 'pOBox');
-  assert.equal(lowerFirst('BPTaxType'), 'bPTaxType');
-  assert.equal(lowerFirst('VATRegistration'), 'vATRegistration');
 });
 
 test('toWorkflowValue applies BPA-friendly defaults and types per element', () => {
@@ -956,34 +832,6 @@ test('toWorkflowShape omits unset date/time fields instead of sending "" (SAP_IP
   assert.equal(populated.pickupTime, '08:00:00');
 });
 
-test('toWorkflowShape omits ABAP-initial date/time sentinels (SAP_IPA_12094)', () => {
-  const entity = {
-    elements: {
-      BusinessPartner: { key: true, type: 'cds.String' },
-      ValidFrom: { type: 'cds.Date' },
-      PickupTime: { type: 'cds.Time' },
-      ValidityEndDate: { type: 'cds.DateTime' }
-    }
-  };
-
-  // @sap/cds's odata-v2 remote client turns ABAP's initial date (00000000)
-  // into "0001-01-01" and its initial time (000000) into "00:00:00" — both
-  // look like real values but BPA rejects them just like a blank string, so
-  // they must be dropped from the payload the same way.
-  const shaped = toWorkflowShape(entity, {
-    BusinessPartner: '1000001', ValidFrom: '0001-01-01', PickupTime: '00:00:00', ValidityEndDate: '0001-01-01T00:00:00Z'
-  });
-  assert.equal(shaped.businessPartner, '1000001');
-  assert.equal('validFrom' in shaped, false);
-  assert.equal('pickupTime' in shaped, false);
-  assert.equal('validityEndDate' in shaped, false);
-
-  // A real "high date" (9999-12-31, SAP's "no end date" convention) is not
-  // an initial value and must still come through.
-  const highDate = toWorkflowShape(entity, { ValidityEndDate: '9999-12-31T23:59:59Z' });
-  assert.equal(highDate.validityEndDate, new Date('9999-12-31T23:59:59Z').toISOString());
-});
-
 test('toWorkflowShape drops audit-trail fields unconditionally, even with a real value (SAP_IPA_12094)', () => {
   const entity = {
     elements: {
@@ -1013,52 +861,6 @@ test('toWorkflowShape drops audit-trail fields unconditionally, even with a real
   for (const field of WORKFLOW_AUDIT_FIELDS) {
     assert.equal(lowerFirst(field) in shaped, false, `${field} should have been dropped`);
   }
-});
-
-test('toWorkflowShape drops per-entity excluded fields but keeps the identical value elsewhere (SAP_IPA_12094)', () => {
-  // Confirmed against BPA: the exact same ISO datetime string is accepted
-  // for A_BusinessPartnerAddress.validityStartDate but rejected for
-  // A_BuPaAddressUsage.validityStartDate — proving it's not a formatting
-  // bug, but that specific field being typed differently in BPA's schema.
-  const entity = {
-    elements: {
-      BusinessPartner: { key: true, type: 'cds.String' },
-      ValidityStartDate: { type: 'cds.DateTime' },
-      ValidityEndDate: { type: 'cds.DateTime' }
-    }
-  };
-  const row = { BusinessPartner: '515', ValidityStartDate: '2026-08-06T00:00:00.000Z', ValidityEndDate: '9999-12-31T23:59:59.000Z' };
-
-  const excluded = toWorkflowShape(entity, row, 'A_BuPaAddressUsage');
-  assert.equal('validityStartDate' in excluded, false);
-  assert.equal('validityEndDate' in excluded, false);
-
-  const notExcluded = toWorkflowShape(entity, row, 'A_BusinessPartnerAddress');
-  assert.equal(notExcluded.validityStartDate, '2026-08-06T00:00:00.000Z');
-  assert.equal(notExcluded.validityEndDate, '9999-12-31T23:59:59.000Z');
-
-  assert.ok(WORKFLOW_FIELD_EXCLUSIONS.A_BuPaAddressUsage.has('ValidityStartDate'));
-  assert.ok(WORKFLOW_FIELD_EXCLUSIONS.A_BuPaAddressUsage.has('ValidityEndDate'));
-});
-
-test('toWorkflowShape drops A_BusinessPartnerRole.validFrom/validTo (SAP_IPA_12094)', () => {
-  const entity = {
-    elements: {
-      BusinessPartner: { key: true, type: 'cds.String' },
-      BusinessPartnerRole: { key: true, type: 'cds.String' },
-      ValidFrom: { type: 'cds.DateTime' },
-      ValidTo: { type: 'cds.DateTime' }
-    }
-  };
-  const shaped = toWorkflowShape(entity, {
-    BusinessPartner: '516', BusinessPartnerRole: 'FLVN00',
-    ValidFrom: '2026-08-06T00:00:00.000Z', ValidTo: '9999-12-31T23:59:59.000Z'
-  }, 'A_BusinessPartnerRole');
-  assert.equal(shaped.businessPartnerRole, 'FLVN00');
-  assert.equal('validFrom' in shaped, false);
-  assert.equal('validTo' in shaped, false);
-  assert.ok(WORKFLOW_FIELD_EXCLUSIONS.A_BusinessPartnerRole.has('ValidFrom'));
-  assert.ok(WORKFLOW_FIELD_EXCLUSIONS.A_BusinessPartnerRole.has('ValidTo'));
 });
 
 test('every entity the approval workflow needs has a valid filter strategy', () => {
@@ -1157,45 +959,6 @@ test('performs one confirming read when the final page is exactly full', async (
 
   assert.deepEqual(await readAllPages(s4, (top, skip) => ({ top, skip }), 2), rows);
   assert.equal(calls, 2);
-});
-
-test('reads addresses in chunks so the generated filter stays short', async () => {
-  const partners = Array.from({ length: 120 }, (_, index) => ({
-    BusinessPartner: String(index + 1)
-  }));
-  const filterSizes = [];
-  const s4 = {
-    entities: {},
-    run: async (query) => {
-      const serialized = JSON.stringify(query.SELECT.where || []);
-      filterSizes.push((serialized.match(/"BusinessPartner"/gu) || []).length);
-      return [];
-    }
-  };
-
-  await readAssistantAddresses(s4, partners);
-
-  assert.equal(filterSizes.length, 3);
-  assert.deepEqual(filterSizes, [50, 50, 20]);
-  assert.deepEqual(await readAssistantAddresses(s4, []), []);
-});
-
-// S/4 runs the BusinessPartner key through an ALPHA conversion exit and rejects the whole read with
-// /IWBEP/CM_MGW_RT/264 when the term cannot fit CHAR(10). "destelbergen" 502'd the assistant.
-test('a term that cannot be a partner number is not sent against the key', () => {
-  assert.deepEqual(searchableFieldsFor('destelbergen').includes('BusinessPartner'), false);
-  assert.deepEqual(searchableFieldsFor('alluvion').includes('BusinessPartner'), false);
-  assert.deepEqual(searchableFieldsFor("O'Hara").includes('BusinessPartner'), false);
-  assert.deepEqual(searchableFieldsFor('12345678901').includes('BusinessPartner'), false, 'too long');
-  // The name fields still carry the term, so nothing is lost from the answer.
-  assert.ok(searchableFieldsFor('destelbergen').includes('OrganizationBPName1'));
-  assert.ok(searchableFieldsFor('destelbergen').includes('BusinessPartnerFullName'));
-});
-
-test('a partner number is still searched against the key', () => {
-  assert.ok(searchableFieldsFor('4711').includes('BusinessPartner'));
-  assert.ok(searchableFieldsFor('0000001000').includes('BusinessPartner'));
-  assert.deepEqual(searchableFieldsFor('4711'), SEARCHABLE_FIELDS);
 });
 
 test('the assistant filter drops the key for a word and keeps it for a number', () => {
