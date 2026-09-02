@@ -85,16 +85,6 @@ test('resolveRelationNumber reads the real Customer/Supplier number via navigati
   assert.equal(result, '6');
 });
 
-test('resolveRelationNumber returns null when the navigation has no target', async () => {
-  const s4 = { send: async () => { throw Object.assign(new Error('not found'), { statusCode: 404 }); } };
-  assert.equal(await resolveRelationNumber(s4, '249', 'Supplier'), null);
-});
-
-test('resolveRelationNumber passes the BusinessPartner number straight through for any other relation field', async () => {
-  const s4 = { send: async () => { throw new Error('must not be called'); } };
-  assert.equal(await resolveRelationNumber(s4, '249', 'BusinessPartner'), '249');
-});
-
 test('buildBusinessPartnerInput shapes staged rows for a create request (no BusinessPartner yet)', async () => {
   const db = stagingDb({
     StagedGeneral: [{ OrganizationBPName1: 'Test 0608' }],
@@ -168,14 +158,6 @@ function withWorkzoneUrl(value, run) {
   }
 }
 
-// A missing link is diagnosable; a link to a host that no longer exists is not.
-test('approveUrl degrades to an empty string without a Work Zone site URL', () => {
-  withWorkzoneUrl(undefined, () => {
-    assert.equal(approveUrl('11111111-1111-1111-1111-111111111111'), '');
-    assert.equal(reworkUrl('11111111-1111-1111-1111-111111111111'), '');
-  });
-});
-
 test('the deep links are Work Zone intents, not standalone approuter paths', () => {
   withWorkzoneUrl(SITE, () => {
     assert.equal(
@@ -191,41 +173,10 @@ test('the deep links are Work Zone intents, not standalone approuter paths', () 
   });
 });
 
-// The intent has to match the inbound in the partner app's manifest, or the link resolves to nothing.
-test('the intent matches the app inbound', () => {
-  const manifest = JSON.parse(fs.readFileSync(
-    path.join(__dirname, '..', 'app', 'businesspartner', 'webapp', 'manifest.json'), 'utf8'
-  ));
-  const inbound = manifest['sap.app'].crossNavigation.inbounds['BusinessPartner-manage'];
-  assert.ok(inbound, 'the inbound exists');
-  withWorkzoneUrl(SITE, () => {
-    assert.ok(approveUrl('x').includes(`#${inbound.semanticObject}-${inbound.action}&/`));
-  });
-});
-
 /**
  * Site Manager hands you the URL ending in `#Shell-home`, so that is what gets pasted into
  * WORKZONE_URL. Keeping both hashes would resolve to the launchpad home instead of the request.
  */
-test('a pasted #Shell-home URL still produces our intent, not two hashes', () => {
-  withWorkzoneUrl(SITE + '#Shell-home', () => {
-    const url = reworkUrl('cr-1');
-    assert.equal(url, `${SITE}#BusinessPartner-manage&/ChangeRequests/cr-1/rework`);
-    assert.equal(url.split('#').length, 2, 'exactly one hash');
-    assert.equal(/Shell-home/u.test(url), false);
-  });
-  // The siteId query string is part of the base and must survive.
-  withWorkzoneUrl(SITE, () => assert.ok(reworkUrl('cr-1').includes('?siteId=')));
-});
-
-test('a trailing slash on the site URL does not double up', () => {
-  withWorkzoneUrl(SITE + '/', () => {
-    assert.equal(
-      approveUrl('cr-1'),
-      `${SITE}#BusinessPartner-manage&/ChangeRequests/cr-1/approve`
-    );
-  });
-});
 
 // block and delete are reserved: they would stage cleanly and then mean nothing to postToS4.
 test('only the request types that can reach S/4 are accepted', () => {

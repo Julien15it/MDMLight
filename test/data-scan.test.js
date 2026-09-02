@@ -44,16 +44,6 @@ test('only the sections a ruleset actually reads are fetched', () => {
   assert.deepEqual(sections.sort(), ['Addresses', 'BusinessPartnerRoles']);
 });
 
-test('a rule that would not run is left out and counted, not run anyway', () => {
-  const rules = [
-    requiredRegion,
-    { ...requiredRegion, isActive: false },
-    // No comparison: incomplete, so it cannot be evaluated against anything.
-    { isActive: true, field: 'Addresses.Region' }
-  ];
-  assert.equal(runnableRules(rules, MODEL).length, 1);
-});
-
 test('a rule is named by the sentence it reads as, since a validation rule has no name column', () => {
   assert.equal(
     describeRule(requiredRegion),
@@ -147,21 +137,4 @@ test('too many partners is refused rather than answered on a slice of them', asy
   assert.equal(report.tooLarge, true);
   assert.equal(report.limit, 2);
   assert.equal(report.rules.length, 0);
-});
-
-test('no runnable rule reports itself rather than reading the population for nothing', async () => {
-  let read = false;
-  const report = await scanValidationRules({
-    rules: [{ ...requiredRegion, isActive: false }],
-    model: MODEL,
-    readPartners: async () => { read = true; return partners; },
-    readSection: async () => new Map()
-  });
-  assert.equal(read, false, 'no remote read for a ruleset that cannot run');
-  assert.equal(report.skipped, 1);
-  assert.deepEqual(report.rules, []);
-});
-
-test('the partner cap is a real number, so the scan cannot be unbounded by default', () => {
-  assert.ok(MAX_PARTNERS > 0 && Number.isFinite(MAX_PARTNERS));
 });

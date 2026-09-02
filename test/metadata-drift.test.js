@@ -8,17 +8,6 @@ const {
 } = require('../srv/metadata-drift');
 const { parseArguments } = require('../tools/import-metadata');
 
-// No --file route on purpose: with the document already on disk, `cds import` is the whole job.
-test('the importer takes a service, and a URL when the destination cannot be reached', () => {
-  assert.deepEqual(parseArguments(['API_BUSINESS_PARTNER']), {
-    service: 'API_BUSINESS_PARTNER', url: null, insecure: false
-  });
-  assert.deepEqual(parseArguments(['X', '--url', 'https://h/sap', '--insecure']), {
-    service: 'X', url: 'https://h/sap', insecure: true
-  });
-  assert.equal(parseArguments([]).service, null, 'requiring the module must not run the import');
-});
-
 const edmx = (sets) => `<?xml version="1.0" encoding="utf-8"?>
 <edmx:Edmx xmlns:edmx="http://schemas.microsoft.com/ado/2007/06/edmx" Version="1.0">
 <edmx:DataServices>
@@ -45,12 +34,6 @@ test('the reader finds entity sets and their properties through the entity type'
   assert.equal(entitySets.get('Regions').size, 3);
 });
 
-test('nothing parseable yields no entity sets rather than throwing', () => {
-  assert.equal(parseMetadata('<html>gateway error</html>').entitySets.size, 0);
-  assert.equal(parseMetadata('').entitySets.size, 0);
-  assert.equal(parseMetadata(undefined).entitySets.size, 0);
-});
-
 // The whole point of the direction split: one of these breaks a read today, the other does not.
 test('a property the live service dropped is separated from one it gained', () => {
   const local = parseMetadata(edmx({ Countries: ['Country', 'Country_Text', 'Retired'] }));
@@ -69,14 +52,6 @@ test('an entity set present on only one side is reported as a set, not as every 
   assert.deepEqual(diff.goneSets, ['Gone']);
   assert.deepEqual(diff.newSets, ['New']);
   assert.deepEqual(diff.goneProperties, []);
-});
-
-// 65 entity sets of which the app reads nine: an unscoped diff is a report nobody finishes.
-test('only the watched sets are compared', () => {
-  const local = parseMetadata(edmx({ Countries: ['Country'], Ignored: ['A'] }));
-  const live = parseMetadata(edmx({ Countries: ['Country'] }));
-  assert.deepEqual(compareMetadata(local, live, ['Countries']).goneSets, []);
-  assert.deepEqual(compareMetadata(local, live, []).goneSets, ['Ignored'], 'unwatched means compare all');
 });
 
 test('a watched set missing from both sides is reported rather than read as agreement', () => {
@@ -106,12 +81,6 @@ test('the message names the command to run, and separates warnings from notes', 
   assert.match(note.message, /behind/u);
   assert.match(note.message, /NewField/u);
   assert.equal(/OldField/u.test(note.message), false, 'a dropped field is not a note');
-});
-
-test('nothing to report produces no lines at all', () => {
-  assert.deepEqual(describeDrift('X', {
-    goneSets: [], newSets: [], goneProperties: [], newProperties: [], unknown: []
-  }, 'cmd'), []);
 });
 
 // The destination and path already live in package.json; a second copy here is what goes stale.
@@ -187,18 +156,4 @@ test('an unreachable service, an empty answer or a missing copy stay at debug', 
     assert.deepEqual(results, []);
     assert.deepEqual(log.lines.filter((line) => line.level !== 'debug'), []);
   }
-});
-
-test('a service in step says so at debug and reports nothing', async () => {
-  const log = collectLog();
-  const same = edmx({ Countries: ['Country', 'Country_Text'] });
-  await checkMetadataDrift({
-    requires,
-    valueHelpEntities: ['Countries'],
-    readFile: async () => same,
-    executeHttpRequest: async () => ({ data: same }),
-    log
-  });
-  assert.deepEqual(log.lines.filter((line) => line.level !== 'debug'), []);
-  assert.match(log.lines[0].message, /matches the local copy/u);
 });

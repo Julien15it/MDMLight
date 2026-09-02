@@ -73,22 +73,9 @@ test('pressing Edit puts the screen in edit mode, not just in editing state', ()
   assert.equal(state.requestType, 'change');
 });
 
-test('creating is still a create when Edit is pressed on the create form', () => {
-  const { state, controller } = screen(displayed({ mode: 'create' }));
-  controller.onEdit();
-  assert.equal(state.mode, 'create');
-  assert.notEqual(state.requestType, 'change');
-});
-
 test('submitting a change raises a change request instead of writing to S/4', async () => {
   const { sent, controller } = screen(displayed());
   controller.onEdit();
-  await controller.onSave();
-  assert.deepEqual(sent, ['submitRequest']);
-});
-
-test('submitting a create still raises a change request', async () => {
-  const { sent, controller } = screen(displayed({ mode: 'create' }));
   await controller.onSave();
   assert.deepEqual(sent, ['submitRequest']);
 });

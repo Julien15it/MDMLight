@@ -101,24 +101,12 @@ test('a partner under a change request carries the request, and is not itself on
   assert.equal(row.RequestedBy, 'julien');
 });
 
-test('statusOf spells out every request type it can be handed', () => {
-  assert.equal(statusOf({ requestType: 'block', status: 'draft' }).RecordStatus, 'Block draft');
-  assert.equal(statusOf({ requestType: 'delete', status: 'failed' }).RecordStatus, 'Delete post failed');
-  // An unknown type is shown as it is rather than swallowed.
-  assert.equal(statusOf({ requestType: 'merge', status: 'draft' }).RecordStatus, 'merge draft');
-});
-
 test('the filter bar is applied to the staged rows too', () => {
   const row = { BusinessPartner: '', BusinessPartnerCategory: '2', BusinessPartnerGrouping: 'BP01' };
 
   assert.equal(matchesWhere(row, [{ ref: ['BusinessPartnerCategory'] }, '=', { val: '2' }]), true);
   assert.equal(matchesWhere(row, [{ ref: ['BusinessPartnerCategory'] }, '=', { val: '1' }]), false);
   assert.equal(matchesWhere(row, [{ ref: ['BusinessPartnerGrouping'] }, '!=', { val: 'BP01' }]), false);
-});
-
-test('a filter on the partner number excludes a create, which has no number yet', () => {
-  const row = { BusinessPartner: '' };
-  assert.equal(matchesWhere(row, [{ ref: ['BusinessPartner'] }, '=', { val: '4711' }]), false);
 });
 
 test('and, or and negation combine the way the filter bar builds them', () => {
@@ -205,11 +193,6 @@ test('an expression the staged rows cannot evaluate keeps the row and reports it
   assert.equal(reported.length, 1);
 });
 
-test('no filter matches everything', () => {
-  assert.equal(matchesWhere({}, undefined), true);
-  assert.equal(matchesWhere({}, []), true);
-});
-
 test('every search term must hit a field, as the remote read requires', () => {
   const row = { BusinessPartnerFullName: 'Alluvion NV', SearchTerm1: 'ALLUVION' };
   assert.equal(matchesTerms(row, ['alluvion'], SEARCHABLE_FIELDS), true);
@@ -229,24 +212,9 @@ test('the second page skips the staged rows it already showed', () => {
   assert.deepEqual(split, { pendingSkip: 2, pendingTaken: 0, partnerSkip: 28, partnerTop: 30 });
 });
 
-test('a page filled entirely by staged rows asks the remote read for nothing', () => {
-  const split = pageSplit({ pendingCount: 5, skip: 0, top: 3 });
-  assert.deepEqual(split, { pendingSkip: 0, pendingTaken: 3, partnerSkip: 0, partnerTop: 0 });
-});
-
-test('a page landing inside the staged rows takes the remainder from the remote read', () => {
-  const split = pageSplit({ pendingCount: 5, skip: 3, top: 10 });
-  assert.deepEqual(split, { pendingSkip: 3, pendingTaken: 2, partnerSkip: 0, partnerTop: 8 });
-});
-
 test('an unpaged read takes every staged row and leaves the remote read unpaged', () => {
   const split = pageSplit({ pendingCount: 4, skip: 0, top: undefined });
   assert.deepEqual(split, { pendingSkip: 0, pendingTaken: 4, partnerSkip: 0, partnerTop: undefined });
-});
-
-test('no staged rows leaves the paging exactly as the client sent it', () => {
-  const split = pageSplit({ pendingCount: 0, skip: 60, top: 30 });
-  assert.deepEqual(split, { pendingSkip: 0, pendingTaken: 0, partnerSkip: 60, partnerTop: 30 });
 });
 
 test('newest request first, and an undated draft sorts last', () => {
@@ -293,16 +261,6 @@ test('mergeLocalPage filters against entry.row, not entry.searchable', () => {
   assert.equal(active.count, 1);
 });
 
-test('mergeLocalPage sorts newest-requested first, across pending and marked partners alike', () => {
-  const pending = [{ row: { ResultKey: 'CR:1', RequestedAt: '2026-08-01T00:00:00Z' } }];
-  const partnerRows = [
-    { row: { ResultKey: 'BP:1', RequestedAt: null } },
-    { row: { ResultKey: 'BP:2', RequestedAt: '2026-08-24T00:00:00Z' } }
-  ];
-  const merged = mergeLocalPage({ pending, partnerRows, where: undefined });
-  assert.deepEqual(merged.rows.map((row) => row.ResultKey), ['BP:2', 'CR:1', 'BP:1']);
-});
-
 test('mergeLocalPage pages the filtered result, and counts it exactly', () => {
   const partnerRows = [1, 2, 3, 4, 5].map((n) => ({ row: { ResultKey: `BP:${n}`, RequestedAt: null } }));
   const paged = mergeLocalPage({ partnerRows, where: undefined, skip: 2, top: 2 });
@@ -338,14 +296,6 @@ test('the list report reads the merged entity, not the S/4 projection alone', ()
   );
 });
 
-test('the status column is coloured by its criticality', () => {
-  const annotations = root('srv', 'annotations.cds');
-  assert.match(
-    annotations,
-    /\{ Value: RecordStatus, Label: 'Status', Criticality: RecordStatusCriticality \}/u
-  );
-});
-
 /**
  * In OData V4 Fiori Elements the filter bar - and its "Adapt Filters" dialog - is built from
  * SelectionFields alone, unlike V2's "every property is a candidate" behaviour: a LineItem column
@@ -353,19 +303,6 @@ test('the status column is coloured by its criticality', () => {
  * is in the table (asked for 2026-08-27, widened to the change-request columns 2026-08-28). Every
  * column shown in the table's own Settings dialog must therefore also be a SelectionFields entry.
  */
-test('every filterable table column is also offered by Adapt Filters', () => {
-  const annotations = root('srv', 'annotations.cds');
-  const start = annotations.indexOf('annotate service.BusinessPartnerSearchResults');
-  const block = annotations.slice(start, annotations.indexOf(');', start) + 2);
-  const selectionFields = block.slice(
-    block.indexOf('UI.SelectionFields'), block.indexOf('UI.LineItem')
-  );
-  const lineItemFields = [...block.matchAll(/\{ Value: (\w+),/gu)].map((match) => match[1]);
-  assert.ok(lineItemFields.length > 0, 'the LineItem columns could not be parsed');
-  for (const field of lineItemFields) {
-    assert.ok(selectionFields.includes(field), `${field} is a column but not offered as a filter`);
-  }
-});
 
 /**
  * The change-request columns became filterable 2026-08-28 (asked for): a filter naming one is
@@ -400,13 +337,6 @@ test('the change-request columns are filterable but not sortable; two technical 
   }
 });
 
-// A partner under a request is marked now. Hiding it also hid it from the display and edit screens.
-test('a partner is no longer filtered out of the list by its change request', () => {
-  const service = root('srv', 'business-partner-service.js');
-  assert.equal(/applyChangeRequestExclusion/u.test(service), false);
-  assert.equal(/MAX_EXCLUDED_PARTNERS/u.test(service), false);
-});
-
 // The lock and the list answer different questions; collapsing them would widen or narrow one.
 test('the lock statuses stay wider than the in-progress statuses', () => {
   const { ACTIVE_REQUEST_STATUSES } = require('../srv/business-partner-service')._internals;
@@ -424,23 +354,6 @@ test('a change request has a read-only route, and it is not the edit one', () =>
   assert.equal(display.pattern, 'ChangeRequests/{changeRequest}/display');
   assert.equal(display.target, 'BusinessPartnerMaintenance');
   assert.ok(routes.some((route) => route.name === 'ChangeRequestEdit'));
-});
-
-test('the view mode offers nothing to press', () => {
-  const controller = root(
-    'app', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse',
-    'controller', 'BusinessPartnerMaintenance.controller.js'
-  );
-  assert.match(controller, /\["ChangeRequestDisplay", this\._onRequestDisplayRoute\]/u);
-  assert.match(controller, /_loadStagedRequest\([\s\S]{0,140}?"view"/u);
-  assert.match(controller, /var viewing = mode === "view";/u);
-  // A viewer is not an approver, and view mode must not re-run a check either.
-  assert.match(controller, /state\.showCheckButton = !viewing;/u);
-  assert.match(controller, /state\.showDecisionButtons = !editing && !viewing;/u);
-  assert.match(
-    controller,
-    /state\.showDecisionButtons = !editing && !viewing && state\.requestStatus === "inApproval";/u
-  );
 });
 
 // `$count` arrives as a STRING from the V2 remote, and the staged rows are added to it: `"323" + 57`

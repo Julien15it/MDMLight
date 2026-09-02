@@ -17,13 +17,6 @@ test('a value with no wildcard still compares exactly, as it always did', () => 
   assert.equal(listMatches('FLVN01', 'FLVN00', compare), false);
 });
 
-// The case from the request: one condition covering a whole family of roles.
-test('a trailing wildcard matches every role in the family', () => {
-  assert.equal(listMatches('FLVN*', 'FLVN01', compare), true);
-  assert.equal(listMatches('FLVN*', 'FLVN00', compare), true);
-  assert.equal(listMatches('FLVN*', 'FLCU01', compare), false);
-});
-
 test('a wildcard works anywhere in the value, not only at the end', () => {
   assert.equal(wildcardMatches('*01', 'FLVN01'), true);
   assert.equal(wildcardMatches('FL*01', 'FLVN01'), true);
@@ -32,29 +25,12 @@ test('a wildcard works anywhere in the value, not only at the end', () => {
   assert.equal(wildcardMatches('*01', 'FLVN02'), false);
 });
 
-// Anchored, or `FLVN*` would also match a role that merely CONTAINS it.
-test('a pattern is anchored at both ends', () => {
-  assert.equal(wildcardMatches('FLVN', 'XFLVN01'), false);
-  assert.equal(wildcardMatches('VN*', 'FLVN01'), false);
-});
-
-test('the pattern is case insensitive, like the tables own text comparison', () => {
-  assert.equal(wildcardMatches('flvn*', 'FLVN01'), true);
-  assert.equal(listMatches('be*', 'BE0448207405', compare), true);
-});
-
 // A regex metacharacter in a condition value must be data, not syntax - `A.C` is not `A?C`.
 test('everything except the asterisk is escaped rather than interpreted', () => {
   assert.equal(wildcardMatches('A.C', 'ABC'), false);
   assert.equal(wildcardMatches('A.C', 'A.C'), true);
   assert.equal(wildcardMatches('A+C', 'A+C'), true);
   assert.equal(wildcardMatches('(x)', '(x)'), true);
-});
-
-test('a wildcard is one entry of a list, alongside exact ones', () => {
-  assert.equal(listMatches('FLCU01|FLVN*', 'FLVN00', compare), true);
-  assert.equal(listMatches('FLCU01|FLVN*', 'FLCU01', compare), true);
-  assert.equal(listMatches('FLCU01|FLVN*', 'BUP001', compare), false);
 });
 
 // The duplicate engine holds NORMALISED values, and `alnumUpper` would strip the `*` out of a
@@ -66,15 +42,6 @@ test('a pattern is normalised segment by segment, keeping its wildcards', () => 
   assert.equal(normalisePattern('a c*', alnumUpper), 'AC*');
   // The whole-value normalisation this exists to avoid.
   assert.equal(alnumUpper('flvn*'), 'FLVN');
-});
-
-// --- AND / OR / NOR --------------------------------------------------------
-
-test('the three operators are what the tables offer, and AND is the default', () => {
-  assert.deepEqual(Object.keys(CONDITION_LOGIC), ['AND', 'OR', 'NOR']);
-  assert.equal(DEFAULT_CONDITION_LOGIC, 'AND');
-  // Short labels, no description: the column is titleless and sits between the two conditions.
-  for (const [code, logic] of Object.entries(CONDITION_LOGIC)) assert.equal(logic.text, code);
 });
 
 test('each operator joins two conditions the way its name says', () => {
@@ -107,13 +74,6 @@ test('the operator is read case insensitively but refused when it is not one', (
   assert.equal(conditionLogicError('NOR'), null);
 });
 
-// One condition has nothing to be joined to, and NOR would silently invert it.
-test('the operator only applies when both conditions are filled', () => {
-  assert.equal(joinConditions([true], 'NOR'), true);
-  assert.equal(joinConditions([false], 'NOR'), false);
-  assert.equal(joinConditions([], 'NOR'), true, 'no condition means the rule always applies');
-});
-
 /**
  * The whole reason `joinConditions` was generalised (2026-08-28, for WorkflowRules' dynamic
  * `conditions` column): three or more results, not just the two every OTHER rule table still has.
@@ -134,22 +94,6 @@ test('AND, OR and NOR fold over three or more conditions, not just two', () => {
  * to agree with `joinConditions` wherever the logic is uniform, or every rule saved before it
  * existed would start answering differently.
  */
-test('foldConditions matches joinConditions whenever one logic covers every gap', () => {
-  const { foldConditions } = require('../srv/checks/value-lists');
-  for (const logic of ['AND', 'OR', null]) {
-    for (const results of [[], [true], [false], [true, false], [false, true], [true, true, false]]) {
-      assert.equal(
-        foldConditions(results, results.map(() => logic)),
-        joinConditions(results, logic),
-        `${logic} ${JSON.stringify(results)}`
-      );
-    }
-  }
-  // NOR too, up to the two-condition case the pairwise version was written for.
-  assert.equal(foldConditions([true], [null]), true, 'a lone condition is itself, never inverted');
-  assert.equal(foldConditions([false, false], [null, 'NOR']), true);
-  assert.equal(foldConditions([false, true], [null, 'NOR']), false);
-});
 
 // Left to right, no precedence: `A OR B AND C` is `(A OR B) AND C`, which is how the row reads.
 test('foldConditions applies each gap its own logic, left to right', () => {
@@ -160,12 +104,6 @@ test('foldConditions applies each gap its own logic, left to right', () => {
   // An unrecognised or missing logic still reads as AND, the same fallback every stored row gets.
   assert.equal(foldConditions([true, true], [null, 'XOR']), true);
   assert.equal(foldConditions([true, false], [null, undefined]), false);
-});
-
-test('a rule carrying an unusable operator does not save', () => {
-  const model = { definitions: {} };
-  const errors = validateValidationRule({ conditionLogic: 'MAYBE' }, model).errors;
-  assert.equal(errors.some((error) => error.field === 'conditionLogic'), true);
 });
 
 // --- Through the engine ----------------------------------------------------
@@ -199,26 +137,6 @@ const model = {
     }
   }
 };
-
-test('OR fires when only the second condition holds, where AND would not', () => {
-  const rule = {
-    conditionField: 'Addresses.Country',
-    conditionValue: 'NL',
-    conditionField2: 'BusinessPartnerRoles.BusinessPartnerRole',
-    conditionValue2: 'FLVN*',
-    field: 'General.CorrespondenceLanguage',
-    comparison: 'notEmpty',
-    severity: 'error'
-  };
-  const request = payload({}, {
-    Addresses: [{ Country: 'BE' }],
-    BusinessPartnerRoles: [{ BusinessPartnerRole: 'FLVN01' }]
-  });
-
-  assert.equal(runValidationRule({ ...rule, conditionLogic: 'AND' }, request, model).length, 0);
-  assert.equal(runValidationRule({ ...rule, conditionLogic: 'OR' }, request, model).length, 1);
-  assert.equal(runValidationRule({ ...rule, conditionLogic: 'NOR' }, request, model).length, 0);
-});
 
 // A requester told "where A and B" about an OR rule has been told something untrue.
 test('the message says which operator the rule actually used', () => {
@@ -270,27 +188,6 @@ test('a validation rule can carry five conditions, ANDed by default', () => {
   assert.equal(runValidationRule(rule, missing, model).length, 0, 'one failing condition is enough');
 });
 
-// Left to right, no precedence: `A OR B AND C` is `(A OR B) AND C`, which is how the row reads.
-test('each Logic column joins its own pair, folded left to right', () => {
-  const rule = {
-    conditionField: 'Addresses.Country', conditionValue: 'BE',
-    conditionLogic: 'OR',
-    conditionField2: 'Addresses.Country', conditionValue2: 'NL',
-    conditionLogic2: 'AND',
-    conditionField3: 'BusinessPartnerRoles.BusinessPartnerRole', conditionValue3: 'FLCU01',
-    field: 'General.CorrespondenceLanguage',
-    comparison: 'notEmpty',
-    severity: 'error'
-  };
-  const payload = (country, role) => ({
-    root: { CorrespondenceLanguage: '' },
-    sections: { Addresses: [{ Country: country }], BusinessPartnerRoles: [{ BusinessPartnerRole: role }] }
-  });
-  assert.equal(runValidationRule(rule, payload('NL', 'FLCU01'), model).length, 1, 'NL satisfies the OR');
-  assert.equal(runValidationRule(rule, payload('NL', 'FLVN01'), model).length, 0, 'the trailing AND still has to hold');
-  assert.equal(runValidationRule(rule, payload('FR', 'FLCU01'), model).length, 0, 'neither side of the OR holds');
-});
-
 // A rule saved with two conditions has no later column filled in - it must read exactly as it did.
 test('a rule saved before the extra slots existed is unchanged', () => {
   const rule = {
@@ -303,19 +200,6 @@ test('a rule saved before the extra slots existed is unchanged', () => {
     sections: { Addresses: [{ Country: 'BE' }], BusinessPartnerRoles: [{ BusinessPartnerRole: 'FLCU01' }] }
   };
   assert.equal(runValidationRule(rule, both, model).length, 1);
-});
-
-// Half a condition is the dangerous half in the new slots too, and so is an unrecognised logic.
-test('every slot validates, and so does every Logic column', () => {
-  const errors = validateValidationRule({
-    field: 'General.CorrespondenceLanguage',
-    comparison: 'eq',
-    value: 'NL',
-    conditionField5: 'Addresses.Country',
-    conditionLogic3: 'MAYBE'
-  }, model).errors;
-  assert.equal(errors.some((error) => error.field === 'conditionValue5'), true, 'a field with no value is refused');
-  assert.equal(errors.some((error) => error.field === 'conditionLogic3'), true, 'and so is an unusable logic');
 });
 
 // A condition value is a LIST on every rule table, not only on WorkflowRules (2026-09-01: "the

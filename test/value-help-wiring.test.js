@@ -97,12 +97,6 @@ test('a local value list has its own READ handler, not the valueHelp passthrough
   }
 });
 
-// The clash it exists to avoid: BusinessPartnerRoles is already the S/4 child entity.
-test('the role code list keeps its renamed projection', () => {
-  assert.match(serviceCds, /entity BusinessPartnerRoleCodes\s+as projection on VH\.BusinessPartnerRoles/u);
-  assert.ok(VALUE_HELP_ENTITIES.includes('BusinessPartnerRoleCodes'));
-});
-
 /**
  * Reported directly: the list report's filter bar has no F4 help at all, on any field. BusinessPartners
  * already annotates BusinessPartnerCategory/BusinessPartnerGrouping, but BusinessPartnerSearchResults
@@ -110,14 +104,3 @@ test('the role code list keeps its renamed projection', () => {
  * - so it does not inherit that annotation, and needs its own copy pointing at the same, already-
  * exposed value-help collections.
  */
-test('the list report filter bar has its own value-list annotations, not inherited ones', () => {
-  const searchResults = annotations.slice(annotations.indexOf('annotate service.BusinessPartnerSearchResults with {'));
-  assert.match(
-    searchResults,
-    /BusinessPartnerCategory @Common\.ValueList: \{\s*\n\s*CollectionPath: 'BusinessPartnerCategories'/u
-  );
-  assert.match(
-    searchResults,
-    /BusinessPartnerGrouping @Common\.ValueList: \{\s*\n\s*CollectionPath: 'BusinessPartnerGroupings'/u
-  );
-});

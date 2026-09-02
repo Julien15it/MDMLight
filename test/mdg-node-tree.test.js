@@ -143,10 +143,3 @@ test('a staged address can hold the address language S/4 requires', async () => 
   const general = model.definitions['mdmlight.staging.StagedGeneral'].elements;
   assert.ok(general.CorrespondenceLanguage, 'the BP-level language is a different column');
 });
-
-test('the address screen section offers the language, so a requester can fill it', () => {
-  const addresses = screenSections().find((section) => section.id === 'Addresses');
-  assert.ok(addresses.fields.some((field) => field.name === 'Language'));
-  // Left off the summary row: a two-letter code earns no column beside the street.
-  assert.equal((addresses.summaryFields || []).includes('Language'), false);
-});

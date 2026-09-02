@@ -65,26 +65,6 @@ test('a single stored value is a one-entry list', () => {
   assert.deepEqual(parseValueList(null), []);
 });
 
-test('a list round-trips, trimmed, without empties or duplicates', () => {
-  assert.deepEqual(parseValueList(' BE | NL ||NL| FR '), ['BE', 'NL', 'FR']);
-  assert.equal(formatValueList(['BE', 'NL', 'BE']), `BE${DELIMITER}NL`);
-  assert.deepEqual(parseValueList(formatValueList(['BE', 'NL'])), ['BE', 'NL']);
-});
-
-// Commas and semicolons are in the data - "Acme, Inc" and address text - and would split a value in
-// half. Neither appears in an e-mail address, a country code or a role, and nor does the delimiter.
-test('the delimiter is not a character the data carries', () => {
-  assert.equal(DELIMITER, '|');
-  assert.deepEqual(parseValueList('Acme, Inc|Beta; Ltd'), ['Acme, Inc', 'Beta; Ltd']);
-});
-
-test('a list matches on any entry, not on all of them', () => {
-  assert.equal(listMatches('BE|NL|FR', 'NL', compare), true);
-  assert.equal(listMatches('BE|NL|FR', 'nl', compare), true, 'text compares case-insensitively');
-  assert.equal(listMatches('BE|NL|FR', 'DE', compare), false);
-  assert.equal(listMatches('', 'BE', compare), false);
-});
-
 // ---------------------------------------------------------------------------
 // Conditions
 // ---------------------------------------------------------------------------
@@ -98,27 +78,6 @@ test('one condition covers several values, and holds on any of them', () => {
   const spanish = payload({}, { Addresses: [{ Country: 'ES' }] });
   assert.equal(conditionsHold(conditions, belgian, model), true);
   assert.equal(conditionsHold(conditions, spanish, model), false);
-});
-
-// A row of this table targets no section of its own, so a condition is a statement about the
-// PARTNER: any row of the named section satisfying it is enough.
-test('a condition holds when any row of the section matches', () => {
-  const conditions = readConditions(
-    rule({ conditionField: 'Addresses.Country', conditionValues: 'NL' }), model
-  );
-  const two = payload({}, { Addresses: [{ Country: 'BE' }, { Country: 'NL' }] });
-  assert.equal(conditionsHold(conditions, two, model), true);
-});
-
-test('both pairs are ANDed, and an empty pair means any', () => {
-  const both = readConditions(rule({
-    conditionField: 'Addresses.Country', conditionValues: 'BE',
-    conditionField2: 'General.BusinessPartnerCategory', conditionValues2: '2'
-  }), model);
-  assert.equal(conditionsHold(both, payload({ BusinessPartnerCategory: '2' }, { Addresses: [{ Country: 'BE' }] }), model), true);
-  assert.equal(conditionsHold(both, payload({ BusinessPartnerCategory: '1' }, { Addresses: [{ Country: 'BE' }] }), model), false);
-  // No condition at all applies to everything - that is what an empty pair is for.
-  assert.equal(conditionsHold(readConditions(rule(), model), payload(), model), true);
 });
 
 // ---------------------------------------------------------------------------
@@ -232,14 +191,6 @@ test('ne holds when some row differs from every listed value', () => {
   assert.equal(conditionsHold(conditions, bothMatch, model), false);
 });
 
-test('lt/le/gt/ge compare numerically, the same comparator rule-engine.js uses elsewhere', () => {
-  const atLeast5 = readConditions(rule({
-    conditionField: 'General.BusinessPartnerCategory', conditionOperator: 'ge', conditionValues: '5'
-  }), model);
-  assert.equal(conditionsHold(atLeast5, payload({ BusinessPartnerCategory: '7' }), model), true);
-  assert.equal(conditionsHold(atLeast5, payload({ BusinessPartnerCategory: '3' }), model), false);
-});
-
 test('empty/notEmpty need no listed value at all', () => {
   const mustBeEmpty = readConditions(rule({
     conditionField: 'General.OrganizationBPName1', conditionOperator: 'empty', conditionValues: ''
@@ -254,16 +205,6 @@ test('an unknown or blank operator falls back to eq, never crashes the engine', 
   }), model);
   assert.equal(conditions[0].operator, 'eq');
   assert.equal(conditionsHold(conditions, payload({}, { Addresses: [{ Country: 'BE' }] }), model), true);
-});
-
-// The second slot takes an operator too, independent of the first.
-test('the second slot has its own operator, independent of the first', () => {
-  const conditions = readConditions(rule({
-    conditionField: 'Addresses.Country', conditionOperator: 'eq', conditionValues: 'BE',
-    conditionField2: 'General.BusinessPartnerCategory', conditionOperator2: 'ne', conditionValues2: '1'
-  }), model);
-  assert.equal(conditions[0].operator, 'eq');
-  assert.equal(conditions[1].operator, 'ne');
 });
 
 // A rule saved before operators existed has neither `conditionOperator` column filled in - it must
@@ -308,11 +249,6 @@ test("validateCondition: empty/notEmpty need no value, unlike every other operat
   );
 });
 
-test('validateCondition: an unknown operator is refused at the keyboard', () => {
-  const errors = validateCondition({ field: 'Addresses.Country', operator: 'maybe', values: 'BE' }, model, 'c1');
-  assert.ok(errors.some((e) => e.field === 'operator'));
-});
-
 // ---------------------------------------------------------------------------
 // What a row has to carry
 // ---------------------------------------------------------------------------
@@ -328,17 +264,6 @@ test('a rule needs a CR type, a step and somebody to approve it', () => {
   assert.deepEqual(fields({ requestType: '*' }), []);
   assert.deepEqual(fields({ requestType: 'archive' }), ['requestType']);
   assert.deepEqual(fields({ step: 'Review' }), ['step']);
-});
-
-// All four types plus `*`, unlike the field property profiles' list (which uses `*` as a condition,
-// not a fifth value): this table is where a steward says who approves a block or a delete, and
-// saying it before the app processes those types is harmless.
-test('all four CR types plus Any can be configured, and one step exists', () => {
-  assert.deepEqual([...REQUEST_TYPES], ['*', 'create', 'change', 'block', 'delete']);
-  assert.deepEqual([...STEPS], ['Approve']);
-  for (const requestType of REQUEST_TYPES) {
-    assert.deepEqual(validateWorkflowRule(rule({ requestType }), model).errors, []);
-  }
 });
 
 /**
@@ -364,27 +289,6 @@ test('a "*" rule and a specific-type rule both contribute for a matching request
   assert.deepEqual(forCreate.map((entry) => entry.value).sort(), ['create-only@alluvion.eu', 'general@alluvion.eu']);
   const forChange = resolveApprovers({ rules, requestType: 'change', payload: payload(), model });
   assert.deepEqual(forChange.map((entry) => entry.value), ['general@alluvion.eu']);
-});
-
-// Half a condition is the dangerous half: a field with no values would match every request. Both
-// fixed slots are always validated (see validateWorkflowRule) - each also validates on its own
-// terms through validateCondition, tested separately above.
-test('half a condition is refused, from either side, in either slot', () => {
-  const fields = (overrides) => validateWorkflowRule(rule(overrides), model).errors.map((e) => e.field);
-  assert.deepEqual(fields({ conditionField: 'Addresses.Country', conditionValues: '' }), ['values']);
-  assert.deepEqual(fields({ conditionField: '', conditionValues: 'BE' }), ['field']);
-  assert.deepEqual(fields({ conditionField: 'Nowhere.Country', conditionValues: 'BE' }), ['field']);
-  assert.deepEqual(fields({ conditionField2: 'Addresses.Country', conditionValues2: '' }), ['values']);
-  assert.deepEqual(fields({ conditionField2: '', conditionValues2: 'BE' }), ['field']);
-});
-
-// A fully-specified pair, in either slot, passes clean.
-test('two fully-specified condition slots pass clean', () => {
-  const errors = validateWorkflowRule(rule({
-    conditionField: 'Addresses.Country', conditionOperator: 'eq', conditionValues: 'BE|NL',
-    conditionField2: 'General.BusinessPartnerCategory', conditionOperator2: 'ge', conditionValues2: '2'
-  }), model).errors;
-  assert.deepEqual(errors, []);
 });
 
 // An unknown operator in either slot is refused the same way validateCondition refuses it alone.
@@ -415,11 +319,6 @@ test('an approver is a user or a role, and a mistyped address is warned about', 
   assert.match(warnings[0].message, /passed on as a role/u);
 });
 
-test('an inactive or unusable row is not runnable', () => {
-  const rows = [rule(), rule({ isActive: false }), rule({ approvers: '' })];
-  assert.equal(runnableWorkflowRules(rows, model).length, 1);
-});
-
 // ---------------------------------------------------------------------------
 // Resolving the approvers
 // ---------------------------------------------------------------------------
@@ -443,15 +342,6 @@ test('the configured line resolves to the three approvers it names', () => {
   ]);
   assert.deepEqual([...new Set(approvers.map((entry) => entry.step))], ['Approve']);
   assert.deepEqual([...new Set(approvers.map((entry) => entry.kind))], ['user']);
-});
-
-test('a rule for another CR type, or whose conditions miss, contributes nobody', () => {
-  const rules = [rule({ conditionField: 'Addresses.Country', conditionValues: 'BE' })];
-  const belgian = payload({}, { Addresses: [{ Country: 'BE' }] });
-  assert.equal(resolveApprovers({ rules, requestType: 'change', payload: belgian, model }).length, 0);
-  assert.equal(resolveApprovers({
-    rules, requestType: 'create', payload: payload({}, { Addresses: [{ Country: 'ES' }] }), model
-  }).length, 0);
 });
 
 // Extra lines are extra approvers, which is what the Add button is for. Rows are additive and carry

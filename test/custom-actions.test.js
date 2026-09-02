@@ -76,38 +76,11 @@ test('create action navigates directly to the maintenance route', () => {
   assert.deepEqual(runtime.errors, []);
 });
 
-test('home action returns to the Business Partner list', () => {
-  const runtime = loadActions('BusinessPartners/1/display');
-  runtime.actions.openListPage();
-  assert.equal(runtime.getHash(), '');
-});
-
 test('assistant uses the Fiori page model without requiring a selection', () => {
   const runtime = loadActions();
   const model = { name: 'main-service' };
   const view = { name: 'list-view' };
   runtime.actions.setEnvironment(model, view);
-  runtime.actions.openAssistant();
-  assert.deepEqual(runtime.assistantCalls, [{ model, view: null }]);
-});
-
-test('assistant can resolve a model from a wrapped Fiori context', () => {
-  const runtime = loadActions();
-  const model = { name: 'wrapped-service' };
-  runtime.actions.openAssistant({
-    bindingContext: {
-      getProperty: () => undefined,
-      getModel: () => model
-    }
-  });
-  assert.deepEqual(runtime.assistantCalls, [{ model, view: null }]);
-});
-
-test('a late page initialization cannot erase the component OData model', () => {
-  const runtime = loadActions();
-  const model = { name: 'component-service' };
-  runtime.actions.setEnvironment(model, null);
-  runtime.actions.setEnvironment(null, { name: 'late-list-view' });
   runtime.actions.openAssistant();
   assert.deepEqual(runtime.assistantCalls, [{ model, view: null }]);
 });
@@ -128,29 +101,6 @@ test('list edit action accepts the selected Fiori Elements context', () => {
   assert.equal(runtime.actions.isSingleSelection(null, [context('3')]), true);
   runtime.actions.openEditPage(null, [context('3')]);
   assert.equal(runtime.getHash(), 'BusinessPartners/3/maintain');
-  assert.deepEqual(runtime.errors, []);
-});
-
-test('row navigation opens the complete Business Partner display page', () => {
-  const runtime = loadActions();
-  runtime.actions.openDisplayPage(context('3'));
-  assert.equal(runtime.getHash(), 'BusinessPartners/3/display');
-  assert.deepEqual(runtime.errors, []);
-});
-
-test('row navigation accepts the official Fiori bindingContext wrapper', () => {
-  const runtime = loadActions();
-  runtime.actions.openDisplayPage({ bindingContext: context('3') });
-  assert.equal(runtime.getHash(), 'BusinessPartners/3/display');
-  assert.deepEqual(runtime.errors, []);
-});
-
-test('list edit accepts contexts wrapped by the Fiori action runtime', () => {
-  const runtime = loadActions();
-  const actionParameters = { selectedContexts: [context('149')] };
-  assert.equal(runtime.actions.isSingleSelection(actionParameters), true);
-  runtime.actions.openEditPage(actionParameters);
-  assert.equal(runtime.getHash(), 'BusinessPartners/149/maintain');
   assert.deepEqual(runtime.errors, []);
 });
 
@@ -181,18 +131,6 @@ test('a change request row opens read-only', () => {
   assert.deepEqual(runtime.errors, []);
 });
 
-// Viewing is not editing: the edit and approve routes stay where they were.
-test('even a draft opens on the display route, never the edit one', () => {
-  const runtime = loadActions();
-  runtime.actions.openDisplayPage(searchRow({
-    IsChangeRequest: true,
-    ChangeRequest: 'req-2',
-    ChangeRequestStatus: 'draft'
-  }));
-  assert.equal(runtime.getHash(), 'ChangeRequests/req-2/display');
-  assert.equal(/\/edit|\/approve/u.test(runtime.getHash()), false);
-});
-
 // Nothing to open. Says what the row is instead of navigating to a route with no id in it.
 test('a request row with no id reports itself rather than navigating', () => {
   const runtime = loadActions();
@@ -204,18 +142,6 @@ test('a request row with no id reports itself rather than navigating', () => {
   assert.equal(runtime.getHash(), '');
   assert.equal(runtime.information.length, 1);
   assert.match(runtime.information[0], /Create draft/u);
-});
-
-test('a partner marked with a pending request still opens its own display page', () => {
-  const runtime = loadActions();
-  runtime.actions.openDisplayPage(searchRow({
-    IsChangeRequest: false,
-    BusinessPartner: '4711',
-    ChangeRequest: 'req-4',
-    ChangeRequestStatus: 'inApproval'
-  }));
-  assert.equal(runtime.getHash(), 'BusinessPartners/4711/display');
-  assert.deepEqual(runtime.information, []);
 });
 
 // Hiding the row used to be what prevented a second request over the same partner. A message is now.

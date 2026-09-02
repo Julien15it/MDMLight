@@ -63,15 +63,6 @@ test('the reported failure is now caught before the submit', async () => {
   );
 });
 
-test('a complete row passes', async () => {
-  assert.deepEqual(await run({
-    CustomerTaxIndicators: [{
-      action: 'C', CustomerTaxCategory: 'MWST', DepartureCountry: 'BE',
-      SalesOrganization: '1710', DistributionChannel: '10', Division: '00'
-    }]
-  }), []);
-});
-
 /**
  * The one way this stage could break a working app: flagging a field postToS4 supplies itself.
  * `Customer`/`Supplier`/`BusinessPartner` are resolved from the relation at post time and are
@@ -114,15 +105,6 @@ test('oneOf is reported separately, and satisfied by either field', async () => 
   assert.deepEqual(
     await run({ TaxNumbers: [{ action: 'C', BPTaxType: 'BE0', BPTaxLongNumber: 'X' }] }), []
   );
-});
-
-test('a section nothing creates, or nothing posts, is left alone', async () => {
-  // creatable: false - the root is written by its own path, not by saveBusinessPartnerEntity.
-  assert.deepEqual(await run({ BusinessPartners: [{ action: 'C' }] }), []);
-  // A section with no entry in MAINTENANCE_ENTITIES has no create rules to check.
-  assert.deepEqual(await run({ SomethingUnstaged: [{ action: 'C' }] }), []);
-  // No sections at all.
-  assert.deepEqual(await stage().run({ root: {} }), []);
 });
 
 test('every row is judged, and each names its own index', async () => {

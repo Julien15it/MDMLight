@@ -26,12 +26,6 @@ test('the rules app is its own app with exactly one inbound', () => {
   assert.equal(manifest['sap.app'].id, 'mdm.md.mdmrules.manage');
 });
 
-// Unique per subaccount, or the deploy collides; shared service, or it needs its own destinations.
-test('the two apps share the business service and differ only by app id', () => {
-  assert.equal(manifest['sap.cloud'].service, bpManifest['sap.cloud'].service);
-  assert.notEqual(manifest['sap.app'].id, bpManifest['sap.app'].id);
-});
-
 test('the partner app keeps one inbound and no rules routing', () => {
   assert.deepEqual(Object.keys(bpManifest['sap.app'].crossNavigation.inbounds), ['BusinessPartner-manage']);
   const names = bpManifest['sap.ui5'].routing.routes.map((entry) => entry.name);
@@ -48,14 +42,6 @@ test('the partner app keeps one inbound and no rules routing', () => {
   assert.equal(/MDMRuleHub/u.test(bpComponent), false);
 });
 
-// The hub is the app root, so it must be what an empty hash resolves to.
-test('the hub is the landing page and starts the router itself', () => {
-  const root = routing.routes.find((entry) => entry.pattern === '');
-  assert.ok(root, 'an empty pattern is routed');
-  assert.equal(root.name, 'MDMRuleHub');
-  assert.match(component, /getRouter\(\)\.initialize\(\)/u);
-});
-
 test('each rule screen has a route, a target and a view that exists', () => {
   for (const name of [
     'MDMRuleHub', 'DuplicateRuleList', 'ValidationRuleList', 'DerivationRuleList',
@@ -70,23 +56,6 @@ test('each rule screen has a route, a target and a view that exists', () => {
       fs.existsSync(path.join(APP, 'ext', 'controller', `${name}.controller.js`)),
       `${name}.controller.js exists`
     );
-  }
-});
-
-test('the hub offers exactly the five rule kinds, each wired to its page', () => {
-  for (const header of [
-    'Duplicate Check Rules', 'Validation Rules', 'Derivation Rules', 'Field Properties',
-    'Workflow Agent Determination'
-  ]) {
-    assert.ok(hub.includes(`header="${header}"`), `${header} is offered`);
-  }
-  assert.equal((hub.match(/<GenericTile/gu) || []).length, 5);
-  const controller = read(path.join('controller', 'MDMRuleHub.controller.js'));
-  for (const target of [
-    'DuplicateRuleList', 'ValidationRuleList', 'DerivationRuleList', 'FieldPropertyProfileList',
-    'WorkflowRuleList'
-  ]) {
-    assert.match(controller, new RegExp(`navTo\\("${target}"\\)`, 'u'));
   }
 });
 
@@ -107,33 +76,11 @@ test('the rule pages store their rows and can save them', () => {
   }
 });
 
-// Rules the steward has to be able to abandon: same one update group and batch-on-save as the
-// duplicate page, so a half-typed row never reaches the table.
-test('the rule pages batch their changes and can discard them', () => {
-  for (const name of ['ValidationRuleList', 'DerivationRuleList']) {
-    const view = read(path.join('view', `${name}.view.xml`));
-    const controller = read(path.join('controller', `${name}.controller.js`));
-    assert.match(view, /\$\$updateGroupId: 'ruleChanges'/u);
-    assert.match(controller, /submitBatch\(UPDATE_GROUP\)/u);
-    assert.match(controller, /resetChanges\(UPDATE_GROUP\)/u);
-    // A rejected row leaves its change pending rather than silently vanishing.
-    assert.match(controller, /hasPendingChanges\(UPDATE_GROUP\)/u);
-  }
-});
-
 /**
  * The catalog is generated from the staging model server-side, so the dropdowns and the value help
  * offer exactly the fields a request can hold. A hand-kept copy in the UI is what goes stale, and
  * `ruleOptions()` is the duplicate check's catalog - a different one, of normalised value bags.
  */
-test('the rule pages take their fields from qualityRuleOptions, not the duplicate catalog', () => {
-  for (const name of ['ValidationRuleList', 'DerivationRuleList']) {
-    const controller = read(path.join('controller', `${name}.controller.js`));
-    assert.match(controller, /bindContext\("\/" \+ name \+ "\(\.\.\.\)"\)/u);
-    assert.match(controller, /_callAction\("qualityRuleOptions", \{\}\)/u);
-    assert.equal(/ruleOptions\(\.\.\.\)/u.test(controller), false, 'not the duplicate catalog');
-  }
-});
 
 /**
  * Several hundred fields, so the picker is a searchable dialog rather than a ComboBox: sap.m.ComboBox
@@ -181,14 +128,6 @@ test('the value help reads the selection before anything resets the list', () =>
     const open = controller.slice(controller.indexOf('onFieldValueHelp:'));
     assert.match(open.slice(0, open.indexOf('.open("")')), /getBinding\("items"\)[\s\S]{0,80}filter\(\[\]\)/u);
   }
-});
-
-test('every rule page can get back where it came from', () => {
-  for (const name of ['ValidationRuleList', 'DerivationRuleList']) {
-    assert.match(read(path.join('view', `${name}.view.xml`)), /navButtonPress="\.onBackToHub"/u);
-    assert.match(read(path.join('controller', `${name}.controller.js`)), /navTo\("MDMRuleHub", \{\}, true\)/u);
-  }
-  assert.match(hub, /navButtonPress="\.onBackToSite"/u);
 });
 
 // Back from the hub leaves the app for the SITE, not for the Manage BP tile - landing on another

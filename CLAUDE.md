@@ -708,8 +708,10 @@ convention, each `CONDITION_PAIRS` names its own.
   a horizontal `ScrollContainer` (`vertical="false"`) and `view>/tableWidth` gives it something to
   overflow with, because a fixed-layout `sap.m.Table` at `width="100%"` redistributes its columns into
   whatever space it has. `tableWidthFor` is the arithmetic (24rem per condition, 6 per Logic column of
-  which there is one fewer, plus `SELECT_REM = 3` for the invisible MultiSelect column), and tests add
-  the declared `<Column width>`s up against it. `growingScrollToLoad` is off so the More button still
+  which there is one fewer, plus `SELECT_REM = 3` for the invisible MultiSelect column). The tests
+  that added the declared `<Column width>`s up against it were removed in the 2026-09-02 test cull as
+  layout churn, so nothing now catches the two drifting apart — check the arithmetic by hand when you
+  add or resize a column. `growingScrollToLoad` is off so the More button still
   works. `_applyTableWidth` is the single setter, which is what stops Add Condition undoing a resize.
 - **The engine folds LEFT TO RIGHT, one logic per gap** — `foldConditions` in
   `srv/checks/value-lists.js`. `A OR B AND C` is `(A OR B) AND C`; there is no precedence. Zero and one

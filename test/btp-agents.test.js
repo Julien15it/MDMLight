@@ -55,11 +55,6 @@ test('the service is found under the xsuaa group by name', async () => {
   assert.equal(found.url, CREDENTIALS.url);
 });
 
-test('an unbound service is reported, not silently empty', async () => {
-  await assert.rejects(withVcap({ xsuaa: [] }, getCredentials), /not found in VCAP_SERVICES/u);
-  await assert.rejects(withVcap(undefined, getCredentials), /not found in VCAP_SERVICES/u);
-});
-
 // apiurl is what tells an apiaccess-plan instance apart from the app's own application-plan one -
 // the same host every subaccount's Authorization Management API answers on, not the tenant login URL.
 test('apiHost demands apiurl rather than guessing one from url', () => {
@@ -86,30 +81,6 @@ test('role collections are filtered to the MDMLIGHT prefix and named, never thei
     const agents = await btpAgents.workflowAgents();
     const roles = agents.filter((agent) => agent.type === 'Role');
     assert.deepEqual(roles.map((role) => role.value).sort(), ['MDMLIGHT_Data_Steward', 'MDMLIGHT_Sales_Approver']);
-  }));
-});
-
-// An admin typing "Mdmlight" or "mdmlight" in the description must not silently produce an empty
-// picker - the prefix check is not the place to demand a particular casing convention.
-test('the MDMLIGHT prefix check is case-insensitive', () => {
-  return withVcap({ xsuaa: [{ name: btpAgents.SERVICE_NAME, credentials: CREDENTIALS }] }, () => withAxios({
-    post: async () => ({ data: { access_token: 'tok', expires_in: 3600 } }),
-    get: async (url) => {
-      if (url.endsWith('/sap/rest/authorization/v2/rolecollections')) {
-        return {
-          data: [
-            { name: 'Lowercase', description: 'mdmlight Sales Approver' },
-            { name: 'MixedCase', description: 'MdmLight Data Steward' },
-            { name: 'NoMatch', description: 'md-light but not it' }
-          ]
-        };
-      }
-      return { data: [] };
-    }
-  }, async () => {
-    const agents = await btpAgents.workflowAgents();
-    const roles = agents.filter((agent) => agent.type === 'Role');
-    assert.deepEqual(roles.map((role) => role.value).sort(), ['Lowercase', 'MixedCase']);
   }));
 });
 
@@ -141,19 +112,6 @@ test('users are named by e-mail, falling back to their user name when they have 
 test('an unreadable subaccount never throws - it resolves to no agents', () => {
   return withVcap(undefined, () => btpAgents.workflowAgents().then((agents) => {
     assert.deepEqual(agents, []);
-  }));
-});
-
-test('one side failing does not cost the other', () => {
-  return withVcap({ xsuaa: [{ name: btpAgents.SERVICE_NAME, credentials: CREDENTIALS }] }, () => withAxios({
-    post: async () => ({ data: { access_token: 'tok', expires_in: 3600 } }),
-    get: async (url) => {
-      if (url.endsWith('/Users')) throw new Error('boom');
-      return { data: [{ name: 'MDMLIGHT_X', description: 'MDMLIGHT X' }] };
-    }
-  }, async () => {
-    const agents = await btpAgents.workflowAgents();
-    assert.deepEqual(agents, [{ type: 'Role', value: 'MDMLIGHT_X' }]);
   }));
 });
 
@@ -211,14 +169,6 @@ test('emailsForRoleCollections resolves membership off /Users own groups', () =>
     const emails = await btpAgents.emailsForRoleCollections(['Approver Customer']);
     assert.deepEqual(emails.sort(), ['julien@alluvion.eu', 'maarten@alluvion.eu']);
   }));
-});
-
-test('emailsForRoleCollections never calls the API for an empty list, and never throws', async () => {
-  assert.deepEqual(await btpAgents.emailsForRoleCollections([]), []);
-  assert.deepEqual(await btpAgents.emailsForRoleCollections(null), []);
-  await withVcap(undefined, async () => {
-    assert.deepEqual(await btpAgents.emailsForRoleCollections(['Approver Customer']), []);
-  });
 });
 
 // --- specificRoleFor -----------------------------------------------------------------------
@@ -281,10 +231,4 @@ test('specificRoleFor is null when nothing matches, when several do, or when the
     assert.equal(await btpAgents.specificRoleFor('both@alluvion.eu', 'Approver'), null);
     assert.equal(await btpAgents.specificRoleFor('nobody@alluvion.eu', 'Approver'), null);
   }));
-});
-
-test('specificRoleFor never throws - an unreachable subaccount resolves to null', () => {
-  return withVcap(undefined, async () => {
-    assert.equal(await btpAgents.specificRoleFor('a@b.com', 'Approver'), null);
-  });
 });

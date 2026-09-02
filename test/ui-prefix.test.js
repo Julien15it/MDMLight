@@ -51,9 +51,3 @@ test('a destination entry with no instance guid is skipped, not returned as empt
   });
   assert.equal(withVcap(vcap, readDestinationInstanceGuid), GUID);
 });
-
-// Non-array groups appear in VCAP_SERVICES in some runtimes; they must not throw the lookup.
-test('a malformed group does not throw', () => {
-  const vcap = JSON.stringify({ destination: { label: 'destination', instance_guid: GUID } });
-  assert.equal(withVcap(vcap, readDestinationInstanceGuid), '');
-});

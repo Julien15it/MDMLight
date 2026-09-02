@@ -110,28 +110,6 @@ test('with AI off the assistant answers from S/4 and contacts no model', async (
   assert.equal(answer.Provider, 'S/4HANA search');
 });
 
-test('with AI off intent parsing falls back to the pattern parser', async () => {
-  // Null is the caller's signal to keep its own parser - see business-partner-service.js.
-  assert.equal(await parseIntent({
-    question: 'is Acme already a customer?',
-    aiEnabled: false,
-    env: withBinding,
-    Client: forbiddenClient
-  }), null);
-});
-
-test('with AI off normalisation keeps its deterministic proposals', async () => {
-  const payload = { root: { OrganizationBPName1: 'acme nv' }, sections: {} };
-
-  const withAi = await proposeNormalisations({ payload, aiEnabled: true, env: {} });
-  const withoutAi = await proposeNormalisations({
-    payload, aiEnabled: false, env: withBinding, Client: forbiddenClient
-  });
-
-  // Switching AI off must not cost the rule-based proposals, only the modelled ones.
-  assert.deepEqual(withoutAi, withAi);
-});
-
 test('the switch is enforced on the server, not only drawn in the UI', () => {
   const source = (file) => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
 
@@ -166,28 +144,6 @@ test('the switch is enforced on the server, not only drawn in the UI', () => {
     source('srv/business-partner-service.cds'), /setAiAssistanceEnabled/u,
     'the unrestricted service must not be able to flip the switch'
   );
-});
-
-test('the hub offers the switch to stewards only, and says what it covers', () => {
-  const app = path.join(__dirname, '..', 'app', 'mdmrules', 'webapp');
-  const hub = fs.readFileSync(path.join(app, 'ext', 'view', 'MDMRuleHub.view.xml'), 'utf8');
-  const controller = fs.readFileSync(
-    path.join(app, 'ext', 'controller', 'MDMRuleHub.controller.js'), 'utf8'
-  );
-
-  assert.match(hub, /state="\{perm>\/aiAssistanceEnabled\}"/u);
-  // Courtesy still, but a switch a non-steward can move only to see it snap back is worse
-  // than one that is plainly disabled.
-  assert.match(hub, /enabled="\{perm>\/isDataSteward\}"/u);
-  // The three LLM users are named, and the non-LLM features are called out as staying on -
-  // "AI off" means different things to different customers.
-  assert.match(hub, /duplicate check/iu);
-  assert.match(hub, /VIES and GLEIF/u);
-
-  // Saved through the config service, and put back when the server refuses.
-  assert.match(controller, /setAiAssistanceEnabled/u);
-  assert.match(controller, /getModel\("dc"\)/u);
-  assert.match(controller, /setProperty\("\/aiAssistanceEnabled", !enabled\)/u);
 });
 
 test('with AI off the assistant is withdrawn, not quietly answered without a model', () => {

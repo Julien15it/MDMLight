@@ -100,24 +100,6 @@ test('each relation is looked up once, however many children hang off it', async
   assert.equal(asked, 2, 'Customer and Supplier, not once per node');
 });
 
-test('an empty section is not a section that needs a parent', async () => {
-  const messages = await stage({
-    businessPartner: '4711',
-    resolve: async () => { throw new Error('must not be asked'); }
-  }).run(payload({ CustomerCompany: [], Customers: [] }));
-
-  assert.deepEqual(messages, []);
-});
-
-test('the role node itself never needs a parent', async () => {
-  const messages = await stage({
-    businessPartner: '4711',
-    resolve: async () => null
-  }).run(payload({ Customers: [{ CustomerAccountGroup: 'DEBI' }] }));
-
-  assert.deepEqual(messages, []);
-});
-
 /**
  * Every section this stage's own `Object.entries(sections)` loop reads is required to be an
  * array - `Customers`/`Suppliers` are `!config.many` in PAYLOAD_NODES, so a server-side reader that

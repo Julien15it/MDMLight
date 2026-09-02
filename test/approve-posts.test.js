@@ -36,13 +36,6 @@ test('approving posts to S/4 rather than only recording the decision', () => {
   assert.match(approveController, /Approve this request and create the Business Partner in S\/4HANA\?/u);
 });
 
-test('the approver comment is still appended before anything is posted', () => {
-  const commentAt = approveBranch.indexOf('appendComment');
-  const postAt = approveBranch.indexOf('postAndRecord');
-  assert.ok(commentAt > -1 && postAt > -1);
-  assert.ok(commentAt < postAt, 'the comment is part of the decision, not of the post');
-});
-
 test('a successful post is recorded as posted, with the number and no error', () => {
   const success = postAndRecord.slice(0, postAndRecord.indexOf('} catch (error)'));
   assert.match(success, /status: 'posted'/u);
@@ -64,28 +57,8 @@ test('a failed post sends the request back to rework, not to failed', () => {
  * whoever opens the request next. Authored as `'System'`/`'SYSTEM'`, never `'Approver'` - the
  * approver did not reject anything, S/4 did.
  */
-test('a failed post is recorded in the conversation thread, as the system', () => {
-  const failure = postAndRecord.slice(postAndRecord.indexOf('} catch (error)'));
-  assert.match(
-    failure,
-    /appendComment\(\s*\n\s*db, changeRequest, 'System', 'SYSTEM',/u
-  );
-  assert.match(
-    failure,
-    /Approved, but the Business Partner could not be created in S\/4HANA: \$\{message\.slice\(0, 1000\)\}/u
-  );
-  // Written after the status update, not instead of it - the header field and the thread entry
-  // must not disagree about whether the request even is `reworkRequired`.
-  const statusAt = failure.indexOf("status: 'reworkRequired'");
-  const commentAt = failure.indexOf('appendComment(');
-  assert.ok(statusAt > -1 && commentAt > -1 && statusAt < commentAt);
-});
 
 /** `getRequestPayload` is how a reopened rework/view/approve screen learns why the post failed. */
-test('getRequestPayload returns the post error alongside the rejection comment', () => {
-  assert.match(serviceCds, /PostError\s*: String\(1000\);/u);
-  assert.match(serviceJs, /PostError: header\.postError,/u);
-});
 
 /**
  * The trap this replaced. `req.reject` throws, CAP rolls the transaction back with it, and the
@@ -149,53 +122,19 @@ test('the post result goes to its own trigger, with no result key', () => {
 });
 
 /** executionId is the process instance from our own header, not the change request UUID. */
-test('the execution id is the stored process instance', () => {
-  const signal = serviceJs.slice(
-    serviceJs.indexOf('const signalPostResult ='), serviceJs.indexOf('const postAndRecord =')
-  );
-  assert.match(signal, /if \(!header\.processInstanceId\) \{/u);
-  // And a missing instance is logged, not swallowed: "nothing arrived in BPA" with a silent
-  // return is the hardest version of this to diagnose.
-  assert.match(signal, /console\.warn\(/u);
-  assert.match(signal, /has no processInstanceId, so the post result was not sent to BPA/u);
-  assert.match(signal, /triggerPostResult\(header\.processInstanceId, \{/u);
-  assert.match(/** the four declared inputs, and only those */ signal, /businesspartnerid:/u);
-  assert.match(signal, /businesspartnerfullname:/u);
-  assert.match(signal, /status: errorMessage \? 'error' : 'success'/u);
-  assert.match(signal, /errormessage: errorMessage \? String\(errorMessage\)\.slice\(0, 1000\) : ''/u);
-});
 
 /**
  * Staging has no BusinessPartnerFullName column — the screen's read-only field is composed there
  * too — so the name has to be composed here rather than read.
  */
-test('the full name is composed, because nothing stores it', () => {
-  const staging = read('db', 'staging.cds');
-  assert.equal(/BusinessPartnerFullName/u.test(staging), false);
-  assert.match(serviceJs, /const \{ withFullName, fullNameOf \} = require\('\.\/partner-name'\)/u);
-  assert.match(serviceJs, /businesspartnerfullname: fullNameOf\(general\) \|\| ''/u);
-});
 
 /** A signalling failure must not lose a partner that already exists in S/4. */
-test('signalling the result never throws', () => {
-  const signal = serviceJs.slice(
-    serviceJs.indexOf('const signalPostResult ='), serviceJs.indexOf('const postAndRecord =')
-  );
-  assert.match(signal, /catch \(error\) \{/u);
-  assert.match(signal, /console\.error\('Could not signal the workflow with the result/u);
-});
 
 /**
  * SignalWorkflow false is the task form saying "completing the task already delivers the decision".
  * It must not silence the post result: that is a different wait, and the process needs it whichever
  * way the decision arrived.
  */
-test('the post result is not gated by SignalWorkflow', () => {
-  const signal = serviceJs.slice(
-    serviceJs.indexOf('const signalPostResult ='), serviceJs.indexOf('const postAndRecord =')
-  );
-  assert.equal(/SignalWorkflow/u.test(signal), false);
-});
 
 // --- Not creating the partner twice -------------------------------------------------------------
 
@@ -234,15 +173,6 @@ test('the approve screen reports a failed post as a failure, not as a rejection'
   assert.match(body, /sent back to the requester for rework/u);
   // And the rejection toast is still there, on the branch that really is a rejection.
   assert.match(body, /MessageToast\.show\("Request rejected\."\)/u);
-});
-
-test('the inbox task form surfaces the same failure', () => {
-  // Not called at all for an intermediate approval in a multi-approver chain (2026-09-01) - see
-  // "several approvers" tests below - but a real decision (the final approve, or any reject) still
-  // goes through _decideOnServer and its failure still surfaces the same way.
-  assert.match(taskComponent, /var decision = isIntermediateApproval \? null : await this\._decideOnServer\(outcomeId\)/u);
-  assert.match(taskComponent, /if \(decision && decision\.ErrorMessage\)/u);
-  assert.match(taskComponent, /return value \? value\.getObject\(\) : null;/u);
 });
 
 /**

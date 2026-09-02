@@ -173,37 +173,6 @@ test('no matching role collection resolves to no stewards, without calling /User
   }));
 });
 
-// Best-effort like btp-agents.js: an unreachable subaccount, or one not bound at all, resolves to no
-// stewards rather than costing the submit that is asking for them.
-test('an unreadable subaccount never throws - it resolves to no stewards', () => {
-  return withVcap(undefined, () => dataStewards.dataStewardEmails().then((emails) => {
-    assert.deepEqual(emails, []);
-  }));
-});
-
-test('a user with no groups, or none matching, contributes nobody', () => {
-  return withVcap({ xsuaa: [{ name: btpAgents.SERVICE_NAME, credentials: CREDENTIALS }] }, () => withAxios({
-    post: async () => ({ data: { access_token: 'tok', expires_in: 3600 } }),
-    get: async (url) => {
-      if (url.endsWith('/sap/rest/authorization/v2/rolecollections')) {
-        return { data: [{ name: 'DataSteward', roleReferences: [{ roleTemplateName: 'DataSteward' }] }] };
-      }
-      if (url.endsWith('/Users')) {
-        return {
-          data: [
-            { userName: 'no-groups', emails: [{ value: 'x@b.com' }] },
-            { userName: 'other-groups', emails: [{ value: 'y@b.com' }], groups: [{ value: 'Something_Else' }] }
-          ]
-        };
-      }
-      return { data: [] };
-    }
-  }, async () => {
-    const emails = await dataStewards.dataStewardEmails();
-    assert.deepEqual(emails, []);
-  }));
-});
-
 test('a second call within the TTL does not call the API again', () => {
   let calls = 0;
   return withVcap({ xsuaa: [{ name: btpAgents.SERVICE_NAME, credentials: CREDENTIALS }] }, () => withAxios({

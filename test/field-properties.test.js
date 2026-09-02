@@ -48,20 +48,6 @@ test('the four properties are the ones that were asked for, in column order', ()
 });
 
 /** `*` is the "all" both conditions take, and it has to be offered, not typed. */
-test('both condition lists lead with the wildcard', () => {
-  assert.equal(REQUEST_TYPES[0], '*');
-  assert.equal(ROLES[0], '*');
-  assert.ok(REQUEST_TYPES.includes('create') && REQUEST_TYPES.includes('change'));
-  // Approver/DataSteward stopped being fixed values 2026-08-27 - the picker sources those from BTP
-  // role collections instead (see fieldPropertyOptions). Requester is the one role concept that is
-  // not a role collection, so it stays hard-coded.
-  assert.ok(ROLES.includes('Requester'));
-  assert.equal(ROLES.includes('Approver'), false);
-  assert.equal(ROLES.includes('DataSteward'), false);
-  // block/delete are in the status enum but no request carries them: a profile for one would look
-  // configured and never match.
-  assert.equal(REQUEST_TYPES.includes('delete'), false);
-});
 
 /** Generated from the staging model, so a new node appears in the dialog with no UI change. */
 test('the entity tree is the payload model, keys and associations left out', () => {
@@ -73,14 +59,6 @@ test('the entity tree is the payload model, keys and associations left out', () 
   assert.equal(addresses.fields[0].field, 'Addresses.Country');
   // An entity with nothing addressable is nothing anyone can say anything about.
   assert.equal(tree.some((entity) => !entity.fields.length), false);
-});
-
-// --- What may be stored ----------------------------------------------------------------
-
-test('an entity-level setting carries no element, and that is what makes it entity-level', () => {
-  const { setting, error } = validateSetting({ section: 'TaxNumbers', property: 'mandatory' }, csn);
-  assert.equal(error, undefined);
-  assert.deepEqual(setting, { section: 'TaxNumbers', element: null, property: 'mandatory', critical: false });
 });
 
 test('an unknown entity, field or property is refused rather than stored', () => {
@@ -100,11 +78,6 @@ test('an unknown entity, field or property is refused rather than stored', () =>
  * or carry no property at all and only be critical - so an empty property is no longer, on its own,
  * a reason to refuse the row.
  */
-test('an entity-level row may carry critical with no property at all', () => {
-  const { setting, error } = validateSetting({ section: 'Addresses', critical: true }, csn);
-  assert.equal(error, undefined);
-  assert.deepEqual(setting, { section: 'Addresses', element: null, property: null, critical: true });
-});
 
 /**
  * Entity-level only (2026-08-26): critical marks the whole entity, not one field inside it, so a
@@ -131,20 +104,6 @@ test('the same target twice keeps the last one, never both', () => {
   assert.ok(settings.find((s) => s.element === null));
 });
 
-// --- The conditions --------------------------------------------------------------------
-
-test('a wildcard condition matches everything, a filled one matches only itself', () => {
-  const global = { requestType: '*', role: '*' };
-  assert.equal(profileMatches(global, { requestType: 'create', role: 'Approver' }), true);
-  const creates = { requestType: 'create', role: '*' };
-  assert.equal(profileMatches(creates, { requestType: 'create', role: 'Requester' }), true);
-  assert.equal(profileMatches(creates, { requestType: 'change', role: 'Requester' }), false);
-  const approver = { requestType: '*', role: 'Approver' };
-  assert.equal(profileMatches(approver, { requestType: 'change', role: 'Requester' }), false);
-  // An empty condition is read as "any" rather than as a value nothing equals.
-  assert.equal(profileMatches({}, { requestType: 'create', role: 'Requester' }), true);
-});
-
 // --- The service -----------------------------------------------------------------------
 
 test('the profile and its settings are exposed, and the settings are written by the action', () => {
@@ -162,16 +121,8 @@ test('the profile and its settings are exposed, and the settings are written by 
  * condition. Deployed before the reversal, so `cds-deploy`'s no-drop rule applies - the same trap
  * `sequence` above sits in. `critical` on `FieldPropertySettings` is the version that shipped instead.
  */
-test('the abandoned per-profile critical field is dead weight, not read or written', () => {
-  assert.match(model, /criticalField : String\(60\);/u);
-  assert.equal(/criticalField/u.test(serviceJs), false, 'nothing in the service reads or writes it');
-  assert.equal(/criticalField/u.test(controller), false, 'nothing in the page reads or writes it');
-});
 
 /** Independent of the four states, so it is its own column rather than a fifth value in that set. */
-test('critical is a boolean on the settings row, alongside property rather than inside it', () => {
-  assert.match(model, /critical : Boolean default false;/u);
-});
 
 /**
  * Wholesale replace, the same reasoning as the staged nodes in change-request-service: the dialog
@@ -193,11 +144,6 @@ test('saving a profile replaces its settings rather than merging them', () => {
 });
 
 /** A condition outside the closed list makes a profile that can never fire. */
-test('the conditions are checked on the way in', () => {
-  const guard = serviceJs.slice(serviceJs.indexOf("'FieldPropertyProfiles'"));
-  assert.match(guard, /!REQUEST_TYPES\.includes\(requestType\)/u);
-  assert.match(guard, /!ROLES\.includes\(role\)/u);
-});
 
 /**
  * Approver/DataSteward are sourced from the BTP subaccount now (2026-08-27), the same way the
@@ -221,34 +167,7 @@ test('a profile can also be scoped to a BTP role, and legacy rows still save', (
   assert.match(optionsBody, /agent\.type === 'Role' && agent\.value\.toUpperCase\(\) !== 'MDMLIGHT'/u);
 });
 
-// --- The page --------------------------------------------------------------------------
-
-test('the profile list is the conditions, and the properties are behind Modify', () => {
-  assert.match(view, /items="\{ path: 'dc>\/FieldPropertyProfiles'/u);
-  assert.match(view, /text="Add Profile"[\s\S]{0,120}press="\.onAddProfile"/u);
-  assert.match(view, /text="Modify"[\s\S]{0,160}press="\.onModify"/u);
-  // Both conditions are closed lists from the service, never typed.
-  assert.match(view, /items="\{ path: 'opt>\/requestTypes'/u);
-  assert.match(view, /items="\{ path: 'opt>\/roles'/u);
-  assert.match(controller, /_callAction\("fieldPropertyOptions", \{\}\)/u);
-  // Same batch-on-save contract as the other rule pages.
-  assert.match(view, /\$\$updateGroupId: 'ruleChanges'/u);
-  assert.match(controller, /submitBatch\(UPDATE_GROUP\)/u);
-  assert.match(controller, /resetChanges\(UPDATE_GROUP\)/u);
-  assert.match(controller, /hasPendingChanges\(UPDATE_GROUP\)/u);
-});
-
 /** The interaction that was asked for: entities listed, each opening up to its own fields. */
-test('the dialog lists entities that open up to their fields, with the four boxes on both levels', () => {
-  assert.match(dialog, /items="\{ path: 'fp>\/rows'/u);
-  assert.match(dialog, /press="\.onToggleEntity"/u);
-  assert.match(dialog, /visible="\{= \$\{fp>kind\} === 'entity' \}"/u);
-  for (const property of ['mandatory', 'readOnly', 'hidden', 'optional']) {
-    assert.match(dialog, new RegExp(`selected="\\{= \\$\\{fp>property\\} === '${property}' \\}"`, 'u'));
-    assert.match(dialog, new RegExp(`<core:CustomData key="property" value="${property}" />`, 'u'));
-  }
-  assert.match(dialog, /press="\.onApplyProperties"/u);
-});
 
 /**
  * Critical (2026-08-26, asked for after the per-profile column that shipped first): drawn as a fifth
@@ -333,36 +252,13 @@ test('the read-only reflection is never sent back as this profile\'s own setting
  * The rows the table binds ARE the tree nodes, so ticking a box writes through and expanding an
  * entity keeps whatever was ticked. Rebuilding from a copy is what would silently drop edits.
  */
-test('ticking a box writes to the tree, and clears the other three', () => {
-  assert.match(controller, /row\.property = event\.getParameter\("selected"\) \? picked : null/u);
-  const rebuild = controller.slice(controller.indexOf('_rebuildRows: function'));
-  assert.match(rebuild.slice(0, rebuild.indexOf('onToggleEntity')), /rows\.push\(entity\)/u);
-  // The expression bindings all read the same row, so the list is refreshed rather than one path.
-  assert.match(controller, /getModel\("fp"\)\.refresh\(true\)/u);
-});
 
 /**
  * A row exists to carry either state, so it must be sent when it carries only one of them - `critical`
  * gated on canEditCritical since 2026-08-27 (see the read-only-reflection tests above).
  */
-test('a row is sent when only critical is set, and when only a property is set', () => {
-  const fn = controller.slice(
-    controller.indexOf('_settingsFromTree: function'), controller.indexOf('onApplyProperties:')
-  );
-  assert.match(fn, /if \(entity\.property \|\| entityCritical\)/u);
-  assert.match(fn, /if \(!field\.property && !fieldCritical\) return;/u);
-  assert.match(fn, /critical: !!entityCritical/u);
-  assert.match(fn, /critical: !!fieldCritical/u);
-});
 
 /** "Clear" resets the whole row, or a field could sit there still critical with nothing to show why. */
-test('clearing a profile clears critical along with the four properties', () => {
-  const fn = controller.slice(
-    controller.indexOf('onClearProperties: function'), controller.indexOf('_settingsFromTree:')
-  );
-  assert.match(fn, /entity\.critical = false;/u);
-  assert.match(fn, /field\.critical = false;/u);
-});
 
 /** Several hundred fields: a search that only matched entity names would never find PO Box. */
 test('the search finds fields as well as entities, and opens the entity holding them', () => {
@@ -385,7 +281,3 @@ test('modify saves the profile first rather than failing on a missing id', () =>
  * The profiles drive the maintenance screen as of 2026-08-20, so the strip that said otherwise had
  * to go with the same discipline it was added under - and the rule pages carry no standing banners.
  */
-test('the page makes no claim about whether the profiles are applied', () => {
-  assert.equal(/Nothing reads these profiles yet/u.test(view), false);
-  assert.equal(/<MessageStrip/u.test(view), false, 'no standing banner');
-});

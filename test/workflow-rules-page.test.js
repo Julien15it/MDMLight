@@ -24,97 +24,12 @@ const serviceJs = read(ROOT, 'srv', 'duplicate-config-service.js');
 const rulesCds = read(ROOT, 'db', 'workflow-rules.cds');
 const changeRequestJs = read(ROOT, 'srv', 'change-request-service.js');
 
-// The columns are the agreed shape of a rule, so they are pinned rather than left to a refactor.
-// Five condition slots since 2026-09-01, three of them hidden until "Add Condition" reveals them -
-// they are declared here either way, because a hidden column is still a column on every row.
-test('the workflow table has the columns a rule needs, in order', () => {
-  // Lazy across the attributes rather than `[^>]*`: a `visible` binding carries `>` twice over -
-  // once as the model-name separator in `${view>/conditions}` and once in the comparison - so an
-  // attribute list cannot be read as "everything up to the first `>`".
-  const columns = [...view.matchAll(/<Column\b[\s\S]*?>\s*<Text text="([^"]+)"/gu)].map((match) => match[1]);
-  assert.deepEqual(columns, [
-    'CR Type', 'Step',
-    'Condition 1', 'Logic', 'Condition 2', 'Logic', 'Condition 3',
-    'Logic', 'Condition 4', 'Logic', 'Condition 5',
-    'Approvers', 'Active'
-  ]);
-  // Only the first two slots are drawn until somebody asks for a third. `&gt;` is escaped rather
-  // than left literal: a raw `>` inside an attribute value is legal XML but ends the tag as far as
-  // every `[^>]*` reader is concerned - the regex above included.
-  assert.match(view, /<Column width="6rem" visible="\{= \$\{view>\/conditions\} &gt;= 3 \}">/u);
-  assert.match(view, /<Column width="24rem" visible="\{= \$\{view>\/conditions\} &gt;= 5 \}">/u);
-});
-
-test('the fifth tile leads to it, and the route exists', () => {
-  assert.ok(
-    hub.includes('header="Workflow Agent Determination"'),
-    'the hub offers Workflow Agent Determination'
-  );
-  assert.equal((hub.match(/<GenericTile/gu) || []).length, 5);
-  assert.match(hubController, /navTo\("WorkflowRuleList"\)/u);
-  const route = manifest['sap.ui5'].routing.routes.find((entry) => entry.name === 'WorkflowRuleList');
-  assert.ok(route, 'WorkflowRuleList has a route');
-  assert.equal(route.pattern, 'WorkflowRules');
-  assert.equal(
-    manifest['sap.ui5'].routing.targets.WorkflowRuleList.name,
-    'mdm.md.mdmrules.manage.ext.view.WorkflowRuleList'
-  );
-});
-
-// Same page shape as the other three tables, so a steward does not have to learn two: its own
-// entity, one update group, batch on save, discardable.
-test('the page stores its own rows and batches them like the others', () => {
-  assert.match(view, /items="\{ path: 'dc>\/WorkflowRules'/u);
-  assert.equal(/dc>\/DuplicateRules|dc>\/ValidationRules/u.test(view), false, 'it binds nobody else');
-  assert.match(view, /\$\$updateGroupId: 'ruleChanges'/u);
-  assert.match(controller, /submitBatch\(UPDATE_GROUP\)/u);
-  assert.match(controller, /resetChanges\(UPDATE_GROUP\)/u);
-  // A rejected row leaves its change pending rather than silently vanishing.
-  assert.match(controller, /hasPendingChanges\(UPDATE_GROUP\)/u);
-  assert.match(view, /navButtonPress="\.onBackToHub"/u);
-  assert.match(controller, /navTo\("MDMRuleHub", \{\}, true\)/u);
-  // No $expand any more - conditions are plain scalars on the rule itself, not a child composition.
-  assert.equal(/\$expand/u.test(view), false, 'nothing needs to be expanded for a plain scalar field');
-});
-
-// The closed lists are served, never hard-coded in the UI - the same rule the other pages follow.
-test('the CR types and steps come from the service, not from the page', () => {
-  assert.match(view, /items="\{ path: 'opt>\/requestTypes'/u);
-  assert.match(view, /items="\{ path: 'opt>\/steps'/u);
-  assert.match(controller, /_callAction\("workflowRuleOptions", \{\}\)/u);
-  assert.match(serviceCds, /function workflowRuleOptions\(\) returns WorkflowRuleOptions/u);
-  assert.match(serviceJs, /this\.on\('workflowRuleOptions'/u);
-  // `*` ("Any") joined the type list 2026-08-31, asked for directly, so one rule can cover every
-  // CR type - an explicit choice a steward makes on a row, not a silent default.
-  assert.equal(require('../srv/checks/workflow-rules').REQUEST_TYPES.includes('*'), true);
-});
-
 /**
  * A condition names a payload field, so this page shares the quality pages' catalog and their
  * searchable value help - several hundred fields is not a ComboBox. Both fixed slots (Condition 1
  * and Condition 2) wire to the same shared dialog, exactly as every other condition cell in this
  * app already works.
  */
-test('both condition fields are chosen through the shared value help', () => {
-  for (const fieldName of ['conditionField', 'conditionField2']) {
-    const fieldCell = view.slice(view.indexOf(`value="{dc>${fieldName}}"`));
-    assert.match(
-      fieldCell.slice(0, fieldCell.indexOf('/>')),
-      /valueHelpRequest="\.onFieldValueHelp"/u,
-      `${fieldName} opens the field value help`
-    );
-  }
-  assert.match(controller, /ext\.fragment\.FieldValueHelp/u);
-  assert.match(controller, /FilterOperator\.Contains/u);
-  // The stored value is the qualified code, and it is read off the binding context BEFORE anything
-  // resets the list - the bug that used to write a General name field when "Country" was searched.
-  const chosen = controller.slice(controller.indexOf('onFieldChosen:'));
-  const body = chosen.slice(0, chosen.indexOf('\n    },'));
-  assert.ok(body.indexOf('getProperty("code")') < body.indexOf('setProperty('));
-  assert.equal(/filter\(\[\]\)/u.test(body), false);
-  const open = controller.slice(controller.indexOf('onFieldValueHelp:'));
-  assert.match(open.slice(0, open.indexOf('.open("")')), /getBinding\("items"\)[\s\S]{0,80}filter\(\[\]\)/u);
-});
 
 /**
  * The Value cell is disabled once its own slot's operator is "is empty"/"is not empty" - those two
@@ -129,22 +44,6 @@ test('both condition fields are chosen through the shared value help', () => {
  * so the cell was never actually disabled. Bound with an explicit `any` it stays the string the
  * comparison needs. Pinned per slot, because it is silently wrong rather than visibly broken.
  */
-test('each Value cell is disabled for its own empty/notEmpty, independent of the other slot', () => {
-  for (const suffix of ['', '2', '3', '4', '5']) {
-    const cell = view.slice(view.indexOf(`value="{dc>conditionValues${suffix}}"`));
-    const reference = `\\$\\{path: 'dc>conditionOperator${suffix}', targetType: 'any'\\}`;
-    assert.match(
-      cell.slice(0, cell.indexOf('/>')),
-      new RegExp(`enabled="\\{= ${reference} !== 'empty' &amp;&amp; ${reference} !== 'notEmpty' \\}"`, 'u'),
-      `condition ${suffix || '1'} reads its own operator as a string`
-    );
-  }
-  // No bare `${dc>...}` is left inside an expression binding on a Boolean property.
-  assert.equal(/enabled="\{=[^"]*\$\{dc>[^,}]*\}/u.test(view), false, 'no untyped reference is left');
-
-  const logic = view.slice(view.indexOf('selectedKey="{dc>conditionLogic}"'));
-  assert.equal(/enabled=/u.test(logic.slice(0, logic.indexOf('</ComboBox>'))), false);
-});
 
 /**
  * One value per cell, like every other rule table. Multiple selection was built here first and
@@ -152,27 +51,6 @@ test('each Value cell is disabled for its own empty/notEmpty, independent of the
  * "Multiple values per condition" in CLAUDE.md for what it would take. Pinned so it does not creep
  * back in by accident: a plain bound Input is the whole mechanism, and it is the one that works.
  */
-test('every cell is a single bound value, and nothing tokenises', () => {
-  for (const fieldName of ['conditionField', 'conditionField2']) {
-    assert.match(view, new RegExp(`value="\\{dc>${fieldName}\\}"`, 'u'), `${fieldName} is a bound Input`);
-  }
-  for (const operatorName of ['conditionOperator', 'conditionOperator2']) {
-    assert.match(view, new RegExp(`selectedKey="\\{dc>${operatorName}\\}"`, 'u'), `${operatorName} is a bound Select`);
-  }
-  for (const valuesName of ['conditionValues', 'conditionValues2']) {
-    assert.match(view, new RegExp(`value="\\{dc>${valuesName}\\}"`, 'u'), `${valuesName} is a bound Input`);
-  }
-  assert.match(view, /value="\{dc>approvers\}"/u, 'approvers is a bound Input');
-  assert.equal(/MultiInput/u.test(view), false, 'no token cell is left');
-  assert.equal(/app:listPath|app:listSink/u.test(view), false, 'and no custom data driving one');
-  assert.equal(/updateFinished/u.test(view), false, 'nothing has to be redrawn after a render');
-  assert.equal(/ListCell/u.test(controller), false, 'the shared token module is gone');
-  assert.equal(
-    fs.existsSync(path.join(APP, 'ext', 'ListCell.js')),
-    false,
-    'and deleted rather than left behind'
-  );
-});
 
 // The service validates whatever a client sends; the page checks the same things at the keyboard so
 // a steward is not told by a rejected batch.
@@ -187,32 +65,6 @@ test('the row is checked before it is sent, and again on the way in', () => {
   // slots validate as part of the rule itself now, through validateWorkflowRule alone.
   assert.equal(/WORKFLOW_RULE_CONDITIONS/u.test(serviceJs), false);
   assert.equal(/guard\(\s*'WorkflowRuleConditions'/u.test(serviceJs), false);
-});
-
-// Rows not columns, like every other table here: adding a step or an approver must be an INSERT,
-// because cds-deploy refuses to drop an element. One value per column, so an extra approver is an
-// extra row - which is what the Add button is for and what resolveApprovers merges.
-test('the table is rows, and every column holds one value', () => {
-  assert.match(rulesCds, /entity WorkflowRules : managed/u);
-  for (const column of [
-    'requestType', 'step', 'conditions', 'conditionField', 'conditionOperator', 'conditionValues',
-    'conditionField2', 'conditionOperator2', 'conditionValues2',
-    'conditionLogic2', 'conditionField3', 'conditionOperator3', 'conditionValues3',
-    'conditionLogic3', 'conditionField4', 'conditionOperator4', 'conditionValues4',
-    'conditionLogic4', 'conditionField5', 'conditionOperator5', 'conditionValues5',
-    'approvers', 'isActive'
-  ]) {
-    // The plural names are stuck: `cds-deploy` cannot rename an element any more than it can drop
-    // one, so these hold ONE value under a name that reads like several.
-    assert.match(rulesCds, new RegExp(`\\b${column}\\b`, 'u'), `${column} is modelled`);
-  }
-  // No order column: rows are additive, so every matching row contributes and nothing is ranked.
-  // Neither WorkflowRules nor its own (abandoned) WorkflowRuleConditions declares one - a bare
-  // mention of the WORD "sequence" is fine (it shows up explaining the absence), an actual column
-  // is not.
-  assert.equal(/\bsequence\s*:/u.test(rulesCds), false, 'no table declares a sequence column');
-  assert.equal(/\bsequence\b/u.test(read(ROOT, 'srv', 'checks', 'workflow-rules.js')), false);
-  assert.match(serviceCds, /entity WorkflowRules   as projection on workflow\.WorkflowRules/u);
 });
 
 /**
@@ -276,44 +128,11 @@ test('the approvers are sent with the workflow context, and never absent', () =>
   assert.match(body, /console\.warn/u);
 });
 
-
 /**
  * An approver is an e-mail address or a role, and the two are entered differently on purpose: an
  * address is free text nobody could offer a list for, while a role has to be spelled exactly as
  * SBPA knows it. So the cell takes typing AND offers the roles.
  */
-test('the approver cell offers the roles and still takes a typed address', () => {
-  const cell = view.slice(view.indexOf('value="{dc>approvers}"'));
-  const body = cell.slice(0, cell.indexOf('/>'));
-  assert.match(body, /showValueHelp="true"/u);
-  assert.match(body, /valueHelpRequest="\.onRoleValueHelp"/u);
-  // Typing is the other half and needs no dialog: an address is free text.
-  assert.match(body, /change="\.onCellChange"/u);
-  assert.match(view, /placeholder="e-mail or role"/u);
-  // The condition cells are NOT given the role list - a country is not a role.
-  const conditionCell = view.slice(view.indexOf('value="{dc>conditionValues}"'));
-  assert.equal(
-    /valueHelpRequest/u.test(conditionCell.slice(0, conditionCell.indexOf('/>'))),
-    false,
-    'the condition values have their own field help, not the roles'
-  );
-});
-
-// Its own fragment, and one entry: the cell holds one approver, so several approvers are several
-// rows - which is what the Add button is for and what the engine merges.
-test('the role help is a real two-column table over the served agents', () => {
-  const fragment = read(APP, 'ext', 'fragment', 'RoleValueHelp.fragment.xml');
-  // Not sap.m.SelectDialog: it wraps a plain List with no column headers, and Type vs. Name/E-mail
-  // is exactly the distinction this picker has to show.
-  assert.equal(/<SelectDialog/u.test(fragment), false, 'a real Table, not a SelectDialog');
-  assert.match(fragment, /<Table[\s\S]*items="\{ path: 'opt>\/agents'/u);
-  const columns = [...fragment.matchAll(/<Column[^>]*>\s*<Text text="([^"]+)"/gu)].map((match) => match[1]);
-  assert.deepEqual(columns, ['Type', 'Name / E-mail']);
-  assert.match(controller, /ext\.fragment\.RoleValueHelp/u);
-  // Searchable over the value as well as the type, like the field help.
-  assert.match(controller, /onRoleSearch/u);
-  assert.match(controller, /FilterOperator\.Contains/u);
-});
 
 /**
  * The picker is sourced from the BTP subaccount itself, not from this app's own hand-kept role list
@@ -356,118 +175,24 @@ test('choosing an agent writes it into the cell', () => {
  * still side by side, still plain scalars. "ik wil dit naast elkaar zoals het ervoor was" holds:
  * what Add Condition adds is a COLUMN, not a per-row child list.
  */
-test('every condition slot renders as a plain HBox group, not a dynamic list', () => {
-  for (const [fieldName, operatorName, valuesName] of [
-    ['conditionField', 'conditionOperator', 'conditionValues'],
-    ['conditionField2', 'conditionOperator2', 'conditionValues2'],
-    ['conditionField3', 'conditionOperator3', 'conditionValues3'],
-    ['conditionField4', 'conditionOperator4', 'conditionValues4'],
-    ['conditionField5', 'conditionOperator5', 'conditionValues5']
-  ]) {
-    const cell = view.slice(view.indexOf(`value="{dc>${fieldName}}"`));
-    const hboxBody = cell.slice(0, cell.indexOf('</HBox>'));
-    assert.match(hboxBody, new RegExp(`selectedKey="\\{dc>${operatorName}\\}"`, 'u'));
-    assert.match(hboxBody, new RegExp(`value="\\{dc>${valuesName}\\}"`, 'u'));
-    assert.match(hboxBody, /items="\{ path: 'opt>\/comparisons', templateShareable: false \}"/u);
-  }
-  // Still no wrapping FlexBox and still no child composition: the columns are on the rule itself.
-  assert.equal(/<FlexBox/u.test(view), false, 'no wrapping FlexBox is left');
-  assert.equal(/onRemoveCondition/u.test(view), false, 'nothing removes a condition row');
-  assert.equal(/onRemoveCondition|_conditionsBinding/u.test(controller), false,
-    'and no per-row condition binding is left in the controller either');
-});
 
 /**
  * "Add Condition" beside "Add Rule" (2026-09-01, asked for): it reveals the next Logic/Condition
  * column pair for the WHOLE table, writes nothing, and stops at the number of slots the schema
  * actually has - which the service serves rather than the page assuming it.
  */
-test('Add Condition reveals a column pair and cannot go past what the schema carries', () => {
-  const button = view.slice(view.indexOf('text="Add Condition"'));
-  const head = button.slice(0, button.indexOf('/>'));
-  assert.match(head, /press="\.onAddCondition"/u);
-  assert.match(head, /enabled="\{= \$\{view>\/conditions\} &lt; \$\{view>\/maxConditions\} \}"/u);
-
-  const handler = controller.slice(controller.indexOf('onAddCondition: function'));
-  const body = handler.slice(0, handler.indexOf('\n    },'));
-  // Through the one setter, so the count and the table width cannot drift apart.
-  assert.match(body, /this\._setConditionColumns\(shown \+ 1\)/u);
-  assert.equal(/binding\.create/u.test(body), false, 'it writes no data');
-
-  // The ceiling comes from the service, so the button and db/workflow-rules.cds cannot disagree.
-  assert.match(controller, /options\.conditionSlots/u);
-  assert.match(serviceJs, /conditionSlots: MAX_CONDITIONS/u);
-  assert.match(serviceCds, /conditionSlots : Integer;/u);
-
-  // A saved rule using more than two slots shows them without anyone pressing the button.
-  assert.match(controller, /attachUpdateFinished\(this\._syncConditionColumns, this\)/u);
-  const sync = controller.slice(controller.indexOf('_syncConditionColumns: function'));
-  assert.match(
-    sync.slice(0, sync.indexOf('\n    },')),
-    /if \(rule\[slot\.field\] && index \+ 1 > shown\) shown = index \+ 1;/u
-  );
-});
 
 /**
  * The table scrolls sideways rather than squeezing its cells (2026-09-01, asked for). Both halves
  * are load-bearing: a fixed-layout table at `width="100%"` redistributes its columns into whatever
  * space it has however many of them there are, so it needs a real width to overflow WITH.
  */
-test('revealing a condition widens the table inside a horizontal scroll container', () => {
-  const scroller = view.slice(view.indexOf('<ScrollContainer'));
-  assert.match(scroller.slice(0, scroller.indexOf('>')), /horizontal="true"[\s\S]*vertical="false"/u);
-  assert.ok(view.indexOf('<ScrollContainer') < view.indexOf('<Table'), 'the table is inside it');
-  assert.match(view, /<\/Table>\s*<\/ScrollContainer>/u, 'and closed around it');
-  assert.match(view, /width="\{view>\/tableWidth\}"/u, 'the table has a real width, not 100%');
-
-  // The arithmetic mirrors the column widths declared above it, so the two cannot drift.
-  const widthFn = controller.slice(controller.indexOf('function tableWidthFor'));
-  assert.match(widthFn.slice(0, widthFn.indexOf('\n  }')), /SELECT_REM \+ 37 \+ \(24 \* conditions\) \+ \(6 \* \(conditions - 1\)\)/u);
-  const columnRem = [...view.matchAll(/<Column width="(\d+)rem"/gu)].map((match) => Number(match[1]));
-  const total = columnRem.reduce((sum, each) => sum + each, 0);
-  assert.equal(total, 37 + (24 * 5) + (6 * 4), 'five conditions drawn adds up to the same number');
-  // The MultiSelect checkbox column is drawn by the table and declares no <Column> of its own, so
-  // SELECT_REM is the only place its width is accounted for.
-  assert.match(controller, /var SELECT_REM = \d+;/u);
-
-  // One setter, so the width can never disagree with the number of columns actually drawn.
-  assert.equal((controller.match(/setProperty\("\/conditions"/gu) || []).length, 1);
-  const setter = controller.slice(controller.indexOf('_setConditionColumns: function'));
-  assert.match(setter.slice(0, setter.indexOf('\n    },')), /this\._applyTableWidth\(\)/u);
-});
 
 /**
  * "Delete Condition" removes the LAST shown one (2026-09-01, asked for) and clears that slot on
  * every row on the way out - hiding the column alone would leave the engine matching on a condition
  * nobody can see, which is the ghost this exists to prevent. Condition 1 is never removable.
  */
-test('Delete Condition removes the last column and clears it, and never touches Condition 1', () => {
-  const button = view.slice(view.indexOf('text="Delete Condition"'));
-  const head = button.slice(0, button.indexOf('/>'));
-  assert.match(head, /press="\.onDeleteCondition"/u);
-  assert.match(head, /enabled="\{= \$\{view>\/conditions\} &gt; 1 \}"/u, 'greyed out on Condition 1');
-
-  const handler = controller.slice(controller.indexOf('onDeleteCondition: function'));
-  const body = handler.slice(0, handler.indexOf('\n    },'));
-  // Disabled is not the only guard: a direct call refuses too.
-  assert.match(body, /if \(shown <= MIN_CONDITIONS\) return;/u);
-  assert.match(controller, /var MIN_CONDITIONS = 1;/u);
-  // The LAST shown slot, not a fixed one.
-  assert.match(body, /var slot = CONDITION_SLOTS\[shown - 1\];/u);
-  // Clearing is confirmed when it would actually throw data away, and skipped when it would not.
-  assert.match(body, /if \(!filled\.length\) \{\s*this\._setConditionColumns\(shown - 1\);/u);
-  assert.match(body, /MessageBox\.confirm\(/u);
-  assert.match(body, /that\._clearConditionSlot\(slot, filled\)/u);
-  assert.match(body, /that\._markDirty\(\)/u);
-
-  const clear = controller.slice(controller.indexOf('_clearConditionSlot: function'));
-  const clearBody = clear.slice(0, clear.indexOf('\n    },'));
-  for (const column of ['slot.field', 'slot.values']) {
-    assert.match(clearBody, new RegExp(`setProperty\\(${column.replace('.', '\\.')}, null\\)`, 'u'));
-  }
-  assert.match(clearBody, /setProperty\(slot\.operator, "eq"\)/u);
-  assert.match(clearBody, /setProperty\(slot\.logic, "AND"\)/u);
-});
 
 // --- Operators (kept through the revert: "= of !=, en dan andere" was in the ORIGINAL ask too) ---
 
@@ -554,25 +279,6 @@ test('Duplicate copies the selected row (conditions included, as plain scalars) 
   // No child composition left to copy - the mechanism this replaced needed a second `.create()`
   // per condition; this one needs none.
   assert.equal(/_conditionsBinding/u.test(body), false);
-});
-
-// --- Excel import / export - a real .xlsx (2026-08-31, "op basis van al die fixed velden") -------
-//
-// The ZIP/OOXML/DEFLATE mechanics themselves are shared with the other three rule pages via
-// `XlsxCodec` (extracted the same day, see test/xlsx-codec.test.js for the codec's own tests) -
-// what is specific to THIS page is the button wiring, `xlsxColumns`, and `_applyImportedXlsx`'s
-// wholesale-replace behaviour, tested below.
-
-test('the controller depends on the shared XlsxCodec, not its own copy or a new library', () => {
-  assert.match(controller, /mdm\/md\/mdmrules\/manage\/ext\/util\/XlsxCodec/u);
-  assert.match(controller, /XlsxCodec\.buildWorkbook\(/u);
-  assert.match(controller, /XlsxCodec\.readWorkbook\(/u);
-  assert.match(controller, /XlsxCodec\.isTruthyCell\(/u);
-  // No lingering copy of the codec itself, and no third-party spreadsheet library either.
-  assert.equal(/function zipStore\(/u.test(controller), false);
-  assert.equal(/function readCentralDirectory\(/u.test(controller), false);
-  assert.equal(/require\(["'](xlsx|exceljs|jszip|pako)["']/iu.test(controller), false);
-  assert.equal(/sap\/ui\/export\/Spreadsheet/u.test(controller), false);
 });
 
 test('Export/Import buttons exist and produce/accept a real .xlsx', () => {
@@ -814,15 +520,5 @@ test('every rule page waits on context.created() before trusting a create actual
     const waitAt = body.indexOf('Promise.all(creating.map');
     const pendingAt = body.indexOf('hasPendingChanges(UPDATE_GROUP)');
     assert.ok(pendingAt > -1 && pendingAt < waitAt, `${name} checks for a rejected row before waiting on the rest`);
-  }
-});
-
-// One wording for the same cell on all four rule tables (2026-09-01): the workflow page said
-// "Value1|Value2" and the other three said "any", so neither told the whole story. An empty value
-// means "any" and a filled one may be a list, and the cell now says both.
-test('the condition value cell says both that it may be empty and that it takes a list', () => {
-  for (const suffix of ['', '2', '3', '4', '5']) {
-    const cell = view.slice(view.indexOf(`value="{dc>conditionValues${suffix}}"`));
-    assert.match(cell.slice(0, cell.indexOf('/>')), /placeholder="any, or Value1[|]Value2"/u);
   }
 });

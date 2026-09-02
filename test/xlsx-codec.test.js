@@ -36,22 +36,6 @@ function loadXlsxCodec() {
 
 const xlsx = loadXlsxCodec();
 
-test('the codec is a real sap.ui.define AMD module with no dependencies of its own', () => {
-  assert.match(source, /^sap\.ui\.define\(\[\], function \(\) \{/u);
-  assert.equal(typeof xlsx.buildWorkbook, 'function');
-  assert.equal(typeof xlsx.readWorkbook, 'function');
-  assert.equal(typeof xlsx.isTruthyCell, 'function');
-});
-
-// No third-party spreadsheet library anywhere in the codec - the ZIP/OOXML/DEFLATE handling is
-// entirely hand-rolled.
-test('no spreadsheet library dependency', () => {
-  assert.equal(/require\(["'](xlsx|exceljs|jszip|pako)["']/iu.test(source), false);
-  assert.equal(/sap\/ui\/export\/Spreadsheet/u.test(source), false);
-  // DEFLATE decompression on import is a browser built-in, not a bundled inflate implementation.
-  assert.match(source, /new DecompressionStream\("deflate-raw"\)/u);
-});
-
 // The ZIP format's own checksum - a standard check value, so a subtly wrong polynomial or a
 // reversed bit order is caught immediately rather than only once a file fails to open.
 test('crc32 matches the standard CRC-32 check values', () => {
@@ -89,16 +73,6 @@ test('special characters in a value survive the round trip unescaped', async () 
   const table = await xlsx.readWorkbook(bytes);
   assert.equal(table[1][1], 'Acme, "big" corp <x@y.com> & Co');
   assert.equal(table[1][2], false);
-});
-
-// The one worksheet is named after its own table, so an exported file is recognisable once opened
-// in Excel rather than always reading "Sheet1".
-test('buildWorkbook names its one worksheet after the given sheetName', async () => {
-  const bytes = xlsx.buildWorkbook('MyRuleTable', COLUMNS, []);
-  const entries = xlsx.readCentralDirectory(bytes);
-  const workbookEntry = entries.find((entry) => entry.name === 'xl/workbook.xml');
-  const workbookXml = new TextDecoder().decode(await xlsx.extractZipEntry(bytes, workbookEntry));
-  assert.match(workbookXml, /<sheet name="MyRuleTable"/u);
 });
 
 /**

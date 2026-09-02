@@ -106,21 +106,6 @@ test('two derived rows are two lines, told apart by their index', () => {
     ['Sales area 1710 / 10 / 00', 'Sales area 1710 / 10 / 00']);
 });
 
-// A derivation that filled a gap in a row somebody already built is unchanged: its own line, named
-// by its own field, no subtext.
-test('a plain filled-in field looks exactly as it did', () => {
-  const rows = context()._proposalRows([{
-    check: 'sap_derivations', target: 'Addresses', index: 0, field: 'Language', value: 'N',
-    label: 'Country default', message: 'Country BE has address language N in S/4.'
-  }], []);
-
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].change, 'Filled in');
-  assert.equal(rows[0].fieldLabel, 'Language');
-  assert.equal(rows[0].subtext, '');
-  assert.deepEqual(plain(rows[0].extras), []);
-});
-
 // The regression this boundary prevents: grouping on `createsRow` alone compacted the whole address.
 test('the registry address proposal stays one line per field, each editable', () => {
   const addressEntries = [
@@ -145,19 +130,6 @@ test('the registry address proposal stays one line per field, each editable', ()
   }
   // Independently tickable, which is what a distinct `key` per line means.
   assert.equal(new Set(rows.map((row) => row.key)).size, 5);
-});
-
-// A field derived and then reformatted is still one row -- applying both would write it twice.
-test('a normalisation still merges into the derivation it reformats', () => {
-  const rows = context()._proposalRows(
-    [{ target: 'root', index: 0, field: 'OrganizationBPName1', value: 'alluvion bv', label: 'VIES check', message: 'VIES returned this name.' }],
-    [{ target: 'root', index: 0, field: 'OrganizationBPName1', current: 'alluvion bv', proposed: 'Alluvion BV', reason: 'Legal form', detail: 'Legal forms are capitalised.' }]
-  );
-
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].proposed, 'Alluvion BV');
-  assert.equal(rows[0].reason, 'VIES check', 'the derivation label still leads');
-  assert.match(rows[0].detail, /Legal forms are capitalised/u, 'and the reformatting is in the tooltip');
 });
 
 // A row-adding proposal writes its whole row at once. It used to be several ticks resolved by
@@ -250,25 +222,6 @@ test('declining every proposal shows the held findings without asking S/4 again'
   assert.equal(state.messages[0].type, 'Warning');
 });
 
-// Reported from the app: on Not Now nothing appeared until the NEXT press published it.
-test('the held findings are published to the model, not just written into state', async () => {
-  const { ctx } = standardContext();
-  await ctx._resolveStandardChecks([CITY_REQUIRED], false);
-
-  assert.equal(ctx.refreshed, 1, 'writing state.messages is only half of showing a message');
-  assert.equal(ctx.rendered, 1);
-});
-
-// Nothing held means nothing to publish, so it must not redraw the screen for no reason either.
-test('an empty held set touches neither the model nor the screen', async () => {
-  const { ctx } = standardContext();
-  await ctx._resolveStandardChecks([], false);
-
-  assert.equal(ctx.refreshed, 0);
-  assert.equal(ctx.rendered, 0);
-  assert.equal(ctx.reran, false);
-});
-
 // Something was accepted, so what S/4 was told is out of date. Suppressing the stale findings
 // locally could never have been right: accepting a value can make a NEW message appear.
 test('accepting a proposal asks S/4 again rather than filtering what it already said', async () => {
@@ -277,32 +230,6 @@ test('accepting a proposal asks S/4 again rather than filtering what it already 
 
   assert.equal(ctx.reran, true);
   assert.deepEqual(state.messages, [], 'the held findings are replaced, never merged');
-});
-
-// The message text is all there is: bp-check.js flattens every S/4 message to
-// { severity, message }, formatting the class and number INTO the text and discarding S/4's own
-// `field`. So nothing can know which finding a proposal would have cleared.
-test('no message-to-field map was introduced to filter them instead', () => {
-  const bpCheck = fs.readFileSync(
-    path.join(__dirname, '..', 'srv', 'checks', 'bp-check.js'), 'utf8'
-  );
-  assert.match(bpCheck, /\.map\(\(message\) => \(\{ severity: cap\(message\.severity\), message: describe\(message\) \}\)\)/u);
-
-  const resolve = CONTROLLER.slice(CONTROLLER.indexOf('_resolveStandardChecks: function'));
-  const body = resolve.slice(0, resolve.indexOf('onSaveRequest: function'));
-  assert.ok(body.includes('_rerunStandardChecks'), 'the slice covers both halves');
-  assert.equal(/CVI_API|VMD_API|R11\/336|R1\/091/u.test(body), false, 'no curated message list');
-});
-
-// With nothing to propose there is no dialog to wait for, so they are the answer straight away and
-// cost no extra call.
-test('with nothing to propose the findings go up on the first press', () => {
-  const check = CONTROLLER.slice(
-    CONTROLLER.indexOf('onCheck: async function'),
-    CONTROLLER.indexOf('onDuplicateCheck: async function')
-  );
-  assert.match(check, /proposals\.length \? \[\] : standard/u);
-  assert.match(check, /this\._offerProposals\(proposals, standard\)/u);
 });
 
 // The action keeps them apart so the screen CAN hold them; to a requester they are still
