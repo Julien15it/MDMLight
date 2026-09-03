@@ -4,8 +4,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
-  createRegistryStages, addressDerivations, severityOf, describeEntity, fieldFor,
-  NAME_MISMATCH_SEVERITY
+  createRegistryStages, addressDerivations, nameDerivations, splitOrganisationName, severityOf,
+  describeEntity, fieldFor, NAME_MISMATCH_SEVERITY, NAME_FIELD_LENGTH
 } = require('../srv/checks/registry-checks');
 const { runChecks } = require('../srv/checks/pipeline');
 
@@ -230,4 +230,93 @@ test('a registry derivation is labelled by its source, in three words or fewer',
   assert.strictEqual(
     addressDerivations([{ PostalCode: '1000' }], [{}], 'GLEIF')[0].label, 'GLEIF check'
   );
+});
+
+
+// --- The name VIES registers ------------------------------------------------------------------
+//
+// Asked for 2026-09-03: the mismatch was a warning and nothing else, so a requester who agreed with
+// VIES had to retype the name by hand out of the message.
+
+const valid = (name) => ({ status: 'valid', countryCode: 'BE', vatNumber: '0123', name });
+
+test('a name VIES disagrees with is proposed over the typed one', () => {
+  const entries = nameDerivations(
+    [valid('ALLUVION NV')], { BusinessPartnerCategory: '2', OrganizationBPName1: 'Aluvion' }
+  );
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].target, 'root');
+  assert.equal(entries[0].field, 'OrganizationBPName1');
+  assert.equal(entries[0].value, 'ALLUVION NV');
+  assert.equal(entries[0].label, 'VIES check');
+  assert.match(entries[0].message, /unticking/u, 'keeping what was typed has to be sayable');
+});
+
+// The same bar the warning is graded at. Proposing a name the check itself considers a match would
+// put a row in the dialog on every press for a company nobody disagrees about.
+test('a name that only differs in case or punctuation is not proposed', () => {
+  assert.deepEqual(
+    nameDerivations([valid('ALLUVION N.V.')], { BusinessPartnerCategory: '2', OrganizationBPName1: 'Alluvion NV' }),
+    []
+  );
+});
+
+test('nothing is proposed without a valid VIES answer, a name, or an organisation', () => {
+  assert.deepEqual(nameDerivations([], { OrganizationBPName1: 'Aluvion' }), []);
+  assert.deepEqual(
+    nameDerivations([{ status: 'unknown', name: 'ALLUVION NV' }], { OrganizationBPName1: 'Aluvion' }),
+    [], 'a member state that could not be reached proposes nothing'
+  );
+  assert.deepEqual(nameDerivations([valid('ALLUVION NV')], {}), [], 'nothing typed to disagree with');
+  assert.deepEqual(
+    nameDerivations([valid('ALLUVION NV')], { BusinessPartnerCategory: '1', LastName: 'Aluvion' }),
+    [], 'a legal entity name has nowhere to go on a person'
+  );
+});
+
+// The column is 40 characters, which is why S/4 has four of them. Truncating would make a proposal
+// nobody could accept without losing half the name.
+test('a legal name longer than the name field is split across two', () => {
+  const long = 'STICHTING ADMINISTRATIEKANTOOR VAN DE VERENIGDE BEDRIJVEN';
+  const parts = splitOrganisationName(long);
+  assert.equal(parts.length, 2);
+  assert.ok(parts[0].length <= NAME_FIELD_LENGTH);
+  assert.ok(parts[1].length <= NAME_FIELD_LENGTH);
+  assert.equal([parts[0], parts[1]].join(' '), long, 'split on a space, nothing lost');
+
+  const entries = nameDerivations([valid(long)], { BusinessPartnerCategory: '2', OrganizationBPName1: 'Stichting' });
+  assert.deepEqual(entries.map((entry) => entry.field), ['OrganizationBPName1', 'OrganizationBPName2']);
+});
+
+// --- An address the register disagrees with ---------------------------------------------------
+
+test('a filled address field the register disagrees with is proposed over', () => {
+  const entries = addressDerivations(
+    [{ StreetName: 'Kerkstraat', CityName: 'Gent' }],
+    [{ StreetName: 'Marktplein', CityName: 'gent' }],
+    'VIES'
+  );
+  assert.equal(entries.length, 1, 'only the field that actually disagrees');
+  assert.equal(entries[0].field, 'StreetName');
+  assert.match(entries[0].message, /not “Marktplein”/u);
+  assert.match(entries[0].message, /unticking/u);
+});
+
+// End to end, because the unit function and the pipeline each hold half of this: the stage produces
+// the entry, and the pipeline is what turns a filled field into an `overwrites` proposal.
+test('the VIES name reaches the requester as a proposal over what was typed', async () => {
+  const registry = stages({
+    ...empty,
+    facts: { vies: [valid('ALLUVION NV')], gleif: [] }
+  });
+  const result = await runChecks(
+    payload({ BusinessPartnerCategory: '2', OrganizationBPName1: 'Aluvion' }),
+    { validations: registry.validations, derivations: registry.derivations, checkDuplicates: async () => [] }
+  );
+  const [name] = result.derivations.filter((entry) => entry.field === 'OrganizationBPName1');
+  assert.ok(name, 'the name is offered, not only warned about');
+  assert.equal(name.overwrites, true);
+  assert.equal(name.current, 'Aluvion');
+  assert.equal(name.value, 'ALLUVION NV');
+  assert.equal(name.label, 'VIES check');
 });

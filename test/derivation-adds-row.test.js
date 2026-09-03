@@ -104,12 +104,15 @@ test('a section that already has a row is filled, never appended to', async () =
   }));
   assert.deepEqual(same.derived.sections.SupplierPurchasingOrg, [{ PurchasingOrganization: '1710' }]);
 
-  // A different organisation is theirs to keep: a derivation never overwrites, and no second row
-  // appears beside it.
+  // A different organisation is PROPOSED over (2026-09-03) rather than passed over in silence -
+  // and still no second row appears beside it: an unkeyed rule fills the row that is there.
   const other = await derive([ADDS_ORG], request({
     SupplierPurchasingOrg: [{ PurchasingOrganization: '1010' }]
   }));
-  assert.deepEqual(other.derived.sections.SupplierPurchasingOrg, [{ PurchasingOrganization: '1010' }]);
+  assert.deepEqual(other.derived.sections.SupplierPurchasingOrg, [{ PurchasingOrganization: '1710' }]);
+  assert.equal(other.applied.length, 1);
+  assert.equal(other.applied[0].overwrites, true);
+  assert.equal(other.applied[0].current, '1010');
 
   // An empty row of theirs is a gap, so it is filled where it stands.
   const blank = await derive([ADDS_ORG], request({ SupplierPurchasingOrg: [{ PurchasingGroup: '001' }] }));

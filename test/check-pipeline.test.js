@@ -110,14 +110,53 @@ test('a derivation still never invents a row beside one that exists', async () =
 
 /** Without the flag nothing changes: a derivation that never asked cannot create anything. */
 
-test('a derivation fills a gap and never overwrites what was typed', async () => {
+test('a derivation fills a gap, and PROPOSES over what was typed', async () => {
+  // 2026-09-03: a filled field used to be skipped in silence. It is now a proposal like any other -
+  // the dialog is where a requester keeps their own value, by unticking it.
   const typed = await runDerivations(payload({ Country: 'NL' }), [fillCountry]);
-  assert.equal(typed.derived.root.Country, 'NL', 'a derivation must not correct the user');
-  assert.deepEqual(typed.applied, []);
+  assert.equal(typed.applied.length, 1);
+  assert.equal(typed.applied[0].field, 'Country');
+  assert.equal(typed.applied[0].overwrites, true);
+  assert.equal(typed.applied[0].current, 'NL', 'what unticking the row keeps');
+  assert.match(typed.applied[0].message, /replacing NL/u);
 
   const blank = await runDerivations(payload({ Country: '   ' }), [fillCountry]);
   assert.equal(blank.derived.root.Country, 'BE', 'whitespace is empty');
   assert.equal(blank.applied[0].field, 'Country');
+  assert.equal(blank.applied[0].overwrites, false);
+  assert.equal(blank.applied[0].current, '');
+});
+
+// The check the requester asked for: a value already accepted must not come back on the next press.
+test('a derivation says nothing when the field already holds the derived value', async () => {
+  const same = await runDerivations(payload({ Country: '  BE ' }), [fillCountry]);
+  assert.deepEqual(same.applied, [], 'trimmed and equal is nothing to propose');
+});
+
+// It used to fall out of "never overwrite": the second stage found the field filled and said
+// nothing. Now that a filled field IS a proposal, the claim has to be explicit.
+test('the first stage to fill a field is the only one that speaks for it', async () => {
+  const second = {
+    name: 'later', run: async () => [{ target: 'root', field: 'Country', value: 'NL' }]
+  };
+  const { applied, derived } = await runDerivations(payload(), [fillCountry, second]);
+  assert.equal(applied.length, 1, 'the country default does not offer to overwrite the register');
+  assert.equal(applied[0].check, 'fillCountry');
+  assert.equal(derived.root.Country, 'BE');
+});
+
+// The created-row branch claims its slot too, or the next stage would offer to overwrite a value
+// the first one put into a row it had just invented.
+test('a value written into a row the pipeline created is claimed as well', async () => {
+  const later = {
+    name: 'later',
+    run: async () => [{ target: 'Addresses', index: 0, field: 'StreetName', value: 'Marktplein' }]
+  };
+  const { derived, applied } = await runDerivations(payload(), [createsStreet, later]);
+  assert.equal(derived.sections.Addresses.length, 1);
+  assert.equal(derived.sections.Addresses[0].StreetName, 'Kerkstraat');
+  assert.equal(applied.length, 1);
+  assert.equal(applied[0].createsRow, true);
 });
 
 // A rule that throws must not be indistinguishable from a rule that passed.

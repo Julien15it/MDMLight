@@ -191,6 +191,8 @@ async function enrichCandidate(record = {}, {
 
 module.exports = {
   ACCEPT_SCORE,
+  sameText,
+  scoreAgainst,
   addressText,
   differingAddressFields,
   namesOf,

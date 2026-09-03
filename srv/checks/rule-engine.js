@@ -381,13 +381,18 @@ function runDerivationRule(rule, payload, model, mode = 'both') {
 
   for (const row of rows) {
     if (!conditionsHold(conditions, payload, resolved.section, row, model, rule.conditionLogic)) continue;
-    // Already filled: the pipeline would refuse to overwrite it anyway, and proposing a value for
-    // a field that has one is a normalisation, which is a different stage and a different consent.
-    if (!isEmptyValue(row.record[resolved.element])) continue;
-
     const value = resolveValueForRow(spec, payload, resolved.section, row, model);
     // A reference to an empty field is nothing to copy - not a reason to write a blank.
     if (isEmptyValue(value)) continue;
+
+    // A filled field used to be skipped here as well as in the pipeline. Since 2026-09-03 a
+    // steward's rule proposes over it like any other derivation - the requester keeps their own
+    // value by unticking the row.
+    const current = row.record[resolved.element];
+    const replaces = !isEmptyValue(current);
+    // Proposing what is already there is not a proposal. Dropped here as well as in the pipeline,
+    // so a rule read on its own (`runDerivationRule` is exported) never reports a no-op either.
+    if (replaces && compare(current, value) === 0) continue;
 
     entries.push({
       target: targetFor(resolved.section),
@@ -397,9 +402,12 @@ function runDerivationRule(rule, payload, model, mode = 'both') {
       field: resolved.element,
       value,
       message: spec.kind === 'reference'
-        ? `${label(resolved)} was filled in as “${value}”, copied from ${spec.reference.field}`
-          + `${describeCondition(conditions, rule.conditionLogic)}.`
-        : `${label(resolved)} was filled in as “${value}”${describeCondition(conditions, rule.conditionLogic)}.`
+        ? `${label(resolved)} was ${replaces ? 'set' : 'filled in'} as “${value}”, copied from `
+          + `${spec.reference.field}${describeCondition(conditions, rule.conditionLogic)}`
+          + `${replaces ? `, replacing “${current}”` : ''}.`
+        : `${label(resolved)} was ${replaces ? 'set' : 'filled in'} as “${value}”`
+          + `${describeCondition(conditions, rule.conditionLogic)}`
+          + `${replaces ? `, replacing “${current}”` : ''}.`
     });
   }
   return entries;

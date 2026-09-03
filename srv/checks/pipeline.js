@@ -26,6 +26,11 @@ const clone = (value) => JSON.parse(JSON.stringify(value || {}));
 
 const isEmpty = (value) => value === undefined || value === null || String(value).trim() === '';
 
+// What "we already filled that in" means. Trimmed and exact: a difference in case or punctuation is
+// a real difference the register is entitled to propose, and a proposal accepted once stops being
+// offered because the two sides then match.
+const sameValue = (left, right) => String(left ?? '').trim() === String(right ?? '').trim();
+
 function targetRecord(payload, entry) {
   if (!entry.target || entry.target === ROOT) return payload.root;
   const rows = payload.sections?.[entry.target];
@@ -100,7 +105,10 @@ function replay(payload, entry) {
   }
   // By key: this payload holds only the `system` entries, so indices differ from `derived`.
   const record = keyed ? findKeyedRow(payload, entry) : targetRecord(payload, entry);
-  if (!record || !isEmpty(record[entry.field])) return;
+  if (!record) return;
+  // An overwriting `system` entry is replayed over the typed value: `system` says S/4 uses this
+  // whatever anyone ticks, so the payload the standard checks see has to carry it.
+  if (!entry.overwrites && !isEmpty(record[entry.field])) return;
   record[entry.field] = entry.value;
 }
 
@@ -123,6 +131,11 @@ async function runDerivations(payload, derivations = DERIVATIONS, { fieldEditabl
   const derived = clone(payload);
   const systemDerived = clone(payload);
   const applied = [];
+  // One claim per field, first stage wins - the ordering `runRequestChecks` builds is what decides
+  // which. It used to fall out of "never overwrite": a later stage found the field filled and said
+  // nothing. Now that a filled field IS a proposal, without this the country default would offer to
+  // overwrite what VIES just derived.
+  const claimed = new Set();
   for (const derivation of derivations) {
     let entries = [];
     try {
@@ -153,6 +166,9 @@ async function runDerivations(payload, derivations = DERIVATIONS, { fieldEditabl
         const appendable = keyed ? !findKeyedRow(derived, entry) : !rows.length;
         if (appendable) {
           rows.push({ [entry.field]: entry.value });
+          // Claimed like any other write: the next stage must not offer to overwrite the value
+          // this one just put in a row it also just created.
+          claimed.add(`${entry.target}|${rows.length - 1}|${entry.field}`);
           applied.push({
             check: derivation.name,
             target: entry.target,
@@ -182,21 +198,37 @@ async function runDerivations(payload, derivations = DERIVATIONS, { fieldEditabl
         });
         continue;
       }
-      // Never overwrite what the user typed. A derivation fills gaps; it does not correct people.
-      if (!isEmpty(record[entry.field])) continue;
+      // Where the row actually is, so the proposal the requester ticks names the same one.
+      const at = keyed ? indexOfRecord(derived, entry, record) : (entry.index || 0);
+      const slot = `${entry.target || ROOT}|${at}|${entry.field}`;
+      if (claimed.has(slot)) continue;
+      // A filled field is a PROPOSAL, not a skip (2026-09-03, asked for). The dialog is where a
+      // requester keeps what they typed; a derivation that stays silent because a field is filled
+      // leaves a disagreement with the official register nobody is ever offered a way to settle.
+      // Proposing what is already there is not a proposal, which is what stops an accepted value
+      // being offered again on the next press.
+      const current = record[entry.field];
+      const overwrites = !isEmpty(current);
+      if (overwrites && sameValue(current, entry.value)) continue;
+      claimed.add(slot);
       record[entry.field] = entry.value;
       applied.push({
         check: derivation.name,
         target: entry.target || ROOT,
-        // Where the row actually is, so the proposal the requester ticks names the same one.
-        index: keyed ? indexOfRecord(derived, entry, record) : (entry.index || 0),
+        index: at,
         field: entry.field,
         value: entry.value,
         rowKey: entry.rowKey || null,
         severity: 'info',
         label: entry.label || null,
         system: Boolean(entry.system),
-        message: entry.message || `${entry.field} was derived as ${entry.value}.`
+        // What the requester is being asked to give up, so the dialog can show it beside the
+        // proposal rather than an empty Current cell.
+        overwrites,
+        current: overwrites ? String(current) : '',
+        message: entry.message || (overwrites
+          ? `${entry.field} was derived as ${entry.value}, replacing ${current}.`
+          : `${entry.field} was derived as ${entry.value}.`)
       });
     }
   }

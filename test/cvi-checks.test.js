@@ -351,12 +351,28 @@ test('the derivation creates the row it needs when the section is empty', async 
   assert.strictEqual(applied[0].severity, 'info');
 });
 
-test('the derivation never overwrites an account group somebody typed', async () => {
+// It used to say nothing at all here, and `accountGroupConflictFindings` existed to explain the
+// silence. Since 2026-09-03 the account group TBD001 decides is proposed over the typed one -
+// still a proposal, so a requester who means it unticks the row and keeps theirs; the conflict
+// finding stays, because S/4 uses TBD001's either way.
+test('the derivation proposes over an account group somebody typed', async () => {
   const request = payload('2', [{ BusinessPartnerRole: 'FLVN01' }], '0002');
   request.sections.Suppliers = [{ SupplierAccountGroup: 'KRED' }];
   const { derived, applied } = await runDerivations(request, [derivation(withConfig())]);
 
-  assert.strictEqual(derived.sections.Suppliers[0].SupplierAccountGroup, 'KRED');
+  assert.strictEqual(derived.sections.Suppliers[0].SupplierAccountGroup, 'LIEF');
+  assert.strictEqual(applied.length, 1);
+  assert.strictEqual(applied[0].overwrites, true);
+  assert.strictEqual(applied[0].current, 'KRED');
+  assert.strictEqual(applied[0].system, true);
+});
+
+// The check Maarten asked for: an accepted proposal must not come back on the next press.
+test('the derivation says nothing when the typed account group is already the derived one', async () => {
+  const request = payload('2', [{ BusinessPartnerRole: 'FLVN01' }], '0002');
+  request.sections.Suppliers = [{ SupplierAccountGroup: 'LIEF' }];
+  const { applied } = await runDerivations(request, [derivation(withConfig())]);
+
   assert.deepStrictEqual(applied, []);
 });
 

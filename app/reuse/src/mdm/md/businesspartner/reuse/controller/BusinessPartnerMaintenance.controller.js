@@ -2893,7 +2893,9 @@ sap.ui.define([
           extras: extras.map(function (extra) {
             return { field: extra.field, value: extra.value };
           }),
-          current: "",
+          // A derivation that fills an empty field has nothing to show here; one that proposes over
+          // a typed value shows what unticking keeps. See `overwrites` in srv/checks/pipeline.js.
+          current: entry.current || "",
           proposed: entry.value,
           // Why is a label; the sentence behind it is the tooltip.
           reason: entry.label || "Derived value",
@@ -2909,7 +2911,8 @@ sap.ui.define([
       },
 
       // One list for both stages: to the requester they are one question. The Change column keeps
-      // them apart - a derivation fills an empty field, a normalisation rewrites a filled one.
+      // them apart - a derivation either fills an empty field ("Filled in") or proposes over a typed
+      // one ("Replaced", with the typed value in Current), a normalisation rewrites a filled one.
       // A KEYED derived row is one line, grouped on target + index. See CLAUDE.md.
       _proposalRows: function (derivations, normalisations) {
         var rows = [];
@@ -2938,7 +2941,9 @@ sap.ui.define([
             entries.forEach(function (entry) {
               seen[keyOf(entry)] = rows.length;
               rows.push(this._derivationRow(
-                entry, entry.createsRow ? "Row added" : "Filled in", []
+                entry,
+                entry.createsRow ? "Row added" : (entry.overwrites ? "Replaced" : "Filled in"),
+                []
               ));
             }, this);
             return;
@@ -3086,7 +3091,7 @@ sap.ui.define([
           stretchOnPhone: true,
           content: [
             new Text({
-              text: "These values were filled in from the official register, or differ from how master data is usually written. Edit anything you want to change, untick what you do not want, and nothing else is touched. Hover over a reason in the Why column to read it in full.",
+              text: "These values were filled in from the official register, differ from what you typed, or differ from how master data is usually written. Where Current shows a value, unticking the row keeps what you typed. Edit anything you want to change, untick what you do not want, and nothing else is touched. Hover over a reason in the Why column to read it in full.",
               wrapping: true
             }).addStyleClass("sapUiSmallMargin"),
             table

@@ -302,13 +302,33 @@ check that could not run is **reported**, never folded into an empty result.
 request in `runRequestChecks` (`srv/change-request-service.js`) from `srv/checks/rule-store.js` (the
 steward-configured tables), `registry-checks.js` (VIES/GLEIF), `cvi-checks.js`, `derivation-checks.js`
 and `field-properties.js`. **Configured stages come first in both lists**: validations because they
-are offline and a failing request should not cost a VIES call; derivations because the pipeline never
-overwrites, so an explicitly configured rule outranks a lookup.
+are offline and a failing request should not cost a VIES call; derivations because **the first stage
+to claim a field is the only one that speaks for it**, so an explicitly configured rule outranks a
+lookup.
 
-**Pipeline guarantees:** a derivation **never overwrites** a typed value; `createsRow` invents a row
-only when the section is empty **or** — with a `rowKey` — when no existing row already carries that
-key; `runDerivations` applies each entry as it goes, so a later entry in one stage sees an earlier
-entry's row.
+**Pipeline guarantees:** `createsRow` invents a row only when the section is empty **or** — with a
+`rowKey` — when no existing row already carries that key; `runDerivations` applies each entry as it
+goes, so a later entry in one stage sees an earlier entry's row.
+
+**A derivation over a filled field is a PROPOSAL, not a skip (2026-09-03, asked for).** It used to
+be dropped in silence, which left the requester with a warning ("VIES registers this as X, not Y")
+and no way to act on it but retyping. The entry now carries **`overwrites: true` and `current`**, and
+the dialog is where the requester keeps their own value by unticking the row — which is the same
+consent every proposal has needed since 2026-08-14. Three things hold it together:
+
+- **Proposing what is already there is not a proposal.** `sameValue` (trimmed, exact) drops it, which
+  is what stops an accepted value coming back on the next press.
+- **One claim per field.** `claimed` in `runDerivations` — a Set of `target|index|field`, added to by
+  the created-row branch as well — replaces what "never overwrites" used to do for free: the country
+  default must not offer to overwrite what VIES just derived. Stage order is what decides the winner.
+- **`replay` follows `overwrites`**, so a `system` entry reaches `systemDerived` over a typed value.
+  `system` means "S/4 uses this whatever anyone ticks" — the standard checks judging a value S/4 will
+  discard is the thing `systemDerived` exists to prevent. A **non**-system derivation is still not
+  replayed over a typed value.
+
+A stage that has its own reason to stay quiet still does: `registry-checks.js` only proposes over a
+filled field where the register genuinely disagrees (see below), and `derivation-checks.js` keeps its
+own section-level guards.
 
 ### Two buttons, two questions
 
@@ -357,12 +377,25 @@ exactly the machinery removed above, for the reasons above.
 
 One validation and one derivation sharing a single lookup (VIES throttles per member state).
 
-- A VAT number VIES does not know **blocks**. A name or address disagreeing with the register only
-  **warns** — VIES returns the legal name and partners are often stored under a trading one, and
+- **The name VIES registers is proposed over the typed one** (2026-09-03), by `nameDerivations`, and
+  only where the two disagree at the same bar the warning is graded by (`scoreAgainst` below
+  `ACCEPT_SCORE`, so casing and punctuation are not a mismatch — that is the model's job). Organisation
+  only: a legal entity name has nowhere to go on a person or a group. A name longer than the 40-character
+  `OrganizationBPName1` is **split across `OrganizationBPName2`**, not truncated — a proposal nobody can
+  accept without losing half the name is not a proposal. GLEIF is deliberately absent: `acceptedEntities`
+  only keeps entities that already match the typed name closely, so it has no disagreement to report.
+- **A filled address field is proposed over only where the register disagrees**, graded by `sameText` —
+  the same bar `differingAddressFields` uses for the warning, so the dialog cannot offer a "correction"
+  the finding itself does not consider a disagreement.
+- A VAT number VIES does not know **blocks**. A name or address disagreeing with the register still
+  **warns** as well as proposing — VIES returns the legal name and partners are often stored under a trading one, and
   blocking stopped the derivations and normalisation proposals too. `NAME_MISMATCH_SEVERITY` is the
   knob back to `'error'`.
-- **VIES never proposes.** It validates and fills gaps; rewriting a typed value is `normalise.js`'s
-  job. A register value differing from a filled-in one is a warning naming both.
+- **VIES proposes, it never applies.** It validates, fills gaps, and since 2026-09-03 offers the
+  register's own name and address over a typed one — as a ticked row in the proposals dialog, with
+  the typed value in Current. Rewriting a value that is merely *written* differently is still
+  `normalise.js`'s job, which is why both name and address proposals are graded by a
+  formatting-insensitive comparison first.
 - **Never block on an outage.** `registry.js` uses check name `vat_registered` for both "not
   registered" (error) and "could not confirm" (info — VIES answers `isValid: false` when throttled).
   Re-grade by **severity**, never by check name; `severityOf` exists for this.
@@ -413,9 +446,9 @@ and whether it can is decided by S/4 customizing nobody filling in the form can 
 group from that table by grouping; it is a lookup, not a free choice, and it only existed on a SPRO
 screen. Silent wherever it cannot be sure (no grouping, no role that creates the account, an inactive
 direction, no assignment row or more than one); `numberAssignmentFindings` already says why nothing
-was filled. Because a derivation never overwrites, `accountGroupConflictFindings` sits beside it and
-reports a requester's hand-picked account group that contradicts `TBD001` — validations run before
-derivations, so it judges what was typed. Which target a role reaches for comes from `TBD002`/`TBC002`,
+was filled. Since 2026-09-03 it also **proposes over** a hand-picked account group;
+`accountGroupConflictFindings` stays beside it regardless, because S/4 uses `TBD001`'s whether or not
+the requester ticks the row — validations run before derivations, so it judges what was typed. Which target a role reaches for comes from `TBD002`/`TBC002`,
 **never from the role name** — pattern-matching `FLCU*` would be a guess.
 
 ### SAP standard checks (`ZMDML_BPCHECK` via `srv/checks/bp-check.js`)
@@ -520,8 +553,9 @@ second error. Keep the two apart.
 
 AI Core proposes reformatting of **stored** data (casing, legal forms `bvba` → `BVBA`, whitespace,
 street conventions). **Proposals only.** Normalising *for comparison* is solved deterministically in
-`srv/ai/duplicate-fields.js` and is a different thing; a derivation fills a gap and never overwrites,
-a normalisation only ever touches a field that already has a value.
+`srv/ai/duplicate-fields.js` and is a different thing. The two stages are still distinct even now
+that both can touch a filled field: a derivation says what the *right value* is, a normalisation only
+says how the value that is there should be *written*.
 
 `sanitizeProposals` drops a proposal for a field that was not offered or that changes nothing.
 Identifiers (tax numbers, IBAN, BP number) are outside `NORMALISABLE` — formatting them is not a
@@ -530,7 +564,9 @@ formatting matter. Runs on **Check only** and returns `[]` on any failure.
 ### The proposals dialog
 
 Derivations and normalisations share one dialog, everything ticked by default, with a `change` column
-saying `Filled in` or `Reformatted`. Derivations **no longer auto-apply**.
+saying `Filled in`, `Replaced`, `Row added` or `Reformatted`. Derivations **no longer auto-apply**.
+A `Replaced` row shows the typed value in **Current**: unticking it is how a requester keeps what
+they wrote, and `_applyProposals` already treats a proposed value equal to `current` as no change.
 
 - A field a derivation filled and the model then reformatted is **one row, not two** (`_proposalRows`),
   and the normalised value wins.
@@ -637,7 +673,10 @@ until you do), assign it to a group, a catalog and a role, and the role to the s
 shape and are all exposed by `DuplicateConfigService`. Read a row left to right as one sentence:
 
 - Validation — *where `Addresses.Country` = BE, `General.Language` must be `=` NL*
-- Derivation — *where `Addresses.Country` = BE, fill `General.Language` with NL*
+- Derivation — *where `Addresses.Country` = BE, fill `General.Language` with NL* (and, since
+  2026-09-03, propose NL over a `General.Language` that already says something else —
+  `runDerivationRule`'s fill branch no longer skips a filled field, and the message says what it
+  replaces)
 - Workflow — *a **create** request whose `Addresses.Country` is BE is **approved** by these people*
 
 **Fields are payload fields, not duplicate-catalog fields.** `srv/checks/payload-fields.js` is a
@@ -709,9 +748,17 @@ convention, each `CONDITION_PAIRS` names its own.
 - **"Add Condition" is table-wide, not per row** — it raises `view>/conditions`; each Column and its
   cells carry `visible="{= ${view>/conditions} >= N }"`. Nothing is written. The ceiling comes from the
   service (`conditionSlots`, from `MAX_CONDITIONS`) so page and schema cannot disagree.
-- **A saved rule reveals its own columns** — `_syncConditionColumns` (on `updateFinished` and after an
-  import) raises the count to the highest slot any row fills, and **never lowers it**.
-  `_setConditionColumns` is the only writer of `view>/conditions`.
+- **A saved rule reveals its own columns** — `_syncConditionColumns` (on `updateFinished`, from
+  `_loadOptions`, and after an import) raises the count to the highest slot any row fills, and
+  **never lowers it**. `_setConditionColumns` is the only writer of `view>/conditions`.
+- **`getCurrentContexts()` holds `undefined` for a row that has not arrived**, and a context that has
+  can still answer `undefined` from `getObject()`. `_loadOptions` syncs the columns while the row
+  `$batch` is still in flight, so `_draftRules` reads exactly that — and on 2026-09-03 threw *"The
+  rule options could not be loaded: Cannot read properties of undefined (reading 'getObject')"* on
+  **all four** rule tiles. Every options function had answered **200**; Field Properties was the one
+  tile that worked, because it draws no condition columns and never calls this. It looked like a
+  roles problem and was not. Both `_draftRules` and `_rowsUsingSlot` filter unloaded rows out; a row
+  that has not arrived is not a draft, and `updateFinished` re-syncs once it has.
 - **"Delete Condition" removes the LAST shown slot and CLEARS it** on every row that holds something.
   Hiding alone is not enough — the values stay and the engine goes on matching a condition nobody can
   see. Confirmed first when it would actually throw data away; nothing is saved until Save.

@@ -225,10 +225,30 @@ test('derivations and normalisations become one list, labelled by what they do',
   );
   assert.equal(rows.length, 2, 'a derivation with no field cannot be applied, so it is not a row');
   assert.equal(rows[0].change, 'Filled in');
-  assert.equal(rows[0].current, '', 'a derivation only ever fills an empty field');
+  assert.equal(rows[0].current, '', 'nothing was there, so there is nothing to show as Current');
   assert.equal(rows[1].change, 'Reformatted');
   assert.equal(rows[1].current, 'test nv');
   assert.equal(rows.every((row) => row.accepted), true, 'everything starts ticked');
+});
+
+// 2026-09-03: a derivation over a typed value is a proposal like any other, and the requester keeps
+// what they typed by unticking it - so the row has to say what unticking keeps.
+test('a derivation over a typed value says Replaced and shows what is there', () => {
+  const controller = loadController();
+  const rows = controller._proposalRows.call(
+    controller,
+    [{
+      target: 'root', index: 0, field: 'OrganizationBPName1', value: 'ACME BELGIUM NV',
+      overwrites: true, current: 'Acme Belgium', label: 'VIES check',
+      message: 'VIES registers this VAT number as ACME BELGIUM NV.'
+    }],
+    []
+  );
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].change, 'Replaced');
+  assert.equal(rows[0].current, 'Acme Belgium');
+  assert.equal(rows[0].proposed, 'ACME BELGIUM NV');
+  assert.equal(rows[0].accepted, true, 'ticked by default, like every other proposal');
 });
 
 // Applying both would write the same field twice, and the normalised value is the better one.
@@ -283,7 +303,10 @@ test('accepting a proposal can create the row it needs', () => {
   // The ternary moved into _proposalRows when a KEYED row became one line (2026-08-28) -- an
   // unkeyed one, which is what the registry's address proposal is, still gets a line per field
   // and still says "Row added" on each.
-  assert.match(controllerSource, /entry\.createsRow \? "Row added" : "Filled in"/u);
+  assert.match(
+    controllerSource,
+    /entry\.createsRow \? "Row added" : \(entry\.overwrites \? "Replaced" : "Filled in"\)/u
+  );
   assert.match(controllerSource, /this\._derivationRow\(lead, "Row added",/u);
   assert.match(controllerSource, /createsRow: Boolean\(entry\.createsRow\)/u);
   // Accepting is what creates it, and it stages as a C - an update to a row S/4 does not have

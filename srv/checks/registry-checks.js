@@ -1,7 +1,11 @@
 'use strict';
 
-const { enrichCandidate } = require('../ai/registry');
+const {
+  enrichCandidate, sameText, scoreAgainst, ACCEPT_SCORE, namesOf
+} = require('../ai/registry');
 const { candidateFromStagedRequest } = require('../ai/duplicate-check');
+const { STATUS } = require('../ai/vies');
+const { CATEGORY_FIELDS } = require('../partner-name');
 
 /**
  * VIES and GLEIF as one validation and one derivation: does what was typed agree with the official
@@ -10,6 +14,10 @@ const { candidateFromStagedRequest } = require('../ai/duplicate-check');
  */
 
 const ADDRESS_FIELDS = Object.freeze(['StreetName', 'HouseNumber', 'PostalCode', 'CityName', 'Country']);
+
+// Where an organisation's name lives, in the order S/4 reads it. `db/staging.cds` types both String(40).
+const ORGANISATION_NAME_FIELDS = Object.freeze(['OrganizationBPName1', 'OrganizationBPName2']);
+const NAME_FIELD_LENGTH = 40;
 
 // A warning since 2026-08-14: VIES returns the legal name and partners are often stored under a
 // trading one, and blocking here stopped the derivations and the proposals as well. 'error' restores it.
@@ -47,6 +55,14 @@ function addressDerivations(addresses, rows, source) {
     if (index > 0) return;
     for (const field of ADDRESS_FIELDS) {
       if (!official[field]) continue;
+      const typed = row[field];
+      // A filled field is proposed over as of 2026-09-03 (the pipeline decides, not this) - but
+      // only where the register genuinely disagrees. `sameText` is the same bar
+      // `differingAddressFields` grades the warning by, so the dialog cannot offer a "correction"
+      // the finding does not consider a disagreement; reformatting is the model's job, not a
+      // register's.
+      const replaces = typed && String(typed).trim();
+      if (replaces && sameText(typed, official[field])) continue;
       entries.push({
         target: 'Addresses',
         index,
@@ -55,12 +71,64 @@ function addressDerivations(addresses, rows, source) {
         value: official[field],
         // Names the source, not the action: a requester needs to know which register to argue with.
         label: `${source} check`,
-        message: `${field} was filled in as “${official[field]}” from ${source}`
-          + `${createsRow ? ' (a new address)' : ''}.`
+        message: replaces
+          ? `${source} registers this partner at “${official[field]}”, not “${replaces}”.`
+            + ' Keep what you typed by unticking this row.'
+          : `${field} was filled in as “${official[field]}” from ${source}`
+            + `${createsRow ? ' (a new address)' : ''}.`
       });
     }
   });
   return entries;
+}
+
+// `OrganizationBPName1` is 40 characters; a legal name longer than that is why S/4 has four of
+// them. Split on the last space that fits rather than truncating - a proposal nobody could accept
+// without losing half the name is not a proposal.
+function splitOrganisationName(name) {
+  const text = String(name || '').trim();
+  if (text.length <= NAME_FIELD_LENGTH) return [text];
+  const head = text.slice(0, NAME_FIELD_LENGTH + 1);
+  const cut = head.lastIndexOf(' ');
+  const at = cut > 0 ? cut : NAME_FIELD_LENGTH;
+  return [text.slice(0, at).trim(), text.slice(at).trim().slice(0, NAME_FIELD_LENGTH)];
+}
+
+/**
+ * The name VIES registers, proposed over the one that was typed (2026-09-03, asked for). Until now
+ * the disagreement was a warning and nothing else: `vat_name_matches` said the register calls this
+ * company something else and left the requester to retype it by hand from the message.
+ *
+ * Only when the names actually disagree, at the SAME bar the warning uses (`scoreAgainst` below
+ * `ACCEPT_SCORE`, so casing and punctuation are not a mismatch) - otherwise every check would offer
+ * to rewrite a name it agrees with. Only for an ORGANISATION: VIES answers with a legal entity name,
+ * which has nowhere to go on a person or a group. GLEIF is deliberately absent - `acceptedEntities`
+ * only keeps entities that already match the typed name closely, so it has no disagreement to
+ * report.
+ */
+function nameDerivations(vies, root) {
+  const [typed] = namesOf(root);
+  if (!typed) return [];
+  // The category decides which fields S/4 keeps, and only the organisation ones can hold this.
+  const category = String(root.BusinessPartnerCategory || '').trim();
+  if (category && !CATEGORY_FIELDS[category]?.includes(ORGANISATION_NAME_FIELDS[0])) return [];
+
+  const official = (vies || [])
+    .filter((check) => check.status === STATUS.VALID && check.name)
+    .map((check) => check.name)
+    .find((name) => scoreAgainst(typed, name) < ACCEPT_SCORE);
+  if (!official) return [];
+
+  const parts = splitOrganisationName(official);
+  return parts.map((value, index) => ({
+    target: 'root',
+    field: ORGANISATION_NAME_FIELDS[index],
+    value,
+    label: 'VIES check',
+    message: `VIES registers this VAT number as “${official}”, not “${typed}”.`
+      + (parts.length > 1 ? ' The name is longer than one name field, so it is proposed across two.' : '')
+      + ' Keep what you typed by unticking this row.'
+  }));
 }
 
 // Optional chaining, not a default: GLEIF sends `address: null`, and a default only fires on undefined.
@@ -113,6 +181,10 @@ function createRegistryStages({ enrich = enrichCandidate, ...options } = {}) {
       const entries = [];
       const rows = payload.sections?.Addresses || [];
 
+      // The name before the address: it is the fact that says whether the register found the right
+      // company at all, and the pipeline claims a field for the first stage that speaks for it.
+      entries.push(...nameDerivations(facts.vies, payload.root || {}));
+
       // VIES first: a member state's own register outranks a self-reported GLEIF address.
       const viesAddresses = (facts.vies || [])
         .filter((check) => check.address)
@@ -141,7 +213,11 @@ module.exports = {
   fieldFor,
   describeEntity,
   NAME_MISMATCH_SEVERITY,
+  ORGANISATION_NAME_FIELDS,
+  NAME_FIELD_LENGTH,
   severityOf,
+  splitOrganisationName,
+  nameDerivations,
   addressDerivations,
   createRegistryStages
 };

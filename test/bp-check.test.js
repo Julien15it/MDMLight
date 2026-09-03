@@ -158,7 +158,10 @@ test('a system derivation IS shown to the standard checks', async () => {
   assert.deepEqual(seen, ['0001']);
 });
 
-test('a system derivation the pipeline refused to write is not replayed either', async () => {
+// 2026-09-03: a `system` entry over a typed value IS replayed. `system` means "S/4 uses this
+// whatever anyone ticks" - which is the whole point of `accountGroupConflictFindings` - so the
+// payload the standard checks see has to carry it, or they judge a value S/4 will discard.
+test('a system derivation is replayed over what was typed', async () => {
   const seen = [];
   const derivations = [{
     name: 'cvi_account_group',
@@ -176,7 +179,24 @@ test('a system derivation the pipeline refused to write is not replayed either',
     }
   });
 
-  // A derivation never overwrites what was typed, and the replay must not either.
+  assert.deepEqual(seen, ['0001']);
+});
+
+// A NON-system derivation still is not: S/4 objecting to a value nobody accepted is an error with
+// no field on the screen to clear it, which is why `systemDerived` exists at all.
+test('a plain derivation over a typed value is not replayed', async () => {
+  const seen = [];
+  await runChecks({ root: { BusinessPartnerGrouping: 'MDM0' }, sections: {} }, {
+    validations: [],
+    derivations: [{
+      name: 'guesses',
+      run: async () => [{ target: 'root', field: 'BusinessPartnerGrouping', value: '0001' }]
+    }],
+    checkStandard: async (payload) => {
+      seen.push(payload.root.BusinessPartnerGrouping);
+      return [];
+    }
+  });
   assert.deepEqual(seen, ['MDM0']);
 });
 

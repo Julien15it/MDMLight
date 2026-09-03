@@ -251,11 +251,12 @@ test('a derivation can copy another field', () => {
 });
 
 /**
- * A derivation fills a gap; it does not correct people. The pipeline enforces this too - both
- * because these rules and the registry's must not be able to disagree about it.
+ * A derivation proposes over a filled field as of 2026-09-03 - here as well as in the registry
+ * stages, because the two must not be able to disagree about it. Only the rows whose CONDITIONS
+ * hold are touched, which is what still keeps the FR row out.
  */
 
-test('a derivation onto a section fills each matching row and says which', () => {
+test('a derivation onto a section reaches each matching row and says which', () => {
   const rule = {
     conditionField: 'Addresses.Country', conditionValue: 'BE',
     field: 'Addresses.Region', value: 'VAN'
@@ -263,9 +264,23 @@ test('a derivation onto a section fills each matching row and says which', () =>
   const entries = runDerivationRule(rule, payload({}, {
     Addresses: [{ Country: 'FR' }, { Country: 'BE' }, { Country: 'BE', Region: 'WBR' }]
   }), model);
-  assert.equal(entries.length, 1);
-  assert.equal(entries[0].index, 1);
+  assert.equal(entries.length, 2, 'the row that already carries a region is proposed over, not skipped');
+  assert.deepEqual(entries.map((entry) => entry.index), [1, 2]);
   assert.equal(entries[0].target, 'Addresses');
+  assert.match(entries[0].message, /filled in as “VAN”/u);
+  assert.match(entries[1].message, /replacing “WBR”/u);
+});
+
+// The check Maarten asked for: a rule must not keep proposing a value the row already carries.
+test('a derivation says nothing about a row that already carries its value', () => {
+  const rule = {
+    conditionField: 'Addresses.Country', conditionValue: 'BE',
+    field: 'Addresses.Region', value: 'VAN'
+  };
+  const entries = runDerivationRule(rule, payload({}, {
+    Addresses: [{ Country: 'BE', Region: 'VAN' }]
+  }), model);
+  assert.deepEqual(entries, []);
 });
 
 /**
@@ -374,8 +389,8 @@ test('inactive and unusable rows are dropped, and drop nothing else', async () =
   assert.match(findings[0].message, /required/);
 });
 
-// Two derivations onto one field resolve predictably: the pipeline never overwrites, so the first
-// to fill it wins, and `sequence` is what decides who is first.
+// Two derivations onto one field resolve predictably: the pipeline claims a field for the first
+// stage that writes it, so the first to fill it wins, and `sequence` is what decides who is first.
 test('sequence orders the derivations that compete for a field', async () => {
   const stages = createConfiguredStages({
     derivations: [
