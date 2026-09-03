@@ -1112,16 +1112,27 @@ async function pendingCreateRequests() {
     const general = await db.run(
       cds.ql.SELECT.from('mdmlight.staging.StagedGeneral').where({ request_ID: { in: ids } })
     );
-    const nodes = {};
-    for (const [section, entity] of Object.entries(STAGING_NODES)) {
-      nodes[section] = await db.run(cds.ql.SELECT.from(entity).where({ request_ID: { in: ids } }));
-    }
+    // One read per node, started together rather than in turn.
+    const sections = Object.entries(STAGING_NODES);
+    const read = await Promise.all(sections.map(
+      ([, entity]) => db.run(cds.ql.SELECT.from(entity).where({ request_ID: { in: ids } }))
+    ));
+    // Grouped once, then looked up - a `find`/`filter` per request per section is
+    // O(requests x sections x rows) and this is the duplicate check's own hot path.
+    const generalByRequest = new Map(general.map((row) => [row.request_ID, row]));
+    const nodesByRequest = new Map(ids.map((id) => [id, Object.fromEntries(
+      sections.map(([section]) => [section, []])
+    )]));
+    sections.forEach(([section], index) => {
+      for (const row of read[index] || []) {
+        const bucket = nodesByRequest.get(row.request_ID);
+        if (bucket) bucket[section].push(row);
+      }
+    });
     return requests.map((request) => ({
       request,
-      general: general.find((row) => row.request_ID === request.ID) || {},
-      nodes: Object.fromEntries(Object.entries(nodes).map(([section, rows]) => [
-        section, rows.filter((row) => row.request_ID === request.ID)
-      ]))
+      general: generalByRequest.get(request.ID) || {},
+      nodes: nodesByRequest.get(request.ID)
     }));
   } catch (error) {
     console.warn('[duplicates] Pending change requests unavailable, checking live partners only:', error.message);

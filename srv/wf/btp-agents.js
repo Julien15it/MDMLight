@@ -38,6 +38,10 @@ let cachedAgents = null;
 let loadedAt = 0;
 let inFlight = null;
 
+let cachedUsers = null;
+let usersLoadedAt = 0;
+let usersInFlight = null;
+
 function getCredentials() {
   const vcap = JSON.parse(process.env.VCAP_SERVICES || '{}');
   // A managed XSUAA instance - application-plan and apiaccess-plan alike - lands under the `xsuaa`
@@ -109,12 +113,39 @@ async function fetchRoleCollections() {
     .filter((agent) => agent.value);
 }
 
+/**
+ * The subaccount's raw `/Users` rows, cached for TTL_MS and shared by all THREE readers below.
+ *
+ * `specificRoleFor` runs on every render of the maintenance screen and every Check press (through
+ * `resolveEffectiveRole`), and used to fetch the whole subaccount each time - the data steward
+ * screen paid for it twice per open, since it checks itself on load. Only `fetchUsers` was ever
+ * behind a cache, and only incidentally, because `workflowAgents` caches its own mapped result.
+ *
+ * THROWS on failure, like `callApi` itself: each caller has its own degradation and they differ
+ * (no agents / no members / no specific role). A failed read is not cached, so the next call
+ * retries - the same discipline the rule and profile stores follow.
+ *
+ * The envelope varies by BTP response shape; unwrapped once here rather than at three call sites.
+ */
+async function allUsers({ force = false } = {}) {
+  if (!force && cachedUsers && (Date.now() - usersLoadedAt) < TTL_MS) return cachedUsers;
+  if (!usersInFlight) {
+    usersInFlight = callApi('/Users')
+      .then((data) => {
+        cachedUsers = Array.isArray(data) ? data : (data.resources || data.Resources || data.value || []);
+        usersLoadedAt = Date.now();
+        return cachedUsers;
+      })
+      .finally(() => { usersInFlight = null; });
+  }
+  return usersInFlight;
+}
+
 /** Every user in the subaccount, named by e-mail where one is on file - an approver is addressed by
  *  a person, and e-mail is the address this app's own notifications and SBPA both already use. Falls
  *  back to the username for a user with none. */
-async function fetchUsers() {
-  const data = await callApi('/Users');
-  const users = Array.isArray(data) ? data : (data.resources || data.Resources || data.value || []);
+async function fetchUsers(force = false) {
+  const users = await allUsers({ force });
   return users
     .map((user) => (user.emails && user.emails.length ? user.emails[0].value : (user.userName || user.id)))
     .filter(Boolean)
@@ -133,8 +164,7 @@ async function fetchUsers() {
 async function emailsForRoleCollections(collectionNames) {
   if (!collectionNames || !collectionNames.length) return [];
   try {
-    const data = await callApi('/Users');
-    const users = Array.isArray(data) ? data : (data.resources || data.Resources || data.value || []);
+    const users = await allUsers();
     return users
       .filter((user) => (user.groups || []).some((group) => (
         collectionNames.includes(group.value) || collectionNames.includes(group.display)
@@ -174,8 +204,7 @@ async function emailsForRoleCollections(collectionNames) {
 async function specificRoleFor(email, category) {
   if (!email || !category) return null;
   try {
-    const data = await callApi('/Users');
-    const users = Array.isArray(data) ? data : (data.resources || data.Resources || data.value || []);
+    const users = await allUsers();
     const user = users.find((candidate) => (
       (candidate.emails || []).some((entry) => entry.value === email) || candidate.userName === email
     ));
@@ -192,13 +221,15 @@ async function specificRoleFor(email, category) {
   }
 }
 
-async function load() {
+// `force` is threaded down to `allUsers` so a forced refresh is not served the shared cache it was
+// asked to bypass.
+async function load(force = false) {
   const [roles, users] = await Promise.all([
     fetchRoleCollections().catch((error) => {
       console.warn('[workflow-agents] Could not read BTP role collections:', error.message);
       return [];
     }),
-    fetchUsers().catch((error) => {
+    fetchUsers(force).catch((error) => {
       console.warn('[workflow-agents] Could not read BTP subaccount users:', error.message);
       return [];
     })
@@ -219,7 +250,7 @@ async function workflowAgents({ force = false } = {}) {
   if (!inFlight) {
     // load() never rejects - each fetch swallows its own error above - so there is nothing to catch
     // here beyond what those two already log.
-    inFlight = load()
+    inFlight = load(force)
       .then((agents) => {
         cachedAgents = agents;
         loadedAt = Date.now();
@@ -234,6 +265,9 @@ function reset() {
   cachedAgents = null;
   loadedAt = 0;
   inFlight = null;
+  cachedUsers = null;
+  usersLoadedAt = 0;
+  usersInFlight = null;
   cachedToken = null;
   tokenExpiresAt = 0;
 }
@@ -251,5 +285,5 @@ module.exports = {
   // XSUAA token endpoint for the one client credential this app has for that API.
   callApi,
   // Exported for tests only, same convention as _internals elsewhere in this codebase.
-  _internals: { fetchRoleCollections, fetchUsers, getCredentials, apiHost }
+  _internals: { fetchRoleCollections, fetchUsers, allUsers, getCredentials, apiHost }
 };

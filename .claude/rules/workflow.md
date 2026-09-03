@@ -38,6 +38,11 @@ API — not this app's `ROLES` list, which is a different question.
   credentials land under VCAP's `xsuaa` group, not `user-provided`.
 - A broad, subaccount-wide read credential; `btp-agents.js` is the only module that ever sees it.
 - Best-effort, cached 5 minutes. The two lookups fail independently.
+- **One cached `/Users` read serves all three readers** (`allUsers`, same TTL, in-flight de-duplicated).
+  `specificRoleFor` runs on every render and every Check press through `resolveEffectiveRole` — and
+  twice per open on the data steward screen, which checks itself on load — and used to fetch the whole
+  subaccount each time. A failed read is not cached; `force` threads down so a forced refresh is not
+  served the cache it asked to bypass.
 - **The F4 dialog is a real two-column table**, not `sap.m.SelectDialog` — that control wraps a plain
   `sap.m.List` with no column headers, and *Type* vs *Name / E-mail* is exactly the distinction a
   combined picker must make visible.

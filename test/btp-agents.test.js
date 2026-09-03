@@ -258,3 +258,60 @@ test('specificRoleFor is null when nothing matches, when several do, or when the
     assert.equal(await btpAgents.specificRoleFor('nobody@alluvion.eu', 'Approver'), null);
   }));
 });
+
+
+// --- the shared /Users cache -----------------------------------------------------------------
+
+/**
+ * `specificRoleFor` runs on every render of the maintenance screen and every Check press, through
+ * `resolveEffectiveRole`. It used to fetch the whole subaccount each time - and the data steward
+ * screen paid for it twice per open, since it checks itself on load. Only `fetchUsers` sat behind
+ * a cache, and only incidentally, because `workflowAgents` caches its own mapped result.
+ *
+ * All three readers now share one `/Users` read on the same TTL.
+ */
+test('the three /Users readers share one cached read', () => {
+  let userReads = 0;
+  return withVcap({ xsuaa: [{ name: btpAgents.SERVICE_NAME, credentials: CREDENTIALS }] }, () => withAxios({
+    post: async () => ({ data: { access_token: 'tok', expires_in: 3600 } }),
+    get: async (url) => {
+      if (url.endsWith('/Users')) {
+        userReads += 1;
+        return {
+          data: [{
+            userName: 'maarten', emails: [{ value: 'maarten@alluvion.eu' }],
+            groups: [{ value: 'Approver Customer', display: 'Approver Customer' }]
+          }]
+        };
+      }
+      return { data: [] };
+    }
+  }, async () => {
+    assert.equal(await btpAgents.specificRoleFor('maarten@alluvion.eu', 'Approver'), 'Approver Customer');
+    assert.equal(await btpAgents.specificRoleFor('maarten@alluvion.eu', 'Approver'), 'Approver Customer');
+    assert.deepEqual(await btpAgents.emailsForRoleCollections(['Approver Customer']), ['maarten@alluvion.eu']);
+    await btpAgents.workflowAgents();
+    assert.equal(userReads, 1, 'one /Users read serves every reader within the TTL');
+  }));
+});
+
+// A failed read is not cached - the same discipline the rule and profile stores follow. Each caller
+// still degrades its own way rather than throwing.
+test('a failed /Users read is retried rather than remembered', () => {
+  let userReads = 0;
+  return withVcap({ xsuaa: [{ name: btpAgents.SERVICE_NAME, credentials: CREDENTIALS }] }, () => withAxios({
+    post: async () => ({ data: { access_token: 'tok', expires_in: 3600 } }),
+    get: async (url) => {
+      if (url.endsWith('/Users')) {
+        userReads += 1;
+        if (userReads === 1) throw new Error('subaccount away');
+        return { data: [{ userName: 'm', emails: [{ value: 'm@alluvion.eu' }], groups: [{ value: 'Approver X' }] }] };
+      }
+      return { data: [] };
+    }
+  }, async () => {
+    assert.equal(await btpAgents.specificRoleFor('m@alluvion.eu', 'Approver'), null, 'degrades, never throws');
+    assert.equal(await btpAgents.specificRoleFor('m@alluvion.eu', 'Approver'), 'Approver X');
+    assert.equal(userReads, 2, 'the failure was not cached');
+  }));
+});
