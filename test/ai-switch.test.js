@@ -136,8 +136,8 @@ test('the switch is enforced on the server, not only drawn in the UI', () => {
   assert.match(bpService, /aiAssistanceEnabled: await aiAssistanceEnabled\(\)/u);
   assert.match(source('srv/change-request-service.js'), /aiEnabled: await aiAssistanceEnabled\(\)/u);
 
-  // Writing it needs the Steward scope the config service requires; the main service
-  // only reports it.
+  // Writing it needs the Admin scope the config service requires (it was Steward until
+  // 2026-09-03); the main service only reports it.
   const configService = source('srv/duplicate-config-service.cds');
   assert.match(configService, /action setAiAssistanceEnabled/u);
   assert.doesNotMatch(

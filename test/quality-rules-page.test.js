@@ -43,10 +43,14 @@ const changeRequestJs = read(ROOT, 'srv', 'change-request-service.js');
  * per-cell "Copied from" hint covers the one thing the columns cannot say.
  */
 
-test('both tables are exposed by the steward service and validated on write', () => {
+test('both tables are exposed by the configuration service and validated on write', () => {
   assert.match(serviceCds, /entity ValidationRules as projection on quality\.ValidationRules/u);
   assert.match(serviceCds, /entity DerivationRules as projection on quality\.DerivationRules/u);
-  assert.match(serviceCds, /@requires: 'Steward'/u);
+  // `Admin` since 2026-09-03 - what is pinned is that these tables are behind a scope AT ALL, not
+  // which one; the panel's gating and the two halves that make it grantable are covered in
+  // duplicate-rules-page.test.js. Left as a literal rather than loosened to /@requires:/, because
+  // an unguarded rule table is the failure worth catching here.
+  assert.match(serviceCds, /@requires: 'Admin'/u);
   assert.match(serviceCds, /function qualityRuleOptions\(\) returns QualityRuleOptions/u);
   // Caught at the keyboard: by check time the answer has already been given.
   assert.match(serviceJs, /guard\('ValidationRules', VALIDATIONS, validateValidationRule\)/u);
