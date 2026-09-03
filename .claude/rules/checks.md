@@ -1,0 +1,237 @@
+# The check pipeline
+
+<!-- paths: srv/checks/**, srv/ai/registry.js, srv/ai/normalise*, srv/checks/pipeline.js -->
+
+**validate → derive → duplicate check**, and the order is the design: data that fails validation cannot
+be a duplicate of anything, and data that is merely incomplete may be missing the very fields a
+duplicate rule needs. Stages run over the **request payload** (`{ root, sections }`), not a flattened
+candidate, so a derivation can name a row and the screen can write it back.
+
+Three behaviours worth not "simplifying" away: a validation that **throws blocks**; a derivation that
+throws **only reports**; a duplicate check that could not run is **reported**, never folded into an
+empty result.
+
+`VALIDATIONS`/`DERIVATIONS` are empty default registries. Stages are built per request in
+`runRequestChecks` (`srv/change-request-service.js`) from `rule-store.js`, `registry-checks.js`,
+`cvi-checks.js`, `derivation-checks.js` and `field-properties.js`. **Configured stages come first in
+both lists**: validations because they are offline and a failing request should not cost a VIES call;
+derivations because **the first stage to claim a field is the only one that speaks for it**.
+
+**Pipeline guarantees:** `createsRow` invents a row only when the section is empty **or** — with a
+`rowKey` — when no existing row already carries that key; `runDerivations` applies each entry as it
+goes, so a later entry in one stage sees an earlier entry's row.
+
+## A derivation over a filled field is a PROPOSAL, not a skip
+
+It used to be dropped in silence, leaving the requester a warning and no way to act on it but retyping.
+The entry carries **`overwrites: true` and `current`**; the dialog is where the requester keeps their
+own value by unticking. Three things hold it together:
+
+- **Proposing what is already there is not a proposal.** `sameValue` (trimmed, exact) drops it — that
+  is what stops an accepted value coming back on the next press.
+- **One claim per field.** `claimed` in `runDerivations` (a Set of `target|index|field`, added to by the
+  created-row branch as well) replaces what "never overwrites" used to do for free: the country default
+  must not offer to overwrite what VIES just derived. Stage order decides the winner.
+- **`replay` follows `overwrites`**, so a `system` entry reaches `systemDerived` over a typed value. A
+  **non**-system derivation is still not replayed over a typed value.
+
+The same rule lives in `rule-engine.js`'s `runDerivationRule` fill branch (steward-configured rules) and
+is filtered per-stage in `registry-checks.js` and `derivation-checks.js`.
+
+## Two buttons, two questions
+
+- **Check** — "is this record right?": validate, derive, normalise. **Nothing about duplicates.**
+- **Duplicate Check** — "does it already exist?": validate, derive, match. Derivations run **in memory
+  only** (a rule conditioned on a country nobody typed still has to fire).
+
+Both stage nothing and share `runRequestChecks`; only the stage list differs, never the order.
+**Submit/resubmit run the validations and the duplicate check, never the derivations** — a derivation
+changes the data and the requester has to have seen what they are asking for.
+
+## Checks run on a button press, and only on a button press
+
+The automatic/debounced trigger was removed: **opening a record dialog commits the cell behind it**, so
+"+" and "Add" fired checks nobody asked for, mid-typing, each costing an AI Core call and a remote
+round trip. Every guard against the resulting double-dialogs worked; the premise was wrong.
+
+- `_onFieldCommitted` does **local work only**. `test/check-triggers.test.js` pins that it makes no
+  server call. Adding a debounced check back is a one-line change, which is why the absence is tested.
+- `_cancelPendingTrigger` has no timer left and empties `_declinedProposals` so a check button asks
+  again. Every check-running button calls it first.
+- `_rememberDeclined`/`_isDeclined` are the record of what was offered and refused; nothing filters on
+  it. Declines are recorded in `afterClose` (Escape is a decline; so are unticked rows after Apply).
+  One dialog at a time (`_proposalsOpen`).
+
+**One deliberate exception: the data steward review screen.** `_loadStagedRequest` calls `this.onCheck()`
+itself — the same call a press makes — once loading is done, when `mode === "datasteward"` **and**
+`state.requestStatus === "checkAndEnrich"`. This runs on **every** open and each run books a vendor
+number in S/4. The cost is accepted: S/4's own verdict is what a steward is there to look at. **This is
+the only page-load trigger in the app — do not generalise it, and do not build a debounced or
+field-commit version.**
+
+## Registry checks — VIES and GLEIF (`registry-checks.js`, `srv/ai/registry.js`)
+
+One validation and one derivation sharing a single lookup (VIES throttles per member state).
+
+- **VIES proposes, it never applies.** A VAT number VIES does not know **blocks**. A name or address
+  disagreeing **warns** *and* proposes. `NAME_MISMATCH_SEVERITY` is the knob back to `'error'`.
+- **The registered name is proposed over the typed one** (`nameDerivations`), only where the two
+  disagree at the same bar the warning uses (`scoreAgainst` below `ACCEPT_SCORE`, so casing and
+  punctuation are not a mismatch — that is `normalise.js`'s job). **Organisation only.** A name longer
+  than the 40-character `OrganizationBPName1` is **split across `OrganizationBPName2`**, not truncated.
+  GLEIF is deliberately absent: `acceptedEntities` only keeps close matches, so it has no disagreement.
+- **A filled address field is proposed over only where the register disagrees**, graded by `sameText` —
+  the same bar `differingAddressFields` uses, so the dialog cannot offer a "correction" the finding
+  itself does not consider a disagreement.
+- **Never block on an outage.** `vat_registered` is the check name for both "not registered" (error) and
+  "could not confirm" (info — VIES answers `isValid: false` when throttled). Re-grade by **severity**,
+  never by check name; `severityOf` exists for this.
+- **GLEIF is a last resort, not a second opinion.** Searched only when a name **and** a country are
+  filled in (a name alone once put a Belgian company under a Dutch entity's number) **and** no VIES
+  check came back `VALID`. `requireCountry: false` is opt-in, used only by the assistant's prefill,
+  whose answer is chat prose and never a proposed field value; a test pins that the pipeline never
+  passes it.
+- The derivation fills empty address fields on the **first** address row, VIES then GLEIF.
+
+## The CVI configuration check (`cvi-checks.js`)
+
+Answers **will this partner actually synchronise?** Reads `CviConfigService`, backed by CDS views in S/4
+package `ZMDM_LIGHT`.
+
+- **A role its BP category may not carry** — `TB003` role → role category, `TB003A` allowed BP
+  categories. **Every CHAR(1) flag in these sets arrives as `Edm.Boolean`, not `'X'`** — this rule was
+  wrong twice over exactly that. `isSet` accepts both. The no-flags-set guard describes no real system.
+- **Postprocessing switched off** — PPO off means a sync error is dropped rather than queued and the
+  partner silently never becomes a customer. Reported per row of `CviPostprocessingControl`, never
+  against a hardcoded sync object name.
+- **Number assignment** — `TBD001`/`TBC001`, `CVIC_*_TO_BP1` (inbound, both empty on S4A), `TB001.NRRNG`,
+  `T077D.NUMKR`/`T077K.NUMKR`, `TBD002`/`TBC002`, `MDSC_CTRL_OPT_A`. The inbound rows are exposed but
+  never read — MDM Light only creates BPs — and a test pins that a rule cannot mistake one direction for
+  the other.
+- **Severity is `warning`; `ROLE_CATEGORY_SEVERITY` is the knob.** Blocking a legitimate partner leaves a
+  requester unable to submit with no way to argue. Move to `error` once seen right on real data.
+- **A configuration that cannot be read reports itself and never blocks** — the pipeline turns a thrown
+  validation into a blocking error, so an unreachable S/4 would stop every submit.
+- **Configuration, not SAP's verdict.** `CVI_FS_CHECK_CUST` is a module pool with no callable API.
+- Deliberately not built: contact person synchronisation — MDM Light stages no contact persons.
+
+**`cvi_account_group`** fills `Customers.CustomerAccountGroup`/`Suppliers.SupplierAccountGroup` from
+`TBD001`. Silent wherever it cannot be sure. It **proposes over** a hand-picked account group;
+`accountGroupConflictFindings` stays beside it regardless, because S/4 uses `TBD001`'s whether or not
+the requester ticks the row. Which target a role reaches for comes from `TBD002`/`TBC002`, **never from
+the role name** — pattern-matching `FLCU*` would be a guess.
+
+## SAP standard checks (`ZMDML_BPCHECK` via `bp-check.js`)
+
+- **They only see accepted values.** `runDerivations` returns a third payload, `systemDerived`: what was
+  typed plus only entries marked `system: true`. `checkStandard` runs on that, never on `derived` —
+  otherwise S/4 objects to postal codes VIES merely *proposed*, an error a requester cannot clear.
+  `cvi_account_group` is the **only** `system` derivation, load-bearing twice: `TBD001` decides the
+  account group whatever the screen says, and it is what *creates* the `Customers`/`Suppliers` node,
+  without which `ZMDML_BPCHECK` sends no relation node and those tiers silently examine nothing. A keyed
+  entry is replayed **by key, not by index**.
+- **They are held back until the proposals are answered.** `bp-check.js` flattens every S/4 message to
+  `{severity, message}` and discards S/4's own `field`, so "was this message about City?" cannot be
+  answered — and an accepted value can make a **new** message appear. The answer is **when**, not
+  **which**: `StandardJson` is returned separately and `_resolveStandardChecks` decides on the way out of
+  the dialog. Nothing to propose: shown on the first press. Nothing accepted: shown as they are, **no
+  second round trip and no second vendor number**. Something accepted: `_rerunStandardChecks` asks again
+  with `Propose: false`, replacing rather than merging. `_applyProposals` **returns the number of fields
+  it changed** and that count is what `afterClose` reads.
+- **They only run on the DATA STEWARD step.** `stewardStep` reads the screen's own `req.data.Role`.
+  Same trust level as `renderRole` — nothing is written or approved on the strength of `Role`; what it
+  decides is whether a dry-run costs a round trip and a vendor number, so a client that lied spends only
+  its own.
+- **`MAX_SEVERITY` caps every standard finding at `'warning'`** and `runChecks` never lets one flip its
+  own `valid` flag. So the pre-action gate uses `_standardBlocks(findings)`: anything with
+  `severity !== 'info'` blocks (gating on `'error'` would never fire), and a non-array blocks too.
+
+**Two messages nobody could clear:** `VMD_API/043` fired on every EU vendor because `ZCL_MDML_BPCHECK`
+never built a `TaxNumbers` node; same blind spot fed `CVI_API/007`. `FSBP_GENERIC/008` was *caused* by
+the mapper setting `datax-langu` unconditionally — a blank with the X-flag set means **clear this
+field**. So `StagedAddresses` gained **`Language`** (ADDR1_DATA-LANGU). **It is not
+`CorrespondenceLanguage`** — that is BP-level and person-only on an organisation. Keep the two apart.
+
+## SPRO derivations (`derivation-checks.js`)
+
+One stage, `sap_derivations`, reading `DerivationConfigService` with a 60s cache. Runs **last** — a
+country default is the weakest claim on any field. Check and Duplicate Check only.
+
+- **Address language** from `T005-SPRAS`, on **every** address row.
+- **Customer tax category** from `TSTL` — proposes the ROWS; `CustomerTaxClassification` is left empty
+  on purpose. Only when the request asks to be a customer, never into a filled section. **A created tax
+  row needs TWO entries** — `createsRow` writes one field, so the departure country comes from a second
+  entry that finds the row the first made; without it the row is half a `KNVI` key.
+- **Address time zone** from `TTZ5S`, keyed by country **and** region. Where several zones exist and none
+  is default, nothing is derived — a customizing gap, not a coin toss.
+- **`TransportZone` is deliberately NOT staged**: `TZONE` carries no determination data.
+- **Mandatory customer partner functions** from `TKUPA` → `TPAER`; `TKUPA`'s key is the **account group
+  alone**. Only `PartnerType = 'KU'`. Needs a `CustomerSalesArea` row; three extra entries fill that key.
+- **Mandatory supplier partner functions** from `T077K-PARGE` → `TPAER` — **a different table**. Only
+  `PARGE` is joined. Guard inverted: `PartnerType = 'LI'`, or each side proposes the other's functions.
+- Customer-only is not an oversight: `KNVI` has no vendor counterpart.
+- **Do not copy `cvi_account_group`'s `system: true` onto these.**
+
+**The remote value-help service caps a response at 100 rows.** `config-reader.js`'s `readAllOf` is
+mandatory for every customizing read (twelve were silently truncated). Two decisions inside it: **`skip`
+advances by what arrived, never by `pageSize`**, and **the loop ends on an EMPTY page, not a short one**
+— unlike `readAllPages` in `business-partner-service.js`, where the caller sets the page size. Still
+unpaged deliberately: `fetchWorkflowEntityRows` and everything on local Postgres. `diagnose` logs the
+five config **row counts**, because a truncated read looks exactly like customizing that says nothing.
+
+## Normalisation (`normalise.js`)
+
+AI Core proposes reformatting of **stored** data (casing, legal forms, whitespace, street conventions).
+**Proposals only.** Normalising *for comparison* is solved deterministically in `duplicate-fields.js`
+and is a different thing. A derivation says what the *right value* is; a normalisation only says how the
+value that is there should be *written*.
+
+`sanitizeProposals` drops a proposal for a field that was not offered or that changes nothing.
+Identifiers (tax numbers, IBAN, BP number) are outside `NORMALISABLE`. Runs on **Check only** and
+returns `[]` on any failure.
+
+## The proposals dialog
+
+Derivations and normalisations share one dialog, everything ticked by default, `change` column saying
+`Filled in`, `Replaced`, `Row added` or `Reformatted`. Derivations **no longer auto-apply**. A
+`Replaced` row shows the typed value in **Current**; unticking keeps what was written.
+
+- A field a derivation filled and the model then reformatted is **one row, not two**; the normalised
+  value wins.
+- The proposed value is an **editable input**. Clearing the field is a decline, not an instruction to
+  blank what is there.
+- A derivation carrying **no `field`** is a statement — it stays a message strip.
+- **The Why column is three words, sentence on hover.** Labels: `VIES check`/`GLEIF check` (named after
+  the source — a requester needs to know which register to argue with), `CVI customizing`, `Derivation
+  rule`. Normalisations get theirs from the model; `shortReason` clamps to three words server-side. A
+  missing `detail` falls back to a stated sentence.
+- **A whole derived ROW is one line.** `_proposalRows` groups on **target + index**, and a group whose
+  lead carries a **`rowKey`** collapses into one line: Field names the **section**, `subtext` carries the
+  key, only the lead is tickable, key fields travel as `extras`. **The `rowKey` is the boundary, not
+  `createsRow`** — grouping on `createsRow` collapsed VIES's four independent address fields into one
+  line with only Street editable.
+- Duplicate findings survive the dialog in a collapsed `Panel`. **Only a match ever changes that panel**,
+  and only Duplicate Check and Submit match.
+
+## Gating and re-validating
+
+Two mechanisms, because they answer different questions ("may this be shown" vs "does this still pass").
+
+- **Gating.** `runDerivations`/`runChecks` take an optional `fieldEditable(target, field)`; an entry
+  whose target field it refuses gets **no entry at all** — not written, not reported, not offered. Built
+  from `fieldState` for the **screen's own** role, which is a rendering trust level, not a security
+  boundary. A caller sending neither `RequestType` nor `Role` resolves to `role: null`, matching only
+  `*` profiles.
+- **Re-validating.** `runSubmitValidations(req, payload)` is shared by `submitRequest`,
+  `resubmitRequest`, `decideDataStewardReview`'s `complete` branch **and `decideRequest`'s approve
+  path**. On approve it runs over `loadStagedPayload` and a blocking result **rejects the action
+  outright**, safe because nothing has been written. The reason: configuration can change since submit.
+- **`loadStagedPayload` must always assign an ARRAY** to `sections[section]`, whatever `config.many`
+  says. `relation-checks.js` and `node-required.js` silently `continue` on a non-array — a real
+  Suppliers row was invisible and the check reported "no Supplier record" over a row it never looked at.
+- **Derivations never run on approve** — nothing there is editable.
+- **`_runPreActionCheck`** is the client half: `onSave` and `onApprove` call it first, from a button
+  press. It is the **full Check-button experience** — same `checkRequest`, same block message, same
+  `_offerProposals` dialog. **Never add a second, cheaper way for a proposal to reach the screen.**
+  **Never for Approve** (`forApprove: true`) — `decideRequest` takes no `DataJson`, so an acceptance
+  would have nowhere to go.
