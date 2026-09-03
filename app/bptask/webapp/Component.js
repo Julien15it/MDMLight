@@ -58,7 +58,11 @@ sap.ui.define(
             _begin: function (prefix) {
                 this._initServiceModels(prefix);
                 this._loadPermissions();
-                this.getRouter().initialize();
+                // Guarded because a component torn down mid-initialisation (My Inbox re-creating
+                // this one after a first attempt failed) has no router any more, and the resulting
+                // TypeError rejects _initTaskForm - which loses the real first failure and leaves
+                // the inbox showing an empty pane rather than a message.
+                if (this.getRouter()) this.getRouter().initialize();
             },
 
             /** Built here, not declared in manifest.json: only the task context knows the path. */

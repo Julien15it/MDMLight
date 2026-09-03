@@ -540,6 +540,11 @@ sap.ui.define([
           return section.kind === "root";
         });
         this._router = UIComponent.getRouterFor(this);
+        // Said out loud rather than silently skipped below: this comes back undefined when the view
+        // has no owner component - either it was built outside one, or the component was destroyed
+        // before onInit ran. Both leave a screen that renders but routes nowhere, and both look
+        // identical from the outside, so the next occurrence has to name itself.
+        if (!this._router) console.warn("[maintenance] no router for this view - route entry points are off");
         // Attached only where the host declares them. The partner app routes all six; the task app
         // is embedded on one request and declares only what it can reach, and a missing route must
         // not throw in onInit - that would take the whole screen down rather than one entry point.
@@ -553,7 +558,7 @@ sap.ui.define([
           ["ChangeRequestRework", this._onReworkRoute],
           ["ChangeRequestDataSteward", this._onDataStewardRoute]
         ].forEach(function (entry) {
-          var route = this._router.getRoute(entry[0]);
+          var route = this._router && this._router.getRoute(entry[0]);
           if (route) route.attachPatternMatched(entry[1], this);
         }, this);
 
