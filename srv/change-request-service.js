@@ -221,7 +221,18 @@ async function determinedRowsFor(s4, config, relationValue) {
     const rows = await s4.run(
       cds.ql.SELECT.from(config.remote).where({ [config.filterField]: relationValue })
     );
-    return Array.isArray(rows) ? rows : [];
+    const found = Array.isArray(rows) ? rows : [];
+    // Diagnostic, deliberately loud and deliberately temporary. The match is failing in the field
+    // and there are two candidate reasons that look identical from outside: the read came back
+    // EMPTY (the determination procedure had not run yet), or it came back FULL but under codes
+    // that do not compare equal to the ones derived - the derivation proposes `AG/RE/RG/WE` and
+    // S/4 reports the collision as `SP`, which are the same four functions in two languages.
+    // Printing the codes answers it in one line. Drop this once it has.
+    console.log(
+      `[post] ${config.remote} on ${relationValue}: ${found.length} row(s)`
+      + `${found.length ? ' -> ' + found.map((row) => row.PartnerFunction).join(', ') : ''}`
+    );
+    return found;
   } catch (error) {
     console.warn(
       `[post] Could not read the existing ${config.remote} rows of ${relationValue}:`, error.message
