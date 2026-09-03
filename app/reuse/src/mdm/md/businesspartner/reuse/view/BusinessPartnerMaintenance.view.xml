@@ -34,6 +34,22 @@
             class="sapUiTinyMarginBottom" />
         </VBox>
       </Panel>
+      <!-- Same S/4 record, up to three independent deletion flags: the BP root
+           (IsMarkedForArchiving) and, separately, its Customer/Supplier records
+           (DeletionIndicator). Only set on a live BP open (edit/display) - see
+           _deletionFlagWarnings. -->
+      <VBox
+        id="maintenanceDeletionWarnings"
+        class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
+        visible="{= ${maintenance>/deletionWarnings}.length > 0 }"
+        items="{ path: 'maintenance>/deletionWarnings', templateShareable: false }">
+        <MessageStrip
+          text="{maintenance>text}"
+          type="Warning"
+          showIcon="true"
+          showCloseButton="false"
+          class="sapUiTinyMarginBottom" />
+      </VBox>
       <!-- One section that failed to load, or had nothing to resolve its Customer/Supplier
            relation to, must never be silent - a blank section otherwise looks identical to
            "this Business Partner genuinely has no data here". -->

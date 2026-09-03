@@ -709,6 +709,9 @@ sap.ui.define([
           previewSearchTerm: "",
           previewLanguage: "",
           sectionWarnings: [],
+          // Set only when a live BP is opened (edit/display) and S/4 already has it, its Customer or
+          // its Supplier record marked for deletion - the same warning S/4's own BP screen shows.
+          deletionWarnings: [],
           deletedRecords: {},
           originalRoot: {},
           originalSections: {},
@@ -870,6 +873,7 @@ sap.ui.define([
           state.sectionWarnings = sections
             .filter(function (result) { return Boolean(result.warning); })
             .map(function (result) { return { text: result.warning }; });
+          state.deletionWarnings = this._deletionFlagWarnings(state);
 
           // Rendering is synchronous, so the code lists must be in hand first - otherwise every coded
           // field paints its bare code and gains its description only on a later redraw. The field
@@ -885,6 +889,34 @@ sap.ui.define([
           maintenanceModel.refresh(true);
           this._renderAll();
         }
+      },
+
+      // Mirrors what S/4's own BP screen warns about on open: the deletion flag lives at up to three
+      // independent levels (IsMarkedForArchiving on the BP root, DeletionIndicator on Customer and on
+      // Supplier), and none implies another. Read here, not derived anywhere else - this is the live
+      // record's own current state, never something staged or requested.
+      _deletionFlagWarnings: function (state) {
+        var warnings = [];
+        if (state.root && state.root.IsMarkedForArchiving === true) {
+          warnings.push({
+            text: "Business Partner " + state.businessPartner + " is marked for deletion in S/4."
+          });
+        }
+        var customer = (state.sections.Customers || [])[0];
+        if (customer && customer.DeletionIndicator === true) {
+          warnings.push({
+            text: "Customer " + (state.customerNumber || state.businessPartner) +
+              " is marked for deletion in S/4."
+          });
+        }
+        var supplier = (state.sections.Suppliers || [])[0];
+        if (supplier && supplier.DeletionIndicator === true) {
+          warnings.push({
+            text: "Supplier " + (state.supplierNumber || state.businessPartner) +
+              " is marked for deletion in S/4."
+          });
+        }
+        return warnings;
       },
 
       _loadSection: async function (businessPartner, section) {
