@@ -18,8 +18,16 @@ const path = require('node:path');
  * line break. The fix is always the same too - **`\s*` already matches a newline**, so the `\n` was
  * never needed and the two lines simply join up.
  *
- * Both rules below were checked against every existing test file and flag none of them, so a hit is
- * a real break rather than a style opinion.
+ * The rule below was checked against every existing test file and flags none of them, so a hit is a
+ * real break rather than a style opinion.
+ *
+ * **A second rule was written and removed the same hour**: it banned a newline escape sitting next
+ * to a whitespace-star inside a regex, on the grounds that the newline escape is redundant there.
+ * It flagged ten existing, working assertions across seven files. That construct is a normal way to
+ * pin a two-line shape here, and what it was really guarding against was a defect in how these
+ * files get GENERATED, not in the code. A test that makes the whole repository pay for one author's
+ * tooling is not a guard, it is a style opinion with a failing exit code - so it went, and only the
+ * rule that catches genuine breakage stayed.
  */
 
 const TEST_DIR = __dirname;
@@ -59,24 +67,5 @@ test('no test file splits a regex literal across two lines', () => {
     offenders, [],
     'a regex literal is split across lines, so the file will not parse. `\\s*` already matches a '
       + 'newline - join the lines and drop the `\\n`:\n' + offenders.join('\n')
-  );
-});
-
-// The other half of the same class, caught before it can be mangled: `\s*` next to `\n` is always
-// redundant, and it is exactly the construct that turns into a real line break.
-test('no regex pairs \\s* with an adjacent \\n', () => {
-  const offenders = [];
-  for (const file of testFiles()) {
-    sourceLines(file).forEach((line, index) => {
-      if (isComment(line)) return;
-      if (/\\s\*\\n|\\n\\s\*/u.test(line)) {
-        offenders.push(`${path.basename(file)}:${index + 1}: ${line.trim()}`);
-      }
-    });
-  }
-  assert.deepEqual(
-    offenders, [],
-    '`\\s*` already matches a newline; the `\\n` is redundant and is what gets mangled:\n'
-      + offenders.join('\n')
   );
 });
