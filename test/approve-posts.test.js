@@ -25,7 +25,7 @@ const postAndRecord = serviceJs.slice(
 );
 
 const {
-  awaitRelationNumber, RELATION_WAIT_ATTEMPTS, matchDeterminedRow, SELF_DETERMINED_NODES
+  awaitRelationNumber, RELATION_WAIT_ATTEMPTS
 } = require('../srv/change-request-service')._internals;
 
 /**
@@ -311,95 +311,41 @@ test('the task app branches on the same thing rather than assuming a failure mea
 });
 
 /**
- * A customer sales area runs its partner determination procedure on creation, so SP/BP/PY/SH exist
- * the moment the sales area does - and derivation-checks.js proposes exactly those, from the same
- * TKUPA/TPAER the procedure reads. Posting them afterwards got `Customer 295: Partner role SP
- * already exists (only provided once)` and sent the whole request to rework (reported 2026-09-03).
+ * Decided 2026-09-03 after two live failures and two failed attempts at making the write work.
+ *
+ * The mandatory partner functions come from TKUPA/T077K -> TPAER, the very customizing S/4's own
+ * determination procedure reads, so creating the sales area is what makes S/4 create them. Posting
+ * them after was a race, and matching what S/4 already had was a guess: the derivation proposes
+ * AG/RE/RG/WE and S/4 answers about SP/BP/PY/SH - the same four functions in two languages.
+ *
+ * They are still derived, proposed and staged, because a requester seeing which functions the
+ * account group implies is the whole value. Only the POST is skipped.
  */
-test('a partner function S/4 determined for itself is matched on its natural key', () => {
-  const config = SELF_DETERMINED_NODES.CustomerSalesPartnerFunctions;
-  const existing = [
-    { SalesOrganization: '1710', DistributionChannel: '10', Division: '00', PartnerFunction: 'SP', PartnerCounter: '001' },
-    { SalesOrganization: '1710', DistributionChannel: '10', Division: '00', PartnerFunction: 'BP', PartnerCounter: '002' }
-  ];
-  const staged = { SalesOrganization: '1710', DistributionChannel: '10', Division: '00', PartnerFunction: 'SP' };
-  const found = matchDeterminedRow(existing, config, staged);
-  assert.strictEqual(found && found.PartnerCounter, '001', 'the counter only a read can supply');
-
-  // A different sales area is a different row, however well the function matches.
-  assert.strictEqual(
-    matchDeterminedRow(existing, config, { ...staged, Division: '01' }, config), null
-  );
-  assert.strictEqual(matchDeterminedRow(existing, config, { ...staged, PartnerFunction: 'SH' }), null);
-});
-
-// Null means "could not ask", and the caller must fall back to the create it would have done -
-// never to an update, which has no counter to address the row with.
-test('an unreadable existing set is not mistaken for an empty one', () => {
-  const config = SELF_DETERMINED_NODES.CustomerSalesPartnerFunctions;
-  assert.strictEqual(matchDeterminedRow(null, config, { PartnerFunction: 'SP' }), null);
-  assert.strictEqual(matchDeterminedRow(undefined, config, { PartnerFunction: 'SP' }), null);
-  assert.strictEqual(matchDeterminedRow([], config, { PartnerFunction: 'SP' }), null);
-});
-
-test('the post decides create-vs-update from what S/4 holds, not from the staged action', () => {
+test('the mandatory partner functions are derived and shown, never posted', () => {
   const postToS4 = serviceJs.slice(
     serviceJs.indexOf('const postToS4 ='), serviceJs.indexOf('const postAndRecord =')
   );
-  assert.match(postToS4, /const selfDetermined = SELF_DETERMINED_NODES\[section\];/u);
-  // The counter is merged into the row, or the update cannot address it.
-  assert.match(postToS4, /data\[selfDetermined\.assignedKey\] = determined\[selfDetermined\.assignedKey\]/u);
-  assert.match(postToS4, /determined \? false : action !== 'U'/u);
-  // Read once per section, not once per row.
-  assert.match(postToS4, /if \(!\(section in determinedRows\)\)/u);
+  assert.match(postToS4, /if \(NOT_POSTED_NODES\.has\(section\)\)/u);
+  // Skipped BEFORE the relation read, so a section nothing will post costs nothing.
+  assert.ok(
+    postToS4.indexOf('NOT_POSTED_NODES.has(section)') < postToS4.indexOf('await awaitRelationNumber'),
+    'the skip must come before anything is read for the row'
+  );
+  // Said out loud: a row that deliberately never reaches S/4 is what someone later reads as a bug.
+  assert.match(postToS4, /derived for the screen only; not posted to S\/4/u);
 });
 
-// Both sides of the same customizing: TKUPA for the customer, T077K for the supplier.
-test('both partner-function sections are covered', () => {
-  assert.deepStrictEqual(
-    Object.keys(SELF_DETERMINED_NODES).sort(),
-    ['CustomerSalesPartnerFunctions', 'SupplierPartnerFunctions']
+test('both partner-function sections are skipped, and nothing else is', () => {
+  assert.match(
+    serviceJs,
+    /const NOT_POSTED_NODES = new Set\(\['CustomerSalesPartnerFunctions', 'SupplierPartnerFunctions'\]\)/u
   );
-  for (const config of Object.values(SELF_DETERMINED_NODES)) {
-    assert.equal(config.assignedKey, 'PartnerCounter');
-    assert.ok(config.matchOn.includes('PartnerFunction'));
-  }
 });
 
-/**
- * The upfront read is not enough on its own, and the live failure proved it (2026-09-03, second
- * report): S/4 runs the partner determination procedure when CVI creates the sales area, so
- * SP/BP/PY/SH can appear BETWEEN our read and our write. The create then fails on a row that was
- * genuinely absent when we looked.
- */
-test('a create that collides is re-read and retried as an update', () => {
-  const postToS4 = serviceJs.slice(
-    serviceJs.indexOf('const postToS4 ='), serviceJs.indexOf('const postAndRecord =')
-  );
-  // One sender, two modes - so the retry cannot drift from the first attempt.
-  assert.match(postToS4, /const sendRow = \(create\) => bp\.send\('saveBusinessPartnerEntity'/u);
-  assert.match(postToS4, /await sendRow\(isCreate\);/u);
-  assert.match(postToS4, /await sendRow\(false\);/u);
-
-  // Only a self-determined node, only a create: everything else rethrows untouched.
-  assert.match(postToS4, /if \(!selfDetermined \|\| !isCreate\) throw error;/u);
-  // And only when the row really is there now - "it failed" alone is not evidence of a duplicate.
-  assert.match(postToS4, /if \(!existing\) throw error;/u);
-  assert.match(postToS4, /const fresh = await determinedRowsFor\(s4, selfDetermined, relationValue\);/u);
-  // The counter S/4 assigned is what makes the retry addressable.
-  assert.match(postToS4, /data\[selfDetermined\.assignedKey\] = existing\[selfDetermined\.assignedKey\]/u);
-});
-
-// Matching S/4's prose would be one language away from unrecognisable. "The create failed and the
-// row is now there" says the same thing without reading the message.
-test('the retry is decided by state, never by the text of the error', () => {
-  const postToS4 = serviceJs.slice(
-    serviceJs.indexOf('const postToS4 ='), serviceJs.indexOf('const postAndRecord =')
-  );
-  for (const prose of ['already exists', 'only provided once', 'Partner role']) {
-    assert.equal(
-      postToS4.includes('error.message.includes('' + prose + '')'), false,
-      'the retry must not depend on S/4 wording'
-    );
+// The machinery that existed only to make the write succeed is gone, not left dormant: a reader
+// finding a matcher for rows nothing posts would reasonably assume posting still happens.
+test('the read-back-and-update machinery was removed with the write', () => {
+  for (const symbol of ['SELF_DETERMINED_NODES', 'determinedRowsFor', 'matchDeterminedRow']) {
+    assert.equal(serviceJs.includes(symbol), false, `${symbol} outlived the write it served`);
   }
 });

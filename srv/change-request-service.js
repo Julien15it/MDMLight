@@ -172,74 +172,29 @@ const RELATION_NAVIGATION = Object.freeze({
 });
 
 /**
- * Sections whose rows **S/4 creates for itself** before this ever posts them.
+ * Sections this app derives and shows, but **never posts**.
  *
- * A customer sales area runs its partner determination procedure on creation, so SP/BP/PY/SH exist
- * the moment the sales area does - and `derivation-checks.js` proposes exactly those, from the same
- * `TKUPA`/`TPAER` the procedure reads. Posting them afterwards is S/4 being handed a row it already
- * made: `Customer 295: Partner role SP already exists (only provided once)`, and the whole request
- * to rework over it (reported live 2026-09-03). Same shape on the supplier side via `T077K`.
+ * The mandatory customer/supplier partner functions come from `TKUPA`/`T077K` -> `TPAER`, which is
+ * *the same customizing S/4's own partner determination procedure reads*. Creating the sales area
+ * is what makes S/4 run it, so SP/BP/PY/SH exist without us; posting them afterwards was a race we
+ * could only lose (`Customer 331: Partner role SP already exists (only provided once)`, and the
+ * whole request to rework over it).
  *
- * So these are matched against what is really there and posted as UPDATES where S/4 got there
- * first. The natural key is `matchOn`; `assignedKey` is the part of the real key S/4 owns and only
- * a read can supply - which is why an update is impossible without one (`PartnerCounter` is
- * deliberately not staged, see MAINTENANCE_ENTITIES in business-partner-service.js).
+ * Two attempts at making the write work were removed with this: reading the rows back and posting
+ * an update, then re-reading and retrying after a failed create. Both foundered on the same thing -
+ * **the two sides do not spell the function the same way.** The derivation proposes `AG/RE/RG/WE`
+ * and S/4 answers about `SP/BP/PY/SH`: the same four functions, German codes against English. Any
+ * match between them is a guess, and none of it is needed to write a row nobody needs written.
+ *
+ * They are still derived, still proposed, still staged: a requester sees which functions the
+ * account group implies, which is the whole value. Only the POST is skipped.
+ *
+ * **Consequence, accepted:** a partner function somebody adds BY HAND on the screen is skipped too.
+ * Nothing distinguishes it from a derived row once staged - both carry `action: 'C'` and nothing
+ * else. Narrowing this to the derived four means re-reading TKUPA at post time to know which they
+ * are; worth doing only once somebody actually needs to add one.
  */
-const SELF_DETERMINED_NODES = Object.freeze({
-  CustomerSalesPartnerFunctions: Object.freeze({
-    remote: 'API_BUSINESS_PARTNER.A_CustSalesPartnerFunc',
-    filterField: 'Customer',
-    matchOn: ['SalesOrganization', 'DistributionChannel', 'Division', 'PartnerFunction'],
-    assignedKey: 'PartnerCounter'
-  }),
-  SupplierPartnerFunctions: Object.freeze({
-    remote: 'API_BUSINESS_PARTNER.A_SupplierPartnerFunc',
-    filterField: 'Supplier',
-    matchOn: ['PurchasingOrganization', 'PartnerFunction'],
-    assignedKey: 'PartnerCounter'
-  })
-});
-
-const sameKeyValue = (left, right) => String(left ?? '').trim() === String(right ?? '').trim();
-
-/** The row S/4 already holds for this staged one, or null. Matched on the natural key only. */
-function matchDeterminedRow(rows, config, data) {
-  if (!Array.isArray(rows)) return null;
-  return rows.find(
-    (row) => config.matchOn.every((field) => sameKeyValue(row[field], data[field]))
-  ) || null;
-}
-
-/**
- * What S/4 holds for one self-determined section, read once per post. **Null means "could not
- * ask"**, not "nothing there" - the caller falls back to the create it would have done anyway, so
- * an unreadable S/4 leaves today's behaviour rather than inventing an update with no key.
- */
-async function determinedRowsFor(s4, config, relationValue) {
-  if (relationValue == null) return null;
-  try {
-    const rows = await s4.run(
-      cds.ql.SELECT.from(config.remote).where({ [config.filterField]: relationValue })
-    );
-    const found = Array.isArray(rows) ? rows : [];
-    // Diagnostic, deliberately loud and deliberately temporary. The match is failing in the field
-    // and there are two candidate reasons that look identical from outside: the read came back
-    // EMPTY (the determination procedure had not run yet), or it came back FULL but under codes
-    // that do not compare equal to the ones derived - the derivation proposes `AG/RE/RG/WE` and
-    // S/4 reports the collision as `SP`, which are the same four functions in two languages.
-    // Printing the codes answers it in one line. Drop this once it has.
-    console.log(
-      `[post] ${config.remote} on ${relationValue}: ${found.length} row(s)`
-      + `${found.length ? ' -> ' + found.map((row) => row.PartnerFunction).join(', ') : ''}`
-    );
-    return found;
-  } catch (error) {
-    console.warn(
-      `[post] Could not read the existing ${config.remote} rows of ${relationValue}:`, error.message
-    );
-    return null;
-  }
-}
+const NOT_POSTED_NODES = new Set(['CustomerSalesPartnerFunctions', 'SupplierPartnerFunctions']);
 
 const isNotFound = (error) => [404, 400].includes(Number(error?.statusCode ?? error?.status ?? error?.code));
 
@@ -1740,9 +1695,6 @@ class ChangeRequestService extends cds.ApplicationService {
 
       // Lazily, once per relation field: an earlier node in this run may have just created the record.
       const resolvedRelations = {};
-      // Lazily, once per self-determined section: what S/4's own determination procedure already
-      // put there. See SELF_DETERMINED_NODES.
-      const determinedRows = {};
       // Whether THIS run created the partner, captured before the loop shadows `isCreate`. It is
       // what decides whether waiting for a customer/vendor record can possibly help - see
       // awaitRelationNumber. A retry's partner has existed for minutes.
@@ -1757,6 +1709,14 @@ class ChangeRequestService extends cds.ApplicationService {
           // Staged for context only - the user never touched it. Null covers rows staged before
           // `N` existed; both mean the same thing and neither may reach S/4.
           if (!action || action === UNTOUCHED) continue;
+          // Derived for the screen, never written. Before the relation read, so a section nothing
+          // will post costs nothing. Named in the log rather than dropped in silence: a row that
+          // deliberately does not reach S/4 is exactly the kind of thing someone later reads as a
+          // bug, and this is the line that answers them.
+          if (NOT_POSTED_NODES.has(section)) {
+            console.log(`[post] ${section} is derived for the screen only; not posted to S/4.`);
+            continue;
+          }
           const relationField = RELATION_FIELDS[section] || 'BusinessPartner';
 
           if (!(relationField in resolvedRelations)) {
@@ -1798,64 +1758,22 @@ class ChangeRequestService extends cds.ApplicationService {
             continue;
           }
 
-          // The same question for a row S/4 determines itself: SP/BP/PY/SH exist as soon as the
-          // sales area does, so a staged 'C' is a create of something already there. Read once per
-          // section, matched on the natural key, and the counter S/4 assigned is merged in - an
-          // update cannot address the row without it.
-          const selfDetermined = SELF_DETERMINED_NODES[section];
-          let determined = null;
-          if (selfDetermined) {
-            if (!(section in determinedRows)) {
-              determinedRows[section] = await determinedRowsFor(s4, selfDetermined, relationValue);
-            }
-            determined = matchDeterminedRow(determinedRows[section], selfDetermined, data);
-            if (determined) data[selfDetermined.assignedKey] = determined[selfDetermined.assignedKey];
-          }
-
           // Whether the record is already there decides this for the role node, not what the
           // requester did on screen: with CVI configured, adding the role is what creates the
           // customer, so by the time this runs S/4 already has one and a POST would be refused.
           // Without CVI nothing else creates it, and the same line still posts. Every other node
-          // follows the staged action, which is the only thing that knows about it - unless S/4
-          // determined the row itself, which only a read can know and which outranks the action.
-          const isCreate = isRoleNode
-            ? relationValue == null
-            : (determined ? false : action !== 'U');
+          // follows the staged action, which is the only thing that knows about it.
+          const isCreate = isRoleNode ? relationValue == null : action !== 'U';
 
-          const sendRow = (create) => bp.send('saveBusinessPartnerEntity', {
+          await bp.send('saveBusinessPartnerEntity', {
             Entity: section,
-            IsCreate: create,
+            IsCreate: isCreate,
             // The keys travel in `data` - the relation field plus whatever the row staged. Sent
             // empty until now, so every update failed on "Missing key field(s)" rather than
             // updating anything; the delete path has always passed them.
             KeyJson: JSON.stringify(data),
             DataJson: JSON.stringify(data)
           });
-
-          try {
-            await sendRow(isCreate);
-          } catch (error) {
-            // Second chance for a self-determined node, and only for a CREATE that failed. The
-            // read above can legitimately have come back empty: S/4 runs the partner determination
-            // procedure when CVI creates the sales area, asynchronously, so SP/BP/PY/SH can appear
-            // between our read and our write. Re-read now - the failure itself is the evidence
-            // something changed - and if the row IS there this was a duplicate, not a fault.
-            //
-            // Deliberately NOT matched on the message text: `Partner role SP already exists (only
-            // provided once)` is one S/4 language away from unrecognisable, and "the create failed
-            // and the row is now there" says the same thing without reading prose. Anything else
-            // rethrows untouched, so a real failure still fails.
-            if (!selfDetermined || !isCreate) throw error;
-            const fresh = await determinedRowsFor(s4, selfDetermined, relationValue);
-            const existing = matchDeterminedRow(fresh, selfDetermined, data);
-            if (!existing) throw error;
-            console.warn(
-              `[post] ${section} ${data[selfDetermined.matchOn[selfDetermined.matchOn.length - 1]]}`
-              + ` already existed on ${relationValue}; posting it as an update instead.`
-            );
-            data[selfDetermined.assignedKey] = existing[selfDetermined.assignedKey];
-            await sendRow(false);
-          }
 
           // Persisted immediately, the same reasoning as header.businessPartner above: a LATER
           // node in this same run can still throw, sending the request back to reworkRequired, and
@@ -2151,8 +2069,6 @@ ChangeRequestService._internals = {
   stagedFinding,
   resolveRelationNumber,
   awaitRelationNumber,
-  matchDeterminedRow,
-  SELF_DETERMINED_NODES,
   RELATION_WAIT_ATTEMPTS,
   RELATION_WAIT_MS,
   RELATION_NAVIGATION,
