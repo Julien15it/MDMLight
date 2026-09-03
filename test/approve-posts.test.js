@@ -365,3 +365,41 @@ test('both partner-function sections are covered', () => {
     assert.ok(config.matchOn.includes('PartnerFunction'));
   }
 });
+
+/**
+ * The upfront read is not enough on its own, and the live failure proved it (2026-09-03, second
+ * report): S/4 runs the partner determination procedure when CVI creates the sales area, so
+ * SP/BP/PY/SH can appear BETWEEN our read and our write. The create then fails on a row that was
+ * genuinely absent when we looked.
+ */
+test('a create that collides is re-read and retried as an update', () => {
+  const postToS4 = serviceJs.slice(
+    serviceJs.indexOf('const postToS4 ='), serviceJs.indexOf('const postAndRecord =')
+  );
+  // One sender, two modes - so the retry cannot drift from the first attempt.
+  assert.match(postToS4, /const sendRow = \(create\) => bp\.send\('saveBusinessPartnerEntity'/u);
+  assert.match(postToS4, /await sendRow\(isCreate\);/u);
+  assert.match(postToS4, /await sendRow\(false\);/u);
+
+  // Only a self-determined node, only a create: everything else rethrows untouched.
+  assert.match(postToS4, /if \(!selfDetermined \|\| !isCreate\) throw error;/u);
+  // And only when the row really is there now - "it failed" alone is not evidence of a duplicate.
+  assert.match(postToS4, /if \(!existing\) throw error;/u);
+  assert.match(postToS4, /const fresh = await determinedRowsFor\(s4, selfDetermined, relationValue\);/u);
+  // The counter S/4 assigned is what makes the retry addressable.
+  assert.match(postToS4, /data\[selfDetermined\.assignedKey\] = existing\[selfDetermined\.assignedKey\]/u);
+});
+
+// Matching S/4's prose would be one language away from unrecognisable. "The create failed and the
+// row is now there" says the same thing without reading the message.
+test('the retry is decided by state, never by the text of the error', () => {
+  const postToS4 = serviceJs.slice(
+    serviceJs.indexOf('const postToS4 ='), serviceJs.indexOf('const postAndRecord =')
+  );
+  for (const prose of ['already exists', 'only provided once', 'Partner role']) {
+    assert.equal(
+      postToS4.includes('error.message.includes('' + prose + '')'), false,
+      'the retry must not depend on S/4 wording'
+    );
+  }
+});

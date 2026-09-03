@@ -156,6 +156,12 @@ requester opened the rework screen, and **the business partner was already there
   natural key to match on, and `PartnerCounter` — the part of the real key **S/4 owns**, which is why
   an update is impossible without reading it back. A read that FAILS returns null and the caller
   falls back to the create it would have done: "could not ask" must not read as "nothing there".
+- **The read alone is not enough, and a failed create is re-read and retried as an update.** S/4 runs
+  the determination procedure when CVI creates the sales area — asynchronously — so a row genuinely
+  absent when we looked can exist by the time we write (the live failure, second report same day).
+  The retry is decided by STATE, never by the message: "the create failed and the row is there now"
+  says what `Partner role SP already exists (only provided once)` says, and survives a system running
+  in another language. Anything else rethrows untouched, so a real failure still fails.
 - **The status stays `reworkRequired` either way.** Something in the request did not land and a human
   has to finish it; the retry path is built for exactly that (`isCreate` flips to false once the
   number is known, and a created child row is flipped to `action: 'U'`).

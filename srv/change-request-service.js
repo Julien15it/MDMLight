@@ -1811,15 +1811,40 @@ class ChangeRequestService extends cds.ApplicationService {
             ? relationValue == null
             : (determined ? false : action !== 'U');
 
-          await bp.send('saveBusinessPartnerEntity', {
+          const sendRow = (create) => bp.send('saveBusinessPartnerEntity', {
             Entity: section,
-            IsCreate: isCreate,
+            IsCreate: create,
             // The keys travel in `data` - the relation field plus whatever the row staged. Sent
             // empty until now, so every update failed on "Missing key field(s)" rather than
             // updating anything; the delete path has always passed them.
             KeyJson: JSON.stringify(data),
             DataJson: JSON.stringify(data)
           });
+
+          try {
+            await sendRow(isCreate);
+          } catch (error) {
+            // Second chance for a self-determined node, and only for a CREATE that failed. The
+            // read above can legitimately have come back empty: S/4 runs the partner determination
+            // procedure when CVI creates the sales area, asynchronously, so SP/BP/PY/SH can appear
+            // between our read and our write. Re-read now - the failure itself is the evidence
+            // something changed - and if the row IS there this was a duplicate, not a fault.
+            //
+            // Deliberately NOT matched on the message text: `Partner role SP already exists (only
+            // provided once)` is one S/4 language away from unrecognisable, and "the create failed
+            // and the row is now there" says the same thing without reading prose. Anything else
+            // rethrows untouched, so a real failure still fails.
+            if (!selfDetermined || !isCreate) throw error;
+            const fresh = await determinedRowsFor(s4, selfDetermined, relationValue);
+            const existing = matchDeterminedRow(fresh, selfDetermined, data);
+            if (!existing) throw error;
+            console.warn(
+              `[post] ${section} ${data[selfDetermined.matchOn[selfDetermined.matchOn.length - 1]]}`
+              + ` already existed on ${relationValue}; posting it as an update instead.`
+            );
+            data[selfDetermined.assignedKey] = existing[selfDetermined.assignedKey];
+            await sendRow(false);
+          }
 
           // Persisted immediately, the same reasoning as header.businessPartner above: a LATER
           // node in this same run can still throw, sending the request back to reworkRequired, and
