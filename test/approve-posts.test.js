@@ -269,6 +269,25 @@ test('giving up answers null rather than throwing, so the caller still decides',
   assert.strictEqual(calls, RELATION_WAIT_ATTEMPTS);
 });
 
+// The race only exists straight after a root create: on a retry or a change request the partner has
+// existed for minutes, and a record absent by then is not coming. Waiting there would slow every
+// approve for nothing, which is what forced the budget to be short in the first version of this.
+test('the wait is spent only where CVI might still be working', () => {
+  const postToS4 = serviceJs.slice(
+    serviceJs.indexOf('const postToS4 ='), serviceJs.indexOf('const postAndRecord =')
+  );
+  assert.match(postToS4, /const createdRootNow = isCreate;/u);
+  assert.match(
+    postToS4, /attempts: createdRootNow \? RELATION_WAIT_ATTEMPTS : 1/u,
+    'a retry reads once; only a fresh create waits'
+  );
+  // Captured BEFORE the row loop, which declares an isCreate of its own per node.
+  assert.ok(
+    postToS4.indexOf('const createdRootNow = isCreate;') < postToS4.indexOf('for (const [section, config]'),
+    'it must be read before the loop shadows isCreate, or it means the wrong thing'
+  );
+});
+
 /**
  * The second half of the same report. postToS4 persists the number the moment the ROOT create
  * succeeds, so a header carrying one means the partner EXISTS and something after it failed. Saying

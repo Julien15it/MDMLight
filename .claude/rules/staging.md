@@ -136,9 +136,12 @@ requester opened the rework screen, and **the business partner was already there
   window, `to_Customer` honestly 404s on a partner that is about to have one, and the post either
   refused a child (*"has no Customer record yet"*) or tried to CREATE the role node S/4 was already
   creating. `awaitRelationNumber` retries while the answer is "not there"
-  (`RELATION_WAIT_ATTEMPTS`/`RELATION_WAIT_MS`), then returns **null exactly as before** — absence is
-  still the caller's to interpret. Paid only when the number is missing, and at most once per
-  relation field per post, because `resolvedRelations` caches it.
+  (`RELATION_WAIT_ATTEMPTS`/`RELATION_WAIT_MS`, ~3s), then returns **null exactly as before** —
+  absence is still the caller's to interpret. **When the wait succeeds the post simply carries on and
+  the request lands on `posted`**; that is the fix, not a nicer failure. Waited for **only straight
+  after a root create** (`createdRootNow`), the one moment the race exists — on a retry or a change
+  request the partner has existed for minutes and a missing record is not coming. That narrowing is
+  what lets the budget be generous instead of short.
 - **A failure after the root create must not claim the partner does not exist.** `postToS4` persists
   `header.businessPartner` the moment the root create succeeds, so a header carrying one means S/4
   has the partner and something *later* failed. The comment and the task app's dialog now say

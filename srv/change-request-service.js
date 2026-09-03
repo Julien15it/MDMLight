@@ -225,12 +225,15 @@ async function readRelationNumber(s4, businessPartner, relationField) {
  * itself was created and active. Reported live 2026-09-03: an approver got a failure, the requester
  * opened the rework screen, and the business partner was already there.
  *
- * Only paid when the number is genuinely missing, and at most once per relation field per post
- * (`resolvedRelations` caches it), so a landscape with no CVI at all waits this out once on approve
- * rather than on every row.
+ * **Only waited for straight after a root CREATE**, which is the only moment the race exists: on a
+ * retry or a change request the partner has existed for minutes, and a record that is not there by
+ * then is not coming. That narrowing is what lets the budget be generous - roughly 3 seconds, spent
+ * only where CVI might still be working - instead of a cautious one that has to be short because
+ * every approve would otherwise pay it. Paid at most once per relation field per post either way,
+ * since `resolvedRelations` caches the answer.
  */
-const RELATION_WAIT_ATTEMPTS = 3;
-const RELATION_WAIT_MS = 700;
+const RELATION_WAIT_ATTEMPTS = 5;
+const RELATION_WAIT_MS = 800;
 
 const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 
@@ -1607,6 +1610,10 @@ class ChangeRequestService extends cds.ApplicationService {
 
       // Lazily, once per relation field: an earlier node in this run may have just created the record.
       const resolvedRelations = {};
+      // Whether THIS run created the partner, captured before the loop shadows `isCreate`. It is
+      // what decides whether waiting for a customer/vendor record can possibly help - see
+      // awaitRelationNumber. A retry's partner has existed for minutes.
+      const createdRootNow = isCreate;
 
       for (const [section, config] of Object.entries(NODES)) {
         const rows = await db.run(
@@ -1621,8 +1628,12 @@ class ChangeRequestService extends cds.ApplicationService {
 
           if (!(relationField in resolvedRelations)) {
             // Waited for, not read once: CVI creates the customer/vendor in postprocessing, after
-            // the root create has already returned. See awaitRelationNumber.
-            resolvedRelations[relationField] = await awaitRelationNumber(s4, businessPartner, relationField);
+            // the root create has already returned. A single attempt outside that window, because
+            // there is nothing to wait for then. See awaitRelationNumber.
+            resolvedRelations[relationField] = await awaitRelationNumber(
+              s4, businessPartner, relationField,
+              { attempts: createdRootNow ? RELATION_WAIT_ATTEMPTS : 1 }
+            );
           }
           const relationValue = resolvedRelations[relationField];
 
