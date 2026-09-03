@@ -22,9 +22,12 @@ const { readAllOf } = require('./config-reader');
 
 const SERVICE = 'ZSRVB_MDMLIGHT_VH';
 
-// Same 60s TTL as rule-store.js and field-property-store.js. The configuration is customizing:
-// it changes when somebody transports, not while a form is being filled in.
-const TTL_MS = 60000;
+// Same 15-minute TTL as rule-store.js and field-property-store.js. The configuration is
+// customizing: it changes when somebody transports, not while a form is being filled in. This
+// app cannot write it at all, so there is nothing here to invalidate on - the only cost of the
+// longer window is that an SPRO change transported into S/4 is picked up within 15 minutes
+// instead of one, and warmup.js refreshes it on a timer anyway.
+const TTL_MS = 900000;
 
 /**
  * Warning, not error, and this is the knob. A mismatch here is a statement about S/4's customizing
@@ -544,9 +547,25 @@ function createCviStages({ read = readConfiguration } = {}) {
   };
 }
 
+/**
+ * Fill the cache without running a check, for warmup.js. Nothing else may call this.
+ *
+ * Reads FIRST and swaps after, so a refresh never leaves a window where the cache is empty
+ * and a concurrent request pays the cold read itself; a failed refresh keeps whatever was
+ * already working, the same way rule-store.js's load does. A plain `configuration()` would
+ * not do: called before the TTL is up it returns the cached value and refreshes nothing.
+ */
+async function prime() {
+  const value = await readConfiguration();
+  cache = { value, until: Date.now() + TTL_MS };
+  return value;
+}
+
 module.exports = {
   createCviStages,
   invalidate,
+  prime,
+  TTL_MS,
   ROLE_CATEGORY_SEVERITY,
   NUMBER_ASSIGNMENT_SEVERITY,
   _internals: {

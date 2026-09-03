@@ -17,7 +17,9 @@ const { resolveProfiles, createFieldPropertyStages } = require('./field-properti
 const PROFILES = 'mdmlight.config.FieldPropertyProfiles';
 const SETTINGS = 'mdmlight.config.FieldPropertySettings';
 
-const TTL_MS = 60000;
+// 15 minutes, for the reason in rule-store.js: write-invalidated through `markStale`, so the
+// Modify dialog's Apply is still visible immediately and only an unchanged table is held.
+const TTL_MS = 900000;
 
 const EMPTY = Object.freeze({ profiles: [], settings: [] });
 

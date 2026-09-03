@@ -13,7 +13,12 @@ const { createConfiguredStages } = require('./rule-engine');
 const VALIDATION_RULES = 'mdmlight.config.ValidationRules';
 const DERIVATION_RULES = 'mdmlight.config.DerivationRules';
 
-const TTL_MS = 60000;
+// 15 minutes, not 60 seconds (2026-09-03): every read of this table was costing a requester
+// part of the ~4.5s cold bootstrap a `checkRequest` paid after any pause longer than a minute.
+// Free to lengthen here because `markStale` drops the cache on every write, so a steward's rule
+// change still takes effect on the next press rather than waiting this out. Single instance:
+// scale the app out and that invalidation stops crossing instances - see warmup.js.
+const TTL_MS = 900000;
 
 let rows = null;
 let loadedAt = 0;

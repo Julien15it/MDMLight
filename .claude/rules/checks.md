@@ -179,6 +179,31 @@ advances by what arrived, never by `pageSize`**, and **the loop ends on an EMPTY
 unpaged deliberately: `fetchWorkflowEntityRows` and everything on local Postgres. `diagnose` logs the
 five config **row counts**, because a truncated read looks exactly like customizing that says nothing.
 
+## Cache TTLs and the warm-up (`warmup.js`)
+
+**Measured 2026-09-03:** the first `checkRequest` after any pause took **9.96s**, the same press warm
+took **0.67s**. About 4.5s of the gap was the destination handshake plus the paged customizing reads;
+the rest was the first AI Core call. With a 60s TTL a requester who stopped to think re-paid it, so
+the cost landed on a person rather than on boot.
+
+- **All four customizing caches are 15 minutes**, not 60 seconds — `rule-store`,
+  `field-property-store`, `cvi-checks`, `derivation-checks`. Free for the first two: `markStale` drops
+  them on every write, so a steward's Apply is still live on the next press. For the other two this
+  app cannot write the source at all, so the only cost is that an SPRO change transported into S/4 is
+  picked up within 15 minutes instead of one.
+- **`startWarmup()` fills all four at boot and refreshes them every 12 minutes**, fired and forgotten
+  from `ChangeRequestService.init` the same way `checkMetadataDrift` is. The refresh is the half that
+  matters — priming once only moves the first press. **The interval must stay strictly inside the
+  shortest TTL** (pinned by a test): a refresh that lands after the expiry leaves exactly the cold
+  press this exists to remove.
+- **A refresh must force a real read**, or it is a no-op: every one of these returns the cache when
+  it is not due yet. Hence `{ force: true }` and the dedicated `prime()` on the two remote stores,
+  which reads first and swaps after — never a window where the cache is empty and a concurrent
+  request pays the cold read itself, and a failed refresh keeps what was working.
+- **One instance is assumed.** Scale `mdm-businesspartner-srv` past one and each instance warms and
+  invalidates its own copy — a rule change would be live on the instance that took the write and up
+  to 15 minutes stale on the others. Lower the TTLs again, or give the stores a shared cache.
+
 ## Normalisation (`normalise.js`)
 
 AI Core proposes reformatting of **stored** data (casing, legal forms, whitespace, street conventions).

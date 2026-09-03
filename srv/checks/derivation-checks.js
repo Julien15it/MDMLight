@@ -26,9 +26,10 @@ const { readAllOf } = require('./config-reader');
 
 const SERVICE = 'ZSRVB_MDMLIGHT_VH';
 
-// Same 60s TTL as cvi-checks.js, rule-store.js and field-property-store.js. This is customizing: it
-// changes when somebody transports, not while a form is being filled in.
-const TTL_MS = 60000;
+// Same 15-minute TTL as cvi-checks.js, rule-store.js and field-property-store.js. This is
+// customizing: it changes when somebody transports, not while a form is being filled in, and
+// this app cannot write it - see the note there on what the longer window costs.
+const TTL_MS = 900000;
 
 let cache = null;
 
@@ -488,9 +489,24 @@ function createDerivationStages({ read = readConfiguration } = {}) {
   };
 }
 
+/**
+ * Fill the cache without running a derivation, for warmup.js. Nothing else may call this.
+ *
+ * Reads FIRST and swaps after, so a refresh never leaves a window where the cache is empty
+ * and a concurrent request pays the cold read itself; a failed refresh keeps whatever was
+ * already working, the same way rule-store.js's load does. A plain `configuration()` would
+ * not do: called before the TTL is up it returns the cached value and refreshes nothing.
+ */
+async function prime() {
+  const value = await readConfiguration();
+  cache = { value, until: Date.now() + TTL_MS };
+  return value;
+}
+
 module.exports = {
   createDerivationStages,
   invalidate,
+  prime,
   TTL_MS,
   _internals: {
     diagnose,

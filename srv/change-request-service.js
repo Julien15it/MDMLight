@@ -102,6 +102,7 @@ const { approversFor } = require('./checks/workflow-rule-store');
 const { currentProcessors } = require('./request-processors');
 const { withFullName, fullNameOf } = require('./partner-name');
 const { proposeNormalisations } = require('./checks/normalise');
+const { startWarmup } = require('./checks/warmup');
 const { aiAssistanceEnabled } = require('./ai/availability');
 const { PAYLOAD_NODES, ROOT_SECTION, sectionRows } = require('./checks/payload-fields');
 const { uiPathPrefix } = require('./ui-prefix');
@@ -468,6 +469,12 @@ class ChangeRequestService extends cds.ApplicationService {
   async init() {
     const db = await cds.connect.to('db');
     const s4 = await cds.connect.to('API_BUSINESS_PARTNER');
+
+    // Not awaited, for the same reason checkMetadataDrift is not: this must never delay or fail
+    // boot. It fills the four customizing caches the check pipeline reads and keeps them filled, so
+    // the ~4.5s cold bootstrap a `checkRequest` used to charge the first requester after any pause
+    // is paid here instead. See warmup.js for the measurement it was built from.
+    startWarmup();
 
     // Wholesale replace: a save always carries the complete screen state, so rewriting beats diffing
     // and no stale row can survive.
