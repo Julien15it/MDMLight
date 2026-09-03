@@ -118,8 +118,18 @@ difference; each `CONDITION_PAIRS` names its own.
 - **"Delete Condition" removes the LAST shown slot and CLEARS it** on every row that holds something.
   Hiding alone is not enough — the values stay and the engine goes on matching a condition nobody can
   see. **Condition 1 is never removable.**
+- **Discard must re-sync the columns by hand.** `resetChanges` restores properties on contexts that
+  are already there — no row is added or removed, so `updateFinished` never fires and
+  `_syncConditionColumns` never runs. Discarding a Delete Condition put the values back and left the
+  column invisible until Add Condition revealed the slot, values intact. Safe to call directly
+  because the sync only ever RAISES the count.
+- **The toolbar is the PAGE's, not the table's.** Inside `<Table headerToolbar>` it inherited
+  `view>/tableWidth`, so a narrow table ended mid-screen with the buttons stopping there and a column
+  drag moved every button with it. It now sits above the `ScrollContainer`.
 - **Widths are rem, not percentages** — a hidden column contributes no share of 100%. The table sits in
-  a horizontal `ScrollContainer` and `view>/tableWidth` gives it something to overflow with.
+  a horizontal `ScrollContainer` and `view>/tableWidth` gives it something to overflow with, with
+  `.mdmRuleTable { min-width: 100% }` making that width a **floor to overflow past, not the table's
+  size**: columns decide whether a scrollbar appears, never how wide the table looks.
   `tableWidthFor` is the arithmetic (24rem per condition, 6 per Logic column of which there is one
   fewer, plus `SELECT_REM = 3`). The tests that added the declared `<Column width>`s up against it were
   removed as layout churn — **check the arithmetic by hand** when you add or resize a column.

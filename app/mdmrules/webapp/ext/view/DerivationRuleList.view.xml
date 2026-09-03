@@ -26,48 +26,51 @@
            says the one thing the columns do not, and says it where it applies. -->
       <!-- Horizontal scrolling, so revealing a condition widens the table instead of squeezing every
            cell. `view>/tableWidth` is the other half of it - see the validation table. -->
+      <!-- The toolbar is the PAGE's, not the table's. Inside `<Table headerToolbar>` it inherited
+           the table's own rem width, so a narrow table ended mid-screen with the buttons stopping
+           there too, and dragging a column border dragged every button along with it. Out here it
+           spans the page whatever the columns do. -->
+      <OverflowToolbar>
+        <Title text="Rules" level="H2" />
+        <ToolbarSpacer />
+        <Button text="Add Rule" icon="sap-icon://add" type="Transparent" press=".onAddRule" />
+        <Button text="Delete Rule" icon="sap-icon://delete" type="Transparent" press=".onDeleteRule" />
+        <!-- Table-wide, not per row: it reveals the next Logic/Condition COLUMN pair for every
+             rule at once. Delete Condition removes the last one and clears it on every row, so
+             nothing is left matching in a column nobody can see. -->
+        <Button
+          text="Add Condition"
+          icon="sap-icon://add-filter"
+          type="Transparent"
+          enabled="{= ${view>/conditions} &lt; ${view>/maxConditions} }"
+          press=".onAddCondition" />
+        <Button
+          text="Delete Condition"
+          icon="sap-icon://less"
+          type="Transparent"
+          enabled="{= ${view>/conditions} &gt; 1 }"
+          press=".onDeleteCondition" />
+        <Button text="Duplicate" icon="sap-icon://copy" type="Transparent" press=".onDuplicateRule" />
+        <ToolbarSeparator />
+        <Button text="Export to Excel" icon="sap-icon://excel-attachment" type="Transparent" press=".onExportExcel" />
+        <Button text="Import from Excel" icon="sap-icon://upload" type="Transparent" press=".onImportExcel" />
+        <ToolbarSeparator />
+        <Button text="Save" icon="sap-icon://save" type="Emphasized" press=".onSave" enabled="{view>/dirty}" />
+        <Button text="Discard" icon="sap-icon://undo" type="Transparent" press=".onDiscard" enabled="{view>/dirty}" />
+      </OverflowToolbar>
       <ScrollContainer horizontal="true" vertical="false" width="100%">
       <!-- MultiSelect since 2026-09-02 (asked for): a checkbox as column 1, and the header's
            own checkbox selects every loaded row - Delete and Duplicate act on all of them.
            `sap.m.Table` draws both itself; there is no column to declare for it. -->
       <Table
         id="ruleTable"
+        class="mdmRuleTable"
         width="{view>/tableWidth}"
         items="{ path: 'dc>/DerivationRules', parameters: { $orderby: 'sequence,createdAt', $$updateGroupId: 'ruleChanges' } }"
         mode="MultiSelect"
         busy="{view>/busy}"
         growing="true"
         growingThreshold="100">
-        <headerToolbar>
-          <OverflowToolbar>
-            <Title text="Rules" level="H2" />
-            <ToolbarSpacer />
-            <Button text="Add Rule" icon="sap-icon://add" type="Transparent" press=".onAddRule" />
-            <Button text="Delete Rule" icon="sap-icon://delete" type="Transparent" press=".onDeleteRule" />
-            <!-- Table-wide, not per row: it reveals the next Logic/Condition COLUMN pair for every
-                 rule at once. Delete Condition removes the last one and clears it on every row, so
-                 nothing is left matching in a column nobody can see. -->
-            <Button
-              text="Add Condition"
-              icon="sap-icon://add-filter"
-              type="Transparent"
-              enabled="{= ${view>/conditions} &lt; ${view>/maxConditions} }"
-              press=".onAddCondition" />
-            <Button
-              text="Delete Condition"
-              icon="sap-icon://less"
-              type="Transparent"
-              enabled="{= ${view>/conditions} &gt; 1 }"
-              press=".onDeleteCondition" />
-            <Button text="Duplicate" icon="sap-icon://copy" type="Transparent" press=".onDuplicateRule" />
-            <ToolbarSeparator />
-            <Button text="Export to Excel" icon="sap-icon://excel-attachment" type="Transparent" press=".onExportExcel" />
-            <Button text="Import from Excel" icon="sap-icon://upload" type="Transparent" press=".onImportExcel" />
-            <ToolbarSeparator />
-            <Button text="Save" icon="sap-icon://save" type="Emphasized" press=".onSave" enabled="{view>/dirty}" />
-            <Button text="Discard" icon="sap-icon://undo" type="Transparent" press=".onDiscard" enabled="{view>/dirty}" />
-          </OverflowToolbar>
-        </headerToolbar>
         <!-- Fixed widths in rem, not percentages: a hidden column contributes no share of 100%. -->
         <columns>
           <Column width="24rem"><Text text="Condition 1" /></Column>

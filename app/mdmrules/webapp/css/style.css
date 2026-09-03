@@ -26,3 +26,18 @@ body.mdmColumnResizing {
   cursor: col-resize;
   user-select: none;
 }
+
+/* The rule tables carry an explicit rem width (`view>/tableWidth`, see tableWidthFor) so that
+   revealing a condition or dragging a border widens the table rather than squeezing every cell into
+   whatever space is left - a fixed-layout sap.m.Table at width:100% redistributes its columns
+   instead of overflowing, and then nothing ever scrolls.
+
+   That width is a MINIMUM to overflow past, not the table's real size: on a wide screen with few
+   columns it used to leave the table ending in the middle of the page. `min-width: 100%` fills the
+   rest, so the columns decide only whether the ScrollContainer needs a scrollbar - never how wide
+   the table looks. The toolbar is not in here at all any more; it is the page's, above the
+   ScrollContainer, so no column drag can move a button. */
+
+.mdmRuleTable {
+  min-width: 100%;
+}

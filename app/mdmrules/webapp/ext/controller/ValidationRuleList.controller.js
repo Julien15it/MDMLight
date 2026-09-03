@@ -671,6 +671,13 @@ sap.ui.define([
     onDiscard: function () {
       this._model().resetChanges(UPDATE_GROUP);
       this.getView().getModel("view").setProperty("/dirty", false);
+      // Discarding a Delete Condition puts the values back, but nothing redraws the column they
+      // came back into: `resetChanges` restores properties on the contexts that are already there,
+      // so no row is added or removed and `updateFinished` never fires - the hook `_syncConditionColumns`
+      // normally rides on. The slot was left filled and invisible, and only Add Condition brought it
+      // back (with its values intact, which is what gave the bug away). Synced by hand here, which is
+      // safe precisely because the sync only ever RAISES the count to the highest filled slot.
+      this._syncConditionColumns();
     },
 
     // --- Check Current Data (2026-09-02) -----------------------------------
