@@ -94,16 +94,19 @@ async function scanValidationRules({
   const wanted = sectionsUsedBy(usable, model).filter((section) => PAYLOAD_NODES[section]);
   const rows = new Map();
   const unavailable = [];
-  for (const section of wanted) {
-    try {
-      rows.set(section, await readSection(section, partners) || new Map());
-    } catch (error) {
-      // A section that could not be read is NAMED, never treated as empty: a rule reporting nothing
-      // because its data never arrived would read as a clean bill of health, which is the one wrong
-      // answer this whole scan exists to avoid giving.
-      unavailable.push({ section, reason: error.message });
-    }
-  }
+  // Together, not one after another: each section is its own remote read over the same partners,
+  // and they neither depend on nor write over each other. `allSettled`, not `all`, because a
+  // section that could not be read is NAMED, never treated as empty - a rule reporting nothing
+  // because its data never arrived would read as a clean bill of health, which is the one wrong
+  // answer this whole scan exists to avoid giving. One failure must not take the others with it.
+  const read = await Promise.allSettled(
+    wanted.map((section) => Promise.resolve().then(() => readSection(section, partners)))
+  );
+  wanted.forEach((section, index) => {
+    const outcome = read[index];
+    if (outcome.status === 'fulfilled') rows.set(section, outcome.value || new Map());
+    else unavailable.push({ section, reason: outcome.reason?.message || String(outcome.reason) });
+  });
 
   const counts = { error: 0, warning: 0, info: 0 };
   const perRule = usable.map((rule) => ({

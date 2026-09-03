@@ -828,23 +828,33 @@ class ChangeRequestService extends cds.ApplicationService {
       // Created per request: the pair shares one VIES/GLEIF lookup between the validation and the
       // derivation, and must not carry it over to the next press of the button.
       const registry = createRegistryStages();
-      // Configured first in both lists: the validations are offline, so a failure costs no VIES call;
-      // and the pipeline never overwrites, so an explicit rule should win over a registry lookup.
-      const configured = await configuredStages();
-      // The requester is who is pressing the button, always. A role the client could name would be
-      // one it could also name its way out of - see `requesterProperties`.
-      const properties = await fieldPropertyStages(requesterContext(req));
-      // The SCREEN's own role, separate from the line above: gating what a derivation may propose is
-      // not a security boundary the mandatory-field check above is, so the caller's own Role is
-      // trusted here - narrowed to the caller's specific BTP role the same way effectiveFieldProperties
-      // narrows it, so "Approver Customer" is gated by its own profile rather than by every "Approver"
-      // profile in the table. Nothing is sent -> role stays null -> only `*` profiles apply, same as
-      // before this existed.
-      const stepHeader = req.data.ChangeRequest
-        ? await db.run(cds.ql.SELECT.one.from(HEADER)
-          .columns('approvalsReceived', 'approverSequenceJson')
-          .where({ ID: req.data.ChangeRequest }))
-        : null;
+      // These three are independent of each other and are started together. Two are 60s-cached, so
+      // the steady-state gain is small; `resolveEffectiveRole` is the one that reaches BTP, and it
+      // is what this stops sitting behind the other two. `renderResolved` below still has to wait
+      // for `renderRole` - that one IS a dependency.
+      //
+      //
+      // `properties` runs on the requester - who is pressing the button, always. A role the client
+      // could name would be one it could also name its way out of - see `requesterProperties`.
+      //
+      // `stepHeader` (just the two columns `resolveEffectiveRole` needs) is a fourth independent
+      // read, local to Postgres and cheap - fetched here rather than inside `resolveEffectiveRole`
+      // so that function stays a plain, DB-free helper the caller feeds. `renderRole` still has to
+      // wait for it, the same dependency `renderResolved` below has on `renderRole` itself.
+      const [configured, properties, stepHeader] = await Promise.all([
+        configuredStages(),
+        fieldPropertyStages(requesterContext(req)),
+        req.data.ChangeRequest
+          ? db.run(cds.ql.SELECT.one.from(HEADER)
+            .columns('approvalsReceived', 'approverSequenceJson')
+            .where({ ID: req.data.ChangeRequest }))
+          : null
+      ]);
+      // The SCREEN's own role, separate from `properties` above: gating what a derivation may
+      // propose is not the security boundary the mandatory-field check is, so the caller's own Role
+      // is trusted here - narrowed to their specific BTP role the same way effectiveFieldProperties
+      // narrows it, so "Approver Customer" is gated by its own profile rather than by every
+      // "Approver" profile in the table. Nothing sent -> role stays null -> only `*` profiles apply.
       const renderRole = await resolveEffectiveRole(req, req.data.Role || null, stepHeader);
       // The screen the button was pressed on, before that narrowing: the SAP standard checks run on
       // the data steward step alone, so a specific "DataSteward Customer" must gate them too.
@@ -1459,10 +1469,26 @@ class ChangeRequestService extends cds.ApplicationService {
 
       const sections = {};
       const deleted = {};
+      // Instrumentation, deliberately left in: this loop is 31 sequential SELECTs - one per staged
+      // node - and it runs on every screen open. Whether that is worth restructuring depends on
+      // what a round trip to the BTP Postgres actually costs, and guessing at it is how the wrong
+      // half gets optimised. `[staging] payload read` reports the total and the slowest section, so
+      // one line of `cf logs` answers it. Flat milliseconds x31 means round-trip latency (the case
+      // for reading the sections in one composition expand); one slow section means a missing index
+      // on `request_ID`, which is a much smaller fix. Drop this once the question is settled.
+      const readStarted = Date.now();
+      let slowestSection = null;
+      let slowestMs = -1;
       for (const [section, config] of Object.entries(NODES)) {
+        const sectionStarted = Date.now();
         const rows = await db.run(
           cds.ql.SELECT.from(config.entity).where({ request_ID: changeRequest })
         );
+        const sectionMs = Date.now() - sectionStarted;
+        if (sectionMs > slowestMs) {
+          slowestMs = sectionMs;
+          slowestSection = section;
+        }
         const clean = rows.map((row) => {
           const { ID, request_ID, action, ...rest } = row;
           // The stored action comes back as the screen's own `__state`, or a resubmit would stage
@@ -1478,6 +1504,8 @@ class ChangeRequestService extends cds.ApplicationService {
           sections[section] = clean[0] || null;
         }
       }
+      console.log(`[staging] payload read: ${Object.keys(NODES).length} sections in `
+        + `${Date.now() - readStarted}ms, slowest ${slowestSection} at ${slowestMs}ms`);
 
       const { ID, request_ID, ...root } = general || {};
 

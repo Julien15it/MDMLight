@@ -483,3 +483,59 @@ test('every condition slot above the first is gated on the shown count', () => {
     );
   }
 });
+
+
+const RULE_PAGES = ['ValidationRuleList', 'DerivationRuleList', 'DuplicateRuleList', 'WorkflowRuleList'];
+
+/**
+ * Discarding a Delete Condition put the values back and left the column invisible: `resetChanges`
+ * restores properties on contexts that are already there, so no row is added or removed and
+ * `updateFinished` - the hook `_syncConditionColumns` normally rides on - never fires. Pressing Add
+ * Condition afterwards brought the slot back with its original values still in it, which is what
+ * gave the bug away. Safe to sync by hand because the sync only ever RAISES the count.
+ */
+test('discarding re-syncs the condition columns on every rule page', () => {
+  for (const name of RULE_PAGES) {
+    const members = loadController(name, STUB_XLSX_CODEC);
+    let reset = null;
+    let synced = 0;
+    let dirty = true;
+    members.onDiscard.call({
+      _model: () => ({ resetChanges: (group) => { reset = group; } }),
+      getView: () => ({ getModel: () => ({ setProperty: (path, value) => { dirty = value; } }) }),
+      _syncConditionColumns: () => { synced += 1; }
+    });
+    assert.equal(reset, 'ruleChanges', `${name}: discards the rule update group`);
+    assert.equal(dirty, false, `${name}: clears the dirty flag`);
+    assert.equal(synced, 1, `${name}: re-syncs the columns the discard just restored values into`);
+  }
+});
+
+/**
+ * The toolbar belongs to the PAGE, not the table. Inside `<Table headerToolbar>` it inherited the
+ * table's own rem width (`view>/tableWidth`), so a narrow table ended mid-screen with the buttons
+ * stopping there, and dragging a column border dragged every button along with it.
+ *
+ * The table keeps its rem width - a fixed-layout sap.m.Table at width:100% redistributes its columns
+ * rather than overflowing, and then nothing ever scrolls - but `.mdmRuleTable { min-width: 100% }`
+ * makes that width a floor to overflow past rather than the table's real size. So the columns decide
+ * only whether a scrollbar appears, never how wide the table looks or where a button sits.
+ */
+test('the rule toolbars span the page, and the table never ends short of it', () => {
+  const css = read(APP, 'css', 'style.css');
+  assert.match(css, /\.mdmRuleTable \{\s*min-width: 100%;/u, 'the table fills the screen at minimum');
+
+  for (const name of RULE_PAGES) {
+    const xml = view(name);
+    assert.equal(xml.includes('<headerToolbar>'), false, `${name}: the toolbar is not inside the table`);
+    // Still a real width to overflow with, and still the single setter's own property.
+    assert.match(xml, /width="\{view>\/tableWidth\}"/u, name);
+    assert.match(xml, /class="mdmRuleTable"/u, name);
+    assert.match(xml, /<ScrollContainer horizontal="true" vertical="false" width="100%">/u, name);
+    // The toolbar sits above the scrolled area, so nothing inside it can move a button.
+    assert.ok(
+      xml.indexOf('<OverflowToolbar>') < xml.indexOf('<ScrollContainer'),
+      `${name}: the toolbar is above the ScrollContainer`
+    );
+  }
+});

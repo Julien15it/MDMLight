@@ -135,9 +135,13 @@ function createNameIndex({
    */
   async function ingestChildren(readers, changedIds) {
     const targets = changedIds || [...entries.keys()];
-    for (const name of CHILD_NAMES) {
+    // Together, not one after another: the child entities are independent reads over the same
+    // population and each pass only ever touches `entry.partner[<its own name>]`, so nothing they
+    // write can collide. `partner-readers.js` already fans ITS chunks out this way - this was the
+    // layer above that stayed serial, multiplying the whole child sweep by the number of entities.
+    await Promise.all(CHILD_NAMES.map(async (name) => {
       const read = readers[name];
-      if (!read) continue;
+      if (!read) return;
       const rows = await read({ partners: changedIds });
       for (const id of targets) {
         const entry = entries.get(id);
@@ -150,7 +154,7 @@ function createNameIndex({
         entry.partner[name] = entry.partner[name] || [];
         entry.partner[name].push(projectChild(row, CHILD_SOURCES[name].columns));
       }
-    }
+    }));
   }
 
   async function load(readers) {

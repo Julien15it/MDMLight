@@ -38,6 +38,11 @@ API — not this app's `ROLES` list, which is a different question.
   credentials land under VCAP's `xsuaa` group, not `user-provided`.
 - A broad, subaccount-wide read credential; `btp-agents.js` is the only module that ever sees it.
 - Best-effort, cached 5 minutes. The two lookups fail independently.
+- **One cached `/Users` read serves all three readers** (`allUsers`, same TTL, in-flight de-duplicated).
+  `specificRoleFor` runs on every render and every Check press through `resolveEffectiveRole` — and
+  twice per open on the data steward screen, which checks itself on load — and used to fetch the whole
+  subaccount each time. A failed read is not cached; `force` threads down so a forced refresh is not
+  served the cache it asked to bypass.
 - **The F4 dialog is a real two-column table**, not `sap.m.SelectDialog` — that control wraps a plain
   `sap.m.List` with no column headers, and *Type* vs *Name / E-mail* is exactly the distinction a
   combined picker must make visible.
@@ -115,8 +120,11 @@ array once at submit. **What decides whether an approve actually posts to S/4 li
 - **Accepted, not solved:** two decisions for the same approver arriving concurrently could double-count
   `approvalsReceived`, because nothing here identifies WHO is deciding. No worse than the trust
   `postedBP`'s idempotency guard already extends to the final step.
-- **Still needs Arthur to re-point the SBPA Lobby's User Task at `app/bptask` 1.7.0** before the fixed
-  `Component.js` is what runs. A version bump and a code fix change nothing until both happen.
+- **`app/bptask` stays at 1.5.0 through this**, deliberately: removing inputs the form no longer reads
+  is backwards-compatible, and the version is an address the Lobby resolves — raising it strands the
+  User Task until somebody re-points it by hand. 1.6.0 was raised and reverted the same day for that
+  reason. The **deploy** is still what makes the fixed `Component.js` run. This is the one exception to
+  the bump-on-every-deploy standing rule; `test/task-form.test.js` pins the number and says why.
 
 ## Rework — the requester's screen
 
