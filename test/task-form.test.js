@@ -327,6 +327,18 @@ test('nothing binds before the prefix arrives', () => {
   assert.match(component, /this\._begin\(""\);/u);
 });
 
+// Time to a usable task, not total work: the screen blocks on getRequestPayload, which lives on the
+// change-request service. The partner facade projects all 65 imported entity sets, so eager-loading
+// THAT one first spends the opening moment on the document the screen needs last.
+test('the change-request service is the eagerly loaded one, not the partner facade', () => {
+  const models = component.slice(
+    component.indexOf('_initServiceModels: function'),
+    component.indexOf('_serviceSettings: function')
+  );
+  assert.match(models, /_serviceSettings\("changeRequestService", prefix, true\)/u);
+  assert.match(models, /_serviceSettings\("mainService", prefix, false\)/u);
+});
+
 // A missing prefix must not read as a broken service: relative resolves against the launchpad
 // root and 404s every call, which is what sent the last diagnosis to the wrong place.
 test('a task carrying no prefix says so rather than 404ing', () => {

@@ -38,6 +38,13 @@ applies and it needs no tile, catalog or role.
   routing `/service/*` as a business service (needs a broker `onBind` hook a plain CF app behind a
   destination does not have). Build-time substitution is impossible in one pass: the destination service
   instance is a resource of this same MTA.
+- **`earlyRequests` belongs on the `cr` model, not the main one** (swapped 2026-09-03). Time to a
+  usable task is what matters: the screen's first paint waits on `getRequestPayload`, which is on the
+  change-request service, while the partner facade is wanted only for `currentUserPermissions` and
+  the value helps behind an F4 nobody has pressed. Eager on the partner service fetched the LARGER
+  document (all 65 imported entity sets) at once and left the small one the screen blocks on
+  unrequested until the view had rendered. **Not eager on both** — they would compete for the
+  connection at exactly the wrong moment.
 - **`app/bptask`'s `dataSources` are ABSOLUTE on that derived path; `app/businesspartner` keeps relative
   uris.** Embedded in My Inbox the app is served from the HTML5 repository at its **version-stamped**
   path where `/service/*` is not proxied, so a relative uri answered 500 without ever reaching CAP. **Do

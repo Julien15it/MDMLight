@@ -65,11 +65,25 @@ sap.ui.define(
                 if (this.getRouter()) this.getRouter().initialize();
             },
 
-            /** Built here, not declared in manifest.json: only the task context knows the path. */
+            /**
+             * Built here, not declared in manifest.json: only the task context knows the path.
+             *
+             * **`earlyRequests` is on `cr`, not on the main service** (swapped 2026-09-03). It was
+             * the other way round, which is backwards for how fast a task becomes usable: the
+             * screen's first paint waits on `getRequestPayload`, which is on `cr`, while the main
+             * service is needed only for `currentUserPermissions` and the value helps behind an F4
+             * nobody has pressed yet. Eager on the wrong one meant the big document - the partner
+             * facade projects all 65 imported entity sets - was fetched at once while the small one
+             * the screen actually blocks on was not requested until the view had already rendered
+             * and the payload read went looking for it.
+             *
+             * Deliberately not eager on BOTH: they would compete for the connection at the moment
+             * that matters, and the partner metadata is the larger download by a wide margin.
+             */
             _initServiceModels: function (prefix) {
-                this.setModel(new ODataModel(this._serviceSettings("mainService", prefix, true)));
+                this.setModel(new ODataModel(this._serviceSettings("mainService", prefix, false)));
                 this.setModel(
-                    new ODataModel(this._serviceSettings("changeRequestService", prefix, false)),
+                    new ODataModel(this._serviceSettings("changeRequestService", prefix, true)),
                     "cr"
                 );
             },
