@@ -448,3 +448,36 @@ test('all four rule pages guard the same way', () => {
     assert.match(source, /\}\)\.filter\(Boolean\)\.map\(function \(data\) \{/u, name);
   }
 });
+
+
+/**
+ * Every condition slot above the first is drawn only while the page says it is shown — the column
+ * AND the Logic column that leads into it, two bindings per slot on all four pages.
+ *
+ * Condition 2's pair carried no binding at all: `MIN_CONDITIONS` is 1, so Delete Condition took
+ * `view>/conditions` down to 1 and greyed itself out (`enabled="{= ${view>/conditions} > 1 }"`)
+ * while the column it had just cleared stayed on screen — a ghost column holding a slot the engine
+ * no longer reads. `tableWidthFor(1)` counts one condition column and zero Logic columns, so the
+ * table was also narrower than what it drew.
+ */
+test('every condition slot above the first is gated on the shown count', () => {
+  // Plain string counting, not a regex: the binding is full of `{`, `}` and `$`, and every one of
+  // them needs escaping under /u for no gain here.
+  const occurrences = (text, needle) => text.split(needle).length - 1;
+
+  for (const name of ['ValidationRuleList', 'DerivationRuleList', 'DuplicateRuleList', 'WorkflowRuleList']) {
+    const xml = view(name);
+    for (const slot of [2, 3, 4, 5]) {
+      const gate = 'visible="{= ${view>/conditions} &gt;= ' + slot + ' }"';
+      assert.equal(
+        occurrences(xml, gate), 2,
+        `${name}: condition ${slot} needs its own column and its Logic column gated`
+      );
+    }
+    // Condition 1 is never removable, so it is never gated.
+    assert.ok(
+      xml.includes('<Column width="24rem"><Text text="Condition 1" /></Column>'),
+      `${name}: condition 1 stays ungated`
+    );
+  }
+});

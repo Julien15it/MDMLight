@@ -85,8 +85,8 @@
           <Column width="9rem"><Text text="CR Type" /></Column>
           <Column width="8rem"><Text text="Step" /></Column>
           <Column width="24rem"><Text text="Condition 1" /></Column>
-          <Column width="6rem"><Text text="Logic" /></Column>
-          <Column width="24rem"><Text text="Condition 2" /></Column>
+          <Column width="6rem" visible="{= ${view>/conditions} &gt;= 2 }"><Text text="Logic" /></Column>
+          <Column width="24rem" visible="{= ${view>/conditions} &gt;= 2 }"><Text text="Condition 2" /></Column>
           <Column width="6rem" visible="{= ${view>/conditions} &gt;= 3 }"><Text text="Logic" /></Column>
           <Column width="24rem" visible="{= ${view>/conditions} &gt;= 3 }"><Text text="Condition 3" /></Column>
           <Column width="6rem" visible="{= ${view>/conditions} &gt;= 4 }"><Text text="Logic" /></Column>

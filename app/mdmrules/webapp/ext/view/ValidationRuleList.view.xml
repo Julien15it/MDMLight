@@ -80,8 +80,8 @@
           <Column width="24rem"><Text text="Condition 1" /></Column>
           <!-- Titleless on purpose: AND / OR / NOR reads as the joining word between the two
                conditions it sits between, and a heading over it would only repeat the values. -->
-          <Column width="6rem" hAlign="Center"><Text text="" /></Column>
-          <Column width="24rem"><Text text="Condition 2" /></Column>
+          <Column width="6rem" hAlign="Center" visible="{= ${view>/conditions} &gt;= 2 }"><Text text="" /></Column>
+          <Column width="24rem" visible="{= ${view>/conditions} &gt;= 2 }"><Text text="Condition 2" /></Column>
           <Column width="6rem" hAlign="Center" visible="{= ${view>/conditions} &gt;= 3 }"><Text text="" /></Column>
           <Column width="24rem" visible="{= ${view>/conditions} &gt;= 3 }"><Text text="Condition 3" /></Column>
           <Column width="6rem" hAlign="Center" visible="{= ${view>/conditions} &gt;= 4 }"><Text text="" /></Column>

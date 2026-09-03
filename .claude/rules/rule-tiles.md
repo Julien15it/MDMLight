@@ -96,9 +96,15 @@ count needs a composition, which was built, deployed toward and abandoned twice 
 third time.** WorkflowRules' value columns are plural, the other three singular — a stuck naming
 difference; each `CONDITION_PAIRS` names its own.
 
-- **"Add Condition" is table-wide, not per row** — it raises `view>/conditions`; columns carry
-  `visible="{= ${view>/conditions} >= N }"`. Nothing is written. The ceiling comes from the service
-  (`conditionSlots`) so page and schema cannot disagree.
+- **"Add Condition" is table-wide, not per row** — it raises `view>/conditions`. Nothing is written.
+  The ceiling comes from the service (`conditionSlots`) so page and schema cannot disagree.
+- **Every slot above the first needs TWO `visible="{= ${view>/conditions} >= N }"` bindings** — its own
+  column and the Logic column that leads into it. The cells carry none; `sap.m.Table` drops a cell whose
+  column is invisible, and that is the only thing hiding them. Condition 2's pair was missing, so
+  Delete Condition took the count to 1, greyed itself out and left the column it had just cleared on
+  screen — a ghost holding a slot the engine no longer reads, with `tableWidthFor(1)` sizing the table
+  for one condition and no Logic column. `test/quality-rules-page.test.js` counts the pairs on all four
+  pages. **Condition 1 is never gated**, because it is never removable.
 - **A saved rule reveals its own columns** — `_syncConditionColumns` (on `updateFinished`, from
   `_loadOptions`, after an import) raises the count to the highest slot any row fills and **never
   lowers it**. `_setConditionColumns` is the only writer of `view>/conditions`.
