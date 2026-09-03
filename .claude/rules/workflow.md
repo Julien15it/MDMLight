@@ -112,8 +112,11 @@ array once at submit. **What decides whether an approve actually posts to S/4 li
 - **Accepted, not solved:** two decisions for the same approver arriving concurrently could double-count
   `approvalsReceived`, because nothing here identifies WHO is deciding. No worse than the trust
   `postedBP`'s idempotency guard already extends to the final step.
-- **Still needs Arthur to re-point the SBPA Lobby's User Task at `app/bptask` 1.7.0** before the fixed
-  `Component.js` is what runs. A version bump and a code fix change nothing until both happen.
+- **`app/bptask` stays at 1.5.0 through this**, deliberately: removing inputs the form no longer reads
+  is backwards-compatible, and the version is an address the Lobby resolves — raising it strands the
+  User Task until somebody re-points it by hand. 1.6.0 was raised and reverted the same day for that
+  reason. The **deploy** is still what makes the fixed `Component.js` run. This is the one exception to
+  the bump-on-every-deploy standing rule; `test/task-form.test.js` pins the number and says why.
 
 ## Rework — the requester's screen
 

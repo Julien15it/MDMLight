@@ -193,18 +193,18 @@ test('the outcome labels are literal, not i18n placeholders', () => {
  * sap.bpa.task.inputs, and the Lobby only re-reads that schema when the task is re-pointed. The
  * new version URL also guarantees nothing serves the old manifest from a cache.
  *
- * Raised 1.5.0 -> 1.7.0 (2026-09-02): `currentapprover`/`totalapprovers` are GONE again, not
- * raised a third time. They were added in 1.6.0 so a multiple-approver chain could tell here
- * whether this was the last approval - then 1.6.0 was reverted back to 1.5.0 the same day, which
- * meant the version never carried them in practice: every approver read as "the only one" and the
- * first one posted (see CLAUDE.md, "Several approvers, sequentially"). The fix moves the decision
- * server-side instead - `decideRequest` now counts ApprovalsReceived against RequiredApprovals
- * itself and only posts once they match, so this task form no longer needs to know its own
- * position in the chain at all. `1.7.0` is a genuinely new number, not a re-raise of `1.6.0`, so a
- * Lobby still pointed at the old 1.6.0 build cannot be mistaken for one serving this schema.
+ * **Held at 1.5.0 through the 2026-09-02 multiple-approver fix, deliberately** (asked for). That
+ * change removed `currentapprover`/`totalapprovers` from sap.bpa.task.inputs and moved the "is this
+ * the last approval" decision server-side, where `decideRequest` counts ApprovalsReceived against
+ * RequiredApprovals. Removing inputs the form no longer reads is backwards-compatible, so there is
+ * nothing here the Lobby has to be shown a new schema for - and raising the number would strand the
+ * Lobby on a version that no longer exists until somebody re-points the User Task by hand. 1.6.0
+ * was raised and reverted the same day for that reason; do not re-raise it, and do not "fix" this
+ * assertion by bumping the manifest. This is the standing bump-on-every-deploy rule's one exception,
+ * and it is one because the version is an address the process resolves, not just a label.
  */
 test('the task app version is pinned, so the process keeps pointing at it', () => {
-  assert.equal(manifest['sap.app'].applicationVersion.version, '1.7.0');
+  assert.equal(manifest['sap.app'].applicationVersion.version, '1.5.0');
 });
 
 test('currentapprover/totalapprovers are gone - the task form no longer decides finality', () => {
