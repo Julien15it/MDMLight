@@ -213,6 +213,46 @@ async function readRelationNumber(s4, businessPartner, relationField) {
 
 // CVI does not guarantee Customer/Supplier == BusinessPartner, so posting under the BP number could
 // hit a record that does not exist. Plain field first, navigation as fallback, null if neither.
+/**
+ * How long postToS4 waits for the Customer/Supplier record to appear before deciding it is absent.
+ *
+ * **Why there is a wait at all.** With CVI configured, creating the business partner with an FLCU01
+ * or FLVN01 role is what creates the customer or vendor - but S/4 does that in POSTPROCESSING,
+ * asynchronously, after the BP create returns. So for a short window straight after the root create,
+ * `to_Customer` honestly 404s on a partner that is about to have one. Read in that window, the post
+ * either refused a child ("has no Customer record yet") or tried to CREATE a role node S/4 was
+ * already creating, and the whole request went to rework carrying an error - while the partner
+ * itself was created and active. Reported live 2026-09-03: an approver got a failure, the requester
+ * opened the rework screen, and the business partner was already there.
+ *
+ * Only paid when the number is genuinely missing, and at most once per relation field per post
+ * (`resolvedRelations` caches it), so a landscape with no CVI at all waits this out once on approve
+ * rather than on every row.
+ */
+const RELATION_WAIT_ATTEMPTS = 3;
+const RELATION_WAIT_MS = 700;
+
+const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+
+/**
+ * `resolveRelationNumber`, retried while the answer is "not there". Returns null once the attempts
+ * are used up, which is the same answer it always gave - the caller still decides what that means
+ * (nothing to hang a child on, or a role node that has to be created).
+ */
+async function awaitRelationNumber(s4, businessPartner, relationField, {
+  attempts = RELATION_WAIT_ATTEMPTS,
+  delayMs = RELATION_WAIT_MS,
+  resolve = resolveRelationNumber,
+  wait = sleep
+} = {}) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const number = await resolve(s4, businessPartner, relationField);
+    if (number != null) return number;
+    if (attempt < attempts) await wait(delayMs);
+  }
+  return null;
+}
+
 async function resolveRelationNumber(s4, businessPartner, relationField) {
   const relation = RELATION_NAVIGATION[relationField];
   if (!relation) return businessPartner;
@@ -1580,7 +1620,9 @@ class ChangeRequestService extends cds.ApplicationService {
           const relationField = RELATION_FIELDS[section] || 'BusinessPartner';
 
           if (!(relationField in resolvedRelations)) {
-            resolvedRelations[relationField] = await resolveRelationNumber(s4, businessPartner, relationField);
+            // Waited for, not read once: CVI creates the customer/vendor in postprocessing, after
+            // the root create has already returned. See awaitRelationNumber.
+            resolvedRelations[relationField] = await awaitRelationNumber(s4, businessPartner, relationField);
           }
           const relationValue = resolvedRelations[relationField];
 
@@ -1729,6 +1771,18 @@ class ChangeRequestService extends cds.ApplicationService {
         };
       } catch (error) {
         const message = String(error.message || error);
+        // postToS4 persists the number the moment the ROOT create succeeds, so a header carrying one
+        // here means the partner exists in S/4 and something AFTER it failed - a child node, or a
+        // customer/vendor record that had not appeared yet. Saying "could not be created" then is
+        // simply false, and it is what sent a requester looking for a partner that was already
+        // there, active, under the number this message never mentioned (reported live 2026-09-03).
+        // The status is still reworkRequired either way: something in the request did not land and
+        // a human has to finish it, and the retry path is built for exactly that.
+        const created = header.businessPartner || null;
+        const summary = created
+          ? `Approved. Business Partner ${created} WAS created in S/4HANA, but the rest of the `
+            + `request could not be posted: ${message.slice(0, 1000)}`
+          : `Approved, but the Business Partner could not be created in S/4HANA: ${message.slice(0, 1000)}`;
         await db.run(cds.ql.UPDATE(HEADER).set({
           status: 'reworkRequired',
           postError: message.slice(0, 1000)
@@ -1736,15 +1790,14 @@ class ChangeRequestService extends cds.ApplicationService {
         // Into the shared thread too, not only the header's single `postError` -- so whoever opens
         // the request next, approver or requester, sees WHAT failed rather than just THAT it did.
         // Authored as the system, never the approver: nobody rejected anything here.
-        await appendComment(
-          db, changeRequest, 'System', 'SYSTEM',
-          `Approved, but the Business Partner could not be created in S/4HANA: ${message.slice(0, 1000)}`
-        );
+        await appendComment(db, changeRequest, 'System', 'SYSTEM', summary);
         spawnSignal(() => signalPostResult(header, { errorMessage: message }));
         return {
           ChangeRequest: changeRequest,
           Status: 'reworkRequired',
-          BusinessPartner: header.businessPartner || null,
+          // The client branches on this to decide which of the two sentences above to show, so it
+          // must stay the partner number and not be blanked out because the action "failed".
+          BusinessPartner: created,
           ErrorMessage: message.slice(0, 1000)
         };
       }
@@ -1911,6 +1964,9 @@ ChangeRequestService._internals = {
   FINDING_COLUMNS,
   stagedFinding,
   resolveRelationNumber,
+  awaitRelationNumber,
+  RELATION_WAIT_ATTEMPTS,
+  RELATION_WAIT_MS,
   RELATION_NAVIGATION,
   RELATION_FIELDS,
   resolveEffectiveRole,

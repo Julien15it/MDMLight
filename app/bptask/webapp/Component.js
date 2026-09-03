@@ -451,7 +451,17 @@ sap.ui.define(
                     this._startupParameters().inboxAPI.updateTask("NA", this._taskInstanceId());
                     if (decision && decision.ErrorMessage) {
                         MessageBox.error(
-                            "Approved, but the Business Partner could not be created in S/4HANA:\n\n"
+                            // Two different failures, and telling them apart is why BusinessPartner
+                            // survives on a FAILED decision: the partner may well have been created
+                            // and only the rest of the request have failed. "Could not be created"
+                            // there sent an approver, and then a requester, looking for something
+                            // that already existed and was active (reported 2026-09-03).
+                            (decision.BusinessPartner
+                                ? "Approved. Business Partner " + decision.BusinessPartner
+                                    + " WAS created in S/4HANA, but the rest of the request could"
+                                    + " not be posted:\n\n"
+                                : "Approved, but the Business Partner could not be created in"
+                                    + " S/4HANA:\n\n")
                             + decision.ErrorMessage
                             + "\n\nThe request has been sent back to the requester for rework."
                         );

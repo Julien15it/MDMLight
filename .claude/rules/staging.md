@@ -125,6 +125,30 @@ are in the code comment so nobody re-derives them.
 so they queue on one connection and concurrency buys nothing. Re-measure rather than assume if the
 section count or the rows per request change shape.
 
+## Posting: the CVI window, and what a failure is allowed to claim
+
+Two defects from one live report (2026-09-03): an approver was told the post had failed, the
+requester opened the rework screen, and **the business partner was already there and active.**
+
+- **`postToS4` waits for the Customer/Supplier record instead of reading once.** With CVI configured,
+  creating the BP with an `FLCU01`/`FLVN01` role is what creates the customer or vendor — and S/4
+  does that in **postprocessing, after the root create has already returned**. Read inside that
+  window, `to_Customer` honestly 404s on a partner that is about to have one, and the post either
+  refused a child (*"has no Customer record yet"*) or tried to CREATE the role node S/4 was already
+  creating. `awaitRelationNumber` retries while the answer is "not there"
+  (`RELATION_WAIT_ATTEMPTS`/`RELATION_WAIT_MS`), then returns **null exactly as before** — absence is
+  still the caller's to interpret. Paid only when the number is missing, and at most once per
+  relation field per post, because `resolvedRelations` caches it.
+- **A failure after the root create must not claim the partner does not exist.** `postToS4` persists
+  `header.businessPartner` the moment the root create succeeds, so a header carrying one means S/4
+  has the partner and something *later* failed. The comment and the task app's dialog now say
+  *"Business Partner N WAS created … but the rest of the request could not be posted"*, and
+  `BusinessPartner` survives on a **failed** decision so the client can tell the two apart. **Do not
+  blank it out because the action failed** — that is the field the branch reads.
+- **The status stays `reworkRequired` either way.** Something in the request did not land and a human
+  has to finish it; the retry path is built for exactly that (`isCreate` flips to false once the
+  number is known, and a created child row is flipped to `action: 'U'`).
+
 ## Security gaps, known and open
 
 - **Nothing authorises the staged payload.** `getRequestPayload` has no check in front of it and

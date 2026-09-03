@@ -24,6 +24,10 @@ const postAndRecord = serviceJs.slice(
   serviceJs.indexOf('const postAndRecord ='), serviceJs.indexOf("this.on('decideRequest'")
 );
 
+const {
+  awaitRelationNumber, RELATION_WAIT_ATTEMPTS
+} = require('../srv/change-request-service')._internals;
+
 /**
  * Pressing Approve creates the business partner (changed 2026-08-25). It used to stop at `approved`
  * and leave the S/4 write to SPA calling completeRequest — while the approve screen already told the
@@ -219,4 +223,71 @@ test('every approve reaches decideRequest, whichever approval in the chain it is
   assert.match(completeBody, /var decision = await this\._decideOnServer\(outcomeId\);/u);
   assert.match(completeBody, /await this\._patchTaskInstance\(outcomeId\);/u);
   assert.equal(completeBody.includes('_isFinalApprover'), false);
+});
+
+/**
+ * Reported live 2026-09-03: an approver was told the post had failed, the requester opened the
+ * rework screen, and the business partner was already there and active.
+ *
+ * With CVI configured, creating the BP with an FLCU01/FLVN01 role is what creates the customer or
+ * vendor - in POSTPROCESSING, after the root create has already returned. Read in that window,
+ * `to_Customer` honestly 404s on a partner that is about to have one, and the post either refused a
+ * child ("has no Customer record yet") or tried to CREATE the role node S/4 was already creating.
+ * Either way the whole request went to rework carrying an S/4 error, over a partner that existed.
+ */
+test('the relation number is waited for, because CVI creates it after the root create returns', async () => {
+  let calls = 0;
+  const waits = [];
+  const number = await awaitRelationNumber({}, '4711', 'Customer', {
+    resolve: async () => { calls += 1; return calls < 3 ? null : '0000004711'; },
+    wait: async (ms) => { waits.push(ms); }
+  });
+  assert.strictEqual(number, '0000004711');
+  assert.strictEqual(calls, 3, 'it keeps asking while the answer is "not there"');
+  assert.strictEqual(waits.length, 2, 'and waits between attempts, not after the last one');
+});
+
+test('a number that is there immediately costs no wait at all', async () => {
+  const waits = [];
+  const number = await awaitRelationNumber({}, '4711', 'Customer', {
+    resolve: async () => '0000004711',
+    wait: async (ms) => { waits.push(ms); }
+  });
+  assert.strictEqual(number, '0000004711');
+  assert.deepStrictEqual(waits, [], 'a landscape that answers at once must not be slowed down');
+});
+
+// Still null once the attempts are used up - the same answer it always gave, because the caller
+// decides what absence means (nothing to hang a child on, or a role node that has to be created).
+test('giving up answers null rather than throwing, so the caller still decides', async () => {
+  let calls = 0;
+  const number = await awaitRelationNumber({}, '4711', 'Supplier', {
+    resolve: async () => { calls += 1; return null; },
+    wait: async () => {}
+  });
+  assert.strictEqual(number, null);
+  assert.strictEqual(calls, RELATION_WAIT_ATTEMPTS);
+});
+
+/**
+ * The second half of the same report. postToS4 persists the number the moment the ROOT create
+ * succeeds, so a header carrying one means the partner EXISTS and something after it failed. Saying
+ * "the Business Partner could not be created" then is false, and it is what sent a requester looking
+ * for a partner that was already active under a number the message never mentioned.
+ */
+test('a post that failed AFTER the partner was created says so, and names it', () => {
+  assert.match(postAndRecord, /const created = header\.businessPartner \|\| null;/u);
+  assert.match(postAndRecord, /WAS created in S\/4HANA/u);
+  assert.match(postAndRecord, /could not be created in S\/4HANA/u);
+  // The number has to survive on a FAILED decision, or the client cannot tell the two apart.
+  assert.match(postAndRecord, /BusinessPartner: created/u);
+  // One sentence, written once, used for the comment thread.
+  assert.match(postAndRecord, /appendComment\(db, changeRequest, 'System', 'SYSTEM', summary\)/u);
+});
+
+test('the task app branches on the same thing rather than assuming a failure means nothing exists', () => {
+  const completeTask = taskComponent.slice(taskComponent.indexOf('_completeTask:'));
+  assert.match(completeTask, /decision\.BusinessPartner\s*
+?\s*\?\s*"Approved\. Business Partner "/u);
+  assert.match(completeTask, /WAS created in S\/4HANA/u);
 });
