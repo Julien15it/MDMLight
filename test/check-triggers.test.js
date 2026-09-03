@@ -51,9 +51,10 @@ test('the action declares Propose and Scope, and the runner threads both', () =>
 
   const js = fs.readFileSync(path.join(__dirname, '..', 'srv', 'change-request-service.js'), 'utf8');
   // Open at the end on purpose: the three parameters this test is about must be threaded, but the
-  // runner has since gained others (`standard`, for the SAP standard checks) and pinning the
-  // closing brace made an additive change read as a broken contract.
-  assert.match(js, /runRequestChecks = async \(req, \{ propose, duplicates, scope = null[^}]*\}\)/u);
+  // runner has since gained others (`standard`, then `stewardStep`) and pinning the closing brace
+  // made an additive change read as a broken contract. `\s*` across the opening brace for the same
+  // reason - the signature wrapped onto its own line once it no longer fitted.
+  assert.match(js, /runRequestChecks = async \(req, \{\s*propose, duplicates, scope = null[^}]*\}\)/u);
   // Matched loosely on purpose: what matters is that the payload and the scope reach
   // proposeNormalisations, not how the call is wrapped - it also carries the AI switch now.
   const proposeCall = js.slice(js.indexOf('proposeNormalisations({'));
@@ -80,8 +81,13 @@ test('only the data steward step pays for the SAP standard checks', () => {
   const js = fs.readFileSync(path.join(__dirname, '..', 'srv', 'change-request-service.js'), 'utf8');
   assert.match(js, /const DATASTEWARD_ROLE = 'DataSteward';/u);
   // The screen's own role, not the narrowed one: `startsWith` so a specific "DataSteward Customer"
-  // still gates them.
-  assert.match(js, /const stewardStep = String\(req\.data\.Role \|\| ''\)\.startsWith\(DATASTEWARD_ROLE\)/u);
+  // still gates them. `forceStewardStep` in front of it is the SERVER asserting the step from the
+  // request's own status (decideDataStewardReview) - it can only ever ADD the checks, never skip
+  // them, so the client-driven half below is unchanged.
+  assert.match(
+    js,
+    /const stewardStep = forceStewardStep \|\| String\(req\.data\.Role \|\| ''\)\.startsWith\(DATASTEWARD_ROLE\)/u
+  );
 
   // The screen names the step it is rendering, and the requester screen names Requester.
   assert.match(CONTROLLER, /state\.mode === "approve" \? "Approver" : \(state\.mode === "datasteward" \? "DataSteward" : "Requester"\)/u);

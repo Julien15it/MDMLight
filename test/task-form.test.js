@@ -337,7 +337,7 @@ test('both service models are constructed, and cr is the lazy one', () => {
     component.indexOf('_serviceSettings: function')
   );
   assert.match(models, /_serviceSettings\("mainService", prefix, true\)/u);
-  assert.match(models, /_serviceSettings\("changeRequestService", prefix, false\),\s*"cr"/u);
+  assert.match(models, /_serviceSettings\("changeRequestService", prefix, false\)\),\s*"cr"/u);
 });
 
 // A missing prefix must not read as a broken service: relative resolves against the launchpad

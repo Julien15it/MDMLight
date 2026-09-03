@@ -199,10 +199,16 @@ test('workflowContext resolves data stewards for the processors strip only while
  * rather than travelling on to an approver.
  */
 test('an S/4 error blocks the data steward completing the review', () => {
+  // Searched FROM the start marker, not from the top of the file: `recordDuplicateFindings` is
+  // called by submitRequest and resubmitRequest too, and their occurrences come first - taking the
+  // first one made the slice run backwards and quietly yield an empty string, which matches nothing
+  // and reads as "the gate is missing" rather than "the test is looking in the wrong place".
+  const completeAt = serviceJs.indexOf("// decision === 'complete'");
   const complete = serviceJs.slice(
-    serviceJs.indexOf("// decision === 'complete'"),
-    serviceJs.indexOf('const findings = await recordDuplicateFindings')
+    completeAt,
+    serviceJs.indexOf('const findings = await recordDuplicateFindings', completeAt)
   );
+  assert.ok(complete.length > 0, 'the complete branch was found');
   assert.match(complete, /standard: true, stewardStep: true/u);
   assert.match(complete, /\.filter\(\(finding\) => finding\.severity === BLOCKING\)/u);
   assert.match(complete, /if \(blockingStandard\.length\)/u);
@@ -221,6 +227,7 @@ test('the steward step is asserted by the server, not taken from the client Role
 // and the customer and vendor tiers examine nothing at all.
 test('the gate runs through runRequestChecks, so the checks see systemDerived', () => {
   const complete = serviceJs.slice(serviceJs.indexOf("// decision === 'complete'"));
+  assert.ok(complete.length > 0, 'the complete branch was found');
   assert.match(complete, /const stewardCheck = await runRequestChecks\(req, \{/u);
   assert.equal(
     /createBpCheckStage\(/u.test(complete), false,
