@@ -20,7 +20,7 @@ const { configuredStages } = require('./checks/rule-store');
 const { fieldPropertyStages, resolvedProperties } = require('./checks/field-property-store');
 const { fieldState } = require('./checks/field-properties');
 const { dataStewardEmails, dataStewardRoles } = require('./wf/data-stewards');
-const { specificRoleFor } = require('./wf/btp-agents');
+const { specificRoleFor, isMemberOfRole } = require('./wf/btp-agents');
 
 // The screen role a data steward's own step renders under, and the one step the SAP standard checks
 // run on - see `stewardStep` in runRequestChecks.
@@ -33,22 +33,64 @@ const DATASTEWARD_ROLE = 'DataSteward';
 const RESOLVABLE_ROLE_CATEGORIES = ['Approver', 'DataSteward'];
 
 /**
+ * Whoever `workflowContext` assigned to the step this request is CURRENTLY on - `approverSequenceJson`
+ * (the same ordered `approvers` array BPA got at submit) indexed by `approvalsReceived` (2026-09-02),
+ * the same index BPA's own routing script advances with its own counter. Null when there is nothing to
+ * index into: no header (a create draft, never yet a change request), a request that predates this
+ * column, an empty/unparsable sequence, or an index past its end (should not happen - decideRequest
+ * never lets `approvalsReceived` exceed `requiredApprovals` - but a request from before either column
+ * existed could carry a mismatched pair, and a bounds miss reads as "nothing to disambiguate with"
+ * rather than throwing).
+ */
+function currentStepAssignee(header) {
+  if (!header || !header.approverSequenceJson) return null;
+  try {
+    const sequence = JSON.parse(header.approverSequenceJson);
+    return Array.isArray(sequence) ? (sequence[header.approvalsReceived || 0] || null) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Narrows the generic category a screen sends (`Approver`/`DataSteward`) into the CURRENT user's own,
  * more specific BTP role - "Approver Customer" rather than the bare "Approver" - so two Field
  * Property Profiles scoped to different functions actually apply to different people, instead of
  * both always matching the one screen every approver (or every data steward) renders. See
  * `effectiveFieldProperties` below and CLAUDE.md "Field property profiles".
  *
- * Best-effort, and the fallback is the literal category the screen asked for - not an error, not a
- * blocked render: an unreachable subaccount API, a user with no specific ...-prefixed role of their
- * own, or one with SEVERAL (ambiguous, so `specificRoleFor` already returns null for it) all resolve
- * the same way this whole page rendered before any of this existed.
+ * `header` (optional - the caller's own already-read `ChangeRequests` row) is tried FIRST, via
+ * `currentStepAssignee`: a user holding several approver-shaped roles (say "Approver Sales" AND
+ * "Approver Finance") is otherwise a case `specificRoleFor` cannot resolve at all - it returns null
+ * on purpose rather than guess between them (see its own doc comment) - because nothing before this
+ * knew WHICH of a user's own roles was actually assigned to THIS request's current step. Checking
+ * "is it this specific user's turn" (an exact BTP membership check, `isMemberOfRole`) rather than
+ * "which of this user's roles looks like an Approver" removes the guess entirely, whenever a header
+ * with a stored sequence is available and the current user is who it names.
+ *
+ * Falls through to the old, role-only resolution whenever the step-specific answer does not apply -
+ * no header, no stored sequence, or the current user does not match who it names (someone else's
+ * task opened by mistake, a request from before this column existed, or genuinely ambiguous data).
+ *
+ * Best-effort throughout, and the fallback is the literal category the screen asked for - not an
+ * error, not a blocked render: an unreachable subaccount API, a user with no specific ...-prefixed
+ * role of their own, or one with SEVERAL (ambiguous, so `specificRoleFor` already returns null for
+ * it) all resolve the same way this whole page rendered before any of this existed.
  */
-async function resolveEffectiveRole(req, role) {
+async function resolveEffectiveRole(req, role, header) {
   if (!RESOLVABLE_ROLE_CATEGORIES.includes(role)) return role;
   try {
     const email = requestingUserEmail(req);
     if (!email || email === 'unknown') return role;
+
+    const assignee = currentStepAssignee(header);
+    if (assignee) {
+      const isThisUser = assignee.includes('@')
+        ? assignee.toLowerCase() === email.toLowerCase()
+        : await isMemberOfRole(email, assignee);
+      if (isThisUser) return assignee;
+    }
+
     const specific = await specificRoleFor(email, role);
     return specific || role;
   } catch (error) {
@@ -798,7 +840,12 @@ class ChangeRequestService extends cds.ApplicationService {
       // narrows it, so "Approver Customer" is gated by its own profile rather than by every "Approver"
       // profile in the table. Nothing is sent -> role stays null -> only `*` profiles apply, same as
       // before this existed.
-      const renderRole = await resolveEffectiveRole(req, req.data.Role || null);
+      const stepHeader = req.data.ChangeRequest
+        ? await db.run(cds.ql.SELECT.one.from(HEADER)
+          .columns('approvalsReceived', 'approverSequenceJson')
+          .where({ ID: req.data.ChangeRequest }))
+        : null;
+      const renderRole = await resolveEffectiveRole(req, req.data.Role || null, stepHeader);
       // The screen the button was pressed on, before that narrowing: the SAP standard checks run on
       // the data steward step alone, so a specific "DataSteward Customer" must gate them too.
       const stewardStep = String(req.data.Role || '').startsWith(DATASTEWARD_ROLE);
@@ -930,8 +977,14 @@ class ChangeRequestService extends cds.ApplicationService {
     this.on('effectiveFieldProperties', async (req) => {
       // Approver/DataSteward is narrowed to the CURRENT user's own specific BTP role first (e.g.
       // "Approver Customer"), so a profile scoped to that specific function actually applies only to
-      // people who carry it - see resolveEffectiveRole above.
-      const role = await resolveEffectiveRole(req, req.data.Role || null);
+      // people who carry it - see resolveEffectiveRole above. Tried first, inside that: whether THIS
+      // request's own stored approver sequence names this exact user for its current step.
+      const stepHeader = req.data.ChangeRequest
+        ? await db.run(cds.ql.SELECT.one.from(HEADER)
+          .columns('approvalsReceived', 'approverSequenceJson')
+          .where({ ID: req.data.ChangeRequest }))
+        : null;
+      const role = await resolveEffectiveRole(req, req.data.Role || null, stepHeader);
       const resolved = await resolvedProperties({
         requestType: req.data.RequestType || null,
         role
@@ -1041,7 +1094,9 @@ class ChangeRequestService extends cds.ApplicationService {
         // The count decideRequest gates posting on - same array BPA gets as `approvers` in this
         // same context, so CAP's idea of "how many" never disagrees with what actually got routed.
         requiredApprovals: context.approvers.length,
-        approvalsReceived: 0
+        approvalsReceived: 0,
+        // Who is assigned to which level, in order - see resolveEffectiveRole and db/staging.cds.
+        approverSequenceJson: JSON.stringify(context.approvers)
       }).where({ ID: changeRequest }));
 
       return {
@@ -1147,7 +1202,8 @@ class ChangeRequestService extends cds.ApplicationService {
         // a different role match), so the count is rebuilt from this resubmit's own context, same as
         // submitRequest, and the counter starts over.
         requiredApprovals: context.approvers.length,
-        approvalsReceived: 0
+        approvalsReceived: 0,
+        approverSequenceJson: JSON.stringify(context.approvers)
       }).where({ ID: changeRequest }));
       await appendComment(db, changeRequest, 'Requester', requestingUserEmail(req), req.data.Reason);
 
@@ -1374,7 +1430,8 @@ class ChangeRequestService extends cds.ApplicationService {
         // Same reasoning as resubmitRequest: a fresh approval cycle, rebuilt from this completed
         // review's own context, counter reset.
         requiredApprovals: context.approvers.length,
-        approvalsReceived: 0
+        approvalsReceived: 0,
+        approverSequenceJson: JSON.stringify(context.approvers)
       }).where({ ID: changeRequestId }));
       await appendComment(db, changeRequestId, 'DataSteward', requestingUserEmail(req), req.data.Reason);
 
@@ -1833,7 +1890,9 @@ ChangeRequestService._internals = {
   stagedFinding,
   resolveRelationNumber,
   RELATION_NAVIGATION,
-  RELATION_FIELDS
+  RELATION_FIELDS,
+  resolveEffectiveRole,
+  currentStepAssignee
 };
 
 module.exports = ChangeRequestService;

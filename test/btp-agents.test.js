@@ -227,6 +227,42 @@ test('specificRoleFor matches a category anywhere in the name, not only as a pre
   }));
 });
 
+// --- isMemberOfRole -------------------------------------------------------------------------
+
+/**
+ * The exact-membership check `resolveEffectiveRole` uses once it already knows WHICH role should
+ * apply - a request's own stored approver sequence - rather than searching for "the one that looks
+ * like the category" the way specificRoleFor does. Answers a question specificRoleFor cannot: a
+ * user holding BOTH "Approver Sales" and "Approver Finance" is ambiguous to specificRoleFor, but
+ * isMemberOfRole('...', 'Approver Sales') is a plain yes/no.
+ */
+test('isMemberOfRole confirms exact membership, including for a user holding several matching roles', () => {
+  return withVcap({ xsuaa: [{ name: btpAgents.SERVICE_NAME, credentials: CREDENTIALS }] }, () => withAxios({
+    post: async () => ({ data: { access_token: 'tok', expires_in: 3600 } }),
+    get: async (url) => {
+      if (url.endsWith('/Users')) {
+        return {
+          data: [{
+            userName: 'maarten', emails: [{ value: 'maarten@alluvion.eu' }],
+            groups: [
+              { value: 'Approver Sales', display: 'Approver Sales' },
+              { value: 'Approver Finance', display: 'Approver Finance' }
+            ]
+          }]
+        };
+      }
+      return { data: [] };
+    }
+  }, async () => {
+    assert.equal(await btpAgents.isMemberOfRole('maarten@alluvion.eu', 'Approver Sales'), true);
+    assert.equal(await btpAgents.isMemberOfRole('maarten@alluvion.eu', 'Approver Finance'), true);
+    assert.equal(await btpAgents.isMemberOfRole('maarten@alluvion.eu', 'Approver Vendor'), false);
+    assert.equal(await btpAgents.isMemberOfRole('nobody@alluvion.eu', 'Approver Sales'), false);
+    assert.equal(await btpAgents.isMemberOfRole('', 'Approver Sales'), false);
+    assert.equal(await btpAgents.isMemberOfRole('maarten@alluvion.eu', ''), false);
+  }));
+});
+
 test('specificRoleFor is null when nothing matches, when several do, or when the user is unknown', () => {
   return withVcap({ xsuaa: [{ name: btpAgents.SERVICE_NAME, credentials: CREDENTIALS }] }, () => withAxios({
     post: async () => ({ data: { access_token: 'tok', expires_in: 3600 } }),

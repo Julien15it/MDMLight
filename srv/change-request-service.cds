@@ -113,6 +113,10 @@ service ChangeRequestService @(path: '/service/changerequest') {
    * the requester's own context, so a client naming a different role cannot submit past it.
    */
   function effectiveFieldProperties(
+    /** Empty for a create draft, which has no change request yet. When present, resolveEffectiveRole
+     *  tries this request's own stored approver sequence FIRST, so a user holding several
+     *  approver-shaped roles is disambiguated by "is it their turn on THIS request", not a guess. */
+    ChangeRequest : UUID,
     /** The request type being maintained. Null matches only the `*` profiles. */
     RequestType : String(10),
     /** Requester, Approver or DataSteward. Null matches only the `*` profiles. */

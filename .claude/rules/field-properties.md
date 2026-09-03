@@ -77,6 +77,25 @@ A profile's role is one of `*`, `Requester` (the only two non-role-collection co
   Vendor` (hides Customers) both matched every approve screen and the join landed on "visible for both,
   for everyone". **Ambiguous resolves to null, not a guess**, falling back to the bare category.
   Best-effort. **Only the rendering path** — enforcement still runs on `requesterContext(req)`.
+- **`specificRoleFor` matches the category `includes`, not `startsWith` (fixed 2026-09-02, reported
+  live: field property profiles never applied to ANY approver).** This app's own role collections put
+  the function BEFORE the category (`MDMLIGHT_Sales_Approver` — see the `workflowAgents` test fixture),
+  so a prefix check never matched a real one: every user resolved to null, every render fell back to
+  the bare `Approver` category, and a profile scoped to that same collection's own name could never
+  match it back either. `includes` is a strict superset of the old behaviour.
+- **Disambiguating a user with SEVERAL approver-shaped roles (2026-09-02, asked for): "is it this
+  request's turn for this user", not "which of their roles looks closest".** `specificRoleFor` returns
+  null on purpose when a user holds more than one role matching the category — it cannot guess between
+  "Approver Sales" and "Approver Finance". `resolveEffectiveRole(req, role, header)` now tries
+  `currentStepAssignee(header)` FIRST: `ChangeRequests.approverSequenceJson` (the same ordered
+  `approvers` array BPA got at submit — see "Several approvers, sequentially" in `workflow.md`) indexed
+  by `approvalsReceived`, the same index BPA's own routing script advances. If that entry names THIS
+  user (an exact email match, or `isMemberOfRole` for a role entry — a plain yes/no BTP membership
+  check, unlike `specificRoleFor`'s "find the one" search), it wins outright; otherwise this falls
+  through to the role-only resolution above, unchanged. `effectiveFieldProperties` and
+  `runRequestChecks` both now read the header first (`ChangeRequest` was added as a parameter to the
+  former for this) and pass it through. No header (a create draft) or no stored sequence (a request
+  predating the column) skips straight to the old resolution.
 
 ## Critical entities
 

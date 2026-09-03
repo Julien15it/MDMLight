@@ -14,7 +14,9 @@ const {
   SUPPORTED_REQUEST_TYPES,
   FINDING_COLUMNS,
   stagedFinding,
-  resolveRelationNumber
+  resolveRelationNumber,
+  resolveEffectiveRole,
+  currentStepAssignee
 } = ChangeRequestService._internals;
 
 /** Fakes `db.run` against the staging tables, keyed by their bare entity name. */
@@ -214,4 +216,76 @@ test('only real CheckFindings columns are staged', () => {
 test('only current findings are exposed, and a row with no value counts as current', () => {
   const cds = fs.readFileSync(path.join(__dirname, '..', 'srv', 'change-request-service.cds'), 'utf8');
   assert.match(cds, /where isStale is null or isStale = false/u);
+});
+
+// --- Disambiguating which of a user's several approver-shaped roles applies (2026-09-02) ---------
+
+test('currentStepAssignee indexes the stored sequence by approvalsReceived', () => {
+  assert.equal(
+    currentStepAssignee({
+      approverSequenceJson: JSON.stringify(['Approver Sales', 'Approver Finance']),
+      approvalsReceived: 0
+    }),
+    'Approver Sales'
+  );
+  assert.equal(
+    currentStepAssignee({
+      approverSequenceJson: JSON.stringify(['Approver Sales', 'Approver Finance']),
+      approvalsReceived: 1
+    }),
+    'Approver Finance'
+  );
+  // Missing approvalsReceived reads as 0, the same default decideRequest itself uses.
+  assert.equal(
+    currentStepAssignee({ approverSequenceJson: JSON.stringify(['Approver Sales']) }),
+    'Approver Sales'
+  );
+});
+
+test('currentStepAssignee answers null rather than throwing on anything it cannot use', () => {
+  assert.equal(currentStepAssignee(null), null);
+  assert.equal(currentStepAssignee({}), null);
+  assert.equal(currentStepAssignee({ approverSequenceJson: 'not json' }), null);
+  assert.equal(currentStepAssignee({ approverSequenceJson: JSON.stringify({ not: 'an array' }) }), null);
+  // Past the end of the sequence - should not happen (decideRequest never lets approvalsReceived
+  // exceed requiredApprovals), but a request from before either column existed could disagree.
+  assert.equal(
+    currentStepAssignee({ approverSequenceJson: JSON.stringify(['Approver Sales']), approvalsReceived: 5 }),
+    null
+  );
+});
+
+/**
+ * "Stel een user heeft 2 rollen, dat is er altijd 1 overheersende rol... is er een manier dat jij dit
+ * kan onthouden in welke stap de user zit?" (2026-09-02, asked for). A user holding two approver-
+ * shaped roles cannot be disambiguated by `specificRoleFor` alone (it returns null on purpose rather
+ * than guess) - resolveEffectiveRole now asks "is it THIS user's turn on THIS request" first, using
+ * the request's own stored approver sequence. The user-branch (an `@` entry) needs no BTP call at
+ * all, so it is fully testable without mocking btp-agents.
+ */
+test('resolveEffectiveRole picks the current step\'s assignee when it names this exact user', async () => {
+  const req = { user: { attr: { email: 'maarten@alluvion.eu' } }, data: {} };
+  const header = {
+    approverSequenceJson: JSON.stringify(['maarten@alluvion.eu', 'julien@alluvion.eu']),
+    approvalsReceived: 0
+  };
+  assert.equal(await resolveEffectiveRole(req, 'Approver', header), 'maarten@alluvion.eu');
+});
+
+test('resolveEffectiveRole ignores a step assignee that is not the current user', async () => {
+  // No BTP binding in this test environment, so the role-branch (isMemberOfRole) resolves false and
+  // the email-branch is a plain string mismatch either way - both fall through to specificRoleFor,
+  // which itself falls back to the bare category with no BTP service bound.
+  const req = { user: { attr: { email: 'someone-else@alluvion.eu' } }, data: {} };
+  const header = {
+    approverSequenceJson: JSON.stringify(['maarten@alluvion.eu']),
+    approvalsReceived: 0
+  };
+  assert.equal(await resolveEffectiveRole(req, 'Approver', header), 'Approver');
+});
+
+test('resolveEffectiveRole with no header falls back to the role-only resolution, unchanged', async () => {
+  const req = { user: { attr: { email: 'maarten@alluvion.eu' } }, data: {} };
+  assert.equal(await resolveEffectiveRole(req, 'Approver', null), 'Approver');
+  assert.equal(await resolveEffectiveRole(req, 'Requester', null), 'Requester');
 });

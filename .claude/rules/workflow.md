@@ -97,6 +97,9 @@ array once at submit. **What decides whether an approve actually posts to S/4 li
   `resubmitRequest`, and `decideDataStewardReview`'s `complete` branch — a fresh cycle always gets a
   freshly counted total, because a reworked payload can change WHO matches a rule. Null on an older
   request reads as 1.
+- **`approverSequenceJson` (same three call sites) is a second, later use of the same `context.approvers`
+  array** — a user holding several approver-shaped roles is disambiguated by it too; see
+  "Disambiguating a user with SEVERAL approver-shaped roles" in `field-properties.md`.
 - **`decideRequest`'s approve branch increments and persists `approvalsReceived` on every single call**,
   before anything else — `appendComment` runs for every approval, so the thread shows who decided at each
   step. Only once `approvalsReceived >= requiredApprovals` does the post path run. Every earlier

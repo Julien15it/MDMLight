@@ -67,6 +67,17 @@ entity ChangeRequests : cuid, managed {
   requiredApprovals : Integer;
   approvalsReceived : Integer default 0;
 
+  /** The ordered `approvers` array `workflowContext` sent BPA for this cycle - `["Approver Sales",
+   *  "Approver Finance", ...]`, one entry per level, the SAME array and the SAME order BPA's own
+   *  routing script indexes with its `currentlevelapprovers` counter. Persisted (2026-09-02) so
+   *  `resolveEffectiveRole` can ask "who is assigned to THIS request's CURRENT step" - JSON-parsed
+   *  and indexed by `approvalsReceived` - instead of only "which of this user's own roles looks like
+   *  an Approver", which cannot tell two of a user's own approver-shaped roles apart. Set together
+   *  with `requiredApprovals`/`approvalsReceived`, at the same three call sites. Null on a request
+   *  that predates this column, or has no approvers resolved for it - both read as "nothing to
+   *  disambiguate with", falling back to the older, role-only resolution. */
+  approverSequenceJson : LargeString;
+
   /** ETag as read when the request was raised, re-compared before posting so a concurrent change
    *  is detected rather than overwritten. */
   sourceETag        : String(60);

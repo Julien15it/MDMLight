@@ -308,7 +308,7 @@ test('effectiveFieldProperties narrows Approver/DataSteward to the caller\'s own
 
   const handler = serviceJs.slice(serviceJs.indexOf("this.on('effectiveFieldProperties'"));
   const handlerBody = handler.slice(0, handler.indexOf('\n    });'));
-  assert.match(handlerBody, /resolveEffectiveRole\(req, req\.data\.Role \|\| null\)/u);
+  assert.match(handlerBody, /resolveEffectiveRole\(req, req\.data\.Role \|\| null, stepHeader\)/u);
 });
 
 test('the property validations run alongside the configured ones, on every gate', () => {
@@ -331,7 +331,7 @@ test('the screen loads the profiles before it renders, for the role it is showin
   assert.match(controller, /_loadFieldProperties\(state\.requestType \|\| "change", "Requester"\)/u);
   assert.match(
     controller,
-    /_loadFieldProperties\(\s*state\.requestType, mode === "approve" \? "Approver" : \(reviewing \? "DataSteward" : "Requester"\)\s*\)/u
+    /_loadFieldProperties\(\s*state\.requestType, mode === "approve" \? "Approver" : \(reviewing \? "DataSteward" : "Requester"\),\s*state\.changeRequest\s*\)/u
   );
   // Rendering is synchronous, so a field the profiles hide must never be painted and taken away.
   const create = controller.slice(controller.indexOf('_onCreateRoute:'));
@@ -432,7 +432,7 @@ test('runRequestChecks resolves the screen\'s own role into a fieldEditable pred
     serviceJs.indexOf("this.on('effectiveFieldProperties'")
   );
   assert.match(runner, /fieldState/u);
-  assert.match(runner, /resolveEffectiveRole\(req, req\.data\.Role \|\| null\)/u);
+  assert.match(runner, /resolveEffectiveRole\(req, req\.data\.Role \|\| null, stepHeader\)/u);
   assert.match(
     runner,
     /resolvedProperties\(\{\s*requestType: req\.data\.RequestType \|\| null,\s*role: renderRole\s*\}\)/u

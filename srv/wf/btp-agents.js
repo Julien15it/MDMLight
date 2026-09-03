@@ -192,6 +192,31 @@ async function specificRoleFor(email, category) {
   }
 }
 
+/**
+ * Whether this user is a member of EXACTLY this role collection - the disambiguation `specificRoleFor`
+ * cannot do on its own once a user holds several roles that all match a category (it returns null on
+ * purpose rather than guess between them). Used only when the caller already knows WHICH collection
+ * should apply - the one `resolveEffectiveRole` reads off a change request's own stored `approvers`
+ * sequence for its current step, in `srv/change-request-service.js` - and just needs to confirm this
+ * specific user actually holds it. Best-effort like every other read here: an unreachable subaccount
+ * API resolves to false, never a broken render.
+ */
+async function isMemberOfRole(email, roleName) {
+  if (!email || !roleName) return false;
+  try {
+    const data = await callApi('/Users');
+    const users = Array.isArray(data) ? data : (data.resources || data.Resources || data.value || []);
+    const user = users.find((candidate) => (
+      (candidate.emails || []).some((entry) => entry.value === email) || candidate.userName === email
+    ));
+    if (!user) return false;
+    return (user.groups || []).some((group) => (group.value || group.display) === roleName);
+  } catch (error) {
+    console.warn('[workflow-agents] Could not confirm role membership for', email, ':', error.message);
+    return false;
+  }
+}
+
 async function load() {
   const [roles, users] = await Promise.all([
     fetchRoleCollections().catch((error) => {
@@ -245,6 +270,7 @@ module.exports = {
   workflowAgents,
   emailsForRoleCollections,
   specificRoleFor,
+  isMemberOfRole,
   reset,
   // Shared with data-stewards.js, which reads the same Authorization Management API through the same
   // token cache - a second module fetching its own token would be a second, redundant call to the

@@ -1019,10 +1019,11 @@ sap.ui.define([
        * mandatory half is enforced server-side on submit regardless, so a screen that quietly lost
        * its profiles cannot submit past one.
        */
-      _loadFieldProperties: async function (requestType, role) {
+      _loadFieldProperties: async function (requestType, role, changeRequest) {
         this._fieldProperties = { entities: {}, fields: {}, criticalEntities: [] };
         try {
           var result = await this._executeAction("effectiveFieldProperties", {
+            ChangeRequest: changeRequest || null,
             RequestType: requestType || null,
             Role: role || null
           }, "cr");
@@ -3439,7 +3440,8 @@ sap.ui.define([
           // approve view too: once approvals are split by function, a sales approver has no business
           // reading the bank details.
           await this._loadFieldProperties(
-            state.requestType, mode === "approve" ? "Approver" : (reviewing ? "DataSteward" : "Requester")
+            state.requestType, mode === "approve" ? "Approver" : (reviewing ? "DataSteward" : "Requester"),
+            state.changeRequest
           );
           state.businessPartner = (payload && payload.BusinessPartner) || "";
           // What to compare against for the "what changed" panel and the field/row colouring - see
