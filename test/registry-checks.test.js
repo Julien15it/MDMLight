@@ -241,13 +241,17 @@ test('a registry derivation is labelled by its source, in three words or fewer',
 const valid = (name) => ({ status: 'valid', countryCode: 'BE', vatNumber: '0123', name });
 
 test('a name VIES disagrees with is proposed over the typed one', () => {
+  // A trading name against the registered legal one - the case the mismatch warning exists for.
+  // Note "Aluvion" vs "ALLUVION NV" would NOT qualify: it fingerprints to ~0.92, at ACCEPT_SCORE,
+  // so the register is taken to agree and neither the warning nor this proposal fires.
   const entries = nameDerivations(
-    [valid('ALLUVION NV')], { BusinessPartnerCategory: '2', OrganizationBPName1: 'Aluvion' }
+    [valid('VANDENBERGHE HOLDING NV')],
+    { BusinessPartnerCategory: '2', OrganizationBPName1: 'Acme Trading' }
   );
   assert.equal(entries.length, 1);
   assert.equal(entries[0].target, 'root');
   assert.equal(entries[0].field, 'OrganizationBPName1');
-  assert.equal(entries[0].value, 'ALLUVION NV');
+  assert.equal(entries[0].value, 'VANDENBERGHE HOLDING NV');
   assert.equal(entries[0].label, 'VIES check');
   assert.match(entries[0].message, /unticking/u, 'keeping what was typed has to be sayable');
 });
@@ -307,16 +311,16 @@ test('a filled address field the register disagrees with is proposed over', () =
 test('the VIES name reaches the requester as a proposal over what was typed', async () => {
   const registry = stages({
     ...empty,
-    facts: { vies: [valid('ALLUVION NV')], gleif: [] }
+    facts: { vies: [valid('VANDENBERGHE HOLDING NV')], gleif: [] }
   });
   const result = await runChecks(
-    payload({ BusinessPartnerCategory: '2', OrganizationBPName1: 'Aluvion' }),
+    payload({ BusinessPartnerCategory: '2', OrganizationBPName1: 'Acme Trading' }),
     { validations: registry.validations, derivations: registry.derivations, checkDuplicates: async () => [] }
   );
   const [name] = result.derivations.filter((entry) => entry.field === 'OrganizationBPName1');
   assert.ok(name, 'the name is offered, not only warned about');
   assert.equal(name.overwrites, true);
-  assert.equal(name.current, 'Aluvion');
-  assert.equal(name.value, 'ALLUVION NV');
+  assert.equal(name.current, 'Acme Trading');
+  assert.equal(name.value, 'VANDENBERGHE HOLDING NV');
   assert.equal(name.label, 'VIES check');
 });

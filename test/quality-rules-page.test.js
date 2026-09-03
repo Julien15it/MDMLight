@@ -433,10 +433,12 @@ test('_draftRules survives a context the model has not delivered yet', () => {
   }
 });
 
-// No table yet is not a crash either - it is simply no drafts.
+// No table yet is not a crash either - it is simply no drafts. Length, not deepEqual: the controller
+// is loaded in its own vm realm, so the array it returns has a different Array.prototype and
+// deepStrictEqual refuses it. Same trap as test/xlsx-codec.test.js - see rule-tiles.md.
 test('_draftRules answers an empty list before the table exists', () => {
   const members = loadController('DerivationRuleList', STUB_XLSX_CODEC);
-  assert.deepEqual(members._draftRules.call({ _table: () => null }), []);
+  assert.equal(members._draftRules.call({ _table: () => null }).length, 0);
 });
 
 // The duplicate and workflow pages carry their own copy of the same function, and went down with
