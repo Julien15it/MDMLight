@@ -1469,26 +1469,15 @@ class ChangeRequestService extends cds.ApplicationService {
 
       const sections = {};
       const deleted = {};
-      // Instrumentation, deliberately left in: this loop is 31 sequential SELECTs - one per staged
-      // node - and it runs on every screen open. Whether that is worth restructuring depends on
-      // what a round trip to the BTP Postgres actually costs, and guessing at it is how the wrong
-      // half gets optimised. `[staging] payload read` reports the total and the slowest section, so
-      // one line of `cf logs` answers it. Flat milliseconds x31 means round-trip latency (the case
-      // for reading the sections in one composition expand); one slow section means a missing index
-      // on `request_ID`, which is a much smaller fix. Drop this once the question is settled.
-      const readStarted = Date.now();
-      let slowestSection = null;
-      let slowestMs = -1;
+      // 31 sequential SELECTs, one per staged node, on every screen open - and MEASURED, not
+      // guessed: 25-28ms for the whole loop, no section above 2ms (2026-09-03, on the dev BTP
+      // Postgres with real requests). That is round-trip latency spread evenly, not a missing
+      // index, and it is too little of it to be worth reading the sections in one composition
+      // expand. Leave the loop alone unless a section count or a row count changes the shape.
       for (const [section, config] of Object.entries(NODES)) {
-        const sectionStarted = Date.now();
         const rows = await db.run(
           cds.ql.SELECT.from(config.entity).where({ request_ID: changeRequest })
         );
-        const sectionMs = Date.now() - sectionStarted;
-        if (sectionMs > slowestMs) {
-          slowestMs = sectionMs;
-          slowestSection = section;
-        }
         const clean = rows.map((row) => {
           const { ID, request_ID, action, ...rest } = row;
           // The stored action comes back as the screen's own `__state`, or a resubmit would stage
@@ -1504,8 +1493,6 @@ class ChangeRequestService extends cds.ApplicationService {
           sections[section] = clean[0] || null;
         }
       }
-      console.log(`[staging] payload read: ${Object.keys(NODES).length} sections in `
-        + `${Date.now() - readStarted}ms, slowest ${slowestSection} at ${slowestMs}ms`);
 
       const { ID, request_ID, ...root } = general || {};
 

@@ -107,17 +107,23 @@ mode branches, since every branch assigns `state.messages`.
 `srv/request-processors.js` (a "who has it now" sentence, `ProcessorsJson`) is **on the server and no
 longer rendered** — kept to build a different surface on.
 
-## The 31-section read, and the log that will decide what to do about it
+## The 31-section read: measured, and left alone
 
 `getRequestPayload`, `loadStagedPayload`, `recordDuplicateFindings`, `withdrawRequest`, `postToS4` and
 `writeStagedNodes` each walk all 31 `NODES` one query at a time — `writeStagedNodes` worst at a DELETE
-plus an INSERT per section. `getRequestPayload` logs `[staging] payload read: N sections in Xms,
-slowest <section> at Yms` on every screen open, deliberately, because the fix depends on the answer:
-**flat milliseconds ×31 is round-trip latency** (read the sections in one composition expand —
-`@cap-js/postgres` resolves those with JSON aggregation in a single statement), **one slow section is a
-missing index on `request_ID`**. Do not reach for `Promise.all` first: inside a request handler these
-share the request's transaction, so they queue on one connection and concurrency may buy nothing.
-Drop the log once the question is settled.
+plus an INSERT per section.
+
+**It was instrumented and it is not worth restructuring.** `getRequestPayload` logged its own timings on
+every screen open for one afternoon (2026-09-03): **25–28ms for all 31 sections, no section above 2ms**,
+on the dev BTP Postgres with real staged requests. Evenly spread, so round-trip latency — but ~0.8ms of
+it per section, far too little to pay for reading the sections in one composition expand
+(`@cap-js/postgres` resolves those with JSON aggregation in a single statement) and nowhere near the
+single slow section that would have meant a missing index on `request_ID`. The log is gone; the numbers
+are in the code comment so nobody re-derives them.
+
+**Do not reach for `Promise.all` here.** Inside a request handler these share the request's transaction,
+so they queue on one connection and concurrency buys nothing. Re-measure rather than assume if the
+section count or the rows per request change shape.
 
 ## Security gaps, known and open
 
