@@ -148,12 +148,22 @@ async function emailsForRoleCollections(collectionNames) {
 }
 
 /**
- * The one of THIS user's own role collections (their own `/Users` `groups`) that starts with the
- * given category, case-insensitively - "Approver Customer" for a user carrying that collection, when
+ * The one of THIS user's own role collections (their own `/Users` `groups`) that CONTAINS the given
+ * category, case-insensitively - "Approver Customer" for a user carrying that collection, when
  * `category` is "Approver". This is what lets two Field Property Profiles scoped to different
  * approver functions ("Approver Customer" vs. "Approver Vendor") actually apply to different people,
  * instead of both always matching the one generic "Approver" every approve screen used to ask for -
  * see `effectiveFieldProperties` in change-request-service.js and CLAUDE.md "Field property profiles".
+ *
+ * `includes`, not `startsWith` (fixed 2026-09-02, reported live: field property profiles never
+ * applied to any approver). The naming convention this app's own role collections actually follow
+ * puts the function BEFORE the category - the `workflowAgents` test fixture right above this one
+ * uses `MDMLIGHT_Sales_Approver` - so a prefix check never matched a real collection: every user
+ * resolved to null, every render fell back to the bare `Approver` category, and a profile scoped to
+ * that same collection's own name (picked from the same list `fetchRoleCollections` offers) could
+ * never match it back. `includes` covers both orderings without needing to know which one a given
+ * tenant chose, and is a strict superset of the old `startsWith` behaviour - "Approver Customer"
+ * still matches "Approver" exactly as it always did.
  *
  * Null - the caller's cue to fall back to the bare category - when nothing matches, or when MORE than
  * one does: several overlapping roles is a case this cannot resolve without guessing, and showing the
@@ -173,7 +183,7 @@ async function specificRoleFor(email, category) {
     const matches = [...new Set(
       (user.groups || [])
         .map((group) => group.value || group.display)
-        .filter((name) => typeof name === 'string' && name.toLowerCase().startsWith(category.toLowerCase()))
+        .filter((name) => typeof name === 'string' && name.toLowerCase().includes(category.toLowerCase()))
     )];
     return matches.length === 1 ? matches[0] : null;
   } catch (error) {

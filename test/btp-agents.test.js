@@ -201,6 +201,32 @@ test('specificRoleFor finds the one of a user\'s own groups matching the categor
   }));
 });
 
+// Reported live (2026-09-02): field property profiles never applied to any approver. The reason
+// was startsWith rather than includes - the workflowAgents fixture right above this one already
+// uses `MDMLIGHT_Sales_Approver`, a real-shaped name with the category LAST, which a prefix check
+// could never match. This pins that specific shape resolves correctly now.
+test('specificRoleFor matches a category anywhere in the name, not only as a prefix', () => {
+  return withVcap({ xsuaa: [{ name: btpAgents.SERVICE_NAME, credentials: CREDENTIALS }] }, () => withAxios({
+    post: async () => ({ data: { access_token: 'tok', expires_in: 3600 } }),
+    get: async (url) => {
+      if (url.endsWith('/Users')) {
+        return {
+          data: [{
+            userName: 'maarten', emails: [{ value: 'maarten@alluvion.eu' }],
+            groups: [
+              { value: 'MDMLIGHT_Sales_Approver', display: 'MDMLIGHT Sales Approver' },
+              { value: 'Alluvion_Developer', display: 'Alluvion_Developer' }
+            ]
+          }]
+        };
+      }
+      return { data: [] };
+    }
+  }, async () => {
+    assert.equal(await btpAgents.specificRoleFor('maarten@alluvion.eu', 'Approver'), 'MDMLIGHT_Sales_Approver');
+  }));
+});
+
 test('specificRoleFor is null when nothing matches, when several do, or when the user is unknown', () => {
   return withVcap({ xsuaa: [{ name: btpAgents.SERVICE_NAME, credentials: CREDENTIALS }] }, () => withAxios({
     post: async () => ({ data: { access_token: 'tok', expires_in: 3600 } }),
