@@ -409,3 +409,42 @@ test('the comparator is a new column on both rule schemas, defaulting to equalit
     }
   }
 });
+
+
+/**
+ * The crash that took every rule tile down (2026-09-03): "The rule options could not be loaded:
+ * Cannot read properties of undefined (reading 'getObject')". Every options function answered 200 -
+ * the failure was `_loadOptions` calling `_syncConditionColumns` -> `_draftRules` while the row
+ * $batch was still in flight, and `getCurrentContexts()` holding UNDEFINED for a row the model had
+ * not delivered yet. Field Properties was the one tile that worked, because it draws no condition
+ * columns and so never calls this.
+ */
+test('_draftRules survives a context the model has not delivered yet', () => {
+  for (const name of ['ValidationRuleList', 'DerivationRuleList']) {
+    const members = loadController(name, STUB_XLSX_CODEC);
+    const binding = {
+      // An unloaded row is `undefined`; a context whose data has not arrived answers `undefined`
+      // from getObject(). The first threw, the second produced a phantom blank draft.
+      getCurrentContexts: () => [undefined, mockContext({ field: 'General.Language' }), mockContext(undefined)]
+    };
+    const rules = members._draftRules.call({ _table: () => ({ getBinding: () => binding }) });
+    assert.equal(rules.length, 1, `${name}: only the row that actually arrived`);
+    assert.equal(rules[0].field, 'General.Language', name);
+  }
+});
+
+// No table yet is not a crash either - it is simply no drafts.
+test('_draftRules answers an empty list before the table exists', () => {
+  const members = loadController('DerivationRuleList', STUB_XLSX_CODEC);
+  assert.deepEqual(members._draftRules.call({ _table: () => null }), []);
+});
+
+// The duplicate and workflow pages carry their own copy of the same function, and went down with
+// the same error. Checked as text because those two have no shared loader to call it through.
+test('all four rule pages guard the same way', () => {
+  for (const name of ['ValidationRuleList', 'DerivationRuleList', 'DuplicateRuleList', 'WorkflowRuleList']) {
+    const source = controller(name);
+    assert.match(source, /return context && context\.getObject\(\);/u, name);
+    assert.match(source, /\}\)\.filter\(Boolean\)\.map\(function \(data\) \{/u, name);
+  }
+});

@@ -607,10 +607,17 @@ sap.ui.define([
     },
 
     _draftRules: function () {
-      var binding = this._table().getBinding("items");
+      var binding = this._table() && this._table().getBinding("items");
       if (!binding) return [];
-      return binding.getCurrentContexts().map(function (context) {
-        var row = Object.assign({}, context.getObject());
+      // `getCurrentContexts()` may hold UNDEFINED entries for rows the model has not delivered yet:
+      // `_loadOptions` runs its `_syncConditionColumns` while the row $batch is still in flight, and
+      // reading `.getObject()` off one of those threw "Cannot read properties of undefined" - the
+      // error that took every rule tile down (2026-09-03). `_rowsUsingSlot` already guarded this
+      // way; a row that has not arrived is not a draft, and the next call sees it.
+      return (binding.getCurrentContexts() || []).map(function (context) {
+        return context && context.getObject();
+      }).filter(Boolean).map(function (data) {
+        var row = Object.assign({}, data);
         delete row["@odata.etag"];
         return row;
       });
