@@ -171,6 +171,65 @@ const RELATION_NAVIGATION = Object.freeze({
   Supplier: { navigation: 'to_Supplier', keyField: 'Supplier' }
 });
 
+/**
+ * Sections whose rows **S/4 creates for itself** before this ever posts them.
+ *
+ * A customer sales area runs its partner determination procedure on creation, so SP/BP/PY/SH exist
+ * the moment the sales area does - and `derivation-checks.js` proposes exactly those, from the same
+ * `TKUPA`/`TPAER` the procedure reads. Posting them afterwards is S/4 being handed a row it already
+ * made: `Customer 295: Partner role SP already exists (only provided once)`, and the whole request
+ * to rework over it (reported live 2026-09-03). Same shape on the supplier side via `T077K`.
+ *
+ * So these are matched against what is really there and posted as UPDATES where S/4 got there
+ * first. The natural key is `matchOn`; `assignedKey` is the part of the real key S/4 owns and only
+ * a read can supply - which is why an update is impossible without one (`PartnerCounter` is
+ * deliberately not staged, see MAINTENANCE_ENTITIES in business-partner-service.js).
+ */
+const SELF_DETERMINED_NODES = Object.freeze({
+  CustomerSalesPartnerFunctions: Object.freeze({
+    remote: 'API_BUSINESS_PARTNER.A_CustSalesPartnerFunc',
+    filterField: 'Customer',
+    matchOn: ['SalesOrganization', 'DistributionChannel', 'Division', 'PartnerFunction'],
+    assignedKey: 'PartnerCounter'
+  }),
+  SupplierPartnerFunctions: Object.freeze({
+    remote: 'API_BUSINESS_PARTNER.A_SupplierPartnerFunc',
+    filterField: 'Supplier',
+    matchOn: ['PurchasingOrganization', 'PartnerFunction'],
+    assignedKey: 'PartnerCounter'
+  })
+});
+
+const sameKeyValue = (left, right) => String(left ?? '').trim() === String(right ?? '').trim();
+
+/** The row S/4 already holds for this staged one, or null. Matched on the natural key only. */
+function matchDeterminedRow(rows, config, data) {
+  if (!Array.isArray(rows)) return null;
+  return rows.find(
+    (row) => config.matchOn.every((field) => sameKeyValue(row[field], data[field]))
+  ) || null;
+}
+
+/**
+ * What S/4 holds for one self-determined section, read once per post. **Null means "could not
+ * ask"**, not "nothing there" - the caller falls back to the create it would have done anyway, so
+ * an unreadable S/4 leaves today's behaviour rather than inventing an update with no key.
+ */
+async function determinedRowsFor(s4, config, relationValue) {
+  if (relationValue == null) return null;
+  try {
+    const rows = await s4.run(
+      cds.ql.SELECT.from(config.remote).where({ [config.filterField]: relationValue })
+    );
+    return Array.isArray(rows) ? rows : [];
+  } catch (error) {
+    console.warn(
+      `[post] Could not read the existing ${config.remote} rows of ${relationValue}:`, error.message
+    );
+    return null;
+  }
+}
+
 const isNotFound = (error) => [404, 400].includes(Number(error?.statusCode ?? error?.status ?? error?.code));
 
 /**
@@ -873,7 +932,9 @@ class ChangeRequestService extends cds.ApplicationService {
 
     // Both buttons, one pipeline: each runs only the stages its answer needs, and neither stages
     // anything. Derivations run for both — a rule needs them even when the screen never shows them.
-    const runRequestChecks = async (req, { propose, duplicates, scope = null, standard = false }) => {
+    const runRequestChecks = async (req, {
+      propose, duplicates, scope = null, standard = false, stewardStep: forceStewardStep = false
+    }) => {
       const data = parseJsonObject(req.data.DataJson, 'DataJson');
       // Created per request: the pair shares one VIES/GLEIF lookup between the validation and the
       // derivation, and must not carry it over to the next press of the button.
@@ -908,7 +969,12 @@ class ChangeRequestService extends cds.ApplicationService {
       const renderRole = await resolveEffectiveRole(req, req.data.Role || null, stepHeader);
       // The screen the button was pressed on, before that narrowing: the SAP standard checks run on
       // the data steward step alone, so a specific "DataSteward Customer" must gate them too.
-      const stewardStep = String(req.data.Role || '').startsWith(DATASTEWARD_ROLE);
+      //
+      // `forceStewardStep` is the SERVER saying so instead of the screen: decideDataStewardReview
+      // knows it is the data steward step from the request's own status, and a gate that asked the
+      // client whether to gate would be no gate at all. `req.data.Role` stays the trust level it
+      // always was - a rendering hint that can only ever ADD this cost to its own press.
+      const stewardStep = forceStewardStep || String(req.data.Role || '').startsWith(DATASTEWARD_ROLE);
       const renderResolved = await resolvedProperties({
         requestType: req.data.RequestType || null,
         role: renderRole
@@ -1453,6 +1519,34 @@ class ChangeRequestService extends cds.ApplicationService {
         };
       }
 
+      // S/4's own verdict is the other half of what this step is for, and an ERROR from it must stop
+      // the request HERE rather than travel on to an approver (asked for 2026-09-03, after two live
+      // requests were approved and then refused at the post: a partner role that already existed,
+      // and a missing standard address). The screen's `_standardBlocks` is the courtesy version of
+      // this; a direct service call walks straight past it, which is why the gate is here too.
+      //
+      // Through `runRequestChecks`, not `createBpCheckStage` directly, because the standard checks
+      // must see `systemDerived` - typed values plus the `cvi_account_group` system derivation that
+      // CREATES the Customers/Suppliers node. Handed the raw staged payload they would send no
+      // relation node at all and the customer and vendor tiers would silently examine nothing,
+      // which is the one answer this whole step exists to avoid. `stewardStep: true` because the
+      // server knows what step this is from the request's own status.
+      const stewardCheck = await runRequestChecks(req, {
+        propose: false, duplicates: false, standard: true, stewardStep: true
+      });
+      const blockingStandard = (stewardCheck.standard || [])
+        .filter((finding) => finding.severity === BLOCKING);
+      if (blockingStandard.length) {
+        return {
+          ChangeRequest: changeRequestId,
+          Status: 'checkAndEnrich',
+          NeedsConfirmation: false,
+          Valid: false,
+          ValidationsJson: JSON.stringify([...validations, ...blockingStandard]),
+          MessagesJson: JSON.stringify([])
+        };
+      }
+
       await recordValidationFindings(changeRequestId, validations);
 
       const findings = await recordDuplicateFindings(changeRequestId, req.data.BusinessPartner);
@@ -1610,6 +1704,9 @@ class ChangeRequestService extends cds.ApplicationService {
 
       // Lazily, once per relation field: an earlier node in this run may have just created the record.
       const resolvedRelations = {};
+      // Lazily, once per self-determined section: what S/4's own determination procedure already
+      // put there. See SELF_DETERMINED_NODES.
+      const determinedRows = {};
       // Whether THIS run created the partner, captured before the loop shadows `isCreate`. It is
       // what decides whether waiting for a customer/vendor record can possibly help - see
       // awaitRelationNumber. A retry's partner has existed for minutes.
@@ -1665,12 +1762,29 @@ class ChangeRequestService extends cds.ApplicationService {
             continue;
           }
 
+          // The same question for a row S/4 determines itself: SP/BP/PY/SH exist as soon as the
+          // sales area does, so a staged 'C' is a create of something already there. Read once per
+          // section, matched on the natural key, and the counter S/4 assigned is merged in - an
+          // update cannot address the row without it.
+          const selfDetermined = SELF_DETERMINED_NODES[section];
+          let determined = null;
+          if (selfDetermined) {
+            if (!(section in determinedRows)) {
+              determinedRows[section] = await determinedRowsFor(s4, selfDetermined, relationValue);
+            }
+            determined = matchDeterminedRow(determinedRows[section], selfDetermined, data);
+            if (determined) data[selfDetermined.assignedKey] = determined[selfDetermined.assignedKey];
+          }
+
           // Whether the record is already there decides this for the role node, not what the
           // requester did on screen: with CVI configured, adding the role is what creates the
           // customer, so by the time this runs S/4 already has one and a POST would be refused.
           // Without CVI nothing else creates it, and the same line still posts. Every other node
-          // follows the staged action, which is the only thing that knows about it.
-          const isCreate = isRoleNode ? relationValue == null : action !== 'U';
+          // follows the staged action, which is the only thing that knows about it - unless S/4
+          // determined the row itself, which only a read can know and which outranks the action.
+          const isCreate = isRoleNode
+            ? relationValue == null
+            : (determined ? false : action !== 'U');
 
           await bp.send('saveBusinessPartnerEntity', {
             Entity: section,
@@ -1976,6 +2090,8 @@ ChangeRequestService._internals = {
   stagedFinding,
   resolveRelationNumber,
   awaitRelationNumber,
+  matchDeterminedRow,
+  SELF_DETERMINED_NODES,
   RELATION_WAIT_ATTEMPTS,
   RELATION_WAIT_MS,
   RELATION_NAVIGATION,

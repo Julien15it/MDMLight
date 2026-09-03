@@ -25,7 +25,7 @@ const postAndRecord = serviceJs.slice(
 );
 
 const {
-  awaitRelationNumber, RELATION_WAIT_ATTEMPTS
+  awaitRelationNumber, RELATION_WAIT_ATTEMPTS, matchDeterminedRow, SELF_DETERMINED_NODES
 } = require('../srv/change-request-service')._internals;
 
 /**
@@ -309,4 +309,60 @@ test('the task app branches on the same thing rather than assuming a failure mea
   assert.match(completeTask, /decision\.BusinessPartner\s*
 ?\s*\?\s*"Approved\. Business Partner "/u);
   assert.match(completeTask, /WAS created in S\/4HANA/u);
+});
+
+/**
+ * A customer sales area runs its partner determination procedure on creation, so SP/BP/PY/SH exist
+ * the moment the sales area does - and derivation-checks.js proposes exactly those, from the same
+ * TKUPA/TPAER the procedure reads. Posting them afterwards got `Customer 295: Partner role SP
+ * already exists (only provided once)` and sent the whole request to rework (reported 2026-09-03).
+ */
+test('a partner function S/4 determined for itself is matched on its natural key', () => {
+  const config = SELF_DETERMINED_NODES.CustomerSalesPartnerFunctions;
+  const existing = [
+    { SalesOrganization: '1710', DistributionChannel: '10', Division: '00', PartnerFunction: 'SP', PartnerCounter: '001' },
+    { SalesOrganization: '1710', DistributionChannel: '10', Division: '00', PartnerFunction: 'BP', PartnerCounter: '002' }
+  ];
+  const staged = { SalesOrganization: '1710', DistributionChannel: '10', Division: '00', PartnerFunction: 'SP' };
+  const found = matchDeterminedRow(existing, config, staged);
+  assert.strictEqual(found && found.PartnerCounter, '001', 'the counter only a read can supply');
+
+  // A different sales area is a different row, however well the function matches.
+  assert.strictEqual(
+    matchDeterminedRow(existing, config, { ...staged, Division: '01' }, config), null
+  );
+  assert.strictEqual(matchDeterminedRow(existing, config, { ...staged, PartnerFunction: 'SH' }), null);
+});
+
+// Null means "could not ask", and the caller must fall back to the create it would have done -
+// never to an update, which has no counter to address the row with.
+test('an unreadable existing set is not mistaken for an empty one', () => {
+  const config = SELF_DETERMINED_NODES.CustomerSalesPartnerFunctions;
+  assert.strictEqual(matchDeterminedRow(null, config, { PartnerFunction: 'SP' }), null);
+  assert.strictEqual(matchDeterminedRow(undefined, config, { PartnerFunction: 'SP' }), null);
+  assert.strictEqual(matchDeterminedRow([], config, { PartnerFunction: 'SP' }), null);
+});
+
+test('the post decides create-vs-update from what S/4 holds, not from the staged action', () => {
+  const postToS4 = serviceJs.slice(
+    serviceJs.indexOf('const postToS4 ='), serviceJs.indexOf('const postAndRecord =')
+  );
+  assert.match(postToS4, /const selfDetermined = SELF_DETERMINED_NODES\[section\];/u);
+  // The counter is merged into the row, or the update cannot address it.
+  assert.match(postToS4, /data\[selfDetermined\.assignedKey\] = determined\[selfDetermined\.assignedKey\]/u);
+  assert.match(postToS4, /determined \? false : action !== 'U'/u);
+  // Read once per section, not once per row.
+  assert.match(postToS4, /if \(!\(section in determinedRows\)\)/u);
+});
+
+// Both sides of the same customizing: TKUPA for the customer, T077K for the supplier.
+test('both partner-function sections are covered', () => {
+  assert.deepStrictEqual(
+    Object.keys(SELF_DETERMINED_NODES).sort(),
+    ['CustomerSalesPartnerFunctions', 'SupplierPartnerFunctions']
+  );
+  for (const config of Object.values(SELF_DETERMINED_NODES)) {
+    assert.equal(config.assignedKey, 'PartnerCounter');
+    assert.ok(config.matchOn.includes('PartnerFunction'));
+  }
 });

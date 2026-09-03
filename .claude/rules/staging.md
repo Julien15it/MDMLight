@@ -148,6 +148,14 @@ requester opened the rework screen, and **the business partner was already there
   *"Business Partner N WAS created … but the rest of the request could not be posted"*, and
   `BusinessPartner` survives on a **failed** decision so the client can tell the two apart. **Do not
   blank it out because the action failed** — that is the field the branch reads.
+- **Rows S/4 determines for itself are posted as UPDATES.** A customer sales area runs its partner
+  determination procedure on creation, so SP/BP/PY/SH exist the moment the sales area does — and
+  `derivation-checks.js` proposes exactly those, off the same `TKUPA`/`TPAER` the procedure reads.
+  Posting them after got `Partner role SP already exists (only provided once)` and cost a rework.
+  `SELF_DETERMINED_NODES` names the two sections (customer via `TKUPA`, supplier via `T077K`), the
+  natural key to match on, and `PartnerCounter` — the part of the real key **S/4 owns**, which is why
+  an update is impossible without reading it back. A read that FAILS returns null and the caller
+  falls back to the create it would have done: "could not ask" must not read as "nothing there".
 - **The status stays `reworkRequired` either way.** Something in the request did not land and a human
   has to finish it; the retry path is built for exactly that (`isCreate` flips to false once the
   number is known, and a created child row is flipped to `action: 'U'`).

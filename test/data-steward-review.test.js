@@ -191,3 +191,41 @@ test('workflowContext resolves data stewards for the processors strip only while
   assert.match(builder, /dataStewards = await dataStewardEmails\(\);/u);
   assert.match(builder, /currentProcessors\(header, approvers, dataStewards\)/u);
 });
+
+/**
+ * Asked for 2026-09-03, after two requests were approved and then refused at the post - a partner
+ * role that already existed, and a missing standard address. Both had been reported by S/4's own
+ * checks beforehand, as warnings a data steward could walk past. An ERROR now stops the completion
+ * rather than travelling on to an approver.
+ */
+test('an S/4 error blocks the data steward completing the review', () => {
+  const complete = serviceJs.slice(
+    serviceJs.indexOf("// decision === 'complete'"),
+    serviceJs.indexOf('const findings = await recordDuplicateFindings')
+  );
+  assert.match(complete, /standard: true, stewardStep: true/u);
+  assert.match(complete, /\.filter\(\(finding\) => finding\.severity === BLOCKING\)/u);
+  assert.match(complete, /if \(blockingStandard\.length\)/u);
+  // Refused, not recorded and passed on: the request stays where it is.
+  assert.match(complete, /Status: 'checkAndEnrich',\s*
+\s*NeedsConfirmation: false,\s*
+\s*Valid: false/u);
+});
+
+// The server decides it is the steward step from the request's own status. Asking the client would
+// be no gate at all - Role is a rendering hint that can only ever ADD this cost to its own press.
+test('the steward step is asserted by the server, not taken from the client Role', () => {
+  assert.match(serviceJs, /const stewardStep = forceStewardStep \|\| String\(req\.data\.Role \|\| ''\)/u);
+});
+
+// The standard checks must see systemDerived - typed values plus cvi_account_group, which is what
+// creates the Customers/Suppliers node. Handed the raw staged payload they send no relation node
+// and the customer and vendor tiers examine nothing at all.
+test('the gate runs through runRequestChecks, so the checks see systemDerived', () => {
+  const complete = serviceJs.slice(serviceJs.indexOf("// decision === 'complete'"));
+  assert.match(complete, /const stewardCheck = await runRequestChecks\(req, \{/u);
+  assert.equal(
+    /createBpCheckStage\(/u.test(complete), false,
+    'never the stage directly - that would skip the derivations it depends on'
+  );
+});

@@ -71,16 +71,19 @@ test('a repeated message is reported once, carrying its count', () => {
   assert.match(finding.message, /reported 2 times/);
 });
 
-test('severity is capped so a standard check cannot block a submit yet', () => {
-  // R1/091 is an abort in S/4 and a real blocker, but the cap is the deliberate starting point --
-  // see MAX_SEVERITY. This test pins the current setting so raising it is a conscious change.
-  assert.equal(cap('A'), 'warning');
-  assert.equal(cap('E'), 'warning');
-  assert.equal(cap('W'), 'warning');
+// Raised from 'warning' to 'error' on 2026-09-03, the condition MAX_SEVERITY's own comment set:
+// the messages had by then been seen to be right on real data - two requests approved and refused
+// at the post, both of which S/4 had reported as E beforehand. An S/4 error now blocks the data
+// steward step's completion rather than travelling on to an approver as a warning.
+test('an S/4 error stays an error; W and I keep their own level', () => {
+  assert.equal(cap('A'), 'error', 'an abort is not a warning');
+  assert.equal(cap('E'), 'error');
+  assert.equal(cap('W'), 'warning', 'the cap raises the ceiling, it does not promote everything');
   assert.equal(cap('I'), 'info');
 
+  // R1/091: a grouping with external number assignment genuinely cannot be created.
   const [finding] = toFindings([EXTERNAL_NUMBERING]);
-  assert.equal(finding.severity, 'warning');
+  assert.equal(finding.severity, 'error');
 });
 
 test('S/4 info messages are dropped, warnings and errors are not', () => {
