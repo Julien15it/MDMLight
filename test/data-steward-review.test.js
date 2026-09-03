@@ -212,6 +212,8 @@ test('an S/4 error blocks the data steward completing the review', () => {
   assert.match(complete, /standard: true, stewardStep: true/u);
   assert.match(complete, /\.filter\(\(finding\) => finding\.severity === BLOCKING\)/u);
   assert.match(complete, /if \(blockingStandard\.length\)/u);
+  // The instruction leads the list, so the steward reads what to do before what is wrong.
+  assert.match(complete, /Resolve the errors below before submitting this request\./u);
   // Refused, not recorded and passed on: the request stays where it is.
   assert.match(complete, /Status: 'checkAndEnrich',\s*NeedsConfirmation: false,\s*Valid: false/u);
 });
@@ -233,4 +235,23 @@ test('the gate runs through runRequestChecks, so the checks see systemDerived', 
     /createBpCheckStage\(/u.test(complete), false,
     'never the stage directly - that would skip the derivations it depends on'
   );
+});
+
+/**
+ * Reported live 2026-09-03: pressing Complete Review answered "internal server error" and the
+ * findings vanished off the screen - no verdict AND no data. A gate is worth nothing if the way it
+ * fails is worse than not having it, so it cannot throw: the checks are wrapped, and a run that
+ * could not happen is logged and stepped over rather than blocking a steward with nothing to fix.
+ */
+test('the gate cannot 500 the action, whatever the checks do', () => {
+  const completeAt = serviceJs.indexOf("// decision === 'complete'");
+  const complete = serviceJs.slice(
+    completeAt, serviceJs.indexOf('await recordValidationFindings', completeAt)
+  );
+  assert.ok(complete.length > 0, 'the complete branch was found');
+  assert.match(complete, /try \{\s*
+\s*const stewardCheck = await runRequestChecks/u);
+  assert.match(complete, /\[steward-gate\] The SAP standard checks could not run/u);
+  // Stepped over, not blocked: an unreachable S/4 must not strand a review.
+  assert.match(complete, /let stewardStandard = \[\];/u);
 });

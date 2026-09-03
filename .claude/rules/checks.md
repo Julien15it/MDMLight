@@ -165,6 +165,12 @@ the role name** — pattern-matching `FLCU*` would be a guess.
   handed the raw staged payload they send no relation node at all and the customer and vendor tiers
   examine nothing. **The server asserts the step from the request's own status** — asking the client
   whether to gate would be no gate.
+- **The gate cannot throw.** It answered `500` on its first day live and the screen lost the findings
+  with it — no verdict *and* no data, which is worse than either alone. The check is wrapped: a run
+  that could not happen is logged (`[steward-gate]`) and **stepped over**, because a check that could
+  not RUN is not one that failed and an unreachable S/4 must not strand a review with nothing to fix.
+  A refusal leads its list with *"Resolve the errors below before submitting this request."*, and the
+  findings travel in `ValidationsJson` so the screen keeps them on strips until the next action.
 
 **Two messages nobody could clear:** `VMD_API/043` fired on every EU vendor because `ZCL_MDML_BPCHECK`
 never built a `TaxNumbers` node; same blind spot fed `CVI_API/007`. `FSBP_GENERIC/008` was *caused* by

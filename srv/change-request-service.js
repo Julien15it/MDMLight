@@ -1531,18 +1531,43 @@ class ChangeRequestService extends cds.ApplicationService {
       // relation node at all and the customer and vendor tiers would silently examine nothing,
       // which is the one answer this whole step exists to avoid. `stewardStep: true` because the
       // server knows what step this is from the request's own status.
-      const stewardCheck = await runRequestChecks(req, {
-        propose: false, duplicates: false, standard: true, stewardStep: true
-      });
-      const blockingStandard = (stewardCheck.standard || [])
-        .filter((finding) => finding.severity === BLOCKING);
+      //
+      // Wrapped, because this gate must never be able to 500 the action. It did (reported live
+      // 2026-09-03): a steward pressing Complete Review got "internal server error" AND lost the
+      // findings off the screen - no verdict and no data, which is worse than either alone. A check
+      // that could not RUN is not a check that failed: it is logged and stepped over, because
+      // blocking a completion on an unreachable S/4 leaves a steward nothing to fix and no way past.
+      let stewardStandard = [];
+      try {
+        const stewardCheck = await runRequestChecks(req, {
+          propose: false, duplicates: false, standard: true, stewardStep: true
+        });
+        stewardStandard = stewardCheck.standard || [];
+      } catch (error) {
+        console.error(
+          `[steward-gate] The SAP standard checks could not run for ${changeRequestId}:`, error
+        );
+      }
+      const blockingStandard = stewardStandard.filter((finding) => finding.severity === BLOCKING);
       if (blockingStandard.length) {
         return {
           ChangeRequest: changeRequestId,
           Status: 'checkAndEnrich',
           NeedsConfirmation: false,
           Valid: false,
-          ValidationsJson: JSON.stringify([...validations, ...blockingStandard]),
+          // The instruction leads, then what to fix. The screen renders these as strips in the order
+          // they arrive and they stay up until the next action, so an unresolved error is still on
+          // screen when the steward looks back at the form - which is the whole point of returning
+          // them rather than throwing.
+          ValidationsJson: JSON.stringify([
+            {
+              check: 'sap_standard_checks',
+              severity: BLOCKING,
+              message: 'Resolve the errors below before submitting this request.'
+            },
+            ...validations,
+            ...blockingStandard
+          ]),
           MessagesJson: JSON.stringify([])
         };
       }
