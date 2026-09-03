@@ -249,8 +249,7 @@ test('the gate cannot 500 the action, whatever the checks do', () => {
     completeAt, serviceJs.indexOf('await recordValidationFindings', completeAt)
   );
   assert.ok(complete.length > 0, 'the complete branch was found');
-  assert.match(complete, /try \{\s*
-\s*const stewardCheck = await runRequestChecks/u);
+  assert.match(complete, /try \{\s*const stewardCheck = await runRequestChecks/u);
   assert.match(complete, /\[steward-gate\] The SAP standard checks could not run/u);
   // Stepped over, not blocked: an unreachable S/4 must not strand a review.
   assert.match(complete, /let stewardStandard = \[\];/u);
