@@ -267,6 +267,43 @@ test('_standardBlocks: a warning blocks, info does not, and an unreadable result
 });
 
 /**
+ * Reported live 2026-09-03: an approval was refused with "an error about a std address missing",
+ * and the message the approver read listed every validation the check returned - warnings and info
+ * among them - under "The data is not valid yet". The GATE was already right (the server sets
+ * `Valid: false` only on `error`); it was the LIST that made a warning look like the blocker.
+ */
+test('the "not valid yet" dialog lists only what actually blocked', () => {
+  const blockingReasons = extractMethod(CONTROLLER, '_blockingReasons');
+  const mixed = [
+    { severity: 'warning', message: 'No standard address is maintained.' },
+    { severity: 'error', message: 'Enter a Business Partner category.' },
+    { severity: 'info', message: 'VIES could not be reached.' }
+  ];
+  const listed = blockingReasons(mixed);
+  assert.ok(listed.includes('Enter a Business Partner category.'));
+  assert.equal(listed.includes('No standard address is maintained.'), false,
+    'a warning must not be read out as the reason the approval was refused');
+  assert.equal(listed.includes('VIES could not be reached.'), false);
+});
+
+// Should not happen - the server only blocks when an error is present - but an empty error box
+// would leave the approver with a refusal and no reason at all.
+test('a block with no error in the list still says something', () => {
+  const blockingReasons = extractMethod(CONTROLLER, '_blockingReasons');
+  for (const input of [[], null, undefined, [{ severity: 'warning', message: 'w' }]]) {
+    assert.match(blockingReasons(input), /could not be completed/u);
+  }
+});
+
+// One rule, three dialogs: the pre-action gate, Check and Duplicate Check all used to inline the
+// same unfiltered map, which is how the same defect existed in three places.
+test('every "not valid yet" dialog goes through the one filter', () => {
+  const inlined = CONTROLLER.match(/not valid yet[^;]*validations\.map/gu) || [];
+  assert.equal(inlined.length, 0, 'no dialog builds its own unfiltered list any more');
+  assert.equal((CONTROLLER.match(/_blockingReasons\(validations\)/gu) || []).length, 3);
+});
+
+/**
  * The whole point of this feature: an S/4 warning that survives to the end (no proposal touched it,
  * or a re-run still reports it) stops the button's own action from ever being called - it is not
  * merely displayed as before.
