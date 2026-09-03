@@ -478,10 +478,12 @@ test('rework is the draft view with Resubmit in place of Submit', () => {
 test('a failed post is told apart from a rejection on the rework screen', () => {
   const load = controller.slice(controller.indexOf('_loadStagedRequest: async function'));
   assert.match(load, /state\.postError = \(payload && payload\.PostError\) \|\| ""/u);
-  assert.match(
-    load,
-    /Approved, but the Business Partner could not be created in S\/4HANA: "\s*\n\s*\+ state\.postError/u
-  );
+  // Two sentences since 2026-09-03, chosen by whether a partner number came back: a post that
+  // failed AFTER the root create leaves a real, active partner, and telling the requester it
+  // could not be created is what sent one looking for something that was already there.
+  assert.match(load, /state\.businessPartner\s*\n\s*\? "Approved\. Business Partner "/u);
+  assert.match(load, /WAS created in S\/4HANA, but the rest of the request could not be posted: "/u);
+  assert.match(load, /: "Approved, but the Business Partner could not be created in S\/4HANA: "\)/u);
   const postErrorAt = load.indexOf('} else if (state.postError) {');
   const rejectionAt = load.indexOf('} else if (state.rejectionComment) {');
   assert.ok(postErrorAt > -1 && rejectionAt > -1);

@@ -3503,9 +3503,16 @@ sap.ui.define([
               // Approved, and S/4 refused the post - not a human rejection, so this must not read as
               // one. Same wording the approver already saw in the decision MessageBox, so the two
               // screens cannot disagree about why the request is back here.
+              // Branching on the number, because a post that failed AFTER the root create leaves a
+              // real, active partner behind (postToS4 persists it the moment the create returns).
+              // Telling the requester it "could not be created" there is false, and it is what sent
+              // one looking for a partner that was already there (reported 2026-09-03).
               state.messages = [{
                 type: "Warning",
-                text: "Approved, but the Business Partner could not be created in S/4HANA: "
+                text: (state.businessPartner
+                  ? "Approved. Business Partner " + state.businessPartner
+                    + " WAS created in S/4HANA, but the rest of the request could not be posted: "
+                  : "Approved, but the Business Partner could not be created in S/4HANA: ")
                   + state.postError
               }];
             } else if (state.rejectionComment) {
@@ -3739,7 +3746,10 @@ sap.ui.define([
             // person who can still do something about it.
             state.businessPartner = result.BusinessPartner || state.businessPartner;
             MessageBox.error(
-              "Approved, but the Business Partner could not be created in S/4HANA:\n\n"
+              (state.businessPartner
+                ? "Approved. Business Partner " + state.businessPartner
+                  + " WAS created in S/4HANA, but the rest of the request could not be posted:\n\n"
+                : "Approved, but the Business Partner could not be created in S/4HANA:\n\n")
               + result.ErrorMessage
               + "\n\nThe request has been sent back to the requester for rework."
             );
