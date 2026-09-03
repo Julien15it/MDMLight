@@ -192,12 +192,15 @@ test('with AI off the assistant is withdrawn, not quietly answered without a mod
   // Both apps start the flag false, so no load ever briefly offers an assistant the
   // installation may not use. It appears a moment later where AI is on, which is the
   // harmless direction - the same call isDataSteward already makes for its own button.
-  for (const app of ['businesspartner', 'mdmrules']) {
+  // The gating flag differs per app: the partner app reports the workflow's data steward, the
+  // configuration panel moved to this app's own Admin role (2026-09-03). What is pinned is that
+  // BOTH start false, which is the thing that matters here.
+  for (const [app, gate] of [['businesspartner', 'isDataSteward'], ['mdmrules', 'isAdmin']]) {
     const component = fs.readFileSync(
       path.join(__dirname, '..', 'app', app, 'webapp', 'Component.js'), 'utf8'
     );
     assert.match(
-      component, /isDataSteward: false, aiAssistanceEnabled: false/u,
+      component, new RegExp(`${gate}: false, aiAssistanceEnabled: false`, 'u'),
       `${app} offers the assistant before it knows whether it may`
     );
     // But only an explicit false from the service keeps it off, so a service too old to

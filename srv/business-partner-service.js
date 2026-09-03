@@ -2406,6 +2406,7 @@ class BusinessPartnerService extends cds.ApplicationService {
 
     this.on('currentUserPermissions', async (req) => ({
       isDataSteward: Boolean(req.user?.is?.('Steward')),
+      isAdmin: Boolean(req.user?.is?.('Admin')),
       aiAssistanceEnabled: await aiAssistanceEnabled()
     }));
 

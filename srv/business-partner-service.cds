@@ -233,7 +233,11 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
    *  it does not grant them, and every protected service still checks its own
    *  scope. Hiding a button is courtesy, never the control. */
   function currentUserPermissions() returns {
+    /** The workflow's data steward role, NOT the configuration panel - see isAdmin. */
     isDataSteward       : Boolean;
+    /** Carries this app's `Admin` role: may open and save in the MDM Configuration
+     *  Panel. Courtesy again - DuplicateConfigService checks the scope itself. */
+    isAdmin             : Boolean;
     /** False when a steward has switched AI assistance off for this
      *  installation. The assistant still answers - from the S/4 search, with no
      *  model involved - so this is what lets the screen stop calling it AI

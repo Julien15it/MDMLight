@@ -86,6 +86,28 @@ test('the steward scope exists and is not folded into partner maintenance', () =
   assert.equal(manager['scope-references'].includes('$XSAPPNAME.Steward'), false);
 });
 
+// The panel moved off the Steward scope 2026-09-03. Two halves that have to agree: the service
+// declares the scope it wants, and a role template grants it - a scope no template references can
+// be assigned to nobody, so the panel would be shut to everyone including the person who asked.
+test('the configuration panel is gated on Admin, and Admin is grantable', () => {
+  const cds = fs.readFileSync(
+    path.join(__dirname, '..', 'srv', 'duplicate-config-service.cds'), 'utf8'
+  );
+  assert.match(cds, /@requires: 'Admin'/u);
+  assert.equal(/@requires: 'Steward'/u.test(cds), false, 'the panel no longer answers to Steward');
+
+  const security = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'xs-security.json'), 'utf8'));
+  assert.ok(security.scopes.some((scope) => scope.name === '$XSAPPNAME.Admin'));
+  const admin = security['role-templates'].find((role) => role.name === 'Admin');
+  assert.ok(admin, 'a role template grants the scope, or nobody can be given it');
+  assert.ok(admin['scope-references'].includes('$XSAPPNAME.Admin'));
+  // Kept apart on purpose: the DataSteward template is what data-stewards.js resolves into the
+  // workflow's review step, and carrying it must not hand out the configuration panel too.
+  const steward = security['role-templates'].find((role) => role.name === 'DataSteward');
+  assert.equal(steward['scope-references'].includes('$XSAPPNAME.Admin'), false);
+  assert.equal(admin['scope-references'].includes('$XSAPPNAME.Steward'), false);
+});
+
 test('the client refuses a fuzzy rule with no usable threshold before the round trip', () => {
   const { _localProblems } = loadController();
   // Lengths, not deepEqual: the controller runs in its own vm realm, so its arrays fail a

@@ -54,7 +54,7 @@ sap.ui.define([
       control.setBusy(true);
       try {
         // The switch lives on the config service, not the main one: the main service only
-        // reports the flag, and writing it needs the Steward scope this service requires.
+        // reports the flag, and writing it needs the Admin scope this service requires.
         var model = this.getOwnerComponent().getModel("dc");
         if (!model) throw new Error("The rule configuration service is not bound to this page.");
         var binding = model.bindContext("/setAiAssistanceEnabled(...)");

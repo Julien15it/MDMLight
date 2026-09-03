@@ -32,6 +32,23 @@ The hub is the app root (route pattern `""`) and `Component.js` calls `getRouter
 Channel Manager, add the app from the **Content Explorer**, assign it to a group, a catalog and a role,
 and the role to the site.
 
+## Who may open it: `Admin`, not `DataSteward`
+
+Changed 2026-09-03, asked for. `DuplicateConfigService` is `@requires: 'Admin'` and the hub gates its
+read-only hint and the AI switch on `perm>/isAdmin`; `xs-security.json` declares the `$XSAPPNAME.Admin`
+scope and an `Admin` role template ("MDMLIGHT - Administrator") that grants it.
+
+**The `DataSteward` role template is deliberately untouched and grants none of this.** It is what
+`srv/wf/data-stewards.js` resolves into the workflow's data steward step, and reviewing a request is a
+different job from maintaining the controls that judge it — someone who does the first should not get
+write access to the second by carrying one role collection. `isDataSteward` is still reported by
+`currentUserPermissions` for that step; only the panel moved.
+
+**A scope no role template references can be granted to nobody**, so the two halves are pinned together
+by a test. The BTP side is manual and does not travel in the MTA: add the deployed `Admin` role to the
+role collection, then assign the collection to users — and separately give that collection the Work Zone
+site role, or the tile stays invisible to people who now have the scope.
+
 ## The rule tables
 
 `db/quality-rules.cds` (`ValidationRules`, `DerivationRules`), `db/duplicate-rules.cds`

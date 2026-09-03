@@ -13,13 +13,15 @@ sap.ui.define(
 
             init: function () {
                 UIComponent.prototype.init.apply(this, arguments);
-                // isDataSteward starts false so a steward-only hint is never briefly wrong.
+                // isAdmin starts false so the read-only hint is never briefly wrong. This panel
+                // moved off isDataSteward 2026-09-03: it is gated by this app's own `Admin` role
+                // now, and the data steward role template belongs to the workflow step instead.
                 // Both start false, matching the partner app: the switch is disabled until
-                // the steward check answers anyway, and briefly reading "off" is the safer
-                // of the two wrong states to show for a moment - claiming AI is on when it
-                // may not be is the one that misleads.
+                // the check answers anyway, and briefly reading "off" is the safer of the two
+                // wrong states to show for a moment - claiming AI is on when it may not be is
+                // the one that misleads.
                 this.setModel(
-                    new JSONModel({ isDataSteward: false, aiAssistanceEnabled: false }),
+                    new JSONModel({ isAdmin: false, aiAssistanceEnabled: false }),
                     "perm"
                 );
                 this._loadPermissions();
@@ -28,7 +30,7 @@ sap.ui.define(
 
             /**
              * Hiding or softening a control is courtesy, not the control: the service checks
-             * the Steward scope on every call regardless of what this page shows.
+             * the Admin scope on every call regardless of what this page shows.
              */
             _loadPermissions: function () {
                 var model = this.getModel();
@@ -39,8 +41,8 @@ sap.ui.define(
                     var result = context ? context.getObject() : null;
                     var permissions = this.getModel("perm");
                     permissions.setProperty(
-                        "/isDataSteward",
-                        Boolean(result && result.isDataSteward)
+                        "/isAdmin",
+                        Boolean(result && result.isAdmin)
                     );
                     // Only an explicit false is "off", matching srv/ai/availability.js: a
                     // service too old to return the flag must not read as AI switched off.

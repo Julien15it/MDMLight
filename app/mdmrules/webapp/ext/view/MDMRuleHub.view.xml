@@ -11,8 +11,8 @@
       <!-- Saying it is courtesy; the service checks the scope on every call regardless. -->
       <MessageStrip
         class="sapUiSmallMargin"
-        visible="{= !${perm>/isDataSteward} }"
-        text="Rule configuration is limited to data stewards. You can look, but saving will be refused."
+        visible="{= !${perm>/isAdmin} }"
+        text="Rule configuration is limited to administrators. You can look, but saving will be refused."
         type="Information"
         showIcon="true" />
       <VBox class="sapUiSmallMargin">
@@ -74,7 +74,7 @@
             <Switch
               id="aiAssistanceSwitch"
               state="{perm>/aiAssistanceEnabled}"
-              enabled="{perm>/isDataSteward}"
+              enabled="{perm>/isAdmin}"
               customTextOn="On"
               customTextOff="Off"
               change=".onToggleAiAssistance" />

@@ -14,6 +14,10 @@
     {
       "name": "$XSAPPNAME.Steward",
       "description": "Configure the duplicate check rules"
+    },
+    {
+      "name": "$XSAPPNAME.Admin",
+      "description": "Open and maintain the MDM Configuration Panel"
     }
   ],
   "attributes": [],
@@ -39,6 +43,14 @@
       "scope-references": [
         "$XSAPPNAME.Display",
         "$XSAPPNAME.Steward"
+      ]
+    },
+    {
+      "name": "Admin",
+      "description": "MDMLIGHT - Administrator. Opens the MDM Configuration Panel: quality, duplicate and workflow rules, field property profiles and the AI switch. Deliberately NOT the DataSteward role template, which is what data-stewards.js resolves into the workflow's data steward step - configuring the controls and reviewing a request are different jobs",
+      "scope-references": [
+        "$XSAPPNAME.Display",
+        "$XSAPPNAME.Admin"
       ]
     }
   ]

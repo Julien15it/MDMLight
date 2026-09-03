@@ -12,7 +12,11 @@ using { mdmlight.config as workflow } from '../db/workflow-rules';
  * route change to gain nothing - and one service means one `@requires` and no second destination.
  */
 @path: '/service/duplicateconfig'
-@requires: 'Steward'
+// `Admin`, not `Steward` (2026-09-03, asked for): opening the configuration panel is now its own
+// role collection. The `DataSteward` role template stays exactly where it was - data-stewards.js
+// resolves it into the workflow's data steward step, which is a different job from maintaining the
+// controls, and a steward who never configures anything should not carry write access to them.
+@requires: 'Admin'
 service DuplicateConfigService {
 
   entity DuplicateRules  as projection on config.DuplicateRules;
