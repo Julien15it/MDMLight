@@ -2477,6 +2477,12 @@ class BusinessPartnerService extends cds.ApplicationService {
         const normalized = question.toLocaleLowerCase();
         // A digit after "BP" is not something a model improves on, so this stays a pattern.
         const numberMatch = normalized.match(/\b(?:bp|business partner|partner)\s*#?\s*(\d{1,10})\b/u);
+        // Started HERE and awaited far below (2026-09-03): this reads nothing but the raw question
+        // - `extractVatNumber` is a regex over it - so it needs neither the intent call nor the
+        // partner read it used to queue behind, and a VIES round trip is the slowest thing in the
+        // chain that could have been running the whole time. Free when the question carries no VAT
+        // number at all: `directVatLookup` returns null without calling anything.
+        const directVatPending = directVatLookup(question);
         // True by now - the guard above returned otherwise. Still threaded through, because
         // parseIntent and askSapAiCore are exported and must refuse on their own account
         // rather than trust every future caller to have checked first.
@@ -2516,16 +2522,26 @@ class BusinessPartnerService extends cds.ApplicationService {
         const duplicates = companyName ? await findIndexedDuplicates(s4, companyName, partners) : [];
         // Independent of company-name resolution and the duplicate gate: a VAT number the requester
         // typed is a direct question about that number, and deserves a direct answer either way.
-        const directVat = await directVatLookup(question);
+        const directVat = await directVatPending;
         let research = null;
         let registry = null;
         if (companyName && !duplicates.length) {
-          try {
-            research = await researchCompany(companyName);
-          } catch (error) {
-            console.warn('[assistant] Public company lookup unavailable:', error.message);
-          }
-          registry = await registryEnrichment(companyName);
+          // Together: two lookups over the same name that neither read nor feed each other - the
+          // public web (Wikipedia, then a DuckDuckGo snippet search) and the registers (GLEIF, then
+          // VIES for a Belgian hit). One after the other they were four sequential HTTP calls on
+          // the way to one answer. Both are already best-effort and neither can reject: the
+          // research's catch is here, registryEnrichment's is inside it (pinned by "resolves to
+          // null, never throws" in business-partner-service.test.js), so `Promise.all` cannot
+          // short-circuit and lose the other one's result.
+          const [researched, enriched] = await Promise.all([
+            researchCompany(companyName).catch((error) => {
+              console.warn('[assistant] Public company lookup unavailable:', error.message);
+              return null;
+            }),
+            registryEnrichment(companyName)
+          ]);
+          research = researched;
+          registry = enriched;
         }
         // A confirmed, directly-typed VAT number outranks a name-matched GLEIF/VIES chain - it is
         // what the requester actually asked about, not an inference from a company name.

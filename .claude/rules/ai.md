@@ -44,6 +44,14 @@ fallback** whenever `parseIntent` returns null. `company-research.js` is a separ
   VIES yourself" — a plausible answer from a genuinely empty context, not a fallback-string bug.
   `registryFindings` is a fourth `promptContext` field, and the system prompt says plainly what it is
   and that the lookup already happened.
+- **The assistant's independent lookups overlap** (2026-09-03). `directVatLookup` reads nothing but
+  the raw question — `extractVatNumber` is a regex over it — so it starts before the intent call
+  instead of queueing behind it and the partner read, and is awaited only where its answer is used;
+  it costs nothing when the question carries no VAT number, returning null without calling out.
+  `researchCompany` and `registryEnrichment` are two lookups over the same name that neither read nor
+  feed each other, so they run together rather than as four sequential HTTP calls. Both are
+  best-effort and neither can reject, so `Promise.all` cannot short-circuit and lose the other's
+  result. The two model calls stay sequential: `askSapAiCore` is prompted with what the lookups found.
 - **A requested role gets a role row.** `detectRequestedRoles` matches `customer`/`klant`/`afnemer` →
   `FLCU01` and `supplier`/`vendor`/`leverancier` → `FLVN01` (a plain regex, always on, unlike the
   `ASSISTANT_INTENT_SOURCE`-gated parser); both can fire. **Only the role row is added** —

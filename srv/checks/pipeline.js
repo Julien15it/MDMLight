@@ -263,46 +263,59 @@ async function runChecks(payload, {
     payload, derivations, { fieldEditable }
   );
 
+  // The three below are STARTED TOGETHER and awaited at the end (2026-09-03). None of them
+  // consumes another's output - each is handed a payload the derivations already finished - and
+  // none writes into what it is given, checked rather than assumed. So the only thing running them
+  // one after another ever bought was latency, and on the data steward step it charged a requester
+  // an AI Core round trip and an S/4 dry run back to back.
+  //
+  // Three separate `.catch`es rather than one `allSettled`, deliberately: the three answers to
+  // "this did not run" are different on purpose and a shared handler would flatten them. A
+  // normalisation is a convenience and degrades to nothing; the other two must SAY they could not
+  // run, because "no duplicates found" and "nothing objected" from a check that never happened are
+  // the two wrong answers this pipeline exists to avoid. `Promise.resolve().then(...)` so a stage
+  // that throws synchronously lands in its own catch exactly as it did inside the old try.
+
   // Proposals, not changes. Made against the derived payload so a field just filled in can be
   // normalised in the same pass, and never applied here — the requester accepts or declines.
-  let normalisations = [];
-  try {
-    normalisations = propose ? await propose(derived) || [] : [];
-  } catch (error) {
-    // A convenience, never a gate: an unavailable model must not stop a check or a submit.
-    console.warn('[checks] Normalisation proposals unavailable:', error.message);
-  }
+  const normalisationsPending = propose
+    ? Promise.resolve().then(() => propose(derived)).then((value) => value || []).catch((error) => {
+      // A convenience, never a gate: an unavailable model must not stop a check or a submit.
+      console.warn('[checks] Normalisation proposals unavailable:', error.message);
+      return [];
+    })
+    : Promise.resolve([]);
 
   // `systemDerived`, not `derived` (fixed 2026-08-27): S/4 was objecting to postal codes VIES had
   // proposed and nobody had accepted, which is an error with no field on the screen to clear it.
   // An accepted proposal comes back as a typed value on the next press and is checked then.
-  let standard = [];
-  try {
-    standard = checkStandard ? await checkStandard(systemDerived) || [] : [];
-  } catch (error) {
-    // Same reasoning as the duplicate check below: "nothing objected" produced by a check that
-    // never ran is the one answer this must not give.
-    standard = [{
-      check: 'sap_standard_checks',
-      severity: 'info',
-      message: `The SAP standard checks could not run (${error.message}).`
-    }];
-  }
+  const standardPending = checkStandard
+    ? Promise.resolve().then(() => checkStandard(systemDerived)).then((value) => value || [])
+      .catch((error) => [{
+        // Same reasoning as the duplicate check below: "nothing objected" produced by a check that
+        // never ran is the one answer this must not give.
+        check: 'sap_standard_checks',
+        severity: 'info',
+        message: `The SAP standard checks could not run (${error.message}).`
+      }])
+    : Promise.resolve([]);
 
-  let duplicates = [];
-  let ranDuplicateCheck = false;
-  try {
-    duplicates = checkDuplicates ? await checkDuplicates(derived) || [] : [];
-    ranDuplicateCheck = Boolean(checkDuplicates);
-  } catch (error) {
-    // "No duplicates found" produced by a check that never ran is the one wrong answer this must
-    // not give, so the failure is reported rather than folded into an empty result.
-    duplicates = [{
-      checkName: 'duplicate_check',
-      severity: 'info',
-      message: `The duplicate check could not run (${error.message}).`
-    }];
-  }
+  const duplicatesPending = checkDuplicates
+    ? Promise.resolve().then(() => checkDuplicates(derived)).then((value) => value || [])
+      .catch((error) => [{
+        // "No duplicates found" produced by a check that never ran is the one wrong answer this
+        // must not give, so the failure is reported rather than folded into an empty result.
+        checkName: 'duplicate_check',
+        severity: 'info',
+        message: `The duplicate check could not run (${error.message}).`
+      }])
+    : Promise.resolve([]);
+
+  // Cannot reject: every branch above ends in a catch that resolves to the stage's own fallback.
+  const [normalisations, standard, duplicates] = await Promise.all(
+    [normalisationsPending, standardPending, duplicatesPending]
+  );
+  const ranDuplicateCheck = Boolean(checkDuplicates);
 
   return {
     valid: true,

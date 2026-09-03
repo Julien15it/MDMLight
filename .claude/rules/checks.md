@@ -21,6 +21,15 @@ derivations because **the first stage to claim a field is the only one that spea
 `rowKey` — when no existing row already carries that key; `runDerivations` applies each entry as it
 goes, so a later entry in one stage sees an earlier entry's row.
 
+**The three stages AFTER the derivations run concurrently** (2026-09-03) — `propose` (AI Core),
+`checkStandard` (the S/4 dry run) and `checkDuplicates`. None reads another's output and none writes
+into the payload it is handed, so their old ordering bought only latency: on the data steward step a
+model round trip and an S/4 round trip were charged back to back. **Three separate `.catch`es, not one
+`allSettled`** — the three answers to "this did not run" are deliberately different, and a shared
+handler would flatten them. Each is wrapped in `Promise.resolve().then(...)` so a stage that throws
+*synchronously* still lands in its own fallback rather than escaping `runChecks`. The order the
+validations and derivations run in is untouched and is still the design.
+
 ## A derivation over a filled field is a PROPOSAL, not a skip
 
 It used to be dropped in silence, leaving the requester a warning and no way to act on it but retyping.
