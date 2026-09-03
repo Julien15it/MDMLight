@@ -306,8 +306,7 @@ test('a post that failed AFTER the partner was created says so, and names it', (
 
 test('the task app branches on the same thing rather than assuming a failure means nothing exists', () => {
   const completeTask = taskComponent.slice(taskComponent.indexOf('_completeTask:'));
-  assert.match(completeTask, /decision\.BusinessPartner\s*
-?\s*\?\s*"Approved\. Business Partner "/u);
+  assert.match(completeTask, /decision\.BusinessPartner\s*\?\s*"Approved\. Business Partner "/u);
   assert.match(completeTask, /WAS created in S\/4HANA/u);
 });
 

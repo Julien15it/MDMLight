@@ -207,9 +207,7 @@ test('an S/4 error blocks the data steward completing the review', () => {
   assert.match(complete, /\.filter\(\(finding\) => finding\.severity === BLOCKING\)/u);
   assert.match(complete, /if \(blockingStandard\.length\)/u);
   // Refused, not recorded and passed on: the request stays where it is.
-  assert.match(complete, /Status: 'checkAndEnrich',\s*
-\s*NeedsConfirmation: false,\s*
-\s*Valid: false/u);
+  assert.match(complete, /Status: 'checkAndEnrich',\s*NeedsConfirmation: false,\s*Valid: false/u);
 });
 
 // The server decides it is the steward step from the request's own status. Asking the client would
