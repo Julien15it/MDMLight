@@ -1682,7 +1682,13 @@ sap.ui.define([
         summaryFields.forEach(function (field) {
           table.addColumn(new Column({ header: new Text({ text: field.label }) }));
         });
-        var showDelete = editing && section.deletable !== false;
+        // `deletable: false` binds only a row S/4 already holds. A create has none, and neither does
+        // a row this request added, so both stay removable - the constraint is the API's DELETE.
+        var sectionLocked = state.requestType === "change" && section.deletable === false;
+        var canDelete = function (record) {
+          return editing && (!sectionLocked || (record && record.__state === "new"));
+        };
+        var showDelete = editing && (!sectionLocked || records.some(canDelete));
         // Always present: pressing the row already opened the record but nothing said so, and on a
         // non-deletable section this is the only affordance there is.
         table.addColumn(new Column({
@@ -1727,7 +1733,7 @@ sap.ui.define([
               press: this._openExistingRecord.bind(this, section, index)
             })
           ];
-          if (showDelete) {
+          if (canDelete(record)) {
             actions.push(new Button({
               icon: "sap-icon://delete",
               type: "Transparent",

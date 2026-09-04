@@ -392,7 +392,9 @@ test('a hidden entity hides its whole Object Page section', () => {
   // Read-only freezes the rows without hiding them.
   assert.match(body, /var editing = state\.editing && entityProperty !== "readOnly"/u);
   assert.match(body, /visible: editing && section\.creatable !== false/u);
-  assert.match(body, /var showDelete = editing && section\.deletable !== false/u);
+  // Read-only still freezes Delete; `deletable: false` only binds a change's existing rows.
+  assert.match(body, /var showDelete = editing && \(!sectionLocked \|\| records\.some\(canDelete\)\)/u);
+  assert.match(body, /state\.requestType === "change" && section\.deletable === false/u);
   // And the detail dialog opens read-only for the same entity.
   assert.match(controller, /Boolean\(state\.editing\) && this\._entityProperty\(section\) !== "readOnly"/u);
 });
