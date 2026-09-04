@@ -11,6 +11,22 @@ const {
 
 const payload = (root = {}, sections = {}) => ({ root, sections });
 
+/**
+ * Reported live (2026-09-04): a real address with `StreetName: "Koedreef"` - already correctly
+ * capitalised, no abbreviation, "dreef" is a complete Dutch street-type word - came back proposed
+ * as "Koedreef Straat". The prompt's own capitalisation example ("koedreef" -> "Koedreef") and its
+ * street-type example ("koedreef st" -> "Koedreef Straat") both started with the literal word
+ * "koedreef", so the model pattern-matched the real input against the second example rather than
+ * reasoning about whether an abbreviation was actually there. Fixed by never reusing the same word
+ * across examples and telling the model explicitly that a street already ending in a real
+ * street-type word (Koedreef among the named examples) is not missing anything.
+ */
+test('the prompt does not reuse one example word across two different corrections', () => {
+  assert.equal(/koedreef st/iu.test(SYSTEM_PROMPT), false, 'the colliding street-type example is gone');
+  assert.match(SYSTEM_PROMPT, /Koedreef/u, 'named as a must-not-touch example instead');
+  assert.match(SYSTEM_PROMPT, /left exactly as typed|must never make/iu);
+});
+
 // chatCompletionWithRetry already wraps this in { response }, so the client returns the
 // completion itself — same shape as the fake in test/intent.test.js.
 const fakeClient = (content) => class {

@@ -270,6 +270,15 @@ value that is there should be *written*.
 Identifiers (tax numbers, IBAN, BP number) are outside `NORMALISABLE`. Runs on **Check only** and
 returns `[]` on any failure.
 
+**Never reuse the same example word across two different corrections in `SYSTEM_PROMPT`** (fixed
+2026-09-04, reported live: a real `StreetName: "Koedreef"` — already correct, `dreef` is a complete
+street-type word, nothing to expand — came back proposed as `"Koedreef Straat"`). The capitalisation
+example and the street-type-abbreviation example both used `"koedreef"`, and the model pattern-matched
+the real input against the second example rather than reasoning about whether an abbreviation was
+actually present. The prompt now names `Koedreef` explicitly as a must-not-touch example instead, and
+the street-type example requires a genuine abbreviation marker (a trailing period or an unambiguous
+truncation) before proposing anything.
+
 ## The proposals dialog
 
 Derivations and normalisations share one dialog, everything ticked by default, `change` column saying
