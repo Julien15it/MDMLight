@@ -103,6 +103,15 @@ A profile's role is one of `*`, `Requester` (the only two non-role-collection co
   `runRequestChecks` both now read the header first (`ChangeRequest` was added as a parameter to the
   former for this) and pass it through. No header (a create draft) or no stored sequence (a request
   predating the column) skips straight to the old resolution.
+- **`currentStepAssignee` is checked for `Approver` ONLY (fixed 2026-09-04, reported live: a data
+  steward's screen rendered the APPROVER's layout).** `approverSequenceJson`/`approvalsReceived` is
+  the approval chain from submit — a data steward is never a member of it, so resolving `DataSteward`
+  through it is a category mix-up: whenever the reviewing steward also happened to hold the BTP role
+  named at the approval sequence's current step (easy — the same person often holds several role
+  collections), that unrelated APPROVER role won outright and was returned as if it were the
+  steward's own. Untouched for as long as `resolveEffectiveRole` itself so often failed to resolve
+  anything specific that the mismatch rarely surfaced — the `specificrole` task input (`task-app.md`)
+  made resolution reliable enough to expose it.
 
 ## Critical entities
 

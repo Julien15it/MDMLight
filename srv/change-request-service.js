@@ -59,18 +59,28 @@ function currentStepAssignee(header) {
  * both always matching the one screen every approver (or every data steward) renders. See
  * `effectiveFieldProperties` below and CLAUDE.md "Field property profiles".
  *
- * `header` (optional - the caller's own already-read `ChangeRequests` row) is tried FIRST, via
- * `currentStepAssignee`: a user holding several approver-shaped roles (say "Approver Sales" AND
- * "Approver Finance") is otherwise a case `specificRoleFor` cannot resolve at all - it returns null
- * on purpose rather than guess between them (see its own doc comment) - because nothing before this
- * knew WHICH of a user's own roles was actually assigned to THIS request's current step. Checking
- * "is it this specific user's turn" (an exact BTP membership check, `isMemberOfRole`) rather than
- * "which of this user's roles looks like an Approver" removes the guess entirely, whenever a header
- * with a stored sequence is available and the current user is who it names.
+ * `header` (optional - the caller's own already-read `ChangeRequests` row) is tried FIRST for the
+ * `Approver` category, via `currentStepAssignee`: a user holding several approver-shaped roles (say
+ * "Approver Sales" AND "Approver Finance") is otherwise a case `specificRoleFor` cannot resolve at
+ * all - it returns null on purpose rather than guess between them (see its own doc comment) -
+ * because nothing before this knew WHICH of a user's own roles was actually assigned to THIS
+ * request's current step. Checking "is it this specific user's turn" (an exact BTP membership check,
+ * `isMemberOfRole`) rather than "which of this user's roles looks like an Approver" removes the guess
+ * entirely, whenever a header with a stored sequence is available and the current user is who it
+ * names.
+ *
+ * **`currentStepAssignee` is never consulted for `DataSteward`** (fixed 2026-09-04, reported live:
+ * a data steward's screen rendered the APPROVER's layout). `approverSequenceJson`/`approvalsReceived`
+ * is the approval chain from submit - a data steward is never a member of it, so checking it for a
+ * DataSteward render is a category mix-up: whenever the reviewing steward also happened to hold the
+ * BTP role named at the approval sequence's current step (entirely possible - the same person often
+ * holds several role collections), that unrelated APPROVER role won outright and was returned as if
+ * it were the steward's own.
  *
  * Falls through to the old, role-only resolution whenever the step-specific answer does not apply -
- * no header, no stored sequence, or the current user does not match who it names (someone else's
- * task opened by mistake, a request from before this column existed, or genuinely ambiguous data).
+ * no header, no stored sequence, the current user does not match who it names (someone else's task
+ * opened by mistake, a request from before this column existed, or genuinely ambiguous data), or the
+ * category being resolved is not `Approver` at all.
  *
  * Best-effort throughout, and the fallback is the literal category the screen asked for - not an
  * error, not a blocked render: an unreachable subaccount API, a user with no specific ...-prefixed
@@ -83,7 +93,7 @@ async function resolveEffectiveRole(req, role, header) {
     const email = requestingUserEmail(req);
     if (!email || email === 'unknown') return role;
 
-    const assignee = currentStepAssignee(header);
+    const assignee = role === 'Approver' ? currentStepAssignee(header) : null;
     if (assignee) {
       const isThisUser = assignee.includes('@')
         ? assignee.toLowerCase() === email.toLowerCase()

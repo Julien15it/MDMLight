@@ -289,3 +289,21 @@ test('resolveEffectiveRole with no header falls back to the role-only resolution
   assert.equal(await resolveEffectiveRole(req, 'Approver', null), 'Approver');
   assert.equal(await resolveEffectiveRole(req, 'Requester', null), 'Requester');
 });
+
+/**
+ * Fixed 2026-09-04, reported live: a data steward's screen rendered the APPROVER's layout.
+ * `approverSequenceJson`/`approvalsReceived` is the approval chain from submit - a data steward is
+ * never a member of it, so `currentStepAssignee` must never be consulted for the `DataSteward`
+ * category, even when the header carries a sequence and the reviewing steward happens to also match
+ * its current entry (entirely possible - the same person often holds several BTP role collections).
+ * Matching this test's exact shape: the same header/user pair that resolves to the matched assignee
+ * for `Approver` above must fall straight through to the role-only resolution for `DataSteward`.
+ */
+test('resolveEffectiveRole never consults the approver sequence for DataSteward', async () => {
+  const req = { user: { attr: { email: 'maarten@alluvion.eu' } }, data: {} };
+  const header = {
+    approverSequenceJson: JSON.stringify(['maarten@alluvion.eu', 'julien@alluvion.eu']),
+    approvalsReceived: 0
+  };
+  assert.equal(await resolveEffectiveRole(req, 'DataSteward', header), 'DataSteward');
+});
