@@ -71,7 +71,7 @@ const SECTION_TEXT = Object.freeze({
   CustomerCompany: 'Customer Company Code',
   SupplierCompany: 'Supplier Company Code',
   CustomerSalesArea: 'Customer Sales Area',
-  CustomerTaxGrouping: 'Customer Tax Category',
+  CustomerTaxGrouping: 'Customer Tax Grouping',
   SupplierPurchasingOrg: 'Supplier Purchasing Org',
   CustomerText:                      'Customer Text',
   CustomerAddressExtIdentifier:      'Customer Address Ext. Identifier',

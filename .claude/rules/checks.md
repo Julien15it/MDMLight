@@ -178,6 +178,35 @@ the mapper setting `datax-langu` unconditionally — a blank with the X-flag set
 field**. So `StagedAddresses` gained **`Language`** (ADDR1_DATA-LANGU). **It is not
 `CorrespondenceLanguage`** — that is BP-level and person-only on an organisation. Keep the two apart.
 
+## Field lengths (`field-lengths.js`)
+
+One validation, `field_lengths`, offline, registered beside `node_required_fields` and before any
+remote call. Reads the **staging model** for every `cds.String` element carrying a `length` - no list
+of fields is kept, so a column added to `db/staging.cds` is covered the day it lands.
+
+Reported live 2026-09-04: a create passed `checkRequest` twice and then answered `submitRequest`
+with a bare `500` - `value too long for type character varying(3)` on
+`StagedCustomerTaxGrouping.CustomerTaxGroupingCode`. Nothing looked at lengths, so the requester got
+no field name and no way to act, and the staged lengths mirror `API_BUSINESS_PARTNER`'s own, so S/4
+would have refused the same value at the post.
+
+- **Only strings are measured.** `Decimal`'s `length` is a precision and `Date` has none, so
+  measuring either refuses a value nothing rejects.
+- **`EXCLUDED` applies**, so `action`, `ID` and the backlinks are never measured.
+- **The row is named, not just the section** (`target` + `index` + `field`), and the message carries
+  the section as the requester sees it plus both numbers.
+
+**The two tax sections are confusable because S/4's own labels are inverted.**
+`CustomerTaxGroupingCode` is labelled *"Tax Category"* and takes **3** characters;
+`CustomerTaxIndicators.CustomerTaxCategory` is labelled *"Tax Condition Type"* and is where a
+4-character `MWST` belongs. The section title is therefore **"Customer Tax Grouping"**, not
+"Customer Tax Categories" - a requester looking for "tax category" chose the wrong one and there was
+nothing to catch it. `SECTION_TEXT` in `payload-fields.js` says the same. **Do not "restore" the
+friendlier title.**
+
+**The column cannot be widened to fix a case like this** - `cds-deploy` can neither drop nor retype
+an element (`deployment.md`). Here it should not be: S/4 says 3 as well.
+
 ## SPRO derivations (`derivation-checks.js`)
 
 One stage, `sap_derivations`, reading `DerivationConfigService` with a 60s cache. Runs **last** — a
