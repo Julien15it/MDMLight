@@ -175,6 +175,7 @@ test('the created tax row carries the sales-area key it posts under', async () =
 
   assert.deepEqual(derived.sections.CustomerTaxIndicators, [{
     CustomerTaxCategory: 'MWST',
+    __state: 'new',
     DepartureCountry: 'BE',
     SalesOrganization: '1710',
     DistributionChannel: '10',
@@ -261,9 +262,10 @@ test('a function the requester typed is left alone, and the rest are still propo
 
   const { derived, applied } = await runDerivations(payload({}, sections), stages());
   assert.deepEqual(derived.sections.CustomerSalesPartnerFunctions, [
-    // Theirs, with the key it was missing filled in -- never duplicated.
+    // Theirs, with the key it was missing filled in -- never duplicated, and no `__state`: the
+    // pipeline filled this row, it did not build it.
     { PartnerFunction: 'AG', SalesOrganization: '1710', DistributionChannel: '10', Division: '00' },
-    { PartnerFunction: 'RE', SalesOrganization: '1710', DistributionChannel: '10', Division: '00' }
+    { PartnerFunction: 'RE', __state: 'new', SalesOrganization: '1710', DistributionChannel: '10', Division: '00' }
   ]);
   assert.equal(
     applied.filter((entry) => entry.createsRow).length, 1,
@@ -275,8 +277,8 @@ test('the created rows each carry their function and the whole sales area key', 
   const { derived, applied } = await runDerivations(payload({}, customerWithSalesArea), stages());
 
   assert.deepEqual(derived.sections.CustomerSalesPartnerFunctions, [
-    { PartnerFunction: 'AG', SalesOrganization: '1710', DistributionChannel: '10', Division: '00' },
-    { PartnerFunction: 'RE', SalesOrganization: '1710', DistributionChannel: '10', Division: '00' }
+    { PartnerFunction: 'AG', __state: 'new', SalesOrganization: '1710', DistributionChannel: '10', Division: '00' },
+    { PartnerFunction: 'RE', __state: 'new', SalesOrganization: '1710', DistributionChannel: '10', Division: '00' }
   ]);
 
   // The reported index is where the row actually landed, which is what lets the dialog group the
@@ -328,7 +330,7 @@ test('every mandatory supplier function is proposed, keyed on its purchasing org
   }), stages());
   assert.deepEqual(derived.sections.SupplierPartnerFunctions, [
     { PartnerFunction: 'LF', PurchasingOrganization: '1710' },
-    { PartnerFunction: 'RS', PurchasingOrganization: '1710' }
+    { PartnerFunction: 'RS', __state: 'new', PurchasingOrganization: '1710' }
   ]);
 });
 
@@ -342,12 +344,12 @@ test('a request that is both a customer and a supplier derives both, separately'
   const { derived } = await runDerivations(request, stages());
 
   assert.deepEqual(derived.sections.CustomerSalesPartnerFunctions, [
-    { PartnerFunction: 'AG', SalesOrganization: '1710', DistributionChannel: '10', Division: '00' },
-    { PartnerFunction: 'RE', SalesOrganization: '1710', DistributionChannel: '10', Division: '00' }
+    { PartnerFunction: 'AG', __state: 'new', SalesOrganization: '1710', DistributionChannel: '10', Division: '00' },
+    { PartnerFunction: 'RE', __state: 'new', SalesOrganization: '1710', DistributionChannel: '10', Division: '00' }
   ]);
   assert.deepEqual(derived.sections.SupplierPartnerFunctions, [
-    { PartnerFunction: 'LF', PurchasingOrganization: '1710' },
-    { PartnerFunction: 'RS', PurchasingOrganization: '1710' }
+    { PartnerFunction: 'LF', __state: 'new', PurchasingOrganization: '1710' },
+    { PartnerFunction: 'RS', __state: 'new', PurchasingOrganization: '1710' }
   ]);
 });
 
