@@ -325,6 +325,15 @@
               </uxap:ObjectPageSubSection>
             </uxap:subSections>
           </uxap:ObjectPageSection>
+          <uxap:ObjectPageSection title="Contacts" titleUppercase="false">
+            <uxap:subSections>
+              <uxap:ObjectPageSubSection>
+                <uxap:blocks>
+                  <VBox id="BusinessPartnerContactsContent" width="100%" />
+                </uxap:blocks>
+              </uxap:ObjectPageSubSection>
+            </uxap:subSections>
+          </uxap:ObjectPageSection>
           <uxap:ObjectPageSection title="Tax Numbers" titleUppercase="false">
             <uxap:subSections>
               <uxap:ObjectPageSubSection>

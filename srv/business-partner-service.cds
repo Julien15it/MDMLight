@@ -33,6 +33,16 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
   entity BusinessPartners as projection on S4.A_BusinessPartner;
 
   /**
+   * The F4 help for a Contacts row's `BusinessPartnerPerson` (2026-09-04, asked for) - the exact
+   * same entity `BusinessPartners` reads, filtered server-side to category Person (`1`) so the
+   * value-help dialog can never offer an organisation or a group as a contact person, and the
+   * client never has to filter it out itself. `VALUE_HELP_FIELDS.BusinessPartnerPerson`
+   * (BusinessPartnerMaintenance.controller.js) points its `collectionPath` straight at this.
+   */
+  @readonly entity BusinessPartnerPersons as projection on S4.A_BusinessPartner
+    where BusinessPartnerCategory = '1';
+
+  /**
    * What the search list reads: the live S/4 partners **and** the change requests still in flight,
    * in one result set. A pending create has no partner number yet, so it can only be seen here as
    * its own row; a change/block/delete request over an existing partner is that partner's row,
@@ -245,6 +255,17 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
      *  the server, in srv/ai/availability.js. */
     aiAssistanceEnabled : Boolean;
   };
+
+  /**
+   * The picked contact person's own read-only email/phone (2026-09-04, asked for), shown when a
+   * Contacts row is opened - never `A_BPContactPersonEmlAddr`/`A_BPContactPersonTelNmbr`, which
+   * are keyed by `RelationshipNumber` and so answer nothing for a contact not yet posted to S/4.
+   * Best-effort like every other reference-only read in this app: a lookup that fails answers with
+   * empty strings rather than failing the dialog - this is context for a human, never a verdict.
+   */
+  function personContactInfo(
+    BusinessPartner : String(10) not null
+  ) returns { Email : String; Phone : String };
 
   /** Read-only assistant grounded in the Business Partners currently present
    *  in S/4HANA. It never creates or changes master data. */

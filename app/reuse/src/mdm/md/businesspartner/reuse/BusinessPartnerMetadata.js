@@ -1173,6 +1173,108 @@ sap.ui.define([], function () {
         "deletable": false
       },
       {
+        "id": "BusinessPartnerContacts",
+        "title": "Contacts",
+        "entitySet": "A_BusinessPartnerContact",
+        "remoteEntity": "A_BusinessPartnerContact",
+        "relationField": "BusinessPartnerCompany",
+        "typeName": "A_BusinessPartnerContactType",
+        "kind": "collection",
+        "summaryFields": [
+          "BusinessPartnerPerson",
+          "LastName",
+          "FirstName",
+          "BusinessPartnerFullName",
+          "ValidityStartDate",
+          "ValidityEndDate"
+        ],
+        "requiredCreateFields": [
+          "BusinessPartnerPerson",
+          "ValidityEndDate"
+        ],
+        "fields": [
+          {
+            "name": "RelationshipNumber",
+            "label": "BP Relationship No.",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 12,
+            "creatable": false,
+            "updatable": true
+          },
+          {
+            "name": "BusinessPartnerCompany",
+            "label": "Business Partner",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "BusinessPartnerPerson",
+            "label": "Business Partner",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ValidityEndDate",
+            "label": "Valid To",
+            "type": "cds.Date",
+            "key": true,
+            "nullable": false,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ValidityStartDate",
+            "label": "Valid From",
+            "type": "cds.Date",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "LastName",
+            "label": "Last Name",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 40,
+            "creatable": false,
+            "updatable": false
+          },
+          {
+            "name": "FirstName",
+            "label": "First Name",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 40,
+            "creatable": false,
+            "updatable": false
+          },
+          {
+            "name": "BusinessPartnerFullName",
+            "label": "Full Name",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 81,
+            "creatable": false,
+            "updatable": false
+          }
+        ],
+        "deletable": true
+      },
+      {
         "id": "TaxNumbers",
         "title": "Tax Numbers",
         "entitySet": "TaxNumbers",

@@ -126,6 +126,44 @@ const sections = [
     summaryFields: ['BusinessPartnerRole', 'ValidFrom', 'ValidTo'],
     requiredCreateFields: ['BusinessPartnerRole']
   },
+  // A_BusinessPartnerContact (RelationshipCategory BUR001, "has contact person") - the same
+  // entity SAP's own standard Maintain Business Partner app uses for its Contacts tab. Exposed
+  // under its bulk S/4 name (business-partner-service.cds), like 18 of the other 31 maintenance
+  // nodes, so `entitySet`/`remoteEntity` differ from `id` here. `RelationshipNumber` is server-
+  // assigned on create (SERVER_ASSIGNED_KEYS above) but still staged, so a change-type request
+  // that re-reads an EXISTING contact from S/4 carries the key it would need to update/delete it.
+  {
+    id: 'BusinessPartnerContacts',
+    title: 'Contacts',
+    entitySet: 'A_BusinessPartnerContact',
+    remoteEntity: 'A_BusinessPartnerContact',
+    relationField: 'BusinessPartnerCompany',
+    typeName: 'A_BusinessPartnerContactType',
+    kind: 'collection',
+    fieldNames: [
+      'RelationshipNumber', 'BusinessPartnerCompany', 'BusinessPartnerPerson',
+      'ValidityStartDate', 'ValidityEndDate'
+    ],
+    summaryFields: [
+      'BusinessPartnerPerson', 'LastName', 'FirstName', 'BusinessPartnerFullName',
+      'ValidityStartDate', 'ValidityEndDate'
+    ],
+    requiredCreateFields: ['BusinessPartnerPerson', 'ValidityEndDate'],
+    localFields: [
+      {
+        name: 'LastName', label: 'Last Name', type: 'cds.String',
+        key: false, nullable: true, maxLength: 40, creatable: false, updatable: false
+      },
+      {
+        name: 'FirstName', label: 'First Name', type: 'cds.String',
+        key: false, nullable: true, maxLength: 40, creatable: false, updatable: false
+      },
+      {
+        name: 'BusinessPartnerFullName', label: 'Full Name', type: 'cds.String',
+        key: false, nullable: true, maxLength: 81, creatable: false, updatable: false
+      }
+    ]
+  },
   {
     id: 'TaxNumbers',
     title: 'Tax Numbers',
@@ -904,7 +942,7 @@ function entityTypeProperties(typeName) {
 // `_createForm` already keys off to hide a key field on create.
 // Deliberately not the MDG "$" convention: this path posts to API_BUSINESS_PARTNER, not to MDG
 // staging, so the field is omitted rather than filled with a placeholder S/4 would take literally.
-const SERVER_ASSIGNED_KEYS = new Set(['AddressID']);
+const SERVER_ASSIGNED_KEYS = new Set(['AddressID', 'RelationshipNumber']);
 
 function humanize(name) {
   return name
@@ -998,7 +1036,14 @@ async function cdsExcludedFieldsBySection() {
           creatable: property['sap:creatable'] !== 'false' && !SERVER_ASSIGNED_KEYS.has(name),
           updatable: property['sap:updatable'] !== 'false'
         };
-      });
+      })
+      // A section may declare `localFields` for a value staged locally but not backed by ANY
+      // remote element - Contacts' own LastName/FirstName/BusinessPartnerFullName, a snapshot of
+      // the chosen person captured at F4-selection time (see StagedContacts in db/staging.cds).
+      // Never creatable/updatable: nothing here is meant to reach S/4, and sanitizeEntityPayload
+      // (business-partner-service.js) already drops any staged field the remote entity does not
+      // declare, so marking these editable would only offer an input that silently does nothing.
+      .concat(section.localFields || []);
   }
 
   finishGeneration();
@@ -1025,7 +1070,7 @@ for (const section of sections) {
   section.deletable = entitySetDeletable(section.remoteEntity);
 }
 
-const clientSections = sections.map(({ excludedFields, fieldNames, ...section }) => section);
+const clientSections = sections.map(({ excludedFields, fieldNames, localFields, ...section }) => section);
 
 const output = [
   'sap.ui.define([], function () {',

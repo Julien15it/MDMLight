@@ -233,6 +233,22 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     deletable: false,
     requiredCreateFields: ['BusinessPartner', 'BusinessPartnerRole']
   }),
+  // A_BusinessPartnerContact (RelationshipCategory BUR001, "has contact person") - the SAME entity
+  // Fiori's own standard Maintain Business Partner app uses for its Contacts tab. Already exposed
+  // under its bulk S/4 name (business-partner-service.cds), same as 18 of the other 31 maintenance
+  // nodes - no new local entity needed. `RelationshipNumber` is S/4-assigned on create, like
+  // Addresses' own AddressID, so it is not a required field here.
+  BusinessPartnerContacts: Object.freeze({
+    remote: 'A_BusinessPartnerContact',
+    navigation: 'to_BusinessPartnerContact',
+    creatable: true,
+    deletable: true,
+    // BusinessPartnerCompany is the relation field (RELATION_FIELDS below) - postToS4 injects it
+    // before this list is ever checked, the same reason Customers/Suppliers never name their own
+    // Customer/Supplier here either. Naming it would demand a value nothing on the staged row ever
+    // carries, blocking every contact from being addable at all.
+    requiredCreateFields: ['BusinessPartnerPerson', 'ValidityEndDate']
+  }),
   TaxNumbers: Object.freeze({
     remote: 'A_BusinessPartnerTaxNumber',
     navigation: 'to_BusinessPartnerTax',
@@ -2536,6 +2552,39 @@ class BusinessPartnerService extends cds.ApplicationService {
       isAdmin: Boolean(req.user?.is?.('Admin')),
       aiAssistanceEnabled: await aiAssistanceEnabled()
     }));
+
+    // The picked contact person's own default address email/phone - see the action's own doc
+    // comment in business-partner-service.cds for why this reads A_BusinessPartnerAddress rather
+    // than the relationship-keyed A_BPContactPersonEmlAddr/A_BPContactPersonTelNmbr. "Take the
+    // first" address is the same tolerance buildBusinessPartnerInput already applies to
+    // A_BuPaIndustry: this entity carries no "the standard one" flag, so absent a real signal the
+    // first is the best answer there is. Best-effort throughout - a lookup that fails answers with
+    // empty strings, never a rejected dialog, because this is reference context, never a verdict.
+    this.on('personContactInfo', async (req) => {
+      const businessPartner = req.data.BusinessPartner;
+      const empty = { Email: '', Phone: '' };
+      try {
+        const s4 = await cds.connect.to('API_BUSINESS_PARTNER');
+        const address = normalizeRemoteResult(await s4.run(
+          cds.ql.SELECT.one.from(remoteEntity(s4, 'A_BusinessPartnerAddress'))
+            .where({ BusinessPartner: businessPartner })
+        ));
+        if (!address?.AddressID) return empty;
+
+        const [emails, phones] = await Promise.all([
+          s4.run(cds.ql.SELECT.from(remoteEntity(s4, 'A_AddressEmailAddress')).where({ AddressID: address.AddressID })),
+          s4.run(cds.ql.SELECT.from(remoteEntity(s4, 'A_AddressPhoneNumber')).where({ AddressID: address.AddressID }))
+        ]);
+        const emailRows = Array.isArray(emails) ? emails : [];
+        const phoneRows = Array.isArray(phones) ? phones : [];
+        const email = emailRows.find((row) => row.IsDefaultEmailAddress) || emailRows[0];
+        const phone = phoneRows.find((row) => row.IsDefaultPhoneNumber) || phoneRows[0];
+        return { Email: email?.EmailAddress || '', Phone: phone?.PhoneNumber || '' };
+      } catch (error) {
+        console.warn(`[contacts] Could not read contact info for ${businessPartner}:`, error.message);
+        return empty;
+      }
+    });
 
     // Unsaved rules on purpose: a test that can only run the saved ruleset cannot show anyone the
     // effect of a change before they commit to it, which is the point of the button.
