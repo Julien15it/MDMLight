@@ -820,7 +820,8 @@ sap.ui.define([], function () {
             "creatable": true,
             "updatable": true
           }
-        ]
+        ],
+        "deletable": true
       },
       {
         "id": "BusinessPartnerRoles",
@@ -877,7 +878,8 @@ sap.ui.define([], function () {
             "creatable": true,
             "updatable": true
           }
-        ]
+        ],
+        "deletable": false
       },
       {
         "id": "TaxNumbers",
@@ -940,7 +942,8 @@ sap.ui.define([], function () {
             "creatable": true,
             "updatable": true
           }
-        ]
+        ],
+        "deletable": true
       },
       {
         "id": "BankDetails",
@@ -1076,7 +1079,8 @@ sap.ui.define([], function () {
             "creatable": false,
             "updatable": false
           }
-        ]
+        ],
+        "deletable": true
       },
       {
         "id": "Identifications",
@@ -1167,7 +1171,8 @@ sap.ui.define([], function () {
             "creatable": true,
             "updatable": true
           }
-        ]
+        ],
+        "deletable": true
       },
       {
         "id": "Industries",
@@ -1238,7 +1243,8 @@ sap.ui.define([], function () {
             "creatable": true,
             "updatable": true
           }
-        ]
+        ],
+        "deletable": true
       },
       {
         "id": "Customers",
@@ -1978,7 +1984,8 @@ sap.ui.define([], function () {
             "creatable": true,
             "updatable": true
           }
-        ]
+        ],
+        "deletable": false
       },
       {
         "id": "CustomerSalesArea",
@@ -2186,7 +2193,8 @@ sap.ui.define([], function () {
             "creatable": true,
             "updatable": true
           }
-        ]
+        ],
+        "deletable": false
       },
       {
         "id": "CustomerTaxGrouping",
@@ -2284,7 +2292,8 @@ sap.ui.define([], function () {
             "creatable": true,
             "updatable": true
           }
-        ]
+        ],
+        "deletable": true
       },
       {
         "id": "CustomerTaxIndicators",
@@ -2381,7 +2390,8 @@ sap.ui.define([], function () {
             "creatable": true,
             "updatable": true
           }
-        ]
+        ],
+        "deletable": false
       },
       {
         "id": "Suppliers",
@@ -2962,7 +2972,8 @@ sap.ui.define([], function () {
             "creatable": true,
             "updatable": true
           }
-        ]
+        ],
+        "deletable": false
       },
       {
         "id": "SupplierPurchasingOrg",
@@ -3072,7 +3083,8 @@ sap.ui.define([], function () {
             "creatable": true,
             "updatable": true
           }
-        ]
+        ],
+        "deletable": false
       },
       {
         "id": "CustomerText",
@@ -3132,7 +3144,8 @@ sap.ui.define([], function () {
             "creatable": false,
             "updatable": false
           }
-        ]
+        ],
+        "deletable": true
       },
       {
         "id": "CustomerAddressExtIdentifier",
@@ -3181,7 +3194,8 @@ sap.ui.define([], function () {
             "creatable": true,
             "updatable": true
           }
-        ]
+        ],
+        "deletable": true
       },
       {
         "id": "CustomerAddressInfo",
@@ -3262,7 +3276,8 @@ sap.ui.define([], function () {
             "creatable": true,
             "updatable": true
           }
-        ]
+        ],
+        "deletable": true
       },
       {
         "id": "CustomerCompanyText",
@@ -3334,7 +3349,8 @@ sap.ui.define([], function () {
             "creatable": false,
             "updatable": false
           }
-        ]
+        ],
+        "deletable": true
       },
       {
         "id": "CustomerDunning",
@@ -3465,7 +3481,8 @@ sap.ui.define([], function () {
             "creatable": true,
             "updatable": true
           }
-        ]
+        ],
+        "deletable": true
       },
       {
         "id": "CustomerWithholdingTax",
@@ -3623,7 +3640,8 @@ sap.ui.define([], function () {
             "creatable": true,
             "updatable": true
           }
-        ]
+        ],
+        "deletable": true
       },
       {
         "id": "CustomerSalesAreaText",
@@ -3718,7 +3736,8 @@ sap.ui.define([], function () {
             "creatable": false,
             "updatable": false
           }
-        ]
+        ],
+        "deletable": true
       },
       {
         "id": "CustomerSalesPartnerFunctions",
@@ -3874,7 +3893,8 @@ sap.ui.define([], function () {
             "creatable": true,
             "updatable": true
           }
-        ]
+        ],
+        "deletable": true
       },
       {
         "id": "CustomerSalesAreaAddressInfo",
@@ -4040,7 +4060,8 @@ sap.ui.define([], function () {
             "creatable": true,
             "updatable": true
           }
-        ]
+        ],
+        "deletable": true
       },
       {
         "id": "CustomerUnloadingPoint",
@@ -4437,7 +4458,8 @@ sap.ui.define([], function () {
             "creatable": true,
             "updatable": true
           }
-        ]
+        ],
+        "deletable": true
       },
       {
         "id": "CustomerUnloadingPointAddressInfo",
@@ -4846,7 +4868,8 @@ sap.ui.define([], function () {
             "creatable": true,
             "updatable": true
           }
-        ]
+        ],
+        "deletable": true
       },
       {
         "id": "SupplierText",
@@ -4906,7 +4929,8 @@ sap.ui.define([], function () {
             "creatable": false,
             "updatable": false
           }
-        ]
+        ],
+        "deletable": true
       },
       {
         "id": "SupplierCompanyText",
@@ -4978,7 +5002,8 @@ sap.ui.define([], function () {
             "creatable": false,
             "updatable": false
           }
-        ]
+        ],
+        "deletable": true
       },
       {
         "id": "SupplierDunning",
@@ -5109,7 +5134,8 @@ sap.ui.define([], function () {
             "creatable": true,
             "updatable": true
           }
-        ]
+        ],
+        "deletable": true
       },
       {
         "id": "SupplierWithholdingTax",
@@ -5260,7 +5286,8 @@ sap.ui.define([], function () {
             "creatable": true,
             "updatable": true
           }
-        ]
+        ],
+        "deletable": true
       },
       {
         "id": "SupplierPurchasingOrgText",
@@ -5332,7 +5359,8 @@ sap.ui.define([], function () {
             "creatable": false,
             "updatable": false
           }
-        ]
+        ],
+        "deletable": true
       },
       {
         "id": "SupplierPartnerFunctions",
@@ -5447,7 +5475,8 @@ sap.ui.define([], function () {
             "creatable": true,
             "updatable": true
           }
-        ]
+        ],
+        "deletable": true
       }
     ]
   };
