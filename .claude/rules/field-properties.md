@@ -66,11 +66,18 @@ A profile's role is one of `*`, `Requester` (the only two non-role-collection co
   is about an actor kind, so users stay out of this picker. **The bare `MDMLIGHT` collection is excluded
   here only** (it is the catalog-level role for the whole app; offering it would scope a profile to
   "everyone with any access" while looking like a narrow choice).
-- **A role matches the screen's category by a case-insensitive PREFIX, checked BIDIRECTIONALLY**
+- **A role matches the screen's category case-insensitively, by `includes`, checked BIDIRECTIONALLY**
   (`profileMatches`). `ApproverSales` counts as an Approver-category profile, and once the screen
   resolves a *specific* role the bare category must still match it, while two different specific roles
   stay apart. `LEGACY_ROLES` (`['Approver', 'DataSteward']`) keeps the write guard accepting values
-  stored before this; an exact match is checked before the prefix.
+  stored before this; an exact match is checked before the substring test. **`includes`, not
+  `startsWith` (fixed 2026-09-04, same bug and same fix as `specificRoleFor` below): this app's own
+  role collections put the function BEFORE the category (`MDMLIGHT_Sales_Approver`), so the category
+  is a SUFFIX, not a prefix, and a bare `Approver`-scoped profile has no `startsWith` relationship to
+  it at all.** Went unnoticed for as long as `resolveEffectiveRole` itself so often fell back to the
+  bare category that the exact-match branch quietly covered for it — the `specificrole` task input
+  (`task-app.md`) closed that resolution gap and is what exposed this one: profiles stopped applying
+  to any approver the moment the resolved role reliably became the real collection name.
 - **Rendering is narrowed to the caller's own specific role.** `resolveEffectiveRole` resolves
   `Approver`/`DataSteward` to the caller's own collection via `specificRoleFor(email, category)` before
   `effectiveFieldProperties` runs — without this, `Approver Customer` (hides Suppliers) and `Approver

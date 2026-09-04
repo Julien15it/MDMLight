@@ -314,21 +314,30 @@ function createFieldPropertyStages(resolved, model) {
 /**
  * True when a profile's conditions cover this request. `requestType` is exact (a closed enum, no
  * business in a prefix match). `role` is exact first - for `*`, `Requester`, and any row still
- * carrying the literal `Approver`/`DataSteward` values from before 2026-08-27 - and otherwise a
- * case-insensitive prefix match, checked **both ways** (2026-08-27, once `role` can itself be a
- * SPECIFIC BTP role - see `effectiveFieldProperties` in change-request-service.js):
+ * carrying the literal `Approver`/`DataSteward` values from before 2026-08-27 - and otherwise
+ * case-insensitive, checked **both ways** (2026-08-27, once `role` can itself be a SPECIFIC BTP role
+ * - see `effectiveFieldProperties` in change-request-service.js):
  *
- * - A profile's role is a prefix of what is being checked - "ApproverSales" or "ApproverFinance"
- *   both count as Approver-category when the screen could only resolve the bare category, so a
- *   steward can scope a profile to a specific function ahead of CAP ever knowing its exact name.
- * - What is being checked is a prefix of the profile's role - a profile still carrying the bare
- *   legacy `Approver` (or one a steward deliberately left at the category level) still applies once
- *   the screen resolves a SPECIFIC role like "Approver Customer" for the person actually looking at
- *   it, or a global policy would stop covering anyone the moment resolution got more precise.
+ * - A profile's role names what is being checked - "ApproverSales" or "ApproverFinance" both count
+ *   as Approver-category when the screen could only resolve the bare category, so a steward can
+ *   scope a profile to a specific function ahead of CAP ever knowing its exact name.
+ * - What is being checked names the profile's role - a profile still carrying the bare legacy
+ *   `Approver` (or one a steward deliberately left at the category level) still applies once the
+ *   screen resolves a SPECIFIC role like "Approver Customer" for the person actually looking at it,
+ *   or a global policy would stop covering anyone the moment resolution got more precise.
  *
- * Two different, specific roles ("Approver Customer" vs. "Approver Vendor") are neither a prefix of
- * the other, so this still keeps them apart - which is the entire point of resolving a specific role
- * in the first place.
+ * **`includes`, not `startsWith` (fixed 2026-09-04, same bug as `specificRoleFor` in
+ * `btp-agents.js`, same fix, reported live: field property profiles stopped applying to ANY approver
+ * the moment `specificrole` started reliably delivering a real BTP role collection name).** This
+ * app's own role collections put the function BEFORE the category (`MDMLIGHT_Sales_Approver`), so
+ * the category is a SUFFIX, never a prefix - a bare "Approver" profile has no prefix relationship to
+ * "MDMLIGHT_Sales_Approver" at all, and a pure `startsWith` check silently matched nothing. It went
+ * unnoticed for as long as `resolveEffectiveRole` itself so often fell back to the bare category
+ * (an unresolvable BTP lookup, an ambiguous user) that the exact-match branch above quietly covered
+ * for it - `specificrole` (`task-app.md`) closed that gap on the resolution side and exposed this one.
+ * Two different, specific roles ("Approver Customer" vs. "Approver Vendor", or
+ * "MDMLIGHT_Sales_Approver" vs. "MDMLIGHT_Finance_Approver") are still neither a substring of the
+ * other, so this still keeps them apart - which is the entire point of resolving a specific role.
  */
 function profileMatches(profile, { requestType, role }) {
   const exact = (stored, actual) => !stored || stored === ANY || String(stored) === String(actual);
@@ -337,7 +346,7 @@ function profileMatches(profile, { requestType, role }) {
     if (typeof stored !== 'string' || typeof actual !== 'string') return false;
     const a = stored.toLowerCase();
     const b = actual.toLowerCase();
-    return a.startsWith(b) || b.startsWith(a);
+    return a.includes(b) || b.includes(a);
   };
   return exact(profile?.requestType, requestType) && roleMatches(profile?.role, role);
 }

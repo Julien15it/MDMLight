@@ -102,7 +102,7 @@ test('only active profiles whose conditions match are merged', () => {
  * resolves a SPECIFIC role like "Approver Customer" for the person actually looking at it. Two
  * DIFFERENT specific roles are neither a prefix of the other, so they still stay apart.
  */
-test('a role is matched by category prefix, case-insensitively, checked both ways', () => {
+test('a role is matched by category, case-insensitively, checked both ways', () => {
   assert.equal(profileMatches({ role: 'ApproverSales' }, { role: 'Approver' }), true);
   assert.equal(profileMatches({ role: 'approversales' }, { role: 'Approver' }), true);
   assert.equal(profileMatches({ role: 'DataStewardEU' }, { role: 'DataSteward' }), true);
@@ -110,10 +110,33 @@ test('a role is matched by category prefix, case-insensitively, checked both way
   // role is what is actually being checked - a global policy must not stop covering anyone the
   // moment role resolution gets more precise.
   assert.equal(profileMatches({ role: 'Approver' }, { role: 'ApproverSales' }), true);
-  // Two specific roles for the same category are still kept apart - neither is a prefix of the other.
+  // Two specific roles for the same category are still kept apart - neither contains the other.
   assert.equal(profileMatches({ role: 'Approver Customer' }, { role: 'Approver Vendor' }), false);
   // A role for one category never matches a screen asking for a different one.
   assert.equal(profileMatches({ role: 'ApproverSales' }, { role: 'DataSteward' }), false);
+});
+
+/**
+ * Fixed 2026-09-04, same bug and same fix as `specificRoleFor` in `btp-agents.js` (`includes`, not
+ * `startsWith`): this app's own role collections put the function BEFORE the category
+ * (`MDMLIGHT_Sales_Approver`), so the category is a SUFFIX, never a prefix, and a bare "Approver"
+ * profile has no `startsWith` relationship to it at all. Went unnoticed for as long as
+ * `resolveEffectiveRole` itself so often fell back to the bare category that the exact-match branch
+ * quietly covered for it - the `specificrole` task input (`task-app.md`) closed that gap and is what
+ * exposed this one: field property profiles stopped applying to any approver at all once the
+ * resolved role reliably became the real, specific role collection name.
+ */
+test('a role in the real MDMLIGHT_<function>_<category> shape still matches its bare category', () => {
+  assert.equal(profileMatches({ role: 'Approver' }, { role: 'MDMLIGHT_Sales_Approver' }), true);
+  assert.equal(profileMatches({ role: 'DataSteward' }, { role: 'MDMLIGHT_EU_DataSteward' }), true);
+  // Two different specific roles in this real shape are still kept apart.
+  assert.equal(
+    profileMatches({ role: 'MDMLIGHT_Sales_Approver' }, { role: 'MDMLIGHT_Finance_Approver' }), false
+  );
+  // A profile scoped to the exact specific role still applies to itself.
+  assert.equal(
+    profileMatches({ role: 'MDMLIGHT_Sales_Approver' }, { role: 'MDMLIGHT_Sales_Approver' }), true
+  );
 });
 
 test('entity settings and field settings are kept apart', () => {
