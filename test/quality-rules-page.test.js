@@ -96,7 +96,7 @@ test('the configured stages join the registry stages, configured first', () => {
   // reads MAINTENANCE_ENTITIES and the payload and nothing else, so it is the cheapest of the lot.
   assert.match(
     changeRequestJs,
-    /validations: \[\.\.\.properties\.validations, \.\.\.configured\.validations, \.\.\.nodeRequiredStages\.validations,\s*\.\.\.createCviStages\(\)\.validations, \.\.\.registry\.validations,\s*\.\.\.relationStages\([^)]*\)\.validations\]/u
+    /validations: \[\.\.\.properties\.validations, \.\.\.configured\.validations, \.\.\.nodeRequiredStages\.validations, \.\.\.fieldLengthStages\.validations,\s*\.\.\.createCviStages\(\)\.validations, \.\.\.registry\.validations,\s*\.\.\.relationStages\([^)]*\)\.validations\]/u
   );
   assert.match(
     changeRequestJs,

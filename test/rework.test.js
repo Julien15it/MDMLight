@@ -155,7 +155,7 @@ test('resubmit runs the same gates as a first submit', () => {
   assert.match(runner, /runValidations\(/u);
   // node_required sits with the offline stages from 2026-08-28, between configured and the cached
   // CVI read - see quality-rules-page.test.js for why the order is what it is.
-  assert.match(runner, /configured\.validations, \.\.\.nodeRequiredStages\.validations,\s*\.\.\.createCviStages\(\)\.validations, \.\.\.registry\.validations/u);
+  assert.match(runner, /configured\.validations, \.\.\.nodeRequiredStages\.validations, \.\.\.fieldLengthStages\.validations,\s*\.\.\.createCviStages\(\)\.validations, \.\.\.registry\.validations/u);
   assert.equal(/configured\.derivations|runDerivations/u.test(runner), false);
 });
 

@@ -340,7 +340,7 @@ test('the property validations run alongside the configured ones, on every gate'
   // see "the enforcing context is the requester" above for the full call-site count.
   assert.equal(
     (serviceJs.match(
-      /\[\.\.\.properties\.validations, \.\.\.configured\.validations, \.\.\.nodeRequiredStages\.validations,\s*\.\.\.createCviStages\(\)\.validations, \.\.\.registry\.validations,\s*\.\.\.relationStages\([^)]*\)\.validations\]/gu
+      /\[\.\.\.properties\.validations, \.\.\.configured\.validations, \.\.\.nodeRequiredStages\.validations, \.\.\.fieldLengthStages\.validations,\s*\.\.\.createCviStages\(\)\.validations, \.\.\.registry\.validations,\s*\.\.\.relationStages\([^)]*\)\.validations\]/gu
     ) || []).length,
     2,
     'runRequestChecks and runSubmitValidations'
