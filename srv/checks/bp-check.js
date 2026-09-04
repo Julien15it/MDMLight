@@ -224,6 +224,21 @@ function logRemoteFailure(error) {
     status ? `with status ${status}:` : ':', detail);
 }
 
+// The screen's `__state` as the check service's `action`, by `rowAction`'s rule: new -> C, any
+// other state -> U, nothing -> N. Without it every row reaches S/4 as an insert (R11/186).
+// Copied, never mutated: `action` belongs to this call, not to the payload the other stages hold.
+function withRowActions(payload) {
+  const actionOf = (row) => (row?.__state === 'new' ? 'C' : row?.__state ? 'U' : 'N');
+  const sections = {};
+  for (const [section, rows] of Object.entries(payload?.sections || {})) {
+    // A `many: false` node can arrive as a bare object rather than a one-row array.
+    if (Array.isArray(rows)) sections[section] = rows.map((row) => ({ ...row, action: actionOf(row) }));
+    else if (rows && typeof rows === 'object') sections[section] = { ...rows, action: actionOf(rows) };
+    else sections[section] = rows;
+  }
+  return { ...payload, sections };
+}
+
 async function callCheck({ payload, requestId, send }) {
   const service = send ? { send } : await cds.connect.to(SERVICE);
   return service.send({
@@ -233,7 +248,7 @@ async function callCheck({ payload, requestId, send }) {
       // The action declares every parameter Nullable="false", so all five go on the wire even
       // where a default would do.
       RequestId: String(requestId || 'check').slice(0, 36),
-      PayloadJson: JSON.stringify(payload || {}),
+      PayloadJson: JSON.stringify(withRowActions(payload) || {}),
       IncludeRoles: INCLUDE_ROLES,
       IncludeRelations: INCLUDE_RELATIONS,
       RunTestRun: true

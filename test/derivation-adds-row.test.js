@@ -67,7 +67,9 @@ const derive = (rules, payload) =>
 test('the row is added when the conditions hold and nothing holds the value yet', async () => {
   const { derived, applied } = await derive([ADDS_ORG], request());
 
-  assert.deepEqual(derived.sections.SupplierPurchasingOrg, [{ PurchasingOrganization: '1710' }]);
+  // `__state: 'new'` because the pipeline built the row: the S/4 check keys insert-vs-update off it.
+  assert.deepEqual(derived.sections.SupplierPurchasingOrg,
+    [{ PurchasingOrganization: '1710', __state: 'new' }]);
   const [entry] = applied.filter((message) => message.field);
   assert.equal(entry.createsRow, true);
   assert.equal(entry.target, 'SupplierPurchasingOrg');
@@ -80,7 +82,7 @@ test('adding runs before filling, so a proposed row is completed in the same pas
   const { derived } = await derive([ADDS_ORG, FILLS_CURRENCY], request());
 
   assert.deepEqual(derived.sections.SupplierPurchasingOrg, [
-    { PurchasingOrganization: '1710', PurchaseOrderCurrency: 'EUR' }
+    { PurchasingOrganization: '1710', PurchaseOrderCurrency: 'EUR', __state: 'new' }
   ]);
 });
 
