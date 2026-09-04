@@ -429,15 +429,7 @@ test('assistant duplicate check catches legal-form and spelling variants', () =>
 });
 
 test('assistant proposes a prefilled Business Partner when a company is absent', () => {
-  const partners = [{
-    BusinessPartner: '1',
-    BusinessPartnerFullName: 'Existing Company'
-  }];
-
-  const suggestion = businessPartnerCreationSuggestion(
-    'Geef info over het bedrijf Coca-Cola',
-    partners
-  );
+  const suggestion = businessPartnerCreationSuggestion('Geef info over het bedrijf Coca-Cola');
   assert.equal(suggestion.SuggestedAction, 'CREATE_BUSINESS_PARTNER');
   assert.deepEqual(JSON.parse(suggestion.SuggestedData), {
     root: {
@@ -450,18 +442,12 @@ test('assistant proposes a prefilled Business Partner when a company is absent',
   assert.equal(
     JSON.parse(businessPartnerCreationSuggestion(
       'Geef info over het bedrijf Coca-Cola',
-      partners,
       { title: 'The Coca-Cola Company', source: 'Wikipedia' }
     ).SuggestedData).root.OrganizationBPName1,
     'The Coca-Cola Company'
   );
-  assert.equal(
-    businessPartnerCreationSuggestion('Geef info over bedrijf Existing Company', partners),
-    null
-  );
   const publicSuggestion = JSON.parse(businessPartnerCreationSuggestion(
     'Geef info over het bedrijf SPAR Destelbergen',
-    partners,
     {
       title: 'Contact - Spar Destelbergen',
       source: 'Public web search',
@@ -476,6 +462,21 @@ test('assistant proposes a prefilled Business Partner when a company is absent',
   ).SuggestedData);
   assert.equal(publicSuggestion.root.OrganizationBPName1, 'SPAR Destelbergen');
   assert.equal(publicSuggestion.sections.Addresses[0].StreetName, 'Dendermondsesteenweg');
+});
+
+/**
+ * Whether a duplicate exists is now the CALLER's decision (2026-09-04, asked for): a possible match
+ * is a warning to review, not a reason to refuse preparing a genuinely different company under a
+ * similar name. businessPartnerCreationSuggestion itself no longer checks partners at all - it takes
+ * no partners argument any more.
+ */
+test('businessPartnerCreationSuggestion still proposes a Business Partner for a name matching an existing one', () => {
+  const suggestion = businessPartnerCreationSuggestion('Geef info over bedrijf Existing Company');
+  assert.equal(suggestion.SuggestedAction, 'CREATE_BUSINESS_PARTNER');
+  assert.equal(
+    JSON.parse(suggestion.SuggestedData).root.OrganizationBPName1,
+    'Existing Company'
+  );
 });
 
 /**
@@ -668,24 +669,23 @@ test('businessPartnerCreationSuggestion proposes the matching role, leaving the 
   // resolution comes from the model-based intent parser (ASSISTANT_INTENT_SOURCE: model) and reaches
   // this function as resolvedCompanyName, exactly as passed here.
   const supplier = JSON.parse(businessPartnerCreationSuggestion(
-    'Maak een supplier aan voor Alluvion', [], null, 'Alluvion'
+    'Maak een supplier aan voor Alluvion', null, 'Alluvion'
   ).SuggestedData);
   assert.deepEqual(supplier.sections.BusinessPartnerRoles, [{ BusinessPartnerRole: 'FLVN01' }]);
   assert.equal(supplier.sections.Suppliers, undefined);
 
   const customer = JSON.parse(businessPartnerCreationSuggestion(
-    'please create a customer for Alluvion', [], null, 'Alluvion'
+    'please create a customer for Alluvion', null, 'Alluvion'
   ).SuggestedData);
   assert.deepEqual(customer.sections.BusinessPartnerRoles, [{ BusinessPartnerRole: 'FLCU01' }]);
 
-  const neither = JSON.parse(businessPartnerCreationSuggestion('Does Alluvion already exist in our system?', []).SuggestedData);
+  const neither = JSON.parse(businessPartnerCreationSuggestion('Does Alluvion already exist in our system?').SuggestedData);
   assert.equal(neither.sections.BusinessPartnerRoles, undefined);
 });
 
 test('businessPartnerCreationSuggestion names the proposal from the registry when no company name was typed', () => {
   const suggestion = JSON.parse(businessPartnerCreationSuggestion(
     'BE0403.200.393',
-    [],
     null,
     '',
     { name: 'ING BELGIUM NV', address: { CityName: 'Brussel', Country: 'BE' }, taxNumber: { BPTaxType: 'BE0', BPTaxNumber: 'BE0403200393' }, source: 'VIES' }
@@ -735,10 +735,8 @@ test('externalResearchAnswer surfaces the registry line whatever the research ou
  * because a wrong guess is worse than an empty one the requester fills in themselves.
  */
 test('the language proposal only fires for a country with one dominant business language', () => {
-  const partners = [];
   const forCountry = (country) => JSON.parse(businessPartnerCreationSuggestion(
     'Geef info over het bedrijf Voorbeeld',
-    partners,
     { source: 'Public web search', suggestedAddress: { Country: country } }
   ).SuggestedData).root.CorrespondenceLanguage;
 
@@ -829,7 +827,6 @@ test('assistant resolves a company from prior turns for a follow-up create reque
   assert.equal(contextualCompanyName('Hallo', []), '');
   const confirmedSuggestion = JSON.parse(businessPartnerCreationSuggestion(
     'Yes',
-    [],
     {
       source: 'Public web search',
       suggestedAddress: {

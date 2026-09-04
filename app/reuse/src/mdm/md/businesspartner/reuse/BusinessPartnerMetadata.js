@@ -2198,7 +2198,7 @@ sap.ui.define([], function () {
       },
       {
         "id": "CustomerTaxGrouping",
-        "title": "Customer Tax Categories",
+        "title": "Customer Tax Grouping",
         "entitySet": "CustomerTaxGrouping",
         "remoteEntity": "A_CustomerTaxGrouping",
         "relationField": "Customer",

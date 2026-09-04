@@ -1643,9 +1643,11 @@ function detectRequestedRoles(text) {
   return ROLE_KEYWORDS.filter(({ pattern }) => pattern.test(source)).map(({ role }) => role);
 }
 
+// Whether a duplicate exists is the CALLER's decision (askBusinessPartnerAssistant already knows,
+// from the live S/4 index, and now offers "create anyway" alongside the warning rather than only
+// ever refusing) - this function's job is building a proposal from what it is handed, nothing more.
 function businessPartnerCreationSuggestion(
   question,
-  partners = [],
   research = null,
   resolvedCompanyName = '',
   registry = null
@@ -1654,7 +1656,6 @@ function businessPartnerCreationSuggestion(
   // company name still gets a proposal, named from the registry that confirmed it.
   const name = resolvedCompanyName || requestedCompanyName(question) || registry?.name || '';
   if (!name) return null;
-  if (findPotentialDuplicates(name, partners).length) return null;
   // A confirmed register name outranks Wikipedia's own title, which outranks the plain requested
   // name - each is more authoritative than the one before it about what the company is actually
   // called.
@@ -1698,13 +1699,19 @@ function businessPartnerCreationSuggestion(
   };
 }
 
-function duplicateAnswer(name, duplicates) {
+// `suggestionReady` is whether the caller also built a creation proposal alongside this warning
+// (askBusinessPartnerAssistant now always tries to, so the requester can still create a genuinely
+// different company without leaving the chat) - never claim "no proposal was prepared" when one was.
+function duplicateAnswer(name, duplicates, suggestionReady) {
   return [
-    `I found ${duplicates.length === 1 ? 'a possible duplicate' : 'possible duplicates'} for “${name}” in S/4HANA. No creation proposal was prepared:`,
+    `I found ${duplicates.length === 1 ? 'a possible duplicate' : 'possible duplicates'} for “${name}” in S/4HANA:`,
     ...duplicates.map(({ partner, score, verdict }) => (
       `${assistantPartnerLine(partner)} | ${VERDICT_LABELS[verdict] || 'Match'} ${Math.round(score * 100)}%`
     )),
-    'Review the existing record before creating another Business Partner.'
+    'Review the existing record before creating another Business Partner.',
+    ...(suggestionReady
+      ? ['If this is a different company, you can still prepare a new Business Partner from the suggestion below.']
+      : [])
   ].join('\n');
 }
 
@@ -2594,7 +2601,10 @@ class BusinessPartnerService extends cds.ApplicationService {
         const directVat = await directVatPending;
         let research = null;
         let registry = null;
-        if (companyName && !duplicates.length) {
+        // Enriched whether or not a duplicate was found: a duplicate is a WARNING, not a refusal, so
+        // the "create anyway" suggestion below still deserves a real address/registry match rather
+        // than a bare name.
+        if (companyName) {
           // Together: two lookups over the same name that neither read nor feed each other - the
           // public web (Wikipedia, then a DuckDuckGo snippet search) and the registers (GLEIF, then
           // VIES for a Belgian hit). One after the other they were four sequential HTTP calls on
@@ -2639,11 +2649,11 @@ class BusinessPartnerService extends cds.ApplicationService {
             source: 'VIES'
           };
         }
-        const suggestion = duplicates.length
-          ? null
-          : businessPartnerCreationSuggestion(question, partners, research, companyName, registry);
+        // Built regardless of duplicates (2026-09-04, asked for): a possible match is a warning the
+        // requester reviews, not a reason to refuse preparing a different, genuinely new company.
+        const suggestion = businessPartnerCreationSuggestion(question, research, companyName, registry);
         const fallbackAnswer = duplicates.length
-          ? [duplicateAnswer(companyName, duplicates), ...directVatAnswerLine(directVat)].join('\n')
+          ? [duplicateAnswer(companyName, duplicates, Boolean(suggestion)), ...directVatAnswerLine(directVat)].join('\n')
           : suggestion
             ? externalResearchAnswer(companyName, research, registry, directVat)
             : [answerBusinessPartnerQuestion(question, partners, addresses), ...directVatAnswerLine(directVat)].join('\n');
