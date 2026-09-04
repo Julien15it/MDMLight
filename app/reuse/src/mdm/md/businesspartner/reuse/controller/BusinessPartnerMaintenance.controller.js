@@ -29,6 +29,7 @@ sap.ui.define([
   "sap/m/VBox",
   "sap/m/HBox",
   "sap/m/Title",
+  "sap/m/Panel",
   "mdm/md/businesspartner/reuse/BusinessPartnerMetadata",
   "mdm/md/businesspartner/reuse/BusinessPartnerAssistant"
 ], function (
@@ -62,6 +63,7 @@ sap.ui.define([
   VBox,
   HBox,
   Title,
+  Panel,
   Metadata,
   BusinessPartnerAssistant
 ) {
@@ -1872,16 +1874,19 @@ sap.ui.define([
 
         // Child sections render inside this dialog rather than as blocks of their own, so one role is one
         // block. They read and write the same state.sections arrays, so staging and posting are untouched.
+        // Collapsed by default, expanded only where there is already something to show - a create with
+        // a dozen empty child sections read as a wall of blocks nobody needed to see yet.
         var hosted = (section.childSections || []).map(function (childId) {
           var child = this._metadata.find(function (candidate) { return candidate.id === childId; });
           if (!child) return null;
           var container = new VBox();
-          items.push(new VBox({
-            items: [
-              new Title({ text: child.title, level: "H3" }).addStyleClass("sapUiSmallMarginTop"),
-              container
-            ]
-          }));
+          var hasData = (state.sections[child.id] || []).length > 0;
+          items.push(new Panel({
+            headerText: child.title,
+            expandable: true,
+            expanded: hasData,
+            content: [container]
+          }).addStyleClass("sapUiSmallMarginTop"));
           return { section: child, container: container };
         }, this).filter(Boolean);
 

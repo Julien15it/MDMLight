@@ -208,6 +208,27 @@ test('Customer and Supplier carry their whole entity, grouped, behind a Details 
 });
 
 /**
+ * Asked for 2026-09-04: a create with several empty child sections (Tax Grouping, Company Code,
+ * Sales Area...) read as a wall of blocks nobody needed to see yet. Each child section now renders
+ * inside its own collapsible sap.m.Panel rather than a plain heading, expanded only when it already
+ * has a row to show - never for an empty one, whatever the mode.
+ */
+test('a child section inside the Details dialog is a collapsible Panel, expanded only when it has data', () => {
+  const controller = fs.readFileSync(
+    path.join(REUSE, 'controller', 'BusinessPartnerMaintenance.controller.js'),
+    'utf8'
+  );
+  const openRecordDialog = controller.slice(controller.indexOf('_openRecordDialog: function'));
+  const hosted = openRecordDialog.slice(
+    openRecordDialog.indexOf('var hosted ='), openRecordDialog.indexOf('this._hostedSectionContainers =')
+  );
+  assert.match(hosted, /new Panel\(/u);
+  assert.match(hosted, /expandable: true/u);
+  assert.match(hosted, /var hasData = \(state\.sections\[child\.id\] \|\| \[\]\)\.length > 0;/u);
+  assert.match(hosted, /expanded: hasData/u);
+});
+
+/**
  * `srv/business-partner-service.cds` excludes fields the imported metadata has but this on-premise
  * release does not expose (`A_Customer excluding {...}`, etc. - see CLAUDE.md, "The imported models
  * are copies, and they go stale silently"). The generator used to read the raw imported CSN only, so

@@ -86,6 +86,12 @@ counts removals separately.** `ObjectStatus`'s existing ternary needed no change
 - **A CHANGED row colours only the cells that differ, not the whole row** — colouring the whole
   `ColumnListItem` for one changed field is indistinguishable from the bug where every field was wrongly
   reported. There is deliberately no `mdmChangedRow` class. **An ADDED row is still tinted whole.**
+- **A section's `childSections` (Customer/Supplier's tax/company/sales-area blocks) render inside the
+  parent record's Details dialog as collapsible `sap.m.Panel`s** (`_openRecordDialog`), one per child,
+  reading and writing the same `state.sections` arrays a top-level section would. **Collapsed by
+  default, expanded only when that child section already has a row** (asked for 2026-09-04 — a create
+  with several empty child sections read as a wall of blocks nobody needed yet) — `hasData` is checked
+  once, at open time, the same way the dialog's own change-baseline is.
 - **The Add/Edit dialog gets a baseline too** — `_openExistingRecord` resolves the row through
   `_rowBaseline` (the same `matchSectionRows` call `_renderSection` uses). Computed once, when the dialog
   opens — it does not track edits live.
