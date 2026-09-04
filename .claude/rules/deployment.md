@@ -102,3 +102,14 @@ revert is itself reverted.
 conflicting, producing a `package-lock.json` with two complete lockfile documents and a test file with
 two tests joined without the closing `});`. After merging a drifted branch, sanity-check
 `package-lock.json` and run `npm test` before concluding anything about a deploy failure.
+
+## The database pool (2026-09-04)
+
+`cds.requires.db.[production].pool` carries `acquireTimeoutMillis: 10000` and `min: 1`. The default
+1000 ms acquire timeout answered a concurrent Check with `500 TimeoutError: ResourceRequest timed
+out` from `generic-pool`: a check holds its connection for the 4-7s it spends in S/4, and a free-plan
+connection can take longer than a second to open. `max` is deliberately left at the CAP default -
+naming a number here could only lower it.
+
+This raises the ceiling; it does not remove the coupling. The connection is still held across the
+remote call. Releasing it around the S/4 call is the actual fix and is not done.

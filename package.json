@@ -43,7 +43,11 @@
       "db": {
         "kind": "sqlite",
         "[production]": {
-          "kind": "postgres"
+          "kind": "postgres",
+          "pool": {
+            "acquireTimeoutMillis": 10000,
+            "min": 1
+          }
         }
       },
       "API_BUSINESS_PARTNER": {
