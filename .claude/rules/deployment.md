@@ -113,3 +113,24 @@ naming a number here could only lower it.
 
 This raises the ceiling; it does not remove the coupling. The connection is still held across the
 remote call. Releasing it around the S/4 call is the actual fix and is not done.
+
+## The srv module installs from the lockfile (2026-09-04)
+
+`mdm-businesspartner-srv` uses `builder: custom` rather than `builder: npm`. The npm builder runs a
+bare `npm install --production`, which re-resolves all 94 packages from version ranges on every
+build - measured at **5 minutes** for 8 direct dependencies, most of the tree being `@sap/cds` and
+the three `@sap-cloud-sdk` packages.
+
+Both commands fall back instead of failing, and that is the point: `cp -n` supplies the root
+lockfile only if `cds build` did not already copy one into `gen/srv`, and `npm ci` refuses outright
+if the generated `package.json` does not satisfy the lockfile, in which case `npm install` runs
+exactly as it did before. **Do not remove either `||`** - a slow build is recoverable, a build
+nobody can run is not.
+
+Unverified when written: whether `cds build` copies `package-lock.json` into `gen/srv` at this
+cds-dk version, and whether `npm ci` accepts the generated `package.json`. The build log answers
+both - it names the command it ran. If it says `npm ci`, this worked; if it fell through to
+`npm install`, the lockfile and the generated manifest disagree and that is the thing to fix next.
+
+`mdm-businesspartner-db-deployer` (`gen/pg`) is a second nodejs module with its own install and is
+deliberately untouched until this one is proven.

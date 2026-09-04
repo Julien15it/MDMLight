@@ -21,8 +21,17 @@ modules:
       buildpack: nodejs_buildpack
       readiness-health-check-type: http
       readiness-health-check-http-endpoint: /health
+    # `builder: npm` runs a bare `npm install --production`, which re-resolves all 94 packages from
+    # version ranges on every build (5m, measured 2026-09-04). `npm ci` installs the lockfile
+    # instead. Both halves fall back rather than fail: if `cds build` did not copy the lockfile into
+    # gen/srv the `cp` supplies the root one, and if the generated package.json does not satisfy it
+    # `npm ci` refuses and `npm install` runs exactly as before. A slow build is not worth a broken
+    # one - do not remove either `||`.
     build-parameters:
-      builder: npm
+      builder: custom
+      commands:
+        - cp -n ../../package-lock.json . 2>/dev/null || true
+        - npm ci --omit=dev || npm install --omit=dev
     provides:
       - name: srv-api
         properties:
