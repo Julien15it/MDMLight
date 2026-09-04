@@ -327,16 +327,17 @@ test('nothing binds before the prefix arrives', () => {
   assert.match(component, /this\._begin\(""\);/u);
 });
 
-// Time to a usable task, not total work: the screen blocks on getRequestPayload, which lives on the
-// change-request service. The partner facade projects all 65 imported entity sets, so eager-loading
-// THAT one first spends the opening moment on the document the screen needs last.
-test('the change-request service is the eagerly loaded one, not the partner facade', () => {
+// Tried the other way round on 2026-09-03 (eager on `cr`, since that is what the first paint waits
+// on) and reverted the same day: the data steward task opened with "The change request service is
+// not bound to this screen" - the `cr` model was missing from the component entirely. A model that
+// does not exist cannot be fast, so this pins the arrangement that binds.
+test('both service models are constructed, and cr is the lazy one', () => {
   const models = component.slice(
     component.indexOf('_initServiceModels: function'),
     component.indexOf('_serviceSettings: function')
   );
-  assert.match(models, /_serviceSettings\("changeRequestService", prefix, true\)/u);
-  assert.match(models, /_serviceSettings\("mainService", prefix, false\)/u);
+  assert.match(models, /_serviceSettings\("mainService", prefix, true\)/u);
+  assert.match(models, /_serviceSettings\("changeRequestService", prefix, false\)\),\s*"cr"/u);
 });
 
 // A missing prefix must not read as a broken service: relative resolves against the launchpad

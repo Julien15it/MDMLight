@@ -38,13 +38,13 @@ applies and it needs no tile, catalog or role.
   routing `/service/*` as a business service (needs a broker `onBind` hook a plain CF app behind a
   destination does not have). Build-time substitution is impossible in one pass: the destination service
   instance is a resource of this same MTA.
-- **`earlyRequests` belongs on the `cr` model, not the main one** (swapped 2026-09-03). Time to a
-  usable task is what matters: the screen's first paint waits on `getRequestPayload`, which is on the
-  change-request service, while the partner facade is wanted only for `currentUserPermissions` and
-  the value helps behind an F4 nobody has pressed. Eager on the partner service fetched the LARGER
-  document (all 65 imported entity sets) at once and left the small one the screen blocks on
-  unrequested until the view had rendered. **Not eager on both** — they would compete for the
-  connection at exactly the wrong moment.
+- **`earlyRequests` stays on the MAIN service. Do not move it to `cr`** — tried 2026-09-03 and
+  reverted the same day. The reasoning for moving it was sound (the first paint waits on
+  `getRequestPayload`, which lives on `cr`, and the partner facade is the far larger document), but
+  the data steward task then opened with *"The change request service is not bound to this screen"*:
+  `component.getModel('cr')` was empty, which is what an ODataModel that fails to construct leaves
+  behind. **A model that does not exist cannot be fast.** If revisited, prove it still binds on all
+  three task types before believing any timing.
 - **`app/bptask`'s `dataSources` are ABSOLUTE on that derived path; `app/businesspartner` keeps relative
   uris.** Embedded in My Inbox the app is served from the HTML5 repository at its **version-stamped**
   path where `/service/*` is not proxied, so a relative uri answered 500 without ever reaching CAP. **Do

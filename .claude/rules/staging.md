@@ -148,6 +148,19 @@ requester opened the rework screen, and **the business partner was already there
   *"Business Partner N WAS created … but the rest of the request could not be posted"*, and
   `BusinessPartner` survives on a **failed** decision so the client can tell the two apart. **Do not
   blank it out because the action failed** — that is the field the branch reads.
+- **The mandatory partner functions are derived and shown, but NEVER POSTED** (`NOT_POSTED_NODES`).
+  They come from `TKUPA`/`T077K` → `TPAER` — *the same customizing S/4's own determination procedure
+  reads* — so creating the sales area is what makes S/4 create them, and posting them afterwards was
+  a race that produced `Customer 331: Partner role SP already exists (only provided once)` and a
+  rework. **Two fixes were tried and removed**: reading the rows back and posting an update, then
+  re-reading and retrying after a failed create. Both foundered on the same thing — **the two sides
+  do not spell the function the same way.** The derivation proposes `AG/RE/RG/WE`, S/4 answers about
+  `SP/BP/PY/SH`: the same four functions, German against English. Any match between them is a guess,
+  and none of it was needed to write a row nobody needed written. They are still derived, proposed
+  and staged — a requester seeing which functions the account group implies is the whole value.
+  **Accepted consequence:** a partner function added BY HAND is skipped too; nothing distinguishes it
+  from a derived row once staged (both are `action: 'C'`). Narrowing it means re-reading `TKUPA` at
+  post time, worth doing only when somebody needs to add one.
 - **The status stays `reworkRequired` either way.** Something in the request did not land and a human
   has to finish it; the retry path is built for exactly that (`isCreate` flips to false once the
   number is known, and a created child row is flipped to `action: 'U'`).

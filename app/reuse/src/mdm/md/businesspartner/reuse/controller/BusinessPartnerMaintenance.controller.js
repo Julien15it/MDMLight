@@ -2464,6 +2464,28 @@ sap.ui.define([
       },
 
       /**
+       * The reasons a check actually BLOCKED, for the "not valid yet" dialog.
+       *
+       * **Only `error` counts**, the same rule the server used to decide `Valid: false` (`BLOCKING`
+       * in srv/checks/pipeline.js). This dialog used to list EVERY validation it was handed, so a
+       * warning or an info line appeared inside an error box under "The data is not valid yet" and
+       * read as the thing that stopped the approval - reported live 2026-09-03, over a missing
+       * standard address. Nothing is lost by filtering: every severity is already on screen as its
+       * own strip at its own level, which is where a warning belongs.
+       *
+       * A blocked check with no error in the list should not happen - the server sets `Valid: false`
+       * only when one is there - so that says so plainly rather than showing an empty box.
+       */
+      _blockingReasons: function (validations) {
+        var blocking = (validations || []).filter(function (entry) {
+          return entry && entry.severity === "error";
+        });
+        return blocking.length
+          ? blocking.map(function (entry) { return "  • " + entry.message; }).join("\n")
+          : "  • The check could not be completed. Please try again.";
+      },
+
+      /**
        * S/4's own standard checks are capped at `warning` server-side (`bp-check.js`'s
        * `MAX_SEVERITY`) - not because a warning is safe to ignore, but because that stage's own
        * findings had not yet been seen to be right on real data when that cap was written, and a
@@ -2530,8 +2552,7 @@ sap.ui.define([
           var validations = self._parseJsonArray(result && result.ValidationsJson);
           if (!result || result.Valid === false) {
             MessageBox.error(
-              "The data is not valid yet:\n\n"
-              + validations.map(function (entry) { return "  • " + entry.message; }).join("\n")
+              "The data is not valid yet:\n\n" + self._blockingReasons(validations)
             );
             return false;
           }
@@ -2604,8 +2625,7 @@ sap.ui.define([
 
           if (!result || result.Valid === false) {
             MessageBox.error(
-              "The data is not valid yet:\n\n"
-              + validations.map(function (entry) { return "  \u2022 " + entry.message; }).join("\n")
+              "The data is not valid yet:\n\n" + this._blockingReasons(validations)
             );
             return;
           }
@@ -2655,8 +2675,7 @@ sap.ui.define([
 
           if (!result || result.Valid === false) {
             MessageBox.error(
-              "The data is not valid yet:\n\n"
-              + validations.map(function (entry) { return "  \u2022 " + entry.message; }).join("\n")
+              "The data is not valid yet:\n\n" + this._blockingReasons(validations)
             );
             return;
           }

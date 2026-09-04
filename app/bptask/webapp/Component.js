@@ -68,22 +68,23 @@ sap.ui.define(
             /**
              * Built here, not declared in manifest.json: only the task context knows the path.
              *
-             * **`earlyRequests` is on `cr`, not on the main service** (swapped 2026-09-03). It was
-             * the other way round, which is backwards for how fast a task becomes usable: the
-             * screen's first paint waits on `getRequestPayload`, which is on `cr`, while the main
-             * service is needed only for `currentUserPermissions` and the value helps behind an F4
-             * nobody has pressed yet. Eager on the wrong one meant the big document - the partner
-             * facade projects all 65 imported entity sets - was fetched at once while the small one
-             * the screen actually blocks on was not requested until the view had already rendered
-             * and the payload read went looking for it.
+             * **`earlyRequests` stays on the MAIN service, not on `cr`.** Moving it onto `cr` looked
+             * right on paper - the screen's first paint waits on `getRequestPayload`, which lives
+             * there, while the partner facade is wanted only for `currentUserPermissions` and the
+             * value helps behind an F4 nobody has pressed. It was reverted the same day (2026-09-03)
+             * because the data steward task then opened with "The change request service is not
+             * bound to this screen": the `cr` model was missing from the component altogether, which
+             * is what an ODataModel that fails to construct leaves behind. Whatever the eager
+             * metadata/token request does to construction here, the model has to EXIST before any
+             * of it can be worth optimising.
              *
-             * Deliberately not eager on BOTH: they would compete for the connection at the moment
-             * that matters, and the partner metadata is the larger download by a wide margin.
+             * If this is revisited: prove the model still binds on all three task types (approve,
+             * rework, data steward) before believing a stopwatch.
              */
             _initServiceModels: function (prefix) {
-                this.setModel(new ODataModel(this._serviceSettings("mainService", prefix, false)));
+                this.setModel(new ODataModel(this._serviceSettings("mainService", prefix, true)));
                 this.setModel(
-                    new ODataModel(this._serviceSettings("changeRequestService", prefix, true)),
+                    new ODataModel(this._serviceSettings("changeRequestService", prefix, false)),
                     "cr"
                 );
             },

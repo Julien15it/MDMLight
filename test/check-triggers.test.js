@@ -51,9 +51,10 @@ test('the action declares Propose and Scope, and the runner threads both', () =>
 
   const js = fs.readFileSync(path.join(__dirname, '..', 'srv', 'change-request-service.js'), 'utf8');
   // Open at the end on purpose: the three parameters this test is about must be threaded, but the
-  // runner has since gained others (`standard`, for the SAP standard checks) and pinning the
-  // closing brace made an additive change read as a broken contract.
-  assert.match(js, /runRequestChecks = async \(req, \{ propose, duplicates, scope = null[^}]*\}\)/u);
+  // runner has since gained others (`standard`, then `stewardStep`) and pinning the closing brace
+  // made an additive change read as a broken contract. `\s*` across the opening brace for the same
+  // reason - the signature wrapped onto its own line once it no longer fitted.
+  assert.match(js, /runRequestChecks = async \(req, \{\s*propose, duplicates, scope = null[^}]*\}\)/u);
   // Matched loosely on purpose: what matters is that the payload and the scope reach
   // proposeNormalisations, not how the call is wrapped - it also carries the AI switch now.
   const proposeCall = js.slice(js.indexOf('proposeNormalisations({'));
@@ -80,8 +81,13 @@ test('only the data steward step pays for the SAP standard checks', () => {
   const js = fs.readFileSync(path.join(__dirname, '..', 'srv', 'change-request-service.js'), 'utf8');
   assert.match(js, /const DATASTEWARD_ROLE = 'DataSteward';/u);
   // The screen's own role, not the narrowed one: `startsWith` so a specific "DataSteward Customer"
-  // still gates them.
-  assert.match(js, /const stewardStep = String\(req\.data\.Role \|\| ''\)\.startsWith\(DATASTEWARD_ROLE\)/u);
+  // still gates them. `forceStewardStep` in front of it is the SERVER asserting the step from the
+  // request's own status (decideDataStewardReview) - it can only ever ADD the checks, never skip
+  // them, so the client-driven half below is unchanged.
+  assert.match(
+    js,
+    /const stewardStep = forceStewardStep \|\| String\(req\.data\.Role \|\| ''\)\.startsWith\(DATASTEWARD_ROLE\)/u
+  );
 
   // The screen names the step it is rendering, and the requester screen names Requester.
   assert.match(CONTROLLER, /state\.mode === "approve" \? "Approver" : \(state\.mode === "datasteward" \? "DataSteward" : "Requester"\)/u);
@@ -264,6 +270,43 @@ test('_standardBlocks: a warning blocks, info does not, and an unreadable result
   // read as "nothing found". A check that could not be confirmed must not read as one that passed.
   assert.equal(standardBlocks(null), true);
   assert.equal(standardBlocks(undefined), true);
+});
+
+/**
+ * Reported live 2026-09-03: an approval was refused with "an error about a std address missing",
+ * and the message the approver read listed every validation the check returned - warnings and info
+ * among them - under "The data is not valid yet". The GATE was already right (the server sets
+ * `Valid: false` only on `error`); it was the LIST that made a warning look like the blocker.
+ */
+test('the "not valid yet" dialog lists only what actually blocked', () => {
+  const blockingReasons = extractMethod(CONTROLLER, '_blockingReasons');
+  const mixed = [
+    { severity: 'warning', message: 'No standard address is maintained.' },
+    { severity: 'error', message: 'Enter a Business Partner category.' },
+    { severity: 'info', message: 'VIES could not be reached.' }
+  ];
+  const listed = blockingReasons(mixed);
+  assert.ok(listed.includes('Enter a Business Partner category.'));
+  assert.equal(listed.includes('No standard address is maintained.'), false,
+    'a warning must not be read out as the reason the approval was refused');
+  assert.equal(listed.includes('VIES could not be reached.'), false);
+});
+
+// Should not happen - the server only blocks when an error is present - but an empty error box
+// would leave the approver with a refusal and no reason at all.
+test('a block with no error in the list still says something', () => {
+  const blockingReasons = extractMethod(CONTROLLER, '_blockingReasons');
+  for (const input of [[], null, undefined, [{ severity: 'warning', message: 'w' }]]) {
+    assert.match(blockingReasons(input), /could not be completed/u);
+  }
+});
+
+// One rule, three dialogs: the pre-action gate, Check and Duplicate Check all used to inline the
+// same unfiltered map, which is how the same defect existed in three places.
+test('every "not valid yet" dialog goes through the one filter', () => {
+  const inlined = CONTROLLER.match(/not valid yet[^;]*validations\.map/gu) || [];
+  assert.equal(inlined.length, 0, 'no dialog builds its own unfiltered list any more');
+  assert.equal((CONTROLLER.match(/_blockingReasons\(validations\)/gu) || []).length, 3);
 });
 
 /**

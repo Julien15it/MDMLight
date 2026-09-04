@@ -151,9 +151,26 @@ the role name** — pattern-matching `FLCU*` would be a guess.
   Same trust level as `renderRole` — nothing is written or approved on the strength of `Role`; what it
   decides is whether a dry-run costs a round trip and a vendor number, so a client that lied spends only
   its own.
-- **`MAX_SEVERITY` caps every standard finding at `'warning'`** and `runChecks` never lets one flip its
-  own `valid` flag. So the pre-action gate uses `_standardBlocks(findings)`: anything with
-  `severity !== 'info'` blocks (gating on `'error'` would never fire), and a non-array blocks too.
+- **`MAX_SEVERITY` is `'error'` since 2026-09-03**, which is the condition its own comment set: the
+  messages had by then been seen right on real data — two requests approved and then refused at the
+  post (`Partner role SP already exists`, a missing standard address), both reported by S/4 as `E`
+  beforehand and both arriving as warnings a steward could walk past. An S/4 `W` is still a warning
+  and `I`/`S` still info. `runChecks` still never lets a standard finding flip `valid`, so the
+  pre-action gate still uses `_standardBlocks(findings)`: anything with `severity !== 'info'` blocks,
+  and a non-array blocks too.
+- **An S/4 `error` blocks the data steward COMPLETING the review** (asked for 2026-09-03), server
+  side, in `decideDataStewardReview`'s complete branch — the screen's `_standardBlocks` is the
+  courtesy version and a direct service call walks past it. Run through `runRequestChecks` with
+  `stewardStep: true`, never `createBpCheckStage` directly: the checks must see `systemDerived`, and
+  handed the raw staged payload they send no relation node at all and the customer and vendor tiers
+  examine nothing. **The server asserts the step from the request's own status** — asking the client
+  whether to gate would be no gate.
+- **The gate cannot throw.** It answered `500` on its first day live and the screen lost the findings
+  with it — no verdict *and* no data, which is worse than either alone. The check is wrapped: a run
+  that could not happen is logged (`[steward-gate]`) and **stepped over**, because a check that could
+  not RUN is not one that failed and an unreachable S/4 must not strand a review with nothing to fix.
+  A refusal leads its list with *"Resolve the errors below before submitting this request."*, and the
+  findings travel in `ValidationsJson` so the screen keeps them on strips until the next action.
 
 **Two messages nobody could clear:** `VMD_API/043` fired on every EU vendor because `ZCL_MDML_BPCHECK`
 never built a `TaxNumbers` node; same blind spot fed `CVI_API/007`. `FSBP_GENERIC/008` was *caused* by

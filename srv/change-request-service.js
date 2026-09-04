@@ -171,6 +171,31 @@ const RELATION_NAVIGATION = Object.freeze({
   Supplier: { navigation: 'to_Supplier', keyField: 'Supplier' }
 });
 
+/**
+ * Sections this app derives and shows, but **never posts**.
+ *
+ * The mandatory customer/supplier partner functions come from `TKUPA`/`T077K` -> `TPAER`, which is
+ * *the same customizing S/4's own partner determination procedure reads*. Creating the sales area
+ * is what makes S/4 run it, so SP/BP/PY/SH exist without us; posting them afterwards was a race we
+ * could only lose (`Customer 331: Partner role SP already exists (only provided once)`, and the
+ * whole request to rework over it).
+ *
+ * Two attempts at making the write work were removed with this: reading the rows back and posting
+ * an update, then re-reading and retrying after a failed create. Both foundered on the same thing -
+ * **the two sides do not spell the function the same way.** The derivation proposes `AG/RE/RG/WE`
+ * and S/4 answers about `SP/BP/PY/SH`: the same four functions, German codes against English. Any
+ * match between them is a guess, and none of it is needed to write a row nobody needs written.
+ *
+ * They are still derived, still proposed, still staged: a requester sees which functions the
+ * account group implies, which is the whole value. Only the POST is skipped.
+ *
+ * **Consequence, accepted:** a partner function somebody adds BY HAND on the screen is skipped too.
+ * Nothing distinguishes it from a derived row once staged - both carry `action: 'C'` and nothing
+ * else. Narrowing this to the derived four means re-reading TKUPA at post time to know which they
+ * are; worth doing only once somebody actually needs to add one.
+ */
+const NOT_POSTED_NODES = new Set(['CustomerSalesPartnerFunctions', 'SupplierPartnerFunctions']);
+
 const isNotFound = (error) => [404, 400].includes(Number(error?.statusCode ?? error?.status ?? error?.code));
 
 /**
@@ -873,7 +898,9 @@ class ChangeRequestService extends cds.ApplicationService {
 
     // Both buttons, one pipeline: each runs only the stages its answer needs, and neither stages
     // anything. Derivations run for both — a rule needs them even when the screen never shows them.
-    const runRequestChecks = async (req, { propose, duplicates, scope = null, standard = false }) => {
+    const runRequestChecks = async (req, {
+      propose, duplicates, scope = null, standard = false, stewardStep: forceStewardStep = false
+    }) => {
       const data = parseJsonObject(req.data.DataJson, 'DataJson');
       // Created per request: the pair shares one VIES/GLEIF lookup between the validation and the
       // derivation, and must not carry it over to the next press of the button.
@@ -908,7 +935,12 @@ class ChangeRequestService extends cds.ApplicationService {
       const renderRole = await resolveEffectiveRole(req, req.data.Role || null, stepHeader);
       // The screen the button was pressed on, before that narrowing: the SAP standard checks run on
       // the data steward step alone, so a specific "DataSteward Customer" must gate them too.
-      const stewardStep = String(req.data.Role || '').startsWith(DATASTEWARD_ROLE);
+      //
+      // `forceStewardStep` is the SERVER saying so instead of the screen: decideDataStewardReview
+      // knows it is the data steward step from the request's own status, and a gate that asked the
+      // client whether to gate would be no gate at all. `req.data.Role` stays the trust level it
+      // always was - a rendering hint that can only ever ADD this cost to its own press.
+      const stewardStep = forceStewardStep || String(req.data.Role || '').startsWith(DATASTEWARD_ROLE);
       const renderResolved = await resolvedProperties({
         requestType: req.data.RequestType || null,
         role: renderRole
@@ -1453,6 +1485,59 @@ class ChangeRequestService extends cds.ApplicationService {
         };
       }
 
+      // S/4's own verdict is the other half of what this step is for, and an ERROR from it must stop
+      // the request HERE rather than travel on to an approver (asked for 2026-09-03, after two live
+      // requests were approved and then refused at the post: a partner role that already existed,
+      // and a missing standard address). The screen's `_standardBlocks` is the courtesy version of
+      // this; a direct service call walks straight past it, which is why the gate is here too.
+      //
+      // Through `runRequestChecks`, not `createBpCheckStage` directly, because the standard checks
+      // must see `systemDerived` - typed values plus the `cvi_account_group` system derivation that
+      // CREATES the Customers/Suppliers node. Handed the raw staged payload they would send no
+      // relation node at all and the customer and vendor tiers would silently examine nothing,
+      // which is the one answer this whole step exists to avoid. `stewardStep: true` because the
+      // server knows what step this is from the request's own status.
+      //
+      // Wrapped, because this gate must never be able to 500 the action. It did (reported live
+      // 2026-09-03): a steward pressing Complete Review got "internal server error" AND lost the
+      // findings off the screen - no verdict and no data, which is worse than either alone. A check
+      // that could not RUN is not a check that failed: it is logged and stepped over, because
+      // blocking a completion on an unreachable S/4 leaves a steward nothing to fix and no way past.
+      let stewardStandard = [];
+      try {
+        const stewardCheck = await runRequestChecks(req, {
+          propose: false, duplicates: false, standard: true, stewardStep: true
+        });
+        stewardStandard = stewardCheck.standard || [];
+      } catch (error) {
+        console.error(
+          `[steward-gate] The SAP standard checks could not run for ${changeRequestId}:`, error
+        );
+      }
+      const blockingStandard = stewardStandard.filter((finding) => finding.severity === BLOCKING);
+      if (blockingStandard.length) {
+        return {
+          ChangeRequest: changeRequestId,
+          Status: 'checkAndEnrich',
+          NeedsConfirmation: false,
+          Valid: false,
+          // The instruction leads, then what to fix. The screen renders these as strips in the order
+          // they arrive and they stay up until the next action, so an unresolved error is still on
+          // screen when the steward looks back at the form - which is the whole point of returning
+          // them rather than throwing.
+          ValidationsJson: JSON.stringify([
+            {
+              check: 'sap_standard_checks',
+              severity: BLOCKING,
+              message: 'Resolve the errors below before submitting this request.'
+            },
+            ...validations,
+            ...blockingStandard
+          ]),
+          MessagesJson: JSON.stringify([])
+        };
+      }
+
       await recordValidationFindings(changeRequestId, validations);
 
       const findings = await recordDuplicateFindings(changeRequestId, req.data.BusinessPartner);
@@ -1624,6 +1709,14 @@ class ChangeRequestService extends cds.ApplicationService {
           // Staged for context only - the user never touched it. Null covers rows staged before
           // `N` existed; both mean the same thing and neither may reach S/4.
           if (!action || action === UNTOUCHED) continue;
+          // Derived for the screen, never written. Before the relation read, so a section nothing
+          // will post costs nothing. Named in the log rather than dropped in silence: a row that
+          // deliberately does not reach S/4 is exactly the kind of thing someone later reads as a
+          // bug, and this is the line that answers them.
+          if (NOT_POSTED_NODES.has(section)) {
+            console.log(`[post] ${section} is derived for the screen only; not posted to S/4.`);
+            continue;
+          }
           const relationField = RELATION_FIELDS[section] || 'BusinessPartner';
 
           if (!(relationField in resolvedRelations)) {

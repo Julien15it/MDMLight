@@ -43,7 +43,9 @@ test('a missing relation number creates the role node and blocks a child', () =>
   // The child case: nothing to hang it on, so it is refused rather than posted somewhere else.
   assert.match(loop, /if \(relationValue == null && !isRoleNode\) \{/u);
   assert.match(loop, /has no \$\{relationField\} record yet/u);
-  // The role case: absent means "not created yet", which is what create is for.
+  // The role case: absent means "not created yet", which is what create is for. A third branch was
+  // added on 2026-09-03 for rows S/4's determination procedure makes itself, and removed the same
+  // day: those sections are not posted at all now (NOT_POSTED_NODES), so there is nothing to decide.
   assert.match(loop, /const isCreate = isRoleNode \? relationValue == null : action !== 'U'/u);
 });
 

@@ -101,12 +101,18 @@ const INCLUDE_RELATIONS = true;
  * noise, while blocking a legitimate request leaves a requester unable to submit and with nothing
  * to argue against.
  *
- * The argument for raising it is `R1/091` -- a grouping with external number assignment genuinely
- * cannot be created, so warning about it lets a doomed request through approval, which is the very
- * thing this feature exists to prevent. Raise to 'error' once these messages have been seen to be
- * right on real data at a real customer.
+ * **Raised to 'error' on 2026-09-03**, which is the condition this comment set: the messages have
+ * now been seen to be right on real data. Two live requests were approved and then refused at the
+ * post - `Partner role SP already exists` and a missing standard address - both of which S/4 had
+ * reported as E beforehand and both of which arrived as warnings a data steward could walk past.
+ * A doomed request reaching an approver is the very thing this stage exists to prevent.
+ *
+ * Nothing else changes shape: an S/4 `W` is still a warning and `I`/`S` still info, and the stage
+ * still only runs on the data steward step. What an `error` now does is BLOCK that step's
+ * completion - see the standard-check gate in `decideDataStewardReview`. Lower it back here if a
+ * class of message turns out to be wrong; that is one line and no other code assumes the cap.
  */
-const MAX_SEVERITY = 'warning';
+const MAX_SEVERITY = 'error';
 
 const RANK = { info: 0, warning: 1, error: 2 };
 

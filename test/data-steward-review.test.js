@@ -191,3 +191,66 @@ test('workflowContext resolves data stewards for the processors strip only while
   assert.match(builder, /dataStewards = await dataStewardEmails\(\);/u);
   assert.match(builder, /currentProcessors\(header, approvers, dataStewards\)/u);
 });
+
+/**
+ * Asked for 2026-09-03, after two requests were approved and then refused at the post - a partner
+ * role that already existed, and a missing standard address. Both had been reported by S/4's own
+ * checks beforehand, as warnings a data steward could walk past. An ERROR now stops the completion
+ * rather than travelling on to an approver.
+ */
+test('an S/4 error blocks the data steward completing the review', () => {
+  // Searched FROM the start marker, not from the top of the file: `recordDuplicateFindings` is
+  // called by submitRequest and resubmitRequest too, and their occurrences come first - taking the
+  // first one made the slice run backwards and quietly yield an empty string, which matches nothing
+  // and reads as "the gate is missing" rather than "the test is looking in the wrong place".
+  const completeAt = serviceJs.indexOf("// decision === 'complete'");
+  const complete = serviceJs.slice(
+    completeAt,
+    serviceJs.indexOf('const findings = await recordDuplicateFindings', completeAt)
+  );
+  assert.ok(complete.length > 0, 'the complete branch was found');
+  assert.match(complete, /standard: true, stewardStep: true/u);
+  assert.match(complete, /\.filter\(\(finding\) => finding\.severity === BLOCKING\)/u);
+  assert.match(complete, /if \(blockingStandard\.length\)/u);
+  // The instruction leads the list, so the steward reads what to do before what is wrong.
+  assert.match(complete, /Resolve the errors below before submitting this request\./u);
+  // Refused, not recorded and passed on: the request stays where it is.
+  assert.match(complete, /Status: 'checkAndEnrich',\s*NeedsConfirmation: false,\s*Valid: false/u);
+});
+
+// The server decides it is the steward step from the request's own status. Asking the client would
+// be no gate at all - Role is a rendering hint that can only ever ADD this cost to its own press.
+test('the steward step is asserted by the server, not taken from the client Role', () => {
+  assert.match(serviceJs, /const stewardStep = forceStewardStep \|\| String\(req\.data\.Role \|\| ''\)/u);
+});
+
+// The standard checks must see systemDerived - typed values plus cvi_account_group, which is what
+// creates the Customers/Suppliers node. Handed the raw staged payload they send no relation node
+// and the customer and vendor tiers examine nothing at all.
+test('the gate runs through runRequestChecks, so the checks see systemDerived', () => {
+  const complete = serviceJs.slice(serviceJs.indexOf("// decision === 'complete'"));
+  assert.ok(complete.length > 0, 'the complete branch was found');
+  assert.match(complete, /const stewardCheck = await runRequestChecks\(req, \{/u);
+  assert.equal(
+    /createBpCheckStage\(/u.test(complete), false,
+    'never the stage directly - that would skip the derivations it depends on'
+  );
+});
+
+/**
+ * Reported live 2026-09-03: pressing Complete Review answered "internal server error" and the
+ * findings vanished off the screen - no verdict AND no data. A gate is worth nothing if the way it
+ * fails is worse than not having it, so it cannot throw: the checks are wrapped, and a run that
+ * could not happen is logged and stepped over rather than blocking a steward with nothing to fix.
+ */
+test('the gate cannot 500 the action, whatever the checks do', () => {
+  const completeAt = serviceJs.indexOf("// decision === 'complete'");
+  const complete = serviceJs.slice(
+    completeAt, serviceJs.indexOf('await recordValidationFindings', completeAt)
+  );
+  assert.ok(complete.length > 0, 'the complete branch was found');
+  assert.match(complete, /try \{\s*const stewardCheck = await runRequestChecks/u);
+  assert.match(complete, /\[steward-gate\] The SAP standard checks could not run/u);
+  // Stepped over, not blocked: an unreachable S/4 must not strand a review.
+  assert.match(complete, /let stewardStandard = \[\];/u);
+});

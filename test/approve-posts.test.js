@@ -306,7 +306,46 @@ test('a post that failed AFTER the partner was created says so, and names it', (
 
 test('the task app branches on the same thing rather than assuming a failure means nothing exists', () => {
   const completeTask = taskComponent.slice(taskComponent.indexOf('_completeTask:'));
-  assert.match(completeTask, /decision\.BusinessPartner\s*
-?\s*\?\s*"Approved\. Business Partner "/u);
+  assert.match(completeTask, /decision\.BusinessPartner\s*\?\s*"Approved\. Business Partner "/u);
   assert.match(completeTask, /WAS created in S\/4HANA/u);
+});
+
+/**
+ * Decided 2026-09-03 after two live failures and two failed attempts at making the write work.
+ *
+ * The mandatory partner functions come from TKUPA/T077K -> TPAER, the very customizing S/4's own
+ * determination procedure reads, so creating the sales area is what makes S/4 create them. Posting
+ * them after was a race, and matching what S/4 already had was a guess: the derivation proposes
+ * AG/RE/RG/WE and S/4 answers about SP/BP/PY/SH - the same four functions in two languages.
+ *
+ * They are still derived, proposed and staged, because a requester seeing which functions the
+ * account group implies is the whole value. Only the POST is skipped.
+ */
+test('the mandatory partner functions are derived and shown, never posted', () => {
+  const postToS4 = serviceJs.slice(
+    serviceJs.indexOf('const postToS4 ='), serviceJs.indexOf('const postAndRecord =')
+  );
+  assert.match(postToS4, /if \(NOT_POSTED_NODES\.has\(section\)\)/u);
+  // Skipped BEFORE the relation read, so a section nothing will post costs nothing.
+  assert.ok(
+    postToS4.indexOf('NOT_POSTED_NODES.has(section)') < postToS4.indexOf('await awaitRelationNumber'),
+    'the skip must come before anything is read for the row'
+  );
+  // Said out loud: a row that deliberately never reaches S/4 is what someone later reads as a bug.
+  assert.match(postToS4, /derived for the screen only; not posted to S\/4/u);
+});
+
+test('both partner-function sections are skipped, and nothing else is', () => {
+  assert.match(
+    serviceJs,
+    /const NOT_POSTED_NODES = new Set\(\['CustomerSalesPartnerFunctions', 'SupplierPartnerFunctions'\]\)/u
+  );
+});
+
+// The machinery that existed only to make the write succeed is gone, not left dormant: a reader
+// finding a matcher for rows nothing posts would reasonably assume posting still happens.
+test('the read-back-and-update machinery was removed with the write', () => {
+  for (const symbol of ['SELF_DETERMINED_NODES', 'determinedRowsFor', 'matchDeterminedRow']) {
+    assert.equal(serviceJs.includes(symbol), false, `${symbol} outlived the write it served`);
+  }
 });
