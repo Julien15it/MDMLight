@@ -331,7 +331,7 @@ test('the screen loads the profiles before it renders, for the role it is showin
   assert.match(controller, /_loadFieldProperties\(state\.requestType \|\| "change", "Requester"\)/u);
   assert.match(
     controller,
-    /_loadFieldProperties\(\s*state\.requestType, mode === "approve" \? "Approver" : \(reviewing \? "DataSteward" : "Requester"\),\s*state\.changeRequest\s*\)/u
+    /_loadFieldProperties\(\s*state\.requestType,\s*specificRole \|\| \(mode === "approve" \? "Approver" : \(reviewing \? "DataSteward" : "Requester"\)\),\s*state\.changeRequest\s*\)/u
   );
   // Rendering is synchronous, so a field the profiles hide must never be painted and taken away.
   const create = controller.slice(controller.indexOf('_onCreateRoute:'));

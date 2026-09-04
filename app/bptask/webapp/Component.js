@@ -37,7 +37,15 @@ sap.ui.define(
                 // and are how the approve/rework pages learn which request to load without a
                 // route to carry it - see _openApprove/_openRework.
                 this.setModel(
-                    new JSONModel({ embedded: false, taskChangeRequest: "", taskReworkChangeRequest: "" }),
+                    new JSONModel({
+                        embedded: false, taskChangeRequest: "", taskReworkChangeRequest: "",
+                        // The specific role BPA assigned this task to (a BTP role collection name,
+                        // e.g. "MDMLIGHT_Sales_Approver"), read off the `specificrole` task input -
+                        // see _openApprove/_openDataStewardReview. Empty until the context arrives,
+                        // and stays empty for a task whose process definition does not map it, which
+                        // the shared controller reads as "resolve it the old way".
+                        taskSpecificRole: ""
+                    }),
                     "env"
                 );
                 this.setModel(
@@ -207,7 +215,7 @@ sap.ui.define(
 
                 if (context.tasktype === "datasteward") {
                     if (context.changerequestid) {
-                        this._openDataStewardReview(context.changerequestid);
+                        this._openDataStewardReview(context.changerequestid, context.specificrole);
                     } else {
                         MessageBox.error(
                             "This task carries no change request id, so there is nothing to show. "
@@ -221,7 +229,7 @@ sap.ui.define(
                 }
 
                 if (context.changerequestid) {
-                    this._openApprove(context.changerequestid);
+                    this._openApprove(context.changerequestid, context.specificrole);
                 } else {
                     // The task loaded but carries no request id, which is a mapping problem in
                     // the process rather than anything this app can recover from. Said out loud:
@@ -250,7 +258,7 @@ sap.ui.define(
              * when the context arrives, or may still be initialising. The model covers the late
              * reader, the event the early one.
              */
-            _openApprove: function (changeRequest) {
+            _openApprove: function (changeRequest, specificRole) {
                 if (!this.getModel("env").getProperty("/embedded")) {
                     this.getRouter().navTo(
                         "ChangeRequestApprove",
@@ -261,7 +269,10 @@ sap.ui.define(
                 }
 
                 this.getModel("env").setProperty("/taskChangeRequest", changeRequest);
-                this.getEventBus().publish("taskform", "approve", { changeRequest: changeRequest });
+                this.getModel("env").setProperty("/taskSpecificRole", specificRole || "");
+                this.getEventBus().publish(
+                    "taskform", "approve", { changeRequest: changeRequest, specificRole: specificRole || "" }
+                );
 
                 var router = this.getRouter();
                 var targets = router && router.getTargets && router.getTargets();
@@ -308,7 +319,7 @@ sap.ui.define(
 
             // Same shape as _openRework - see that one's comment for why routing is bypassed
             // embedded and both the model and the event are used.
-            _openDataStewardReview: function (changeRequest) {
+            _openDataStewardReview: function (changeRequest, specificRole) {
                 if (!this.getModel("env").getProperty("/embedded")) {
                     this.getRouter().navTo(
                         "ChangeRequestDataSteward",
@@ -319,7 +330,10 @@ sap.ui.define(
                 }
 
                 this.getModel("env").setProperty("/taskDataStewardChangeRequest", changeRequest);
-                this.getEventBus().publish("taskform", "datasteward", { changeRequest: changeRequest });
+                this.getModel("env").setProperty("/taskSpecificRole", specificRole || "");
+                this.getEventBus().publish(
+                    "taskform", "datasteward", { changeRequest: changeRequest, specificRole: specificRole || "" }
+                );
 
                 var router = this.getRouter();
                 var targets = router && router.getTargets && router.getTargets();

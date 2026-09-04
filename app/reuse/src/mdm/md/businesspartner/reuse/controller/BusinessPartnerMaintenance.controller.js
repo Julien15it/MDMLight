@@ -575,10 +575,14 @@ sap.ui.define([
 
         var component = this.getOwnerComponent();
         component.getEventBus().subscribe("taskform", "approve", function (channel, event, data) {
-          if (data && data.changeRequest) this._loadStagedRequest(data.changeRequest, "approve");
+          if (data && data.changeRequest) {
+            this._loadStagedRequest(data.changeRequest, "approve", data.specificRole);
+          }
         }, this);
         var pending = component.getModel("env").getProperty("/taskChangeRequest");
-        if (pending) this._loadStagedRequest(pending, "approve");
+        if (pending) {
+          this._loadStagedRequest(pending, "approve", component.getModel("env").getProperty("/taskSpecificRole"));
+        }
 
         // Same bypass, for the rework task added alongside the reworkurl deep link: a My Inbox
         // task carrying tasktype: "rework" hands its id over the same way, on its own channel.
@@ -591,10 +595,16 @@ sap.ui.define([
         // Same bypass again, for the data steward task: a My Inbox task carrying
         // tasktype: "datasteward" hands its id over the same way, on its own channel.
         component.getEventBus().subscribe("taskform", "datasteward", function (channel, event, data) {
-          if (data && data.changeRequest) this._loadStagedRequest(data.changeRequest, "datasteward");
+          if (data && data.changeRequest) {
+            this._loadStagedRequest(data.changeRequest, "datasteward", data.specificRole);
+          }
         }, this);
         var pendingDataSteward = component.getModel("env").getProperty("/taskDataStewardChangeRequest");
-        if (pendingDataSteward) this._loadStagedRequest(pendingDataSteward, "datasteward");
+        if (pendingDataSteward) {
+          this._loadStagedRequest(
+            pendingDataSteward, "datasteward", component.getModel("env").getProperty("/taskSpecificRole")
+          );
+        }
 
         // Resubmit/Withdraw cannot complete a My Inbox task directly the way Approve/Reject do -
         // they need this screen's own Check/duplicate-confirm/submit flow to run first. So the
@@ -3417,7 +3427,15 @@ sap.ui.define([
       // `mode` is "approve", "edit", "rework", "datasteward" or "view". It was a boolean until rework
       // arrived, which needs a draft's editability and a footer of its own; "view" needs neither and
       // offers nothing.
-      _loadStagedRequest: async function (changeRequest, mode) {
+      //
+      // `specificRole` is the BTP role collection BPA assigned this task to (task-app.md's
+      // `specificrole` input), read for "approve"/"datasteward" only - the two categories
+      // resolveEffectiveRole ever narrows. When present it is sent as-is instead of the bare
+      // "Approver"/"DataSteward" category, which is what lets a step-specific profile (say
+      // "Approver Sales") apply without CAP guessing at the caller's own BTP role membership. Empty
+      // for every other entry point (a direct deep link, standalone testing, a process that does not
+      // map the input yet), which falls through to the existing resolution unchanged.
+      _loadStagedRequest: async function (changeRequest, mode, specificRole) {
         var maintenanceModel = this.getView().getModel("maintenance");
         var reworking = mode === "rework";
         var reviewing = mode === "datasteward";
@@ -3496,7 +3514,8 @@ sap.ui.define([
           // approve view too: once approvals are split by function, a sales approver has no business
           // reading the bank details.
           await this._loadFieldProperties(
-            state.requestType, mode === "approve" ? "Approver" : (reviewing ? "DataSteward" : "Requester"),
+            state.requestType,
+            specificRole || (mode === "approve" ? "Approver" : (reviewing ? "DataSteward" : "Requester")),
             state.changeRequest
           );
           state.businessPartner = (payload && payload.BusinessPartner) || "";

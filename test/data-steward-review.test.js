@@ -161,7 +161,7 @@ test('tasktype "datasteward" opens the data steward review and registers its own
   assert.match(taskComponent, /context\.tasktype === "datasteward"/u);
   assert.match(
     taskComponent,
-    /if \(context\.changerequestid\) \{\s+this\._openDataStewardReview\(context\.changerequestid\);/u
+    /if \(context\.changerequestid\) \{\s+this\._openDataStewardReview\(context\.changerequestid, context\.specificrole\);/u
   );
   assert.match(taskComponent, /this\._addDataStewardInboxActions\(\);\s*\n\s*return;/u);
 });

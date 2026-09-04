@@ -75,6 +75,17 @@ Still open, Julien's call: a failed post from My Inbox completes the task anyway
   datastewards }`
 - **`prefix` must be mapped onto the approval AND rework task inputs.** **An undeclared key never becomes
   task context**, so sending it is not enough — the process definition has to declare and map it.
+- **`specificrole`, optional, on the approval and data steward task inputs.** The BTP role collection
+  BPA resolved this task's assignee to (e.g. `MDMLIGHT_Sales_Approver`) — declared in
+  `sap.bpa.task.inputs` alongside `prefix`/`tasktype`. `Component.js` reads it off the task context and
+  hands it to the shared screen, which sends it to `effectiveFieldProperties` in place of the bare
+  `Approver`/`DataSteward` category. `resolveEffectiveRole` (`workflow.md`/`field-properties.md`) only
+  narrows those two literal category strings — anything else it receives is already specific and passes
+  through untouched — so this is a second, more direct way to reach the same narrowing
+  `currentStepAssignee`/`specificRoleFor` do from the caller's own BTP membership, useful whenever BPA
+  itself already knows which specific role queue the task belongs to. Absent (an undeclared mapping, a
+  process built before this existed, rework or a direct deep link) falls straight through to that
+  existing resolution — rendering only, never enforcement, same trust level as `renderRole`.
 - Decision callback: `POST /service/changerequest/decideRequest` with
   `{ ChangeRequest, Decision: 'approve'|'reject', Comment }`
 - Post trigger: `POST /service/changerequest/completeRequest` with `{ ChangeRequest }`

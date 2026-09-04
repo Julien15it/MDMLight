@@ -202,9 +202,25 @@ test('the outcome labels are literal, not i18n placeholders', () => {
  * was raised and reverted the same day for that reason; do not re-raise it, and do not "fix" this
  * assertion by bumping the manifest. This is the standing bump-on-every-deploy rule's one exception,
  * and it is one because the version is an address the process resolves, not just a label.
+ *
+ * **Raised 1.5.0 -> 1.8.0 on 2026-09-04** (agreed with Arthur first, per task-app.md's "ask before
+ * doing" on the SBPA contract): `specificrole` joined sap.bpa.task.inputs, same reason `prefix` did
+ * in the 1.2.0 -> 1.3.0 bump above - the Lobby only re-reads the input schema when the task is
+ * re-pointed, so a new input needs a new version to actually become mappable, unlike removing one.
+ * 1.6.0 and 1.7.0 are skipped rather than reused - see the note above about what a reused number
+ * already cost once.
  */
 test('the task app version is pinned, so the process keeps pointing at it', () => {
-  assert.equal(manifest['sap.app'].applicationVersion.version, '1.5.0');
+  assert.equal(manifest['sap.app'].applicationVersion.version, '1.8.0');
+});
+
+test('specificrole is a declared task input, optional like prefix and tasktype', () => {
+  const inputs = manifest['sap.bpa.task'].inputs;
+  assert.ok(inputs.properties.specificrole, 'specificrole is declared');
+  assert.equal(
+    inputs.required.includes('specificrole'), false,
+    'optional - absent for rework, a direct deep link, or a process not yet mapping it'
+  );
 });
 
 test('currentapprover/totalapprovers are gone - the task form no longer decides finality', () => {
