@@ -4,7 +4,7 @@ const cds = require('@sap/cds');
 const { askSapAiCore } = require('./ai/business-partner-assistant');
 const { parseIntent, useModelIntent } = require('./ai/intent');
 const { aiAssistanceEnabled } = require('./ai/availability');
-const { researchCompany } = require('./ai/company-research');
+const { researchCompany, vatNumberFromPublicWeb } = require('./ai/company-research');
 const { enrichCandidate } = require('./ai/registry');
 const { checkVatNumber, STATUS: VIES_STATUS, VIES_COUNTRIES } = require('./ai/vies');
 const { startWorkflow } = require("./wf/processAutomation");
@@ -1375,6 +1375,22 @@ function parseConversationHistory(value) {
     .slice(-10);
 }
 
+// Imperative/command words a requester uses to ASK for a business partner, never part of the
+// company's own name - kept separate from the shared ASSISTANT_STOP_WORDS (which relevantPartners
+// and assistantSearchTerms also use, for a different question) because this is specific to the bug
+// below: none of "maak"/"bp"/"create" is a generic stop word, so a short imperative like "maak BP
+// Alluvion" or "create a BP Acme" passed the bareWords guard untouched and was returned WHOLE as the
+// "company name" (reported 2026-09-04, "the search name is always our search query"). Creation
+// intents are the model-based intent parser's job (see the doc comment on requestedCompanyName's
+// gap in business-partner-service.test.js) - this only has to stop the pattern parser guessing
+// wrong when the model is unavailable, not parse the imperative itself.
+const CREATION_COMMAND_WORDS = new Set([
+  'maak', 'maken', 'aanmaken', 'aangemaakt', 'creëer', 'creeer', 'creëren', 'creeren',
+  'opstellen', 'registreer', 'registreren', 'toevoegen', 'voeg',
+  'create', 'creating', 'add', 'adding', 'new', 'prepare', 'preparing', 'register', 'registering',
+  'bp'
+]);
+
 function contextualCompanyName(question, conversationHistory = []) {
   const direct = requestedCompanyName(question);
   if (direct) return direct;
@@ -1386,7 +1402,10 @@ function contextualCompanyName(question, conversationHistory = []) {
     .split(/\s+/u)
     .filter(Boolean);
   if (!isAffirmativeFollowUp && bareWords.length >= 1 && bareWords.length <= 6
-    && bareWords.every((word) => !ASSISTANT_STOP_WORDS.has(word.toLocaleLowerCase()))) {
+    && bareWords.every((word) => {
+      const lower = word.toLocaleLowerCase();
+      return !ASSISTANT_STOP_WORDS.has(lower) && !CREATION_COMMAND_WORDS.has(lower);
+    })) {
     return bareWords.join(' ');
   }
   const isFollowUp = isAffirmativeFollowUp || /(?:\ber\b[\s\S]*\bvan\b|\bit\b|\bthat\b|\bdie\b|\bdeze\b|\bhiervan\b|\bdaarvan\b)/iu.test(source)
@@ -1556,6 +1575,53 @@ async function directVatLookup(question, checkVat = checkVatNumber) {
     console.warn('[assistant] Direct VAT lookup unavailable:', error.message);
     return null;
   }
+}
+
+// VIES throttles per member state (checks.md), so a guess from noisy search snippets is bounded
+// tighter than a number the requester actually typed - stop at the first VALID verdict and never
+// try more than this many candidates for one question.
+const MAX_WEB_VAT_CANDIDATES = 3;
+
+/**
+ * The name-only counterpart to directVatLookup: nothing was typed, but registryEnrichment's GLEIF
+ * lookup either found nothing or found a company GLEIF has no Belgian confirmation for - GLEIF's
+ * coverage is real companies it happens to hold an LEI record for, not every company. Searching the
+ * public web for the number itself (a company's own site, a directory listing) is a second way to
+ * reach the same VIES call. Only ever asked for when registryEnrichment did not already reach VIES
+ * (see the caller) - this must not double the VIES traffic one question already paid for.
+ *
+ * Unverified candidates only ever become an answer once VIES itself confirms one - same trust rule
+ * as everywhere else in this file. A candidate VIES does not confirm is silently dropped rather than
+ * reported as "not registered": unlike a number the requester typed, a wrong guess from search noise
+ * saying nothing is the right failure mode, not a false negative about a real company.
+ */
+async function vatNumberFromWebSearch(name, { search = vatNumberFromPublicWeb, checkVat = checkVatNumber } = {}) {
+  let candidates;
+  try {
+    candidates = await search(name);
+  } catch (error) {
+    console.warn('[assistant] Public VAT number search unavailable:', error.message);
+    return null;
+  }
+  for (const candidate of candidates.filter((entry) => VAT_TEXT_COUNTRIES.has(entry.country)).slice(0, MAX_WEB_VAT_CANDIDATES)) {
+    try {
+      const check = await checkVat(candidate.country, `${candidate.country}${candidate.number}`);
+      if (check.status !== VIES_STATUS.VALID) continue;
+      return {
+        status: VIES_STATUS.VALID,
+        name: check.name || '',
+        address: check.address || null,
+        countryCode: check.countryCode,
+        vatNumber: check.vatNumber,
+        taxNumber: check.countryCode === 'BE'
+          ? { BPTaxType: BE_VAT_TAX_TYPE, BPTaxNumber: `${check.countryCode}${check.vatNumber}` }
+          : null
+      };
+    } catch (error) {
+      console.warn('[assistant] VIES confirmation unavailable:', error.message);
+    }
+  }
+  return null;
 }
 
 // FLCU01/FLVN01 are the standard S/4 FI Customer / FI Vendor roles this app already checks against
@@ -2542,6 +2608,23 @@ class BusinessPartnerService extends cds.ApplicationService {
           ]);
           research = researched;
           registry = enriched;
+          // Tried only once the two above have answered, and only when neither reached a VIES
+          // confirmation itself - GLEIF has no record for every company, so this is a second way to
+          // find the same number when the first found nothing to confirm. Sequential rather than
+          // joining the Promise.all above: whether it is worth even trying depends on registry's own
+          // result, and running it unconditionally would call VIES a second time for names GLEIF
+          // already confirmed - exactly the traffic checks.md warns against.
+          if (registry?.source !== 'VIES' && directVat?.status !== VIES_STATUS.VALID) {
+            const webVat = await vatNumberFromWebSearch(companyName);
+            if (webVat) {
+              registry = {
+                name: webVat.name || registry?.name || '',
+                address: webVat.address || registry?.address || null,
+                taxNumber: webVat.taxNumber || registry?.taxNumber || null,
+                source: 'VIES'
+              };
+            }
+          }
         }
         // A confirmed, directly-typed VAT number outranks a name-matched GLEIF/VIES chain - it is
         // what the requester actually asked about, not an inference from a company name.
@@ -2694,6 +2777,7 @@ BusinessPartnerService._internals = {
   extractVatNumber,
   detectRequestedRoles,
   directVatLookup,
+  vatNumberFromWebSearch,
   duplicateAnswer,
   externalResearchAnswer,
   requestingUserEmail,

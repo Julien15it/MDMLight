@@ -52,6 +52,33 @@ fallback** whenever `parseIntent` returns null. `company-research.js` is a separ
   feed each other, so they run together rather than as four sequential HTTP calls. Both are
   best-effort and neither can reject, so `Promise.all` cannot short-circuit and lose the other's
   result. The two model calls stay sequential: `askSapAiCore` is prompted with what the lookups found.
+- **A name-only VAT lookup reaches VIES too, not just GLEIF's `registeredAs`.** `vatNumberFromWebSearch`
+  (business-partner-service.js) is `registryEnrichment`'s companion for a company GLEIF has no record
+  for at all: it asks `company-research.js`'s `vatNumberFromPublicWeb` to search the public web for the
+  number itself and shape whatever 2-letter-code-plus-digits candidates the snippets contain, then runs
+  the **same** `checkVatNumber` every other path uses. **Trust stays split exactly where it already
+  was**: `company-research.js` stays ignorant of which codes VIES actually serves — it only shapes
+  candidates — and `vatNumberFromWebSearch` alone decides which are worth a VIES call (filtered against
+  the same `VAT_TEXT_COUNTRIES` `extractVatNumber` uses) and trusts none of them until VIES confirms
+  one. **Stops at the first `VALID` verdict, capped at `MAX_WEB_VAT_CANDIDATES` (3)** — VIES throttles
+  per member state (`checks.md`), and a guess from search noise gets a tighter budget than a number the
+  requester actually typed. **Only tried when neither a typed number nor GLEIF already reached VIES**
+  (`registry?.source !== 'VIES'` and no confirmed `directVat`) — run unconditionally it would double the
+  VIES traffic one question already paid for, so it runs sequentially after `registryEnrichment`, not
+  inside the `Promise.all` above. A candidate VIES does not confirm is dropped silently, never reported
+  as "not registered" — unlike a number the requester typed, a wrong guess from search noise saying
+  nothing is the right failure, not a false negative about a real company.
+- **`contextualCompanyName`'s bare-words fallback used to echo back whole imperatives** (reported
+  2026-09-04: "the search name is always our search query in the prompt"). It exists for the simple
+  case — the whole message IS the company name, nothing else — and used to accept any short message
+  where no word was a *generic* stop word, which "maak"/"bp"/"create" never were, so "maak BP Alluvion"
+  passed through whole and reached the web search, VIES and every proposed field verbatim. Creation
+  imperatives are the model-based intent parser's job in production (`ASSISTANT_INTENT_SOURCE: model`;
+  see `requestedCompanyName`'s documented gap in `business-partner-service.test.js`) — fixing this did
+  **not** teach the regex parser to parse them, only stopped it guessing wrong when the model is
+  unavailable. `CREATION_COMMAND_WORDS` is a second, separate word set from `ASSISTANT_STOP_WORDS` on
+  purpose — it needed a broader stop set to answer this specific question, but polluting the shared list
+  would have run it against `relevantPartners`/`assistantSearchTerms` too, a different question.
 - **A requested role gets a role row.** `detectRequestedRoles` matches `customer`/`klant`/`afnemer` →
   `FLCU01` and `supplier`/`vendor`/`leverancier` → `FLVN01` (a plain regex, always on, unlike the
   `ASSISTANT_INTENT_SOURCE`-gated parser); both can fire. **Only the role row is added** —

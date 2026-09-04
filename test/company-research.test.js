@@ -4,7 +4,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   parsePublicSearchResults,
-  researchCompany
+  researchCompany,
+  vatCandidatesFromResults,
+  vatNumberFromPublicWeb
 } = require('../srv/ai/company-research');
 
 test('company research returns bounded public information and its source', async () => {
@@ -123,6 +125,53 @@ test('company research falls back to public web results for a local company', as
     CityName: 'Destelbergen',
     Country: 'BE'
   });
+});
+
+/**
+ * vatNumberFromPublicWeb is deliberately ignorant of which two-letter codes VIES actually serves -
+ * that trust decision belongs to business-partner-service.js's vatNumberFromWebSearch, which alone
+ * owns the VIES call. This module only shapes candidates out of search snippets, so the same pattern
+ * that matches a real VAT number also matches an unrelated two-letter-plus-digits token; that is by
+ * design, filtered by the caller.
+ */
+test('vatCandidatesFromResults finds shaped candidates in titles and snippets, de-duplicated', () => {
+  const results = [
+    { title: 'Alluvion BV - BTW BE0403.200.393', snippet: 'Contact us' },
+    { title: 'Alluvion', snippet: 'VAT number: BE 0403 200 393 - same company' },
+    { title: 'Unrelated', snippet: 'Order ID12345678 shipped' }
+  ];
+  assert.deepEqual(vatCandidatesFromResults(results), [
+    { country: 'BE', number: '0403200393' },
+    { country: 'ID', number: '12345678' }
+  ]);
+});
+
+test('vatCandidatesFromResults finds nothing in plain prose, and never throws on empty input', () => {
+  assert.deepEqual(vatCandidatesFromResults([{ title: 'Alluvion', snippet: 'A software company in Gent' }]), []);
+  assert.deepEqual(vatCandidatesFromResults([]), []);
+  assert.deepEqual(vatCandidatesFromResults(), []);
+});
+
+test('vatNumberFromPublicWeb searches for the number and shapes what it finds', async () => {
+  const html = `
+    <a class="result__a" href="https://alluvion.eu">Alluvion - BTW BE0403.200.393</a>
+    <a class="result__snippet">Software company in Gent.</a>`;
+  let requestedUrl;
+  const candidates = await vatNumberFromPublicWeb('Alluvion', {
+    fetchImpl: async (url) => {
+      requestedUrl = String(url);
+      return { ok: true, text: async () => html };
+    }
+  });
+  assert.match(requestedUrl, /q=Alluvion(?:\+|%20)VAT(?:\+|%20)number/u);
+  assert.deepEqual(candidates, [{ country: 'BE', number: '0403200393' }]);
+});
+
+test('vatNumberFromPublicWeb is best-effort: a failed search resolves to an empty list, never throws', async () => {
+  const candidates = await vatNumberFromPublicWeb('Alluvion', {
+    fetchImpl: async () => { throw new Error('DuckDuckGo unavailable'); }
+  });
+  assert.deepEqual(candidates, []);
 });
 
 test('public search parser ignores unsafe and malformed result links', () => {

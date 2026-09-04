@@ -19,6 +19,7 @@ const {
   registryEnrichment,
   extractVatNumber,
   directVatLookup,
+  vatNumberFromWebSearch,
   detectRequestedRoles,
   externalResearchAnswer,
   businessPartnerNavigationPath,
@@ -571,6 +572,60 @@ test('directVatLookup still answers when VIES does not confirm the number', asyn
 });
 
 /**
+ * vatNumberFromWebSearch is registryEnrichment's name-only counterpart when GLEIF has no record for
+ * the company at all: the same VIES call, reached through a public web search for the number itself
+ * rather than through a GLEIF hit's registeredAs. Unverified candidates only ever become an answer
+ * once VIES confirms one - a candidate search noise turns up that VIES does not confirm is dropped
+ * silently, never reported as "not registered" the way a number the requester actually typed is.
+ */
+test('vatNumberFromWebSearch confirms the first web-found candidate VIES validates', async () => {
+  const search = async (name) => {
+    assert.equal(name, 'Alluvion');
+    return [{ country: 'BE', number: '0403200393' }];
+  };
+  const checkVat = async (country, vatNumber) => {
+    assert.equal(country, 'BE');
+    assert.equal(vatNumber, 'BE0403200393');
+    return { status: 'valid', name: 'ALLUVION', countryCode: 'BE', vatNumber: '0403200393', address: { CityName: 'Gent', Country: 'BE' } };
+  };
+  const result = await vatNumberFromWebSearch('Alluvion', { search, checkVat });
+  assert.equal(result.status, 'valid');
+  assert.equal(result.name, 'ALLUVION');
+  assert.deepEqual(result.taxNumber, { BPTaxType: 'BE0', BPTaxNumber: 'BE0403200393' });
+});
+
+test('vatNumberFromWebSearch tries the next candidate once the first is not confirmed, and stops at the cap', async () => {
+  const attempted = [];
+  const search = async () => [
+    { country: 'BE', number: '1111111111' },
+    { country: 'FR', number: '22222222222' },
+    { country: 'DE', number: '333333333' },
+    { country: 'NL', number: '444444444B01' }
+  ];
+  const checkVat = async (country, vatNumber) => {
+    attempted.push(vatNumber);
+    return { status: 'invalid' };
+  };
+  const result = await vatNumberFromWebSearch('Nobody NV', { search, checkVat });
+  assert.equal(result, null);
+  // Capped at MAX_WEB_VAT_CANDIDATES (3): the fourth candidate is never even tried.
+  assert.equal(attempted.length, 3);
+});
+
+test('vatNumberFromWebSearch never calls VIES for a code VIES does not serve, and is best-effort', async () => {
+  const checkVat = async () => { throw new Error('VIES must not be called for an unrecognised code'); };
+  const result = await vatNumberFromWebSearch(
+    'Nobody NV', { search: async () => [{ country: 'ZZ', number: '123456789' }], checkVat }
+  );
+  assert.equal(result, null);
+
+  const failing = await vatNumberFromWebSearch(
+    'Nobody NV', { search: async () => { throw new Error('web search unavailable'); }, checkVat: async () => ({ status: 'valid' }) }
+  );
+  assert.equal(failing, null);
+});
+
+/**
  * Asking the assistant to create a supplier/customer used to propose only General/Addresses/
  * TaxNumbers - no BusinessPartnerRoles row, so the existing cvi_account_group derivation (which keys
  * off the role) never had anything to fire on and the Customers/Suppliers section stayed empty too.
@@ -771,6 +826,22 @@ test('assistant resolves a company from prior turns for a follow-up create reque
     () => parseConversationHistory('{broken'),
     /ConversationJson must contain valid JSON/
   );
+});
+
+// Reported 2026-09-04: the search name given to the web search, VIES and every proposed field was
+// "always our search query in the prompt" - the pattern parser's bareWords fallback treated any
+// short imperative with no generic stop word ("maak", "bp", "create" are not one) as if it were the
+// bare company name and echoed the whole sentence back. Creation imperatives are the model-based
+// intent parser's job in production (ASSISTANT_INTENT_SOURCE: model) - the pattern parser only has
+// to stop guessing wrong when the model is unavailable, which is what these pin.
+test('a creation imperative is never echoed back whole as the company name', () => {
+  assert.equal(contextualCompanyName('maak BP Alluvion', []), '');
+  assert.equal(contextualCompanyName('maak BP Alluvion aan', []), '');
+  assert.equal(contextualCompanyName('create BP Acme', []), '');
+  assert.equal(contextualCompanyName('creëer BP Acme', []), '');
+  // A bare name with no command word is still resolved, unaffected by the fix.
+  assert.equal(contextualCompanyName('Alluvion', []), 'Alluvion');
+  assert.equal(contextualCompanyName('Acme Corp', []), 'Acme Corp');
 });
 
 test('requesting user email prefers the XSUAA email claim over the logon name', () => {

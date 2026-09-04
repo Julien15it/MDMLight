@@ -117,10 +117,55 @@ function suggestedAddressFromResults(results = []) {
   return null;
 }
 
-async function publicWebSearch(name, options) {
+async function runPublicSearch(query, options) {
   const searchUrl = new URL(PUBLIC_SEARCH_API);
-  searchUrl.search = new URLSearchParams({ q: `${name} company address` }).toString();
+  searchUrl.search = new URLSearchParams({ q: query }).toString();
   return parsePublicSearchResults(await fetchText(searchUrl, options));
+}
+
+async function publicWebSearch(name, options) {
+  return runPublicSearch(`${name} company address`, options);
+}
+
+// A country code VIES could recognise, then a run of digits - same shape checkVatNumber and
+// extractVatNumber (business-partner-service.js) already look for in typed text, applied here to
+// search snippets instead. This module stays deliberately ignorant of which two-letter codes VIES
+// actually accepts (that list lives with the VIES client) - it only shapes candidates, the caller
+// decides which are worth a VIES call.
+const VAT_CANDIDATE_PATTERN = /\b([A-Za-z]{2})[\s.-]?(\d(?:[\s.-]?\d){6,13})\b/gu;
+
+function vatCandidatesFromResults(results = []) {
+  const text = results.map((result) => `${result.title} ${result.snippet}`).join(' ');
+  const pattern = new RegExp(VAT_CANDIDATE_PATTERN.source, VAT_CANDIDATE_PATTERN.flags);
+  const seen = new Set();
+  const candidates = [];
+  let match;
+  while ((match = pattern.exec(text))) {
+    const country = match[1].toLocaleUpperCase();
+    const number = match[2].replace(/\D+/gu, '');
+    const key = `${country}${number}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    candidates.push({ country, number });
+  }
+  return candidates;
+}
+
+/**
+ * A company name is often all a chat question gives VIES nothing to check directly - this searches
+ * the public web for the number itself (a company's own site, a business directory) so the assistant
+ * can still run the real VIES check instead of only reaching it through a GLEIF name match. Returns
+ * shaped candidates, unverified: the caller (business-partner-service.js, which alone knows which
+ * codes VIES serves and owns the actual VIES call) decides which to check and trusts none of this
+ * until VIES confirms one. Best-effort like every other lookup here - a failed search is an empty
+ * list, never a thrown error.
+ */
+async function vatNumberFromPublicWeb(name, options) {
+  try {
+    return vatCandidatesFromResults(await runPublicSearch(`${name} VAT number`, options));
+  } catch {
+    return [];
+  }
 }
 
 async function researchCompanyOnPublicWeb(name, options = {}) {
@@ -209,5 +254,7 @@ module.exports = {
   suggestedAddressFromResults,
   researchCompanyOnPublicWeb,
   addressFromPublicWeb,
-  researchCompany
+  researchCompany,
+  vatCandidatesFromResults,
+  vatNumberFromPublicWeb
 };
