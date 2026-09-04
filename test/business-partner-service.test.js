@@ -2,6 +2,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const cds = require('@sap/cds');
 
 const BusinessPartnerService = require('../srv/business-partner-service');
@@ -360,7 +362,28 @@ test('all creatable maintenance entities use their Business Partner navigation',
   assert.equal(MAINTENANCE_ENTITIES.BankDetails.deletable, true);
   assert.equal(MAINTENANCE_ENTITIES.Identifications.deletable, true);
   assert.equal(MAINTENANCE_ENTITIES.Industries.deletable, true);
-  assert.equal(MAINTENANCE_ENTITIES.BusinessPartnerRoles.deletable, true);
+  // false since 2026-09-04: A_BusinessPartnerRole is sap:deletable="false", and the DELETE this
+  // used to allow came back "Operation is not supported" only after the request was activated.
+  assert.equal(MAINTENANCE_ENTITIES.BusinessPartnerRoles.deletable, false);
+});
+
+/**
+ * The drift that let a deleted supplier role through: six entities claimed `deletable: true` where
+ * the API declares otherwise, so the refusal arrived from S/4 after activation instead of from the
+ * screen. Pinned against the EDMX rather than re-listed by hand, or it drifts again.
+ */
+test('every maintenance entity mirrors sap:deletable from the EDMX', () => {
+  const edmx = fs.readFileSync(
+    path.join(__dirname, '..', 'srv', 'external', 'API_BUSINESS_PARTNER.edmx'), 'utf8'
+  );
+  for (const [id, configuration] of Object.entries(MAINTENANCE_ENTITIES)) {
+    const set = edmx.match(new RegExp(`<EntitySet Name="${configuration.remote}"[^>]*/>`, 'u'));
+    assert.ok(set, `${configuration.remote} not found in the EDMX`);
+    assert.equal(
+      configuration.deletable, !/sap:deletable="false"/u.test(set[0]),
+      `${id} (${configuration.remote}) disagrees with the EDMX`
+    );
+  }
 });
 
 /**
