@@ -363,3 +363,27 @@ test('a task carrying no prefix says so rather than 404ing', () => {
   assert.match(component, /no service prefix/u);
   assert.match(component, /task input `prefix` declared in sap\.bpa\.task/u);
 });
+
+/**
+ * Reported live 2026-09-04: an approval task (empty `tasktype`) came back as `checkAndEnrich`, a
+ * status only the data steward mode sets. `env` is built once and each handler set only its own key,
+ * so a steward task opened earlier left its id behind and the next task inherited the mode.
+ */
+test('each task open handler clears the other two handoff keys', () => {
+  const handlers = {
+    _openApprove: ['/taskReworkChangeRequest', '/taskDataStewardChangeRequest'],
+    _openRework: ['/taskChangeRequest', '/taskDataStewardChangeRequest'],
+    _openDataStewardReview: ['/taskChangeRequest', '/taskReworkChangeRequest']
+  };
+  for (const [handler, cleared] of Object.entries(handlers)) {
+    const start = component.indexOf(handler + ': function');
+    assert.ok(start > 0, handler + ' not found');
+    const body = component.slice(start, start + 1200);
+    for (const key of cleared) {
+      assert.ok(
+        body.includes('setProperty("' + key + '", "")'),
+        handler + ' must clear ' + key
+      );
+    }
+  }
+});

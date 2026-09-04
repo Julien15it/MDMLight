@@ -33,6 +33,8 @@ sap.ui.define(
                 // The shared screen binds all three. `env>/embedded` decides whether it draws its
                 // own decision buttons; `perm` gates the steward-only and AI-only controls. Both
                 // start closed, so a control is never briefly offered to someone who may not use it.
+                // One of these three at a time: each _open* clears its siblings, or a task opened
+                // after a data steward task inherits its mode and claims itself (2026-09-04).
                 // `taskChangeRequest`/`taskReworkChangeRequest` are filled only while embedded,
                 // and are how the approve/rework pages learn which request to load without a
                 // route to carry it - see _openApprove/_openRework.
@@ -269,6 +271,8 @@ sap.ui.define(
                 }
 
                 this.getModel("env").setProperty("/taskChangeRequest", changeRequest);
+                this.getModel("env").setProperty("/taskReworkChangeRequest", "");
+                this.getModel("env").setProperty("/taskDataStewardChangeRequest", "");
                 this.getModel("env").setProperty("/taskSpecificRole", specificRole || "");
                 this.getEventBus().publish(
                     "taskform", "approve", { changeRequest: changeRequest, specificRole: specificRole || "" }
@@ -310,6 +314,8 @@ sap.ui.define(
                 }
 
                 this.getModel("env").setProperty("/taskReworkChangeRequest", changeRequest);
+                this.getModel("env").setProperty("/taskChangeRequest", "");
+                this.getModel("env").setProperty("/taskDataStewardChangeRequest", "");
                 this.getEventBus().publish("taskform", "rework", { changeRequest: changeRequest });
 
                 var router = this.getRouter();
@@ -330,6 +336,8 @@ sap.ui.define(
                 }
 
                 this.getModel("env").setProperty("/taskDataStewardChangeRequest", changeRequest);
+                this.getModel("env").setProperty("/taskChangeRequest", "");
+                this.getModel("env").setProperty("/taskReworkChangeRequest", "");
                 this.getModel("env").setProperty("/taskSpecificRole", specificRole || "");
                 this.getEventBus().publish(
                     "taskform", "datasteward", { changeRequest: changeRequest, specificRole: specificRole || "" }
