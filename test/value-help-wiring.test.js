@@ -53,6 +53,14 @@ test('every projected entity exists in the imported metadata', () => {
   }
 });
 
+// One deliberate exception (2026-09-04): `BusinessPartnerPerson`'s F4 (Contacts) is a LIVE S/4
+// business-partner read, not a ZSRVB_MDMLIGHT_VH code list - `BusinessPartnerPersons`
+// (business-partner-service.cds) projects `A_BusinessPartner` itself, filtered to category
+// Person, and is never routed through the `valueHelp`/`VALUE_HELP_ENTITIES` passthrough at all.
+// Named here for the same reason LOCAL_VALUE_LISTS is below: folding it into VALUE_HELP_ENTITIES
+// would make the OTHER two tests in this file wrongly demand a `projection on VH.*` for it.
+const LIVE_S4_VALUE_HELPS = Object.freeze(['BusinessPartnerPersons']);
+
 // The UI reaches the lookups by collection name over OData. A typo here is an empty F4 dialog,
 // which is exactly the failure this page shipped with once already.
 test('every collectionPath the maintenance UI asks for is an exposed entity', () => {
@@ -60,10 +68,21 @@ test('every collectionPath the maintenance UI asks for is an exposed entity', ()
   assert.ok(paths.length > 0, 'VALUE_HELP_FIELDS no longer declares collection paths');
   for (const collectionPath of new Set(paths)) {
     assert.ok(
-      VALUE_HELP_ENTITIES.includes(collectionPath),
+      VALUE_HELP_ENTITIES.includes(collectionPath) || LIVE_S4_VALUE_HELPS.includes(collectionPath),
       `${collectionPath} is used by the UI but not exposed by the service`
     );
   }
+});
+
+// The one thing that makes this F4 safe: without the filter, a steward could pick an organisation
+// or a group as a "contact person". Pinned directly against the CDS text rather than the compiled
+// model, so a future edit that loosens or drops the `where` clause fails a test instead of shipping
+// silently - a live remote projection has no local persistence to catch it any other way.
+test('BusinessPartnerPersons is a real projection, filtered to category Person', () => {
+  assert.match(
+    serviceCds,
+    /entity BusinessPartnerPersons as projection on S4\.A_BusinessPartner\s*\n?\s*where BusinessPartnerCategory = '1';/u
+  );
 });
 
 // Local value lists have no S/4 or ZSRVB_MDMLIGHT_VH data behind them at all - db/staging.cds's own

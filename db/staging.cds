@@ -102,6 +102,7 @@ entity ChangeRequests : cuid, managed {
   general           : Composition of one  StagedGeneral        on general.request        = $self;
   addresses         : Composition of many StagedAddresses      on addresses.request      = $self;
   roles             : Composition of many StagedRoles          on roles.request          = $self;
+  contacts          : Composition of many StagedContacts       on contacts.request       = $self;
   bankDetails       : Composition of many StagedBankDetails    on bankDetails.request    = $self;
   taxNumbers        : Composition of many StagedTaxNumbers     on taxNumbers.request     = $self;
   identifications   : Composition of many StagedIdentifications on identifications.request = $self;
@@ -280,6 +281,42 @@ entity StagedRoles : cuid {
   BusinessPartnerRole : String(6);
   ValidFrom           : DateTime;
   ValidTo             : DateTime;
+}
+
+/**
+ * A contact person relationship (S/4 `A_BusinessPartnerContact`, RelationshipCategory BUR001 -
+ * "has contact person"). `BusinessPartnerPerson` is chosen through an F4 search of live S/4
+ * business partners of category Person - never typed - the same reason `BusinessPartnerRole`
+ * above is a code rather than free text.
+ *
+ * `LastName`/`FirstName`/`BusinessPartnerFullName` are a DISPLAY-ONLY snapshot, captured from the
+ * chosen person at selection time so the table shows a name without a live join on every render -
+ * they are not elements of `A_BusinessPartnerContact` and `sanitizeEntityPayload`
+ * (business-partner-service.js) drops any staged field the target entity does not declare, so
+ * these three never reach S/4. `RelationshipNumber` IS staged, blank on a fresh create - the same
+ * shape `StagedAddresses.AddressID` already has for the identical reason: S/4 assigns the real key
+ * on create, and a later change-type request reading this contact back from S/4 needs somewhere
+ * to carry that key so an update/delete can address it.
+ *
+ * `ValidityStartDate`/`ValidityEndDate` are plain `Date`, matching `A_BusinessPartnerContact`'s
+ * own type exactly (confirmed against the imported CSN) - not `DateTime` like `StagedRoles.ValidFrom`/
+ * `ValidTo`. `Date` gives a date-only `DatePicker` (see `isDateTime`/`_createForm`), because there is
+ * no time component to ask a requester for: S/4 always wants `00:00:00`, and this app already posts
+ * other `Date`-typed staged fields (`StagedGeneral.BirthDate`, `.OrganizationFoundationDate`) to their
+ * own `Edm.DateTime` remote properties with no bespoke serialisation - the remote V2 proxy formats
+ * the wire value from the property's own imported EDM type, so a plain `yyyy-MM-dd` staged value
+ * already arrives at S/4 as `yyyy-MM-ddT00:00:00` today, and needs nothing new to do the same here.
+ */
+entity StagedContacts : cuid {
+  request                 : Association to ChangeRequests;
+  action                  : NodeAction not null default 'C';
+  RelationshipNumber      : String(12);
+  BusinessPartnerPerson   : String(10);
+  LastName                : String(40);
+  FirstName               : String(40);
+  BusinessPartnerFullName : String(81);
+  ValidityStartDate       : Date;
+  ValidityEndDate         : Date;
 }
 
 entity StagedBankDetails : cuid {

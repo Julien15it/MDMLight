@@ -298,6 +298,21 @@ sap.ui.define([
     IndustryCode5: {
       collectionPath: "IndustryCodes", keyField: "BusinessPartnerIndustryCode",
       descriptionField: "BusinessPartnerIndustryCode_Text", title: "Select Industry Code"
+    },
+    // Not a ZSRVB_MDMLIGHT_VH code list like every entry above - `BusinessPartnerPersons`
+    // (business-partner-service.cds) is a live S/4 read of `A_BusinessPartner` itself, filtered
+    // server-side to category Person, so this dialog can only ever offer a real business partner
+    // of the right kind (2026-09-04, asked for: an F4 for a Contacts row's contact person, the
+    // same experience SAP's own standard Maintain Business Partner offers). `copyFields` is new
+    // (see `_openValueHelp` below): a plain value-help only ever wrote its own `keyField` into the
+    // record, but Contacts' summary table also shows the chosen person's name, which has to be
+    // copied over from the SAME selection rather than looked up again later.
+    BusinessPartnerPerson: {
+      collectionPath: "BusinessPartnerPersons", keyField: "BusinessPartner",
+      descriptionField: "BusinessPartnerFullName", title: "Select Contact Person",
+      copyFields: {
+        LastName: "LastName", FirstName: "FirstName", BusinessPartnerFullName: "BusinessPartnerFullName"
+      }
     }
   };
 
@@ -1517,6 +1532,16 @@ sap.ui.define([
               var value = context.getProperty(this._valueHelpTarget.config.keyField);
               this._valueHelpTarget.record[this._valueHelpTarget.field.name] = value;
               this._valueHelpTarget.input.setValue(value);
+              // Extra properties read off the SAME selected row, alongside the key - Contacts'
+              // own LastName/FirstName/BusinessPartnerFullName snapshot, so the summary table can
+              // show the chosen person's name without re-reading it later. Every other value-help
+              // config has no `copyFields` and this is a no-op for them.
+              var copyFields = this._valueHelpTarget.config.copyFields;
+              if (copyFields) {
+                Object.keys(copyFields).forEach(function (targetField) {
+                  this._valueHelpTarget.record[targetField] = context.getProperty(copyFields[targetField]);
+                }, this);
+              }
               if (this._valueHelpTarget.section.kind === "root") this._updatePreview();
               // Choosing a value from this dialog never fires the input's own "change" event, so
               // nothing that normally rides on a commit would otherwise run for it: the root form's
@@ -1967,6 +1992,14 @@ sap.ui.define([
         var form = this._createForm(section, record, isCreate, editing, grouped, baseline);
         var items = [form];
 
+        // Contacts' own read-only detail: the picked person's own email/phone, read LIVE from S/4
+        // (2026-09-04, asked for), not staged data - so it renders as its own Panel here rather
+        // than a childSections entry, which only ever reads state.sections. Address is
+        // deliberately absent, on request, for now.
+        if (section.id === "BusinessPartnerContacts" && record.BusinessPartnerPerson) {
+          items.push(this._buildContactPersonInfoPanel(record.BusinessPartnerPerson));
+        }
+
         // Child sections render inside this dialog rather than as blocks of their own, so one role is one
         // block. They read and write the same state.sections arrays, so staging and posting are untouched.
         // Collapsed by default, expanded only where there is already something to show - a create with
@@ -2046,6 +2079,34 @@ sap.ui.define([
         this.getView().addDependent(dialog);
         dialog.open();
         hosted.forEach(function (entry) { this._renderSection(entry.section, entry.parentRow); }, this);
+      },
+
+      /**
+       * A Contacts row's own read-only detail: the picked person's default address email/phone,
+       * read live via `personContactInfo` (business-partner-service.cds) - never staged, so this
+       * is not a childSections entry (those only ever read `state.sections`). Starts showing
+       * "Loading…" and fills in once the read settles; best-effort like the read itself, so a
+       * failure still leaves the dialog usable rather than throwing it away.
+       */
+      _buildContactPersonInfoPanel: function (businessPartner) {
+        var emailText = new Text({ text: "Loading contact information…" });
+        var phoneText = new Text({ text: "" });
+        var panel = new Panel({
+          headerText: "Contact Information",
+          expandable: true,
+          expanded: true,
+          content: [emailText, phoneText]
+        }).addStyleClass("sapUiSmallMarginTop");
+        this._executeAction("personContactInfo", { BusinessPartner: businessPartner })
+          .then(function (result) {
+            emailText.setText("Email: " + ((result && result.Email) || "—"));
+            phoneText.setText("Phone: " + ((result && result.Phone) || "—"));
+          })
+          .catch(function (error) {
+            emailText.setText("Contact information could not be read: " + errorMessage(error, "unknown error"));
+            phoneText.setText("");
+          });
+        return panel;
       },
 
       /**

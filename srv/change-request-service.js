@@ -135,6 +135,9 @@ const NODES = Object.fromEntries(
 const RELATION_FIELDS = Object.freeze({
   Customers: 'Customer',
   Suppliers: 'Supplier',
+  // A_BusinessPartnerContact names the partner being maintained BusinessPartnerCompany, not
+  // BusinessPartner - the only maintenance node that spells its own relation field differently.
+  BusinessPartnerContacts: 'BusinessPartnerCompany',
   CustomerCompany: 'Customer',
   SupplierCompany: 'Supplier',
   CustomerSalesArea: 'Customer',
