@@ -164,6 +164,9 @@ const VALUE_HELP_ENTITIES = Object.freeze([
   'CustomerPricingProcedures'
 ]);
 
+// `deletable` mirrors `sap:deletable` on the entity set in API_BUSINESS_PARTNER.edmx. Six said
+// true where S/4 says false, so the delete reached the API and came back "Operation is not
+// supported" after activation. Checked against the EDMX on 2026-09-04.
 const MAINTENANCE_ENTITIES = Object.freeze({
   Addresses: Object.freeze({
     remote: 'A_BusinessPartnerAddress',
@@ -176,7 +179,7 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     remote: 'A_BusinessPartnerRole',
     navigation: 'to_BusinessPartnerRole',
     creatable: true,
-    deletable: true,
+    deletable: false,
     requiredCreateFields: ['BusinessPartner', 'BusinessPartnerRole']
   }),
   TaxNumbers: Object.freeze({
@@ -239,7 +242,7 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     parentEntity: 'A_Customer',
     parentKeyField: 'Customer',
     creatable: true,
-    deletable: true,
+    deletable: false,
     requiredCreateFields: ['Customer', 'CompanyCode']
   }),
   SupplierCompany: Object.freeze({
@@ -248,7 +251,7 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     parentEntity: 'A_Supplier',
     parentKeyField: 'Supplier',
     creatable: true,
-    deletable: true,
+    deletable: false,
     requiredCreateFields: ['Supplier', 'CompanyCode']
   }),
   CustomerSalesArea: Object.freeze({
@@ -257,7 +260,7 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     parentEntity: 'A_Customer',
     parentKeyField: 'Customer',
     creatable: true,
-    deletable: true,
+    deletable: false,
     requiredCreateFields: ['Customer', 'SalesOrganization', 'DistributionChannel', 'Division']
   }),
   CustomerTaxGrouping: Object.freeze({
@@ -275,7 +278,7 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     parentEntity: 'A_Supplier',
     parentKeyField: 'Supplier',
     creatable: true,
-    deletable: true,
+    deletable: false,
     requiredCreateFields: ['Supplier', 'PurchasingOrganization']
   }),
   // --- The rest of the MDG ERP Customer / Supplier tree -------------------------
@@ -372,7 +375,7 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     parentEntity: 'A_CustomerSalesArea',
     parentKeyFields: ['Customer', 'SalesOrganization', 'DistributionChannel', 'Division'],
     creatable: true,
-    deletable: true,
+    deletable: false,
     requiredCreateFields: [
       'Customer', 'SalesOrganization', 'DistributionChannel', 'Division', 'DepartureCountry',
       'CustomerTaxCategory'

@@ -798,6 +798,15 @@ function attributes(source) {
   );
 }
 
+// `sap:deletable="false"` on the entity set, read here rather than maintained by hand: S/4 answers
+// a DELETE it did not declare with "Operation is not supported", after approval and too late.
+function entitySetDeletable(entitySetName) {
+  // `[^>]*/>` cannot run past the element, and an entity set name needs no escaping.
+  const block = edmx.match(new RegExp(`<EntitySet Name="${entitySetName}"[^>]*/>`, 'u'));
+  if (!block) throw new Error(`Entity set ${entitySetName} was not found in the EDMX.`);
+  return attributes(block[0])['sap:deletable'] !== 'false';
+}
+
 function entityTypeProperties(typeName) {
   const escapedName = typeName.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
   const block = edmx.match(
@@ -931,6 +940,13 @@ for (const section of sections) {
   if (unknown.length) {
     throw new Error(`${section.id}: childSections name unknown section(s): ${unknown.join(', ')}.`);
   }
+}
+
+// Collections only. The root has no rows, and removing a `single` node's row stages nothing rather
+// than posting a DELETE - see "Customer Data and Supplier Data are deletable too" in the tests.
+for (const section of sections) {
+  if (section.kind !== 'collection') continue;
+  section.deletable = entitySetDeletable(section.remoteEntity);
 }
 
 const clientSections = sections.map(({ excludedFields, fieldNames, ...section }) => section);

@@ -345,7 +345,8 @@ test('the derivation creates the row it needs when the section is empty', async 
   const request = payload('2', [{ BusinessPartnerRole: 'FLVN01' }], '0002');
   const { derived, applied } = await runDerivations(request, [derivation(withConfig())]);
 
-  assert.deepStrictEqual(derived.sections.Suppliers, [{ SupplierAccountGroup: 'LIEF' }]);
+  // `__state` marks the row as one the pipeline built, so the S/4 check sends it as an insert.
+  assert.deepStrictEqual(derived.sections.Suppliers, [{ SupplierAccountGroup: 'LIEF', __state: 'new' }]);
   assert.strictEqual(applied.length, 1);
   assert.strictEqual(applied[0].check, 'cvi_account_group');
   assert.strictEqual(applied[0].severity, 'info');

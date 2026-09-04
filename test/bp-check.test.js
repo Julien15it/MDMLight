@@ -61,6 +61,43 @@ test('the payload sent to S/4 carries the roles, so the relation checks run', as
   assert.equal(calls[0].data.RequestId, 'cr-1');
 });
 
+/**
+ * Insert vs update on every node. `ZCL_MDML_BPCHECK`'s `task_of` reads `action` and falls back to
+ * INSERT for anything it does not recognise, so a row reaching S/4 without one is an insert of a
+ * row that already exists: R11/186 on an identification, "role already exists" on a role.
+ */
+test('every row carries the action its state implies', async () => {
+  const calls = [];
+  const stage = createBpCheckStage({ requestId: 'cr-1', send: sender(answer(), calls) });
+
+  await stage({
+    root: { BusinessPartner: '0000000206' },
+    sections: {
+      Identifications: [
+        { BPIdentificationType: 'BUP002', BPIdentificationNumber: '2335591239' },
+        { BPIdentificationType: 'BUP001', BPIdentificationNumber: '1', __state: 'modified' },
+        { BPIdentificationType: 'BUP003', BPIdentificationNumber: '2', __state: 'new' }
+      ],
+      // A `many: false` node can arrive as a bare object rather than a one-row array.
+      Suppliers: { SupplierAccountGroup: 'LIEF', __state: 'changed' }
+    }
+  });
+
+  const sent = JSON.parse(calls[0].data.PayloadJson);
+  assert.deepEqual(sent.sections.Identifications.map((row) => row.action), ['N', 'U', 'C']);
+  assert.equal(sent.sections.Suppliers.action, 'U');
+});
+
+test('the payload the other stages hold is not touched by the wire mapping', async () => {
+  const calls = [];
+  const stage = createBpCheckStage({ requestId: 'cr-1', send: sender(answer(), calls) });
+  const payload = { root: {}, sections: { Identifications: [{ BPIdentificationType: 'BUP002' }] } };
+
+  await stage(payload);
+
+  assert.equal('action' in payload.sections.Identifications[0], false);
+});
+
 test('a repeated message is reported once, carrying its count', () => {
   // R11/336 arrives twice whenever a role is present: the BP path and the CVI path each fire it.
   const deduped = dedupe([{ ...LANGUAGE_WARNING }, { ...LANGUAGE_WARNING }]);
@@ -255,7 +292,10 @@ test('the roles and the derived relation node both reach the wire', async () => 
   });
 
   const sent = JSON.parse(calls[0].data.PayloadJson);
-  assert.deepEqual(sent.sections.BusinessPartnerRoles, [{ BusinessPartnerRole: 'FLVN01' }]);
-  assert.deepEqual(sent.sections.Suppliers, [{ SupplierAccountGroup: 'LIEF' }]);
+  // `action` per row: the requester's untouched role is N, the row the derivation built is C.
+  assert.deepEqual(sent.sections.BusinessPartnerRoles,
+    [{ BusinessPartnerRole: 'FLVN01', action: 'N' }]);
+  assert.deepEqual(sent.sections.Suppliers,
+    [{ SupplierAccountGroup: 'LIEF', __state: 'new', action: 'C' }]);
   assert.equal(calls[0].data.IncludeRelations, true);
 });

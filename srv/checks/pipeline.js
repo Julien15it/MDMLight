@@ -97,7 +97,7 @@ function replay(payload, entry) {
     const rows = payload.sections[entry.target] || (payload.sections[entry.target] = []);
     const appendable = keyed ? !findKeyedRow(payload, entry) : !rows.length;
     if (appendable) {
-      rows.push({ [entry.field]: entry.value });
+      rows.push({ [entry.field]: entry.value, __state: 'new' });
       return;
     }
     // A keyed row already present is not a write; an unkeyed one falls through and fills.
@@ -165,7 +165,8 @@ async function runDerivations(payload, derivations = DERIVATIONS, { fieldEditabl
         const rows = derived.sections[entry.target] || (derived.sections[entry.target] = []);
         const appendable = keyed ? !findKeyedRow(derived, entry) : !rows.length;
         if (appendable) {
-          rows.push({ [entry.field]: entry.value });
+          // `new`, like a row the screen added: on a change the S/4 check keys the task off this
+          rows.push({ [entry.field]: entry.value, __state: 'new' });
           // Claimed like any other write: the next stage must not offer to overwrite the value
           // this one just put in a row it also just created.
           claimed.add(`${entry.target}|${rows.length - 1}|${entry.field}`);
