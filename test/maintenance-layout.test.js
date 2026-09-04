@@ -224,7 +224,7 @@ test('a child section inside the Details dialog is a collapsible Panel, expanded
   );
   assert.match(hosted, /new Panel\(/u);
   assert.match(hosted, /expandable: true/u);
-  assert.match(hosted, /var hasData = \(state\.sections\[child\.id\] \|\| \[\]\)\.length > 0;/u);
+  assert.match(hosted, /var hasData = \(state\.sections\[child\.id\] \|\| \[\]\)\.some\(/u);
   assert.match(hosted, /expanded: hasData/u);
 });
 

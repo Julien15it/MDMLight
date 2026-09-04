@@ -92,6 +92,38 @@ counts removals separately.** `ObjectStatus`'s existing ternary needed no change
   default, expanded only when that child section already has a row** (asked for 2026-09-04 — a create
   with several empty child sections read as a wall of blocks nobody needed yet) — `hasData` is checked
   once, at open time, the same way the dialog's own change-baseline is.
+- **Addresses' own `childSections` (Email/Phone/Fax/Website/Tax Number, added 2026-09-04) are scoped
+  to the ONE address record they were opened from — Customer/Supplier's never needed this, because a
+  request has only one Customer and one Supplier.** `state.sections.AddressEmails` etc. still hold
+  every address's rows flat, the same way any section stores its own; `_renderSection`'s optional
+  `parentRow` argument is what narrows the table, the Add button, and every row action back down to
+  one address, via `__addressKey` (`addressRowKey(parentRow)` — a live BP's real `AddressID`, or a
+  staged/brand new row's `__rowKey` until one exists). **Every index stays a TRUE index into the
+  unfiltered array** (`trueIndices`, computed once) — `_openExistingRecord`/`_confirmDeleteRecord`
+  still address `state.sections[section.id][index]` directly and never had to change, and `rowMatches`
+  is still computed over every row of the section so a true index always finds its own baseline match.
+  `parentRow` threads through `_openNewRecord` → `_openRecordDialog` → its own Apply button's
+  re-render, so a child added or edited from inside a nested dialog re-renders scoped to the same
+  address it was opened from, not the whole flat list. Absent for every other call site — a plain
+  Customer/Supplier child, or any top-level section — where `scopeKey` is `null` and behaviour is
+  unchanged from before this existed.
+- **A brand new Addresses row needs a stable identifier before any child can be linked to it, and
+  before it has a real `AddressID`.** `generateRowKey()` (a short random string, not a UUID library -
+  nothing here needs cryptographic uniqueness, only uniqueness within one request) stamps `__rowKey`
+  onto a new Addresses row from every path that can create one — `_openNewRecord`, the Business
+  Partner Assistant's applied draft (`_onCreateRoute`), and a live BP's own addresses on load (where
+  `__rowKey` is simply set to the real `AddressID`, since one already exists). A brand new
+  Email/Phone/etc. row is stamped with `__addressKey` matching its parent's key the same way, in
+  `_openNewRecord`. Neither `__`-prefixed field is ever sent to S/4 or shown on screen — `stageable`
+  drops both server-side exactly like `__state`, and `cleanStagedRow` is what puts them back on the
+  way out for `Addresses` and its five children only. See "Address-owned children" in `staging.md`.
+- **A live BP's address-owned children cannot be read the way every other section is** — their own
+  remote entity carries no `BusinessPartner` field at all, only `AddressID` (confirmed against the
+  CSN), so `_loadBusinessPartner` reads each of the five sections once **per address** rather than
+  once for the whole BP, merging the results into the same flat `state.sections.AddressEmails` etc.
+  every other reader expects, each row stamped with `__addressKey = address.AddressID`. A section that
+  fails for one specific address is named in the warning banner the same way any other section's
+  read failure is, address number included.
 - **The Add/Edit dialog gets a baseline too** — `_openExistingRecord` resolves the row through
   `_rowBaseline` (the same `matchSectionRows` call `_renderSection` uses). Computed once, when the dialog
   opens — it does not track edits live.

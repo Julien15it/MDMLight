@@ -133,6 +133,14 @@ sap.ui.define([
     "CorrespondenceLanguage"
   ];
 
+  // Addresses' own childSections - unlike Customer/Supplier's, each is scoped to the ONE address
+  // record it was opened from, not shared flat across the whole BP. Mirrors ADDRESS_CHILD_NODES in
+  // srv/change-request-service.js.
+  var ADDRESS_CHILD_SECTIONS = {
+    AddressEmails: true, AddressPhoneNumbers: true, AddressFaxNumbers: true,
+    AddressHomePageURLs: true, AddressTaxNumbers: true
+  };
+
   var VALUE_HELP_FIELDS = {
     BusinessPartnerGrouping: {
       collectionPath: "BusinessPartnerGroupings", keyField: "BusinessPartnerGrouping",
@@ -295,6 +303,23 @@ sap.ui.define([
 
   function clone(value) {
     return JSON.parse(JSON.stringify(value || {}));
+  }
+
+  // Correlates an Addresses row to its own Email/Phone/Fax/Website/Tax Number children before
+  // either has a real S/4 AddressID - a brand new address may still be waiting on one when its
+  // children are added in the same request. Never sent anywhere as a value in its own right:
+  // __-prefixed like __state, so the server drops it on the way back in (stageable) the same way,
+  // and only ever reads it to resolve the real association (writeStagedNodes/postToS4). A live BP's
+  // own AddressID is used directly instead, once it has one - see addressRowKey.
+  function generateRowKey() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  }
+
+  // The stable identifier for an Addresses row, whichever kind of screen it came from: a live BP's
+  // address already has a real AddressID; a staged or brand new one carries __rowKey instead
+  // (assigned here the first time a row is seen without either - see callers).
+  function addressRowKey(record) {
+    return (record && (record.AddressID || record.__rowKey)) || null;
   }
 
   function escapeODataKey(value) {
@@ -788,7 +813,11 @@ sap.ui.define([
         Object.keys(draftSections).forEach(function (sectionId) {
           if (state.sections[sectionId] === undefined) return;
           state.sections[sectionId] = (draftSections[sectionId] || []).map(function (row) {
-            return Object.assign({}, row, { __state: "new" });
+            var staged = Object.assign({}, row, { __state: "new" });
+            // Needed before anything could be linked to it - a suggestion never carries one, since
+            // the server that built it has no concept of the client's own row keys.
+            if (sectionId === "Addresses" && !staged.__rowKey) staged.__rowKey = generateRowKey();
+            return staged;
           });
         });
         this.getView().getModel("maintenance").refresh(true);
@@ -883,6 +912,38 @@ sap.ui.define([
           sections.forEach(function (result) {
             state.sections[result.id] = result.records;
           });
+
+          // Address-owned children (Email/Phone/Fax/Website/Tax Number) cannot be read the generic
+          // way every other section is: their own remote entity carries no BusinessPartner field at
+          // all, only AddressID, and a BP can have several addresses - so each is read once PER
+          // ADDRESS rather than once for the whole BP. A live address already has a real AddressID,
+          // so it doubles as the __rowKey/__addressKey _renderSection scopes the Details dialog by.
+          var addressChildSections = this._metadata.filter(function (candidate) {
+            return ADDRESS_CHILD_SECTIONS[candidate.id];
+          });
+          var addressWarnings = [];
+          await Promise.all((state.sections.Addresses || []).map(async function (address) {
+            address.__rowKey = address.AddressID;
+            for (var i = 0; i < addressChildSections.length; i += 1) {
+              var section = addressChildSections[i];
+              var loaded;
+              try {
+                loaded = await this._loadSection(address.AddressID, section);
+              } catch (error) {
+                addressWarnings.push({
+                  text: section.title + " (" + address.AddressID + "): " + errorMessage(
+                    error, "This section could not be loaded."
+                  )
+                });
+                continue;
+              }
+              var scoped = loaded.records.map(function (record) {
+                return Object.assign({}, record, { __addressKey: address.AddressID });
+              });
+              state.sections[section.id] = (state.sections[section.id] || []).concat(scoped);
+            }
+          }.bind(this)));
+
           // The live values as read, before editing touches any of them - see "Highlighting what
           // changed" in CLAUDE.md. Only meaningful while actually editing: a plain display has
           // nothing anyone is about to change.
@@ -890,7 +951,8 @@ sap.ui.define([
           state.trackChanges = editing;
           state.sectionWarnings = sections
             .filter(function (result) { return Boolean(result.warning); })
-            .map(function (result) { return { text: result.warning }; });
+            .map(function (result) { return { text: result.warning }; })
+            .concat(addressWarnings);
           state.deletionWarnings = this._deletionFlagWarnings(state);
 
           // Rendering is synchronous, so the code lists must be in hand first - otherwise every coded
@@ -1620,7 +1682,15 @@ sap.ui.define([
         section.setTitle(critical ? baseTitle + " ⚠" : baseTitle);
       },
 
-      _renderSection: function (section) {
+      // `parentRow` is set only for an address-owned child (Email/Phone/Fax/Website/Tax Number),
+      // rendered inside the ONE Address record's Details dialog it was opened from -
+      // state.sections[section.id] holds that child section's rows for every address on the BP
+      // flat, the same way every other section stores its own, so this filters to the rows whose
+      // `__addressKey` matches this specific address (its real AddressID once it has one, its
+      // __rowKey until then - see addressRowKey). Absent for every other call site, where it
+      // behaves exactly as before - trueIndices covers every row and records is allRecords in the
+      // same order.
+      _renderSection: function (section, parentRow) {
         var container = this._sectionContainer(section);
         if (!container) return;
         container.removeAllItems();
@@ -1650,7 +1720,12 @@ sap.ui.define([
         // Read-only freezes the rows: no Add, no Delete, and the detail dialog opens in display mode
         // (_openRecordDialog reads the same property). The section is still there to be read.
         var editing = state.editing && entityProperty !== "readOnly";
-        var records = state.sections[section.id] || [];
+        var allRecords = state.sections[section.id] || [];
+        var scopeKey = parentRow ? addressRowKey(parentRow) : null;
+        var trueIndices = allRecords
+          .map(function (_, index) { return index; })
+          .filter(function (index) { return !scopeKey || allRecords[index].__addressKey === scopeKey; });
+        var records = trueIndices.map(function (index) { return allRecords[index]; });
         // _openRecordDialog's form already drops a hidden field via _isHiddenField - without the same
         // filter here the table kept showing it as a column (and searching/sorting on it), the one
         // place on this screen a Field Property Profile's "hidden" was not honoured.
@@ -1681,7 +1756,7 @@ sap.ui.define([
                 // rather than invite a row the remote key cannot hold.
                 visible: editing && section.creatable !== false
                   && (section.kind !== "single" || records.length === 0),
-                press: this._openNewRecord.bind(this, section)
+                press: this._openNewRecord.bind(this, section, parentRow)
               })
             ]
           })
@@ -1705,19 +1780,21 @@ sap.ui.define([
           header: new Text({ text: "Actions" })
         }));
 
-        // Computed once for the whole table, gated on trackChanges: on a plain new create every row
-        // would otherwise match nothing in an empty baseline and paint the whole section orange -
-        // see matchSectionRows and "Highlighting what changed" in CLAUDE.md.
+        // Computed once for the whole table, gated on trackChanges, over EVERY row of this section
+        // (not just the ones shown here) so a true index always finds its own match - on a plain
+        // new create every row would otherwise match nothing in an empty baseline and paint the
+        // whole section orange - see matchSectionRows and "Highlighting what changed" in CLAUDE.md.
         var rowMatches = state.trackChanges
           ? matchSectionRows(
-            records,
+            allRecords,
             (state.originalSections || {})[section.id] || [],
             section.fields.map(function (field) { return field.name; })
           )
           : [];
 
-        records.forEach(function (record, index) {
-          var match = rowMatches[index];
+        trueIndices.forEach(function (trueIndex) {
+          var record = allRecords[trueIndex];
+          var match = rowMatches[trueIndex];
           var rowKind = match && match.kind;
           var cells = summaryFields.map(function (field) {
             var cell = new Text({ text: this._describeCode(field.name, record[field.name]), wrapping: false });
@@ -1738,7 +1815,7 @@ sap.ui.define([
               icon: "sap-icon://detail-view",
               type: "Transparent",
               tooltip: editing ? "Open to view or edit every field" : "Open to view every field",
-              press: this._openExistingRecord.bind(this, section, index)
+              press: this._openExistingRecord.bind(this, section, trueIndex, parentRow)
             })
           ];
           if (canDelete(record)) {
@@ -1746,7 +1823,7 @@ sap.ui.define([
               icon: "sap-icon://delete",
               type: "Transparent",
               tooltip: "Delete",
-              press: this._confirmDeleteRecord.bind(this, section, index)
+              press: this._confirmDeleteRecord.bind(this, section, trueIndex, parentRow)
             }));
           }
           cells.push(new HBox({ items: actions, justifyContent: "End" }));
@@ -1758,7 +1835,7 @@ sap.ui.define([
           // Only an ADDED row is tinted whole - every one of its fields is new, so the row and its
           // cells would agree anyway. A CHANGED row is coloured per cell instead, just above.
           if (rowKind === "added") item.addStyleClass("mdmAddedRow");
-          item.attachPress(this._openExistingRecord.bind(this, section, index));
+          item.attachPress(this._openExistingRecord.bind(this, section, trueIndex, parentRow));
           table.addItem(item);
         }, this);
 
@@ -1780,24 +1857,39 @@ sap.ui.define([
         }).addStyleClass("sapUiTinyMarginTop"));
       },
 
-      _openNewRecord: function (section) {
+      // `parentRow` (address-owned children only) is threaded through to _openRecordDialog via
+      // the new record itself - see _renderSection's own doc comment.
+      _openNewRecord: function (section, parentRow) {
         var state = this.getView().getModel("maintenance").getData();
         var record = {};
-        // Customer/Supplier carry their own number, not the BP's. Falls back to the BP number for every
-        // other relationField, and to nothing on a create that has not posted.
-        var relationValue = section.relationField === "Customer" ? state.customerNumber
-          : section.relationField === "Supplier" ? state.supplierNumber
-          : state.businessPartner;
-        if (relationValue) record[section.relationField] = relationValue;
+        if (parentRow) {
+          var scopeKey = addressRowKey(parentRow);
+          if (parentRow.AddressID) record.AddressID = parentRow.AddressID;
+          if (scopeKey) record.__addressKey = scopeKey;
+        } else {
+          // Customer/Supplier carry their own number, not the BP's. Falls back to the BP number for
+          // every other relationField, and to nothing on a create that has not posted.
+          var relationValue = section.relationField === "Customer" ? state.customerNumber
+            : section.relationField === "Supplier" ? state.supplierNumber
+            : state.businessPartner;
+          if (relationValue) record[section.relationField] = relationValue;
+        }
+        // A brand new Addresses row needs its own key before anything can be linked to it, staged
+        // or not - stamped here rather than only where the row lands in the table, so every path
+        // that can add one (this button, the assistant's draft, a proposal) shares the same
+        // one-line guarantee. See generateRowKey/addressRowKey.
+        if (section.id === "Addresses" && !record.__rowKey) record.__rowKey = generateRowKey();
         // An empty baseline: every field the requester or steward types into a brand new row is an
         // addition, the same way the row itself is once it lands in the table - see _renderSection.
-        this._openRecordDialog(section, record, true, -1, state.trackChanges ? {} : null);
+        this._openRecordDialog(section, record, true, -1, state.trackChanges ? {} : null, parentRow);
       },
 
-      _openExistingRecord: function (section, index) {
+      _openExistingRecord: function (section, index, parentRow) {
         var state = this.getView().getModel("maintenance").getData();
         var records = state.sections[section.id] || [];
-        this._openRecordDialog(section, clone(records[index]), false, index, this._rowBaseline(section, index));
+        this._openRecordDialog(
+          section, clone(records[index]), false, index, this._rowBaseline(section, index), parentRow
+        );
       },
 
       /** The baseline row this record should be coloured against inside its own Add/Edit dialog -
@@ -1813,7 +1905,7 @@ sap.ui.define([
         return (matches[index] && matches[index].baseline) || null;
       },
 
-      _confirmDeleteRecord: function (section, index) {
+      _confirmDeleteRecord: function (section, index, parentRow) {
         MessageBox.confirm("Delete this " + section.title.toLowerCase() + " record?", {
           emphasizedAction: MessageBox.Action.DELETE,
           actions: [MessageBox.Action.DELETE, MessageBox.Action.CANCEL],
@@ -1829,7 +1921,7 @@ sap.ui.define([
             }
             records.splice(index, 1);
             this.getView().getModel("maintenance").refresh(true);
-            this._renderSection(section);
+            this._renderSection(section, parentRow);
           }.bind(this)
         });
       },
@@ -1858,7 +1950,10 @@ sap.ui.define([
         return errors;
       },
 
-      _openRecordDialog: function (section, record, isCreate, index, baseline) {
+      // `parentRow` (address-owned children only) is passed straight through from
+      // _openNewRecord/_openExistingRecord so the Apply button's own re-render stays scoped to the
+      // ONE address this dialog is nested under - see _renderSection's doc comment.
+      _openRecordDialog: function (section, record, isCreate, index, baseline, parentRow) {
         var state = this.getView().getModel("maintenance").getData();
         // A read-only entity opens for reading, whatever the screen's own mode is.
         var editing = Boolean(state.editing) && this._entityProperty(section) !== "readOnly";
@@ -1880,14 +1975,20 @@ sap.ui.define([
           var child = this._metadata.find(function (candidate) { return candidate.id === childId; });
           if (!child) return null;
           var container = new VBox();
-          var hasData = (state.sections[child.id] || []).length > 0;
+          // Address-owned children are scoped to THIS address record (see _renderSection's own
+          // doc comment) - a sibling address's rows must not make an empty one look filled in.
+          var scoped = ADDRESS_CHILD_SECTIONS[child.id];
+          var scopeKey = scoped ? addressRowKey(record) : null;
+          var hasData = (state.sections[child.id] || []).some(function (row) {
+            return scoped ? row.__addressKey === scopeKey : true;
+          });
           items.push(new Panel({
             headerText: child.title,
             expandable: true,
             expanded: hasData,
             content: [container]
           }).addStyleClass("sapUiSmallMarginTop"));
-          return { section: child, container: container };
+          return { section: child, parentRow: scoped ? record : null, container: container };
         }, this).filter(Boolean);
 
         this._hostedSectionContainers = this._hostedSectionContainers || {};
@@ -1924,7 +2025,7 @@ sap.ui.define([
               }
               state.sections[section.id] = records;
               this.getView().getModel("maintenance").refresh(true);
-              this._renderSection(section);
+              this._renderSection(section, parentRow);
               this._refreshChangeSummary();
               dialog.close();
             }.bind(this)
@@ -1944,7 +2045,7 @@ sap.ui.define([
         });
         this.getView().addDependent(dialog);
         dialog.open();
-        hosted.forEach(function (entry) { this._renderSection(entry.section); }, this);
+        hosted.forEach(function (entry) { this._renderSection(entry.section, entry.parentRow); }, this);
       },
 
       /**

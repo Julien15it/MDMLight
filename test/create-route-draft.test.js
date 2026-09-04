@@ -33,6 +33,21 @@ function extractConst(name) {
   return eval(match[1]);
 }
 
+function extractFunctionSource(name) {
+  const labelAt = controller.indexOf('function ' + name);
+  const braceStart = controller.indexOf('{', labelAt);
+  let depth = 0;
+  let end = braceStart;
+  for (let i = braceStart; i < controller.length; i += 1) {
+    if (controller[i] === '{') depth += 1;
+    if (controller[i] === '}') {
+      depth -= 1;
+      if (depth === 0) { end = i + 1; break; }
+    }
+  }
+  return controller.slice(labelAt, end);
+}
+
 function extractOnCreateRoute() {
   const labelAt = controller.indexOf('_onCreateRoute:');
   const braceStart = controller.indexOf('{', controller.indexOf('(event)', labelAt));
@@ -46,10 +61,13 @@ function extractOnCreateRoute() {
     }
   }
   const body = controller.slice(controller.indexOf('(event)', labelAt), end);
+  // generateRowKey is called on a new Addresses draft row - a real module-level helper, not a
+  // stub, so a malformed key would show up here the same way it would in the real app.
   // eslint-disable-next-line no-new-func
-  return new Function('ROOT_DRAFT_FIELDS', 'return (async function ' + body + ')')(
-    extractConst('ROOT_DRAFT_FIELDS')
-  );
+  return new Function(
+    'ROOT_DRAFT_FIELDS',
+    extractFunctionSource('generateRowKey') + '\nreturn (async function ' + body + ')'
+  )(extractConst('ROOT_DRAFT_FIELDS'));
 }
 
 /** A minimal stand-in for the "maintenance" JSONModel/view/component `_onCreateRoute` touches. */
@@ -97,9 +115,17 @@ test('a Business Partner Assistant draft is decoded before being parsed, address
 
   assert.equal(model.getData().root.OrganizationBPName1, 'Alluvion B.V.');
   assert.equal(model.getData().root.SearchTerm1, 'Alluvion');
-  assert.deepEqual(model.getData().sections.Addresses, [{
+  const address = model.getData().sections.Addresses[0];
+  // __rowKey is a fresh random value every run (generateRowKey) - a suggestion never carries one,
+  // since the server that built it has no concept of the client's own row keys, and it is what
+  // lets an Address's own Email/Phone/Fax/Website/Tax Number children (added in the same request,
+  // before S/4 has assigned a real AddressID) be linked to the right one.
+  assert.equal(typeof address.__rowKey, 'string');
+  assert.ok(address.__rowKey.length > 0);
+  const { __rowKey, ...rest } = address;
+  assert.deepEqual(rest, {
     StreetName: 'Herengracht 2A', PostalCode: '2312LD', CityName: 'Leiden', Country: 'NL', __state: 'new'
-  }]);
+  });
 });
 
 test('a create route with no draft still renders the plain empty-create state', async () => {

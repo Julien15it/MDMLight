@@ -354,7 +354,10 @@ test('a record dialog is coloured against the same baseline row the table itself
 
   const newRecord = controller.slice(controller.indexOf('_openNewRecord: function'));
   const newRecordBody = newRecord.slice(0, newRecord.indexOf('_openExistingRecord: function'));
-  assert.match(newRecordBody, /this\._openRecordDialog\(section, record, true, -1, state\.trackChanges \? \{\} : null\)/u);
+  assert.match(
+    newRecordBody,
+    /this\._openRecordDialog\(section, record, true, -1, state\.trackChanges \? \{\} : null, parentRow\)/u
+  );
 
   const existingRecord = controller.slice(controller.indexOf('_openExistingRecord: function'));
   const existingBody = existingRecord.slice(0, existingRecord.indexOf('_rowBaseline: function'));
@@ -380,7 +383,9 @@ test('a changed row colours only the cells that differ; an added row is tinted w
   const renderSection = controller.slice(controller.indexOf('_renderSection: function'));
   const body = renderSection.slice(0, renderSection.indexOf('_openNewRecord: function'));
   assert.match(body, /var rowMatches = state\.trackChanges/u);
-  assert.match(body, /matchSectionRows\(\s*records,/u);
+  // Computed over EVERY row of the section (allRecords), not just the address-scoped subset a
+  // child section may be rendering (trueIndex always finds its own match either way).
+  assert.match(body, /matchSectionRows\(\s*allRecords,/u);
   assert.match(body, /if \(rowKind === "changed"\) \{/u);
   assert.match(body, /fieldChangeKind\(match\.baseline\[field\.name\], record\[field\.name\]\)/u);
   assert.match(body, /cell\.addStyleClass\(fieldKind === "added" \? "mdmAddedField" : "mdmChangedField"\)/u);

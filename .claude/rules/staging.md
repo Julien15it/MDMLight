@@ -165,6 +165,50 @@ requester opened the rework screen, and **the business partner was already there
   has to finish it; the retry path is built for exactly that (`isCreate` flips to false once the
   number is known, and a created child row is flipped to `action: 'U'`).
 
+## Address-owned children (Email/Phone/Fax/Website/Tax Number)
+
+Added 2026-09-04, asked for: the same "open a record, add more detail" pattern Customer/Supplier's
+`childSections` already had, but for `Addresses` — and the one child relationship in this schema that
+does not fit the existing one-relation-value-per-section model at all.
+
+**Every other child node relates via ONE value, resolved once and applied to every row** — a request
+has exactly one Customer number and one Supplier number, so `RELATION_FIELDS` + `awaitRelationNumber`
+can resolve it once per post and stamp it onto every `CustomerCompany`/`CustomerTaxGrouping`/etc. row.
+A BP can have **several** addresses, each getting its **own**, **different** `AddressID` from S/4 —
+and a brand new address has none at all until the moment it is actually created. So
+`StagedAddressEmails`/`PhoneNumbers`/`FaxNumbers`/`HomePageURLs`/`TaxNumbers` each carry **two** things
+that answer two different questions: an `address : Association to StagedAddresses` (which staged
+address this row belongs to, resolvable before either has a real S/4 key) and a plain `AddressID`
+column (what `postToS4`'s generic per-section loop actually reads to address the S/4 record — it
+never expands an association).
+
+- **`writeStagedNodes` resolves `address` from the client's own `__addressKey`/`__rowKey`, in the
+  same write.** Addresses is written first (`PAYLOAD_NODES`' declaration order), each row's own `ID`
+  assigned up front via `cds.utils.uuid()` rather than read back after insert, and mapped by
+  `__rowKey` (the client's stand-in for a real AddressID it does not have yet). Every address-owned
+  child section immediately after resolves `address_ID` from its own `__addressKey` against that map.
+  `ADDRESS_CHILD_NODES` names the five sections this applies to.
+- **`postToS4` backfills the REAL AddressID the same way, per row, not once for the whole section.**
+  `saveBusinessPartnerEntity`'s create response — always returned, previously always discarded —is
+  captured for `Addresses` specifically and recorded in `addressIdByStagedRow`, keyed by the staged
+  row's own id (create or update: an update's row already carries a real `AddressID` from the read it
+  was staged against). Each address-owned child then resolves its own `AddressID` from
+  `addressIdByStagedRow[data.address_ID]` instead of `RELATION_FIELDS`'s uniform resolution, and
+  `data.BusinessPartner` is set unconditionally the same way a role node's is — `sanitizeEntityPayload`
+  drops it again for the four remote entities (Email/Phone/Fax/Website) that have no such field;
+  `AddressTaxNumbers` (`A_BusPartAddrDepdntTaxNmbr`) actually needs it, unlike the other four, which
+  nest under `A_BusinessPartnerAddress` itself (composite `parentKeyFields: ['BusinessPartner',
+  'AddressID']` in `MAINTENANCE_ENTITIES`) rather than under `A_BusinessPartner`.
+- **`cleanStagedRow` is the one place `__rowKey`/`__addressKey` reach the client** — `getRequestPayload`
+  and `loadStagedPayload` both call it now instead of inlining the same destructuring. Every other
+  section still has its own database id stripped, same as always; only `Addresses` (`__rowKey = ID`)
+  and its five children (`__addressKey = address_ID`) get this, because that id is the only thing that
+  can correlate a still-unsaved address to its children before an approval ever runs.
+- **A candidate never resolves silently to nothing** — if an address-owned child's `address_ID` does
+  not resolve to an entry in `addressIdByStagedRow`, `postToS4` throws (*"its own address was not
+  created in this run"*) rather than posting a child with no `AddressID` at all, which S/4 would
+  refuse anyway but with a far less useful message.
+
 ## Security gaps, known and open
 
 - **Nothing authorises the staged payload.** `getRequestPayload` has no check in front of it and
