@@ -709,6 +709,13 @@ sap.ui.define([], function () {
         "requiredCreateFields": [
           "Country"
         ],
+        "childSections": [
+          "AddressEmails",
+          "AddressPhoneNumbers",
+          "AddressFaxNumbers",
+          "AddressHomePageURLs",
+          "AddressTaxNumbers"
+        ],
         "fields": [
           {
             "name": "BusinessPartner",
@@ -813,6 +820,290 @@ sap.ui.define([], function () {
           {
             "name": "StreetName",
             "label": "Street",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 60,
+            "creatable": true,
+            "updatable": true
+          }
+        ],
+        "deletable": true
+      },
+      {
+        "id": "AddressEmails",
+        "title": "Email Addresses",
+        "entitySet": "AddressEmails",
+        "remoteEntity": "A_AddressEmailAddress",
+        "relationField": "AddressID",
+        "typeName": "A_AddressEmailAddressType",
+        "kind": "collection",
+        "summaryFields": [
+          "EmailAddress",
+          "IsDefaultEmailAddress"
+        ],
+        "requiredCreateFields": [
+          "EmailAddress"
+        ],
+        "fields": [
+          {
+            "name": "AddressID",
+            "label": "Address Number",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": false,
+            "updatable": true
+          },
+          {
+            "name": "IsDefaultEmailAddress",
+            "label": "Standard addr.",
+            "type": "cds.Boolean",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "EmailAddress",
+            "label": "Email Address",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 241,
+            "creatable": true,
+            "updatable": true
+          }
+        ],
+        "deletable": true
+      },
+      {
+        "id": "AddressPhoneNumbers",
+        "title": "Phone Numbers",
+        "entitySet": "AddressPhoneNumbers",
+        "remoteEntity": "A_AddressPhoneNumber",
+        "relationField": "AddressID",
+        "typeName": "A_AddressPhoneNumberType",
+        "kind": "collection",
+        "summaryFields": [
+          "PhoneNumber",
+          "PhoneNumberExtension",
+          "IsDefaultPhoneNumber"
+        ],
+        "requiredCreateFields": [
+          "PhoneNumber"
+        ],
+        "fields": [
+          {
+            "name": "AddressID",
+            "label": "Address Number",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": false,
+            "updatable": true
+          },
+          {
+            "name": "IsDefaultPhoneNumber",
+            "label": "Standard No.",
+            "type": "cds.Boolean",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PhoneNumber",
+            "label": "Telephone",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 30,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PhoneNumberExtension",
+            "label": "Extension",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "PhoneNumberType",
+            "label": "Mobile phone",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 1,
+            "creatable": true,
+            "updatable": true
+          }
+        ],
+        "deletable": true
+      },
+      {
+        "id": "AddressFaxNumbers",
+        "title": "Fax Numbers",
+        "entitySet": "AddressFaxNumbers",
+        "remoteEntity": "A_AddressFaxNumber",
+        "relationField": "AddressID",
+        "typeName": "A_AddressFaxNumberType",
+        "kind": "collection",
+        "summaryFields": [
+          "FaxNumber",
+          "FaxNumberExtension",
+          "IsDefaultFaxNumber"
+        ],
+        "requiredCreateFields": [
+          "FaxNumber"
+        ],
+        "fields": [
+          {
+            "name": "AddressID",
+            "label": "Address Number",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": false,
+            "updatable": true
+          },
+          {
+            "name": "IsDefaultFaxNumber",
+            "label": "Standard No.",
+            "type": "cds.Boolean",
+            "key": false,
+            "nullable": true,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "FaxNumber",
+            "label": "Fax",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 30,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "FaxNumberExtension",
+            "label": "Extension",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 10,
+            "creatable": true,
+            "updatable": true
+          }
+        ],
+        "deletable": true
+      },
+      {
+        "id": "AddressHomePageURLs",
+        "title": "Websites",
+        "entitySet": "AddressHomePageURLs",
+        "remoteEntity": "A_AddressHomePageURL",
+        "relationField": "AddressID",
+        "typeName": "A_AddressHomePageURLType",
+        "kind": "collection",
+        "summaryFields": [
+          "WebsiteURL",
+          "IsDefaultURLAddress"
+        ],
+        "requiredCreateFields": [
+          "WebsiteURL"
+        ],
+        "fields": [
+          {
+            "name": "AddressID",
+            "label": "Address Number",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": false,
+            "updatable": true
+          },
+          {
+            "name": "IsDefaultURLAddress",
+            "label": "Standard addr.",
+            "type": "cds.Boolean",
+            "key": true,
+            "nullable": false,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "WebsiteURL",
+            "label": "URI",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 2048,
+            "creatable": true,
+            "updatable": true
+          }
+        ],
+        "deletable": true
+      },
+      {
+        "id": "AddressTaxNumbers",
+        "title": "Address Tax Numbers",
+        "entitySet": "AddressTaxNumbers",
+        "remoteEntity": "A_BusPartAddrDepdntTaxNmbr",
+        "relationField": "AddressID",
+        "typeName": "A_BusPartAddrDepdntTaxNmbrType",
+        "kind": "collection",
+        "summaryFields": [
+          "BPTaxType",
+          "BPTaxNumber",
+          "BPTaxLongNumber"
+        ],
+        "requiredCreateFields": [
+          "BPTaxType"
+        ],
+        "fields": [
+          {
+            "name": "AddressID",
+            "label": "Address Number",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 10,
+            "creatable": false,
+            "updatable": true
+          },
+          {
+            "name": "BPTaxType",
+            "label": "Tax Number Category",
+            "type": "cds.String",
+            "key": true,
+            "nullable": false,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "BPTaxNumber",
+            "label": "Tax number",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 20,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "BPTaxLongNumber",
+            "label": "Tax Number Long",
             "type": "cds.String",
             "key": false,
             "nullable": true,

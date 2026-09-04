@@ -160,6 +160,15 @@ const RELATION_FIELDS = Object.freeze({
   SupplierPartnerFunctions:          'Supplier'
 });
 
+// Address-owned children (Email/Phone/Fax/Website/Tax Number): deliberately absent from
+// RELATION_FIELDS above, because their relation is not one value resolved once and applied to every
+// row - each one belongs to a SPECIFIC staged address, which may itself be new in this same request.
+// writeStagedNodes correlates them via `address`/`__addressKey` while staging; postToS4 backfills the
+// real AddressID onto each one individually once its own address has actually been created.
+const ADDRESS_CHILD_NODES = new Set([
+  'AddressEmails', 'AddressPhoneNumbers', 'AddressFaxNumbers', 'AddressHomePageURLs', 'AddressTaxNumbers'
+]);
+
 /**
  * The two nodes that are themselves the Customer/Supplier record rather than something
  * hanging off it. They are the only ones where a missing relation number is a state to
@@ -435,6 +444,22 @@ function rowAction(record) {
 }
 
 /**
+ * A staged row for the client, with the row's own database id stripped like every other section -
+ * except Addresses and its own children, where that id is the only thing that can correlate a new
+ * email/phone/etc. to whichever address it belongs to before either has a real S/4 AddressID (see
+ * ADDRESS_CHILD_NODES and writeStagedNodes). `__rowKey`/`__addressKey` are `__`-prefixed the same way
+ * `__state` is, so `stageable` drops them again on the way back in without needing to know about this
+ * one relationship specifically.
+ */
+function cleanStagedRow(section, row) {
+  const { ID, request_ID, address_ID, action, ...rest } = row;
+  const clean = { ...rest, ...stateOfAction(action) };
+  if (section === 'Addresses') clean.__rowKey = ID;
+  if (ADDRESS_CHILD_NODES.has(section)) clean.__addressKey = address_ID || null;
+  return clean;
+}
+
+/**
  * The context the field property profiles are matched against on any write path. The role is
  * **always** `Requester` and is never taken from the client: whoever submits a request is its
  * requester, and a role the client could name is one it could name its way out of a mandatory
@@ -571,6 +596,15 @@ class ChangeRequestService extends cds.ApplicationService {
         ...stageable(GENERAL, payload.root)
       }));
 
+      // Addresses is the one collection node whose children are themselves scoped to a SPECIFIC row
+      // (Email/Phone/Fax/Website/Tax Number - see ADDRESS_CHILD_NODES), rather than to the request as
+      // a whole the way every other child section is. A brand new address has no S/4 AddressID yet to
+      // key on, so the client stamps every Addresses row with its own `__rowKey` and every address-
+      // owned child with the `__addressKey` it belongs to; this maps one to the other's real staged
+      // row id, in the same write, before either has a real S/4 key. postToS4 backfills the actual
+      // AddressID onto these children once the address that owns them has actually been created.
+      const addressIdByRowKey = {};
+
       for (const [section, config] of Object.entries(NODES)) {
         await db.run(cds.ql.DELETE.from(config.entity).where({ request_ID: changeRequest }));
 
@@ -587,12 +621,27 @@ class ChangeRequestService extends cds.ApplicationService {
           continue;
         }
 
+        const isAddresses = section === 'Addresses';
+        const isAddressChild = ADDRESS_CHILD_NODES.has(section);
         const rows = [
-          ...(Array.isArray(sections[section]) ? sections[section] : []).map((record) => ({
-            request_ID: changeRequest,
-            action: rowAction(record),
-            ...stageable(config.entity, record)
-          })),
+          ...(Array.isArray(sections[section]) ? sections[section] : []).map((record) => {
+            const row = {
+              request_ID: changeRequest,
+              action: rowAction(record),
+              ...stageable(config.entity, record)
+            };
+            if (isAddresses) {
+              // Assigned up front, rather than read back after insert - cuid's own default would
+              // fill this in exactly the same way, just not in time for a child section processed
+              // right after in this same loop to resolve which address it belongs to.
+              row.ID = row.ID || cds.utils.uuid();
+              if (record?.__rowKey) addressIdByRowKey[record.__rowKey] = row.ID;
+            }
+            if (isAddressChild && record?.__addressKey && addressIdByRowKey[record.__addressKey]) {
+              row.address_ID = addressIdByRowKey[record.__addressKey];
+            }
+            return row;
+          }),
           ...(Array.isArray(deleted[section]) ? deleted[section] : []).map((record) => ({
             request_ID: changeRequest,
             action: 'D',
@@ -1046,10 +1095,7 @@ class ChangeRequestService extends cds.ApplicationService {
         );
         const clean = rows
           .filter((row) => row.action !== 'D')
-          .map((row) => {
-            const { ID, request_ID, action, ...rest } = row;
-            return { ...rest, ...stateOfAction(action) };
-          });
+          .map((row) => cleanStagedRow(section, row));
         // Always an array, even for a !config.many section (Customers/Suppliers) - the same shape
         // _loadStagedRequest always normalises a section into on the client before it is ever fed
         // to a check. getRequestPayload's own bare-object-or-null for a to-one node is fine because
@@ -1628,14 +1674,12 @@ class ChangeRequestService extends cds.ApplicationService {
         const rows = await db.run(
           cds.ql.SELECT.from(config.entity).where({ request_ID: changeRequest })
         );
-        const clean = rows.map((row) => {
-          const { ID, request_ID, action, ...rest } = row;
-          // The stored action comes back as the screen's own `__state`, or a resubmit would stage
-          // every untouched row as `N` and the approved request would post a partner without its
-          // addresses. The screen keeps `new` through further edits (it only ever promotes to
-          // `modified`), so a round trip cannot turn a create into an update either.
-          return { ...rest, ...stateOfAction(action) };
-        });
+        // The stored action comes back as the screen's own `__state`, or a resubmit would stage
+        // every untouched row as `N` and the approved request would post a partner without its
+        // addresses. The screen keeps `new` through further edits (it only ever promotes to
+        // `modified`), so a round trip cannot turn a create into an update either. `__rowKey`/
+        // `__addressKey` (Addresses and its own children only) - see cleanStagedRow.
+        const clean = rows.map((row) => cleanStagedRow(section, row));
         if (config.many) {
           sections[section] = clean.filter((_, index) => rows[index].action !== 'D');
           deleted[section] = clean.filter((_, index) => rows[index].action === 'D');
@@ -1715,6 +1759,13 @@ class ChangeRequestService extends cds.ApplicationService {
       // awaitRelationNumber. A retry's partner has existed for minutes.
       const createdRootNow = isCreate;
 
+      // Addresses is posted before its own children (NODES preserves PAYLOAD_NODES' declaration
+      // order), so by the time ADDRESS_CHILD_NODES is reached every address this run touched has
+      // either already been created (a real AddressID just came back from S/4) or already existed
+      // (its own row carried one all along) - either way, keyed here by the STAGED row's own id,
+      // the same id writeStagedNodes used to link a child to it via `address`/`__addressKey`.
+      const addressIdByStagedRow = {};
+
       for (const [section, config] of Object.entries(NODES)) {
         const rows = await db.run(
           cds.ql.SELECT.from(config.entity).where({ request_ID: header.ID })
@@ -1732,34 +1783,54 @@ class ChangeRequestService extends cds.ApplicationService {
             console.log(`[post] ${section} is derived for the screen only; not posted to S/4.`);
             continue;
           }
-          const relationField = RELATION_FIELDS[section] || 'BusinessPartner';
+          // Address-owned children resolve their relation from a SPECIFIC staged address (see
+          // ADDRESS_CHILD_NODES/addressIdByStagedRow above), never from RELATION_FIELDS' one-value-
+          // for-every-row model - each row can belong to a different address, possibly one this
+          // very run just created.
+          const isAddressChild = ADDRESS_CHILD_NODES.has(section);
+          let relationValue = null;
+          let isRoleNode = false;
 
-          if (!(relationField in resolvedRelations)) {
-            // Waited for, not read once: CVI creates the customer/vendor in postprocessing, after
-            // the root create has already returned. A single attempt outside that window, because
-            // there is nothing to wait for then. See awaitRelationNumber.
-            resolvedRelations[relationField] = await awaitRelationNumber(
-              s4, businessPartner, relationField,
-              { attempts: createdRootNow ? RELATION_WAIT_ATTEMPTS : 1 }
-            );
-          }
-          const relationValue = resolvedRelations[relationField];
+          if (isAddressChild) {
+            const resolvedAddressId = data.address_ID ? addressIdByStagedRow[data.address_ID] : null;
+            if (!resolvedAddressId) {
+              throw new Error(`Cannot post ${section}: its own address was not created in this run.`);
+            }
+            data.AddressID = resolvedAddressId;
+            // BusinessPartner is part of AddressTaxNumbers' own key but not Email/Phone/Fax/URL's -
+            // sanitizeEntityPayload drops it again for the ones with no such element, the same way
+            // it already does for a role node below.
+            data.BusinessPartner = businessPartner;
+          } else {
+            const relationField = RELATION_FIELDS[section] || 'BusinessPartner';
 
-          // Customers and Suppliers ARE the record the relation field names - the others hang
-          // off it. So a missing number means different things: for a child there is nothing to
-          // hang it on and posting it would be wrong, but for the role node itself it simply
-          // does not exist yet, which is something to create.
-          const isRoleNode = ROLE_NODES.has(section);
-          if (relationValue == null && !isRoleNode) {
-            throw new Error(
-              `Cannot post ${section}: Business Partner ${businessPartner} has no ${relationField} record yet.`
-            );
+            if (!(relationField in resolvedRelations)) {
+              // Waited for, not read once: CVI creates the customer/vendor in postprocessing, after
+              // the root create has already returned. A single attempt outside that window, because
+              // there is nothing to wait for then. See awaitRelationNumber.
+              resolvedRelations[relationField] = await awaitRelationNumber(
+                s4, businessPartner, relationField,
+                { attempts: createdRootNow ? RELATION_WAIT_ATTEMPTS : 1 }
+              );
+            }
+            relationValue = resolvedRelations[relationField];
+
+            // Customers and Suppliers ARE the record the relation field names - the others hang
+            // off it. So a missing number means different things: for a child there is nothing to
+            // hang it on and posting it would be wrong, but for the role node itself it simply
+            // does not exist yet, which is something to create.
+            isRoleNode = ROLE_NODES.has(section);
+            if (relationValue == null && !isRoleNode) {
+              throw new Error(
+                `Cannot post ${section}: Business Partner ${businessPartner} has no ${relationField} record yet.`
+              );
+            }
+            if (relationValue != null) data[relationField] = relationValue;
+            // What a create of the role node addresses its parent by: to_Customer hangs off
+            // A_BusinessPartner, not off A_Customer. Dropped again by sanitizeEntityPayload for
+            // every node whose entity has no such element.
+            if (isRoleNode) data.BusinessPartner = businessPartner;
           }
-          if (relationValue != null) data[relationField] = relationValue;
-          // What a create of the role node addresses its parent by: to_Customer hangs off
-          // A_BusinessPartner, not off A_Customer. Dropped again by sanitizeEntityPayload for
-          // every node whose entity has no such element.
-          if (isRoleNode) data.BusinessPartner = businessPartner;
 
           if (action === 'D') {
             await bp.send('deleteBusinessPartnerEntity', {
@@ -1780,7 +1851,7 @@ class ChangeRequestService extends cds.ApplicationService {
           // follows the staged action, which is the only thing that knows about it.
           const isCreate = isRoleNode ? relationValue == null : action !== 'U';
 
-          await bp.send('saveBusinessPartnerEntity', {
+          const saveResult = await bp.send('saveBusinessPartnerEntity', {
             Entity: section,
             IsCreate: isCreate,
             // The keys travel in `data` - the relation field plus whatever the row staged. Sent
@@ -1789,6 +1860,23 @@ class ChangeRequestService extends cds.ApplicationService {
             KeyJson: JSON.stringify(data),
             DataJson: JSON.stringify(data)
           });
+
+          if (section === 'Addresses') {
+            // Every address this run touches is recorded here, create or update - an update's own
+            // row already carries a real AddressID (it was read from S/4 when the request was
+            // staged); a create only learns one from S/4's own response, which postToS4 used to
+            // discard entirely. Either way, address-owned children processed right after this in
+            // the same run resolve their parent through this map, not through RELATION_FIELDS.
+            let addressId = data.AddressID;
+            if (isCreate) {
+              try {
+                addressId = JSON.parse(saveResult || '{}').AddressID || addressId;
+              } catch (error) {
+                console.warn(`[post] Could not read the AddressID S/4 assigned for ${ID}:`, error.message);
+              }
+            }
+            if (addressId) addressIdByStagedRow[ID] = addressId;
+          }
 
           // Persisted immediately, the same reasoning as header.businessPartner above: a LATER
           // node in this same run can still throw, sending the request back to reworkRequired, and

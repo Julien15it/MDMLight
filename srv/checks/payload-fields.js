@@ -45,7 +45,12 @@ const PAYLOAD_NODES = Object.freeze({
   SupplierDunning:                   { entity: `${STAGING}StagedSupplierDunning`, many: true },
   SupplierWithholdingTax:            { entity: `${STAGING}StagedSupplierWithholdingTax`, many: true },
   SupplierPurchasingOrgText:         { entity: `${STAGING}StagedSupplierPurchasingOrgText`, many: true },
-  SupplierPartnerFunctions:          { entity: `${STAGING}StagedSupplierPartnerFunc`, many: true }
+  SupplierPartnerFunctions:          { entity: `${STAGING}StagedSupplierPartnerFunc`, many: true },
+  AddressEmails:                     { entity: `${STAGING}StagedAddressEmails`, many: true },
+  AddressPhoneNumbers:               { entity: `${STAGING}StagedAddressPhoneNumbers`, many: true },
+  AddressFaxNumbers:                 { entity: `${STAGING}StagedAddressFaxNumbers`, many: true },
+  AddressHomePageURLs:               { entity: `${STAGING}StagedAddressHomePageURLs`, many: true },
+  AddressTaxNumbers:                 { entity: `${STAGING}StagedAddressTaxNumbers`, many: true }
 });
 
 /** The payload root's section id, and the value the pipeline expects in `target`. */

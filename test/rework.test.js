@@ -378,8 +378,12 @@ test('a reloaded row remembers whether it was a create or an update', () => {
     assert.equal(rowAction(stateOfAction(action)), action, `${action} survives a reload`);
   }
   assert.equal(rowAction(stateOfAction('N')), UNTOUCHED);
+  // Factored into cleanStagedRow (2026-09-04, when it also grew __rowKey/__addressKey for
+  // Addresses and its own children), so getRequestPayload itself now just calls it.
+  const cleanStagedRowFn = serviceJs.slice(serviceJs.indexOf('function cleanStagedRow'));
+  assert.match(cleanStagedRowFn.slice(0, cleanStagedRowFn.indexOf('\n}')), /\.\.\.rest, \.\.\.stateOfAction\(action\)/u);
   const payload = serviceJs.slice(serviceJs.indexOf("this.on('getRequestPayload'"));
-  assert.match(payload, /\.\.\.rest, \.\.\.stateOfAction\(action\)/u);
+  assert.match(payload, /cleanStagedRow\(section, row\)/u);
 });
 
 /** N means the same as the old null: staged so the approver sees the whole partner, never replayed. */

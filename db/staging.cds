@@ -211,6 +211,69 @@ entity StagedAddresses : cuid {
   AddressTimeZone : String(6);
 }
 
+// Address-owned children (Email/Phone/Fax/Website/Tax Number) - Addresses is the one collection node
+// with more than one row where a row's own key (AddressID) does not exist until S/4 assigns it on
+// post, unlike Sales Area's SalesOrganization+DistributionChannel+Division, which the requester types
+// themselves and which is stable from the moment the row is added. Two things carry the link, for two
+// different readers: `address` (an Association to StagedAddresses) is what the client and server
+// correlate a new email/phone/etc. to whichever address it belongs to before either has a real S/4
+// key; `AddressID` is a plain column because postToS4's generic NODES loop addresses every node the
+// same way, by reading the relation field(s) straight off the staged row - it never expands an
+// association. So it stays blank on a brand new address's children and postToS4 backfills the real
+// value onto every child row via `address` the moment its own address has actually been created,
+// exactly the way `Customer`/`Supplier` are resolved onto their own children today, just per-row
+// instead of once for the whole request.
+entity StagedAddressEmails : cuid {
+  request                    : Association to ChangeRequests;
+  address                    : Association to StagedAddresses;
+  action                     : NodeAction not null default 'C';
+  AddressID                  : String(10);
+  EmailAddress               : String(241);
+  IsDefaultEmailAddress      : Boolean;
+}
+
+entity StagedAddressPhoneNumbers : cuid {
+  request                    : Association to ChangeRequests;
+  address                    : Association to StagedAddresses;
+  action                     : NodeAction not null default 'C';
+  AddressID                  : String(10);
+  PhoneNumber                : String(30);
+  PhoneNumberExtension       : String(10);
+  // '1' Standard Phone Number, '3' Mobile Phone Number, per TSAD3T.
+  PhoneNumberType            : String(1);
+  IsDefaultPhoneNumber       : Boolean;
+}
+
+entity StagedAddressFaxNumbers : cuid {
+  request                    : Association to ChangeRequests;
+  address                    : Association to StagedAddresses;
+  action                     : NodeAction not null default 'C';
+  AddressID                  : String(10);
+  FaxNumber                  : String(30);
+  FaxNumberExtension         : String(10);
+  IsDefaultFaxNumber         : Boolean;
+}
+
+entity StagedAddressHomePageURLs : cuid {
+  request                    : Association to ChangeRequests;
+  address                    : Association to StagedAddresses;
+  action                     : NodeAction not null default 'C';
+  AddressID                  : String(10);
+  WebsiteURL                 : String(2048);
+  IsDefaultURLAddress        : Boolean;
+}
+
+/** Address-dependent tax number (A_BusPartAddrDepdntTaxNmbr) - not the BP-level TaxNumbers node. */
+entity StagedAddressTaxNumbers : cuid {
+  request                    : Association to ChangeRequests;
+  address                    : Association to StagedAddresses;
+  action                     : NodeAction not null default 'C';
+  AddressID                  : String(10);
+  BPTaxType                  : String(4);
+  BPTaxNumber                : String(20);
+  BPTaxLongNumber            : String(60);
+}
+
 entity StagedRoles : cuid {
   request             : Association to ChangeRequests;
   action              : NodeAction not null default 'C';

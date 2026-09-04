@@ -175,6 +175,57 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     deletable: true,
     requiredCreateFields: ['BusinessPartner', 'Country']
   }),
+  // Grandchildren of the ADDRESS, not of Customer/Supplier - navigated off A_BusinessPartnerAddress
+  // itself (to_EmailAddress etc.), which is keyed BusinessPartner+AddressID, hence the composite
+  // parentKeyFields. Their own remote keys carry no BusinessPartner at all (AddressID+Person+
+  // OrdinalNumber), unlike AddressTaxNumbers below.
+  AddressEmails: Object.freeze({
+    remote: 'A_AddressEmailAddress',
+    navigation: 'to_EmailAddress',
+    parentEntity: 'A_BusinessPartnerAddress',
+    parentKeyFields: ['BusinessPartner', 'AddressID'],
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['BusinessPartner', 'AddressID', 'EmailAddress']
+  }),
+  AddressPhoneNumbers: Object.freeze({
+    remote: 'A_AddressPhoneNumber',
+    navigation: 'to_PhoneNumber',
+    parentEntity: 'A_BusinessPartnerAddress',
+    parentKeyFields: ['BusinessPartner', 'AddressID'],
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['BusinessPartner', 'AddressID', 'PhoneNumber']
+  }),
+  AddressFaxNumbers: Object.freeze({
+    remote: 'A_AddressFaxNumber',
+    navigation: 'to_FaxNumber',
+    parentEntity: 'A_BusinessPartnerAddress',
+    parentKeyFields: ['BusinessPartner', 'AddressID'],
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['BusinessPartner', 'AddressID', 'FaxNumber']
+  }),
+  AddressHomePageURLs: Object.freeze({
+    remote: 'A_AddressHomePageURL',
+    navigation: 'to_URLAddress',
+    parentEntity: 'A_BusinessPartnerAddress',
+    parentKeyFields: ['BusinessPartner', 'AddressID'],
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['BusinessPartner', 'AddressID', 'WebsiteURL']
+  }),
+  // Unlike the four above, this one is navigated off A_BusinessPartner itself (to_BusPartAddrDepdntTaxNmbr)
+  // - its own key already carries BusinessPartner+AddressID+BPTaxType, so it takes the same plain
+  // top-level shape TaxNumbers does, with AddressID as an extra required field rather than a
+  // parentKeyFields entry.
+  AddressTaxNumbers: Object.freeze({
+    remote: 'A_BusPartAddrDepdntTaxNmbr',
+    navigation: 'to_BusPartAddrDepdntTaxNmbr',
+    creatable: true,
+    deletable: true,
+    requiredCreateFields: ['BusinessPartner', 'AddressID', 'BPTaxType']
+  }),
   BusinessPartnerRoles: Object.freeze({
     remote: 'A_BusinessPartnerRole',
     navigation: 'to_BusinessPartnerRole',

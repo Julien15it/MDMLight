@@ -289,6 +289,16 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
   @readonly entity TaxNumbers           as projection on S4.A_BusinessPartnerTaxNumber;
   @readonly entity Identifications      as projection on S4.A_BuPaIdentification;
   @readonly entity Industries           as projection on S4.A_BuPaIndustry;
+  // Address-owned children, grandchildren of the object page via Addresses' own Details dialog.
+  // @cds.redirection.target, same reason as CustomerCompany/SupplierCompany below: the bulk
+  // projection of all 65 API_BUSINESS_PARTNER entity sets further down targets the same remote
+  // entities, and CAP cannot auto-redirect Addresses'/A_BPContactToAddress's own to_EmailAddress
+  // etc. navigation between two projections of one entity without being told which one wins.
+  @readonly @cds.redirection.target entity AddressEmails       as projection on S4.A_AddressEmailAddress;
+  @readonly @cds.redirection.target entity AddressPhoneNumbers as projection on S4.A_AddressPhoneNumber;
+  @readonly @cds.redirection.target entity AddressFaxNumbers   as projection on S4.A_AddressFaxNumber;
+  @readonly @cds.redirection.target entity AddressHomePageURLs as projection on S4.A_AddressHomePageURL;
+  @readonly @cds.redirection.target entity AddressTaxNumbers   as projection on S4.A_BusPartAddrDepdntTaxNmbr;
   // VF S/4HANA does not expose BR_ICMSTaxPayerType. Excluding it keeps the
   // facade compatible while retaining all other customer fields.
   @readonly entity Customers            as projection on S4.A_Customer excluding {

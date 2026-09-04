@@ -41,7 +41,78 @@ const sections = [
     summaryFields: [
       'StreetName', 'HouseNumber', 'PostalCode', 'CityName', 'Country', 'Region', 'POBox'
     ],
-    requiredCreateFields: ['Country']
+    requiredCreateFields: ['Country'],
+    // Rendered inside an Address record's own Details dialog, one block per child - the same
+    // pattern Customers/Suppliers use below, except each of these is additionally scoped to the
+    // ONE address it was opened from (AddressID on a live BP, __rowKey/__addressKey on a staged
+    // request that may not have a real AddressID yet - see "Address-owned children" in
+    // staging.md/maintenance-screen.md).
+    childSections: [
+      'AddressEmails', 'AddressPhoneNumbers', 'AddressFaxNumbers', 'AddressHomePageURLs',
+      'AddressTaxNumbers'
+    ]
+  },
+  {
+    id: 'AddressEmails',
+    title: 'Email Addresses',
+    entitySet: 'AddressEmails',
+    remoteEntity: 'A_AddressEmailAddress',
+    relationField: 'AddressID',
+    typeName: 'A_AddressEmailAddressType',
+    kind: 'collection',
+    fieldNames: ['AddressID', 'EmailAddress', 'IsDefaultEmailAddress'],
+    summaryFields: ['EmailAddress', 'IsDefaultEmailAddress'],
+    requiredCreateFields: ['EmailAddress']
+  },
+  {
+    id: 'AddressPhoneNumbers',
+    title: 'Phone Numbers',
+    entitySet: 'AddressPhoneNumbers',
+    remoteEntity: 'A_AddressPhoneNumber',
+    relationField: 'AddressID',
+    typeName: 'A_AddressPhoneNumberType',
+    kind: 'collection',
+    fieldNames: [
+      'AddressID', 'PhoneNumber', 'PhoneNumberExtension', 'PhoneNumberType', 'IsDefaultPhoneNumber'
+    ],
+    summaryFields: ['PhoneNumber', 'PhoneNumberExtension', 'IsDefaultPhoneNumber'],
+    requiredCreateFields: ['PhoneNumber']
+  },
+  {
+    id: 'AddressFaxNumbers',
+    title: 'Fax Numbers',
+    entitySet: 'AddressFaxNumbers',
+    remoteEntity: 'A_AddressFaxNumber',
+    relationField: 'AddressID',
+    typeName: 'A_AddressFaxNumberType',
+    kind: 'collection',
+    fieldNames: ['AddressID', 'FaxNumber', 'FaxNumberExtension', 'IsDefaultFaxNumber'],
+    summaryFields: ['FaxNumber', 'FaxNumberExtension', 'IsDefaultFaxNumber'],
+    requiredCreateFields: ['FaxNumber']
+  },
+  {
+    id: 'AddressHomePageURLs',
+    title: 'Websites',
+    entitySet: 'AddressHomePageURLs',
+    remoteEntity: 'A_AddressHomePageURL',
+    relationField: 'AddressID',
+    typeName: 'A_AddressHomePageURLType',
+    kind: 'collection',
+    fieldNames: ['AddressID', 'WebsiteURL', 'IsDefaultURLAddress'],
+    summaryFields: ['WebsiteURL', 'IsDefaultURLAddress'],
+    requiredCreateFields: ['WebsiteURL']
+  },
+  {
+    id: 'AddressTaxNumbers',
+    title: 'Address Tax Numbers',
+    entitySet: 'AddressTaxNumbers',
+    remoteEntity: 'A_BusPartAddrDepdntTaxNmbr',
+    relationField: 'AddressID',
+    typeName: 'A_BusPartAddrDepdntTaxNmbrType',
+    kind: 'collection',
+    fieldNames: ['AddressID', 'BPTaxType', 'BPTaxNumber', 'BPTaxLongNumber'],
+    summaryFields: ['BPTaxType', 'BPTaxNumber', 'BPTaxLongNumber'],
+    requiredCreateFields: ['BPTaxType']
   },
   {
     id: 'BusinessPartnerRoles',
