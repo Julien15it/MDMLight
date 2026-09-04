@@ -208,6 +208,16 @@ never expands an association).
   not resolve to an entry in `addressIdByStagedRow`, `postToS4` throws (*"its own address was not
   created in this run"*) rather than posting a child with no `AddressID` at all, which S/4 would
   refuse anyway but with a far less useful message.
+- **`node-required.js` must know `AddressID` is injected too** (fixed 2026-09-04, reported live the
+  same day the feature shipped: Check refused a brand new address's own email with *"AddressEmails:
+  enter required field(s) AddressID"* — exactly the row this feature exists to accept).
+  `injectedFields` already excluded the one relation field `postToS4` resolves and stamps itself
+  (`Customer`/`Supplier`/`BusinessPartner`) from the required-field check, on the reasoning that a
+  field the post supplies can never be legitimately missing from staging. `AddressID` is exactly that
+  kind of field for the five address-owned sections — resolved and injected **per row** instead of
+  once per section — but `ADDRESS_CHILD_NODES` was never passed into `createNodeRequiredStages`, so
+  the check still demanded it as if it were ordinary staged data. Fixed by threading
+  `addressChildNodes` through the same way `relationFields`/`roleNodes` already are.
 
 ## Security gaps, known and open
 

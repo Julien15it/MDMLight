@@ -26,17 +26,23 @@ const CREATE = 'C';
 const isCreateRow = (row) => String(row?.action || CREATE).trim().toUpperCase() === CREATE;
 
 /**
- * Fields `postToS4` supplies itself, which are therefore legitimately absent from staging:
- * the relation number it resolves per section, and `BusinessPartner` on a role node.
+ * Fields `postToS4` supplies itself, which are therefore legitimately absent from staging: the
+ * relation number it resolves per section, `BusinessPartner` on a role node, and `AddressID` on an
+ * address-owned child (Email/Phone/Fax/Website/Tax Number) - the one relation `postToS4` resolves
+ * PER ROW, from whichever staged address it belongs to, rather than once for the whole section (see
+ * ADDRESS_CHILD_NODES/addressIdByStagedRow in change-request-service.js and "Address-owned
+ * children" in staging.md). A brand new address has no AddressID at all until its own create
+ * returns one, so requiring it here would refuse the exact row this app is designed to accept.
  */
-function injectedFields(section, relationFields, roleNodes) {
+function injectedFields(section, relationFields, roleNodes, addressChildNodes) {
   const injected = new Set([relationFields[section] || 'BusinessPartner']);
   if (roleNodes.has(section)) injected.add('BusinessPartner');
+  if (addressChildNodes && addressChildNodes.has(section)) injected.add('AddressID');
   return injected;
 }
 
-function missingFor(section, row, config, relationFields, roleNodes) {
-  const injected = injectedFields(section, relationFields, roleNodes);
+function missingFor(section, row, config, relationFields, roleNodes, addressChildNodes) {
+  const injected = injectedFields(section, relationFields, roleNodes, addressChildNodes);
   const missing = (config.requiredCreateFields || [])
     .filter((field) => !injected.has(field))
     .filter((field) => !hasValue(row[field]));
@@ -48,10 +54,12 @@ function missingFor(section, row, config, relationFields, roleNodes) {
 
 /**
  * `entities` is MAINTENANCE_ENTITIES, `relationFields` is RELATION_FIELDS, `roleNodes` is
- * ROLE_NODES -- injected rather than imported so this module stays free of the service graph and
- * so a test can state the rules it is checking against.
+ * ROLE_NODES, `addressChildNodes` is ADDRESS_CHILD_NODES -- injected rather than imported so this
+ * module stays free of the service graph and so a test can state the rules it is checking against.
  */
-function createNodeRequiredStages({ entities = {}, relationFields = {}, roleNodes = new Set() } = {}) {
+function createNodeRequiredStages({
+  entities = {}, relationFields = {}, roleNodes = new Set(), addressChildNodes = new Set()
+} = {}) {
   return {
     validations: [{
       name: 'node_required_fields',
@@ -67,7 +75,7 @@ function createNodeRequiredStages({ entities = {}, relationFields = {}, roleNode
           rows.forEach((row, index) => {
             if (!isCreateRow(row)) return;
             const { missing, oneOfMissing, oneOf } = missingFor(
-              section, row, config, relationFields, roleNodes
+              section, row, config, relationFields, roleNodes, addressChildNodes
             );
 
             // Same wording as validateMaintenanceCreate, so a requester who has seen the

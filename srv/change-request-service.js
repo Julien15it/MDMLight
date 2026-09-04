@@ -181,7 +181,8 @@ const ROLE_NODES = new Set(['Customers', 'Suppliers']);
 const nodeRequiredStages = createNodeRequiredStages({
   entities: MAINTENANCE_ENTITIES,
   relationFields: RELATION_FIELDS,
-  roleNodes: ROLE_NODES
+  roleNodes: ROLE_NODES,
+  addressChildNodes: ADDRESS_CHILD_NODES
 });
 
 // Every string field against the staging model's own length. Built once for the same reason: it

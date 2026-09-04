@@ -30,7 +30,15 @@ const ENTITIES = Object.freeze({
     creatable: true,
     requiredCreateFields: ['Customer', 'SalesOrganization', 'DistributionChannel', 'Division']
   },
-  BusinessPartners: { creatable: false, requiredCreateFields: ['BusinessPartnerCategory'] }
+  BusinessPartners: { creatable: false, requiredCreateFields: ['BusinessPartnerCategory'] },
+  // Address-owned child (Email/Phone/Fax/Website/Tax Number) - AddressID is required for S/4 to
+  // accept the row, but postToS4 resolves and injects it PER ROW from whichever staged address it
+  // belongs to (never known up front, unlike Customer/Supplier's single relation value), so it must
+  // never be demanded here.
+  AddressEmails: {
+    creatable: true,
+    requiredCreateFields: ['BusinessPartner', 'AddressID', 'EmailAddress']
+  }
 });
 
 const RELATION_FIELDS = Object.freeze({
@@ -40,9 +48,11 @@ const RELATION_FIELDS = Object.freeze({
 });
 
 const ROLE_NODES = new Set(['Customers', 'Suppliers']);
+const ADDRESS_CHILD_NODES = new Set(['AddressEmails']);
 
 const stage = () => createNodeRequiredStages({
-  entities: ENTITIES, relationFields: RELATION_FIELDS, roleNodes: ROLE_NODES
+  entities: ENTITIES, relationFields: RELATION_FIELDS, roleNodes: ROLE_NODES,
+  addressChildNodes: ADDRESS_CHILD_NODES
 }).validations[0];
 
 const run = (sections) => stage().run({ root: {}, sections });
@@ -82,6 +92,21 @@ test('fields the post injects are never demanded', async () => {
   assert.deepEqual(await run({
     Customers: [{ action: 'C', CustomerAccountGroup: 'DEBI' }]
   }), [], 'a role node also gets BusinessPartner injected');
+});
+
+/**
+ * Reported live 2026-09-04, right after "Address-owned children" shipped: creating a brand new
+ * address together with its own email/phone/etc. in the same request failed Check with
+ * "AddressEmails: enter required field(s) AddressID." - exactly the row this feature exists to
+ * accept, since AddressID cannot be known until the address itself is created. AddressID is real
+ * S/4 API data postToS4 resolves and injects PER ROW (from whichever staged address a child
+ * belongs to), the same way Customer/Supplier's single relation value already is - it must never
+ * be demanded here just because it has no relationFields entry of its own.
+ */
+test('an address-owned child never has its AddressID demanded, even brand new', async () => {
+  assert.deepEqual(await run({
+    AddressEmails: [{ action: 'C', EmailAddress: 'info@example.com' }]
+  }), [], 'AddressID comes from the address this row belongs to, resolved at post time');
 });
 
 // postToS4 skips N, deletes D without a create check and sends U as an update, so validating any of
