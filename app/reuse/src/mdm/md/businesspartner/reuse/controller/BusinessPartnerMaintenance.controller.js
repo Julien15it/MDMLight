@@ -759,7 +759,13 @@ sap.ui.define([
         var draft = {};
         if (query.draft) {
           try {
-            draft = JSON.parse(query.draft) || {};
+            // The router does not decode a `:?query:` value itself (SAPUI5 documents this for path
+            // parameters and the same holds here) - BusinessPartnerAssistant.js builds the hash with
+            // encodeURIComponent, so the raw value is still percent-encoded. JSON.parse on that threw
+            // on every single suggestion, silently dropping the WHOLE draft into this catch - root
+            // fields and every section, Addresses included, not "just" the address; the root fields
+            // going missing alongside it was simply less noticeable than a missing address.
+            draft = JSON.parse(decodeURIComponent(query.draft)) || {};
           } catch (_ignored) {
             draft = {};
           }

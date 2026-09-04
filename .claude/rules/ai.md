@@ -68,6 +68,27 @@ fallback** whenever `parseIntent` returns null. `company-research.js` is a separ
   inside the `Promise.all` above. A candidate VIES does not confirm is dropped silently, never reported
   as "not registered" — unlike a number the requester typed, a wrong guess from search noise saying
   nothing is the right failure, not a false negative about a real company.
+- **DuckDuckGo now answers scripted requests to `/html/` with a bot challenge, not results** (found
+  live 2026-09-04: a full-page "Unfortunately, bots use DuckDuckGo too" CAPTCHA, `cc=botnet` in the
+  anomaly-detection URL). `parsePublicSearchResults`'s regex correctly finds nothing in that page
+  (no `result__a`/`result__snippet` markers), so this degrades exactly as designed — silently, no
+  address, no error — but it means `researchCompanyOnPublicWeb`, `addressFromPublicWeb` and
+  `vatNumberFromPublicWeb` are all effectively dead until this app stops depending on scraping that
+  endpoint. **Not a code regression and not fixable by changing this code** — VIES and GLEIF's own
+  APIs are unaffected (confirmed live the same day) and remain the reliable sources. Revisit with a
+  real search API (key-based) if the public-web fallback is worth keeping at all.
+- **The Business Partner Assistant's create suggestion never actually reached the create screen**
+  (reported live 2026-09-04, "the assistant finds the address correctly but it's not applied when I
+  press Create"). `_onCreateRoute` parsed `query.draft` with a bare `JSON.parse`, but SAPUI5's router
+  never decodes a `:?query:` value for the app (documented behaviour, not a bug in the router) —
+  `BusinessPartnerAssistant.js` builds the hash with `encodeURIComponent`, so the value arriving here
+  was always still percent-encoded. `JSON.parse` threw on **every** suggestion and silently landed in
+  `draft = {}`, dropping the whole draft — root fields (name, category, search term) and every
+  section, Addresses included, not "just" the address; the address was simply the one field someone
+  was watching for. Fixed with `decodeURIComponent(query.draft)` before parsing.
+  `test/create-route-draft.test.js` runs the real `_onCreateRoute` (extracted like
+  `matchSectionRows` in `change-highlighting.test.js`) against a properly `encodeURIComponent`-built
+  draft, pinning the fix.
 - **`contextualCompanyName`'s bare-words fallback used to echo back whole imperatives** (reported
   2026-09-04: "the search name is always our search query in the prompt"). It exists for the simple
   case — the whole message IS the company name, nothing else — and used to accept any short message
