@@ -286,7 +286,12 @@ const sections = [
   {
     // The MDG screen's "ERP Customer: Tax Categories" block, field for field.
     id: 'CustomerTaxGrouping',
-    title: 'Customer Tax Categories',
+    // NOT "Customer Tax Categories". S/4's own labels are inverted between the two tax sections:
+    // CustomerTaxGroupingCode is labelled "Tax Category" and takes 3 characters, while
+    // CustomerTaxIndicators.CustomerTaxCategory is labelled "Tax Condition Type" and is where a
+    // 4-character MWST belongs. A requester looking for "tax category" chose this section, typed
+    // MWST, and submit answered a bare 500 (2026-09-04).
+    title: 'Customer Tax Grouping',
     entitySet: 'CustomerTaxGrouping',
     remoteEntity: 'A_CustomerTaxGrouping',
     relationField: 'Customer',

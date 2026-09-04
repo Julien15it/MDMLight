@@ -16,6 +16,7 @@ const { createDerivationStages } = require('./checks/derivation-checks');
 const { createBpCheckStage } = require('./checks/bp-check');
 const { createRelationStages } = require('./checks/relation-checks');
 const { createNodeRequiredStages } = require('./checks/node-required');
+const { createFieldLengthStages } = require('./checks/field-lengths');
 const { configuredStages } = require('./checks/rule-store');
 const { fieldPropertyStages, resolvedProperties } = require('./checks/field-property-store');
 const { fieldState } = require('./checks/field-properties');
@@ -173,6 +174,10 @@ const nodeRequiredStages = createNodeRequiredStages({
   relationFields: RELATION_FIELDS,
   roleNodes: ROLE_NODES
 });
+
+// Every string field against the staging model's own length. Built once for the same reason: it
+// reads the model, and the model does not change per request.
+const fieldLengthStages = createFieldLengthStages();
 
 /** Navigation off A_BusinessPartner used to resolve each relation field's real
  *  number - see resolveRelationNumber. */
@@ -963,7 +968,7 @@ class ChangeRequestService extends cds.ApplicationService {
           // CVI before the registry: its configuration is cached for 60s, so it is effectively
           // offline after the first read, and a role this partner's category cannot carry is worth
           // saying before spending a VIES call on an address that will never synchronise anyway.
-          validations: [...properties.validations, ...configured.validations, ...nodeRequiredStages.validations,
+          validations: [...properties.validations, ...configured.validations, ...nodeRequiredStages.validations, ...fieldLengthStages.validations,
             ...createCviStages().validations, ...registry.validations,
             ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations],
           // The CVI derivation last: an explicit rule and a registry lookup should both win over
@@ -1065,7 +1070,7 @@ class ChangeRequestService extends cds.ApplicationService {
       const properties = await fieldPropertyStages(requesterContext(req));
       return runValidations(
         payload,
-        [...properties.validations, ...configured.validations, ...nodeRequiredStages.validations,
+        [...properties.validations, ...configured.validations, ...nodeRequiredStages.validations, ...fieldLengthStages.validations,
         ...createCviStages().validations, ...registry.validations,
         ...relationStages(req.data.BusinessPartner || payload.root?.BusinessPartner).validations]
       );
