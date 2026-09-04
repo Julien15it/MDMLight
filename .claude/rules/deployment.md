@@ -121,16 +121,28 @@ bare `npm install --production`, which re-resolves all 94 packages from version 
 build - measured at **5 minutes** for 8 direct dependencies, most of the tree being `@sap/cds` and
 the three `@sap-cloud-sdk` packages.
 
-Both commands fall back instead of failing, and that is the point: `cp -n` supplies the root
-lockfile only if `cds build` did not already copy one into `gen/srv`, and `npm ci` refuses outright
-if the generated `package.json` does not satisfy the lockfile, in which case `npm install` runs
-exactly as it did before. **Do not remove either `||`** - a slow build is recoverable, a build
-nobody can run is not.
+Both fall back instead of failing, and that is the point: the lockfile copy supplies the root one
+only if `cds build` did not already put one into `gen/srv`, and `npm ci` refuses outright if the
+generated `package.json` does not satisfy the lockfile, in which case `npm install` runs exactly as
+it did before. **Do not remove either fallback** - a slow build is recoverable, a build nobody can
+run is not.
 
-Unverified when written: whether `cds build` copies `package-lock.json` into `gen/srv` at this
-cds-dk version, and whether `npm ci` accepts the generated `package.json`. The build log answers
-both - it names the command it ran. If it says `npm ci`, this worked; if it fell through to
-`npm install`, the lockfile and the generated manifest disagree and that is the thing to fix next.
+**The fallback logic lives in `tools/install-srv-deps.js`, not inline in `mta.yaml`** (fixed
+2026-09-04, live build failure the same day: `cp: target 'true': No such file or directory`, from an
+inline `cp -n ../../package-lock.json . 2>/dev/null || true`) - the same class of bug as the
+app-content module's inline `npm ... ci || npm ... install` guard, which never worked for the
+identical reason: `builder: custom` runs each `commands:` entry directly, never through a shell, so
+`2>`, `|` and `||` inside one are passed through as literal argv entries instead of being
+interpreted. `cp` there was invoked with five literal arguments and tried to use the last one,
+`true`, as a destination directory that does not exist. `sh -c '...'` was considered and rejected
+unverified - MBT's own command-string handling could not be confirmed not to mangle the quoting the
+same way, and a wrong guess here costs someone else's next deploy attempt too. A committed script
+mta.yaml invokes plainly (`node ../../tools/install-srv-deps.js`) sidesteps the question entirely:
+there is nothing left in the `commands:` string for MBT to mishandle, and the real shell-equivalent
+logic (`try npm ci, catch and fall back to npm install`) runs as ordinary Node, not a string MBT
+parses. Confirm with the build log after touching either the script or this module: it should read
+`npm ci`, not the console.warn fallback line - if it falls back, the lockfile and the generated
+`package.json` disagree, which is a lockfile problem, not a build-config one.
 
 `mdm-businesspartner-db-deployer` (`gen/pg`) is a second nodejs module with its own install and is
 deliberately untouched until this one is proven.
