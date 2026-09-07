@@ -1070,6 +1070,8 @@ sap.ui.define([], function () {
         "requiredCreateFields": [
           "BPTaxType"
         ],
+        "creatable": false,
+        "emptyText": "No address-dependent tax numbers. S/4HANA does not support creating one through this API - maintain it in the Business Partner transaction.",
         "fields": [
           {
             "name": "AddressID",
@@ -1112,8 +1114,6 @@ sap.ui.define([], function () {
             "updatable": true
           }
         ],
-        "creatable": false,
-        "emptyText": "No address-dependent tax numbers. S/4HANA does not support creating one through this API - maintain it in the Business Partner transaction.",
         "deletable": true
       },
       {

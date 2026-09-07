@@ -146,3 +146,14 @@ test('exactly one maintenance node is non-creatable', () => {
     .map(([section]) => section);
   assert.deepEqual(readOnly, ['AddressTaxNumbers']);
 });
+
+/**
+ * `node_required_fields` must stay FIRST. Several tests reach their stage as `validations[0]`, so
+ * prepending this one silently pointed all of them at the wrong stage (which reported nothing, so
+ * they failed as "no findings" rather than as a wiring mistake).
+ */
+test('the new stage is appended, not prepended', () => {
+  const names = createNodeRequiredStages({ entities: MAINTENANCE_ENTITIES })
+    .validations.map((validation) => validation.name);
+  assert.deepEqual(names, ['node_required_fields', 'node_not_creatable']);
+});
