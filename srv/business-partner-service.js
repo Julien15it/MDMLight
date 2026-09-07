@@ -227,8 +227,12 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     // address-level entry - which every row of this section is. Part of the key all the
     // same, so sanitizeEntityKeys has to accept it blank rather than read it as missing.
     blankableKeyFields: ['Person'],
-    // Part of the key, absent from the screen, and fatal to leave empty - see createDefaultsFor.
-    createDefaults: () => ({ ValidityStartDate: new Date().toISOString().slice(0, 10) }),
+    // Part of the key, absent from the screen, and there is exactly ONE value it may carry:
+    // SAP's own metadata says so - sap:quickinfo="Valid-from date - in current Release only
+    // 00010101 possible". Sending today's date instead was accepted and silently ignored (BP 646,
+    // 2026-09-07: the row read back as an initial date anyway), so this sends the value the
+    // release actually allows and the row stays addressable by the one literal that can name it.
+    createDefaults: () => ({ ValidityStartDate: '0001-01-01' }),
     creatable: true,
     deletable: true,
     requiredCreateFields: ['BusinessPartner', 'AddressID', 'WebsiteURL']

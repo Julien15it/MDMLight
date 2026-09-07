@@ -201,7 +201,18 @@ const ADDRESS_CHILD_ASSIGNED_KEYS = Object.freeze({
     fields: ['Person', 'ValidityStartDate'],
     // The only Edm.DateTime among the four keys, and the only one that can come back
     // unusable - see usableDateTimeKey.
-    dateTimeFields: ['ValidityStartDate']
+    dateTimeFields: ['ValidityStartDate'],
+    // The ONE value a row of this entity may carry, and it is SAP's own statement, not a guess:
+    // `A_AddressHomePageURLType.ValidityStartDate` is annotated
+    // sap:quickinfo="Valid-from date - in current Release only 00010101 possible".
+    //
+    // So an unusable read-back is not a row with a broken date, it is THIS value rendered wrong:
+    // S/4 answers the ABAP initial `00010101` with a `/Date(-62135769600000)/` that CAP renders as
+    // `0000-12-30`, two days out and just below Edm.DateTime's own 0001-01-01 floor. Substituting
+    // is therefore safe in the one way that matters - it cannot address a DIFFERENT row, because no
+    // row of this entity can hold a different value. That is exactly why today's date was refused
+    // instead of substituted when this was first hit (BP 562): a real date could name another row.
+    onlyPossibleValue: { ValidityStartDate: '0001-01-01' }
   }
 });
 
@@ -248,11 +259,8 @@ async function resolveAddressChildKeys(s4, section, row, { read } = {}) {
 
   const where = { AddressID: row.AddressID, OrdinalNumber: row.OrdinalNumber };
   const run = read || ((query) => s4.run(query));
-  // Every column, not only the key parts: when the key turns out to be unaddressable the caller
-  // has to be able to ask whether the update would have changed anything at all, and this is the
-  // read that already has the row - see stagedRowMatchesRemote.
   const matches = await run(
-    cds.ql.SELECT.from(`API_BUSINESS_PARTNER.${config.remote}`).where(where)
+    cds.ql.SELECT.from(`API_BUSINESS_PARTNER.${config.remote}`).columns(...config.fields).where(where)
   );
   const rows = Array.isArray(matches) ? matches : (matches ? [matches] : []);
 
@@ -290,18 +298,27 @@ async function resolveAddressChildKeys(s4, section, row, { read } = {}) {
     // usableDateTimeKey.
     if ((config.dateTimeFields || []).includes(field)) {
       const usable = usableDateTimeKey(rows[0][field]);
+      const only = (config.onlyPossibleValue || {})[field];
+      if (usable === null && only) {
+        // Not a repair and not a guess: the release allows one value, so this IS the row's value -
+        // see onlyPossibleValue. Logged because the row was created before this app sent it.
+        console.warn(
+          `[post] ${section}: address ${row.AddressID} row ${row.OrdinalNumber} answered `
+          + `${JSON.stringify(rows[0][field])} for ${field}; addressing it as ${only}, the only `
+          + `value this release allows.`
+        );
+        resolved[field] = only;
+        continue;
+      }
+      // Reached only where the release does NOT pin the value: an unusable date that could be any
+      // of several is not substitutable, because a different date addresses a different row.
       if (usable === null) {
-        // The row travels ON the refusal. Such a row can never be addressed by any literal, so a
-        // request holding one fails at the same place on every retry - and the caller's only way
-        // out is to establish that the update would have changed nothing (stagedRowMatchesRemote).
-        // Attached rather than returned, because for a DELETE, and for a row the requester really
-        // did edit, this stays exactly the refusal it was.
-        throw Object.assign(new Error(
+        throw new Error(
           `Cannot change ${section}: address ${row.AddressID} row ${row.OrdinalNumber} carries no `
           + `usable ${field} (S/4 answered ${JSON.stringify(rows[0][field])}), and it is part of `
           + `the key - so this row cannot be addressed. Change it in S/4 instead, or remove the `
           + `row from this request so the rest of it can be posted.`
-        ), { unaddressableField: field, unaddressableRow: rows[0] });
+        );
       }
       resolved[field] = usable;
       continue;
@@ -309,33 +326,6 @@ async function resolveAddressChildKeys(s4, section, row, { read } = {}) {
     resolved[field] = rows[0][field] === null ? '' : rows[0][field];
   }
   return resolved;
-}
-
-/**
- * Whether an update to an existing address-owned child would change anything at all.
- *
- * Only ever asked once the row has turned out to be UNADDRESSABLE (see `usableDateTimeKey`): a
- * website row created before this app sent a validity date carries S/4's own initial date, which
- * cannot go into a key predicate, so an update-by-key is impossible however much anyone wants one.
- * If the staged row already says exactly what S/4 holds there, there is nothing to update - and
- * failing the whole post over a write that would be a no-op strands the request permanently, since
- * every retry refuses at the same row (reported live 2026-09-07, BP 646: the partner, the address
- * and the website row were all already in S/4 from an earlier attempt).
- *
- * A row the requester DID edit still refuses, so nothing an approver signed off is silently
- * dropped. Compared over the REMOTE row's own fields, so a staging-only column (`action`, the
- * backlinks, the ordinal) cannot make an untouched row look edited, and a field S/4 has not got is
- * not comparable at all. Empty, null and absent are one value on both sides - that is what a blank
- * staged field and an initial S/4 field both mean.
- */
-function stagedRowMatchesRemote(data, remoteRow) {
-  const same = (left, right) => {
-    const blank = (value) => value === undefined || value === null || String(value).trim() === '';
-    if (blank(left)) return blank(right);
-    return String(left).trim() === String(right).trim();
-  };
-  return Object.keys(remoteRow || {})
-    .every((field) => !(field in data) || same(data[field], remoteRow[field]));
 }
 
 /**
@@ -2029,22 +2019,7 @@ class ChangeRequestService extends cds.ApplicationService {
             // row; the rest is read back here. A create needs none of it - S/4 assigns the whole
             // lot - and asking would fail on a row that does not exist yet.
             if (action !== 'C') {
-              try {
-                Object.assign(data, await resolveAddressChildKeys(s4, section, data));
-              } catch (error) {
-                // An unaddressable row whose update would change nothing is not a failure: S/4
-                // already says what this request asks for. Everything else still refuses, a
-                // DELETE included - that one genuinely cannot happen, and skipping it would leave
-                // a row the approver agreed to remove. See stagedRowMatchesRemote.
-                if (!error.unaddressableRow || action !== 'U'
-                  || !stagedRowMatchesRemote(data, error.unaddressableRow)) throw error;
-                console.warn(
-                  `[post] ${section} ${ID}: address ${data.AddressID} row ${data.OrdinalNumber} `
-                  + `cannot be addressed (${error.unaddressableField} is initial in S/4), but it `
-                  + `already holds what this request asks for - nothing to update. Skipped.`
-                );
-                continue;
-              }
+              Object.assign(data, await resolveAddressChildKeys(s4, section, data));
             }
           } else {
             const relationField = RELATION_FIELDS[section] || 'BusinessPartner';
@@ -2461,7 +2436,6 @@ ChangeRequestService._internals = {
   ADDRESS_CHILD_NODES,
   ADDRESS_CHILD_ASSIGNED_KEYS,
   resolveAddressChildKeys,
-  stagedRowMatchesRemote,
   usableDateTimeKey,
   resolveEffectiveRole,
   currentStepAssignee

@@ -298,66 +298,38 @@ never expands an association).
   — the **form is right** (`Person=''`, a bare `true`, a `datetime'…'` literal); the value is not.
   `Edm.DateTime` starts at `0001-01-01`, and **`0000-12-30` is how CAP renders an SAP INITIAL
   date** — so a website row carrying no validity date reads back as one and cannot go into a key.
-  `usableDateTimeKey` now refuses it and `resolveAddressChildKeys` throws naming the field, because
-  a stated refusal beats a malformed request. **Deliberately NOT substituted** with `0001-01-01`
-  or today: a key is an ADDRESS, and a different date addresses a different row, or none.
+  `usableDateTimeKey` refuses it, because a stated refusal beats a malformed request. Substituting
+  a date was ruled out at this point and for a good reason - a key is an ADDRESS, and a different
+  date addresses a different row, or none. **That reason later turned out not to apply to this one
+  field**, but only once SAP's own metadata was read; see below.
   **Only reachable on a change or a delete** — a newly added row is a POST through the navigation
   and has no key predicate at all, which is why every earlier run (all adds) never saw it.
-  **The row is born that way, and that is the half worth fixing.** Read back through the facade
-  (address 1205, 2026-09-07) BOTH website rows carry `"ValidityStartDate": "0000-12-30"` — so S/4's
-  own serialiser emits a value its own URI parser rejects, and such a row can be neither updated nor
-  deleted (delete builds the same predicate). They got that way because this app POSTs a website
-  without a `ValidityStartDate`: it is part of the key, it is not on the screen, and S/4 then stores
-  its initial date. `MAINTENANCE_ENTITIES.AddressHomePageURLs.createDefaults` now sends **today's
-  date** on create — what the BP transaction itself defaults — so every row this app creates from
-  now on stays addressable. `createDefaultsFor` applies a default only where the payload has
-  nothing, so a supplied value always wins, and it is a FUNCTION so the date is the request's.
-  **Rows created before this stay stuck** — unaddressable by any literal, so they cannot be repaired
-  or removed through this API at all; that needs S/4 itself.
-  **And a request that HOLDS such a row was stuck with them** (2026-09-07, BP 646). The refusal is
-  permanent by construction, so every retry failed at the same row forever: the partner, the address
-  and the website row were all already in S/4 from an earlier attempt, `postToS4` had flipped the
-  created row to `action: 'U'` for retry-safety, and that update could never be addressed — while
-  nothing had actually changed, so nothing needed updating. `resolveAddressChildKeys` now reads
-  **every** column (not just the key parts) and attaches the row to the refusal
-  (`error.unaddressableRow`); `postToS4` skips the write, with a `[post]` warning, when
-  `stagedRowMatchesRemote` establishes the staged row already says what S/4 holds. **Only a
-  no-op UPDATE is skipped**: a DELETE of such a row genuinely cannot happen and skipping it would
-  leave behind a row the approver agreed to remove, and a row the requester really did edit still
-  refuses — nothing signed off is silently dropped. The comparison runs over the REMOTE row's own
-  fields, so a staging-only column (`action`, the backlinks, the ordinal) cannot make an untouched
-  row look edited; blank, null and absent are one value on both sides. The refusal also now names
-  the second way out, the only one inside this app: **remove the row from the request** (the client
-  no longer sending it drops it from staging) so the rest can post.
-  **No other node needs the same fix, audited against the EDMX 2026-09-07.** Only two creatable
-  maintenance nodes have a non-string key field at all: this one, and `BusinessPartnerContacts`
-  (`ValidityEndDate`, `Edm.DateTime`) — which is already safe because `ValidityEndDate` is in its
-  `requiredCreateFields`, so `node_required_fields` refuses a create without it. Every other date
-  across the 15 creatable nodes with dates is a **non-key** field, where an initial value cannot
-  make a row unaddressable, and `sanitizeEntityPayload` drops an absent field rather than sending
-  one, so S/4 applies its own default. **Do not "fix" those by defaulting them** — it would replace
-  SAP's own defaulting with a guess and fabricate business data (exemption periods, dunning dates,
-  certification dates). The general rule is pinned by *"no creatable node has a date in its key that
-  a create could leave empty"* in `test/address-child-keys.test.js`, so a node added later that
-  breaks it fails a test rather than a live post.
-  **S/4 does accept it, but only as `/Date(<ms>)/`** (2026-09-07, BP 645: *"Conversion error for
-  property 'ValidityStartDate' at offset '33'"* on the very first create that sent the field). A
-  create is POSTed **raw** through `s4.send` with a navigation path, so nothing between the payload
-  and the gateway looks at the target's types: the plain `'2026-09-07'` `createDefaults` produces
-  went out as a JSON string and offset 33 landed exactly on it. `serializeRemoteDates` converts
-  every `cds.Date`/`cds.DateTime`/`cds.Timestamp` element of the body at the boundary where it is
-  handed over — **after** `validateMaintenanceCreate` and after the parent key context is built, so
-  everything upstream still judges and addresses real values. `/Date(<ms>)/` is the form S/4 itself
-  emits for these properties, which is why an initial one reads back through the facade as
-  `0000-12-30`. **Driven by the MODEL, never by the look of a value:** a `cds.String` field whose
-  content happens to read as a date stays a string. **The UPDATE path must not use it** —
-  `cds.ql.UPDATE` goes through CAP's own remote client, which serializes by the model, and a
-  pre-converted string is what that would choke on. A date-only value is read as **midnight UTC**
-  (an explicit `Z`): `Date.parse` reads `'YYYY-MM-DD'` as UTC but `'YYYY-MM-DDTHH:mm:ss'` as LOCAL,
-  so a container east of UTC would otherwise send the previous day.
-  **Still open:** the oddity that `IsDefaultURLAddress` is both a KEY part and an editable field — so
-  ticking the default flag changes the key, which an update-by-key cannot express even with a good
-  date.
+  **The date is not ours to set: the release allows exactly ONE value, and SAP says so in the
+  metadata we already ship.** `A_AddressHomePageURLType.ValidityStartDate` carries
+  `sap:quickinfo="Valid-from date - in current Release only 00010101 possible"`. Two wrong turns
+  were taken before reading it, both live: sending **today's date** on create (S/4 **accepted the
+  POST and ignored the value** - BP 646's row read back `0000-12-30` anyway, as did both rows of
+  address 1205), and treating such a row as permanently unaddressable and skipping a no-op update
+  instead (a workaround for that misdiagnosis, withdrawn with it).
+  **`0000-12-30` IS `00010101`, rendered two days out.** S/4 answers the ABAP initial date with a
+  `/Date(-62135769600000)/`, and `0001-01-01` is `-62135596800000` - a 2-day gap that lands the
+  rendered value just under Edm.DateTime's own `0001-01-01` floor, which is why the literal was
+  malformed. So `usableDateTimeKey` still refuses to put the read-back value in a key, and
+  `ADDRESS_CHILD_ASSIGNED_KEYS.AddressHomePageURLs.onlyPossibleValue` substitutes `0001-01-01`
+  instead - **the one substitution that is safe, and it is safe for one reason only: it cannot
+  address a DIFFERENT row, because no row of this entity can hold a different value.** That is
+  exactly why today's date was refused rather than substituted when this was first hit (BP 562): a
+  real date could name another row. A date-keyed field with no such declared constraint is still
+  refused, and the refusal now also names the only way out inside this app - **remove the row from
+  the request** (the client no longer sending it drops it from staging) so the rest can post.
+  `createDefaults` sends the same `0001-01-01` on create, so the two halves are one value in two
+  places and a test pins that they cannot drift.
+  **Still open:** whether `datetime'0001-01-01T00:00:00'` actually matches the stored row -
+  **unverified live**, and the whole point of the next Change test. If it does not, this entity has
+  no update-by-key at all and the section becomes create-and-read-only, the shape
+  `AddressTaxNumbers` already has. Also still open: `IsDefaultURLAddress` is both a KEY part and an
+  editable field, so ticking the default flag changes the key, which an update-by-key cannot
+  express whatever the date says.
 - **`AddressTaxNumbers` is READ-ONLY: S/4 cannot create one through this API at all** (2026-09-07,
   reported live: BP 638 created, then *"Operation is not supported"*). The gateway answered the POST
   to `/A_BusinessPartner('638')/to_BusPartAddrDepdntTaxNmbr` with `/IWBEP/CM_MGW_RT/027 Operation

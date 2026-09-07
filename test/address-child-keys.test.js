@@ -26,7 +26,6 @@ const {
   ADDRESS_CHILD_NODES,
   ADDRESS_CHILD_ASSIGNED_KEYS,
   resolveAddressChildKeys,
-  stagedRowMatchesRemote,
   usableDateTimeKey
 } = require('../srv/change-request-service')._internals;
 
@@ -324,17 +323,43 @@ test('sanitizeEntityKeys lets a declared blank key through, and still catches a 
  * but Edm.DateTime starts at 0001-01-01, and `0000-12-30` is how CAP renders an SAP INITIAL date.
  * A website row with no validity date read back as one, and we tried to put it in a key.
  */
-test('an initial date is refused, not sent as a malformed key', async () => {
-  await assert.rejects(
-    () => resolveAddressChildKeys(
+test('an initial date is addressed as the one value the release allows', async () => {
+  // SAP's own annotation on this property: "Valid-from date - in current Release only 00010101
+  // possible". So `0000-12-30` is not a broken date, it is THAT value rendered two days out (the
+  // ABAP initial arrives as /Date(-62135769600000)/, just under Edm.DateTime's 0001-01-01 floor).
+  assert.equal(usableDateTimeKey('0000-12-30T00:00:00'), null, 'it still cannot be a literal as-is');
+  assert.deepEqual(
+    await resolveAddressChildKeys(
       s4With([{ Person: '', ValidityStartDate: '0000-12-30T00:00:00' }]),
       'AddressHomePageURLs',
       { AddressID: '1205', OrdinalNumber: '1' }
     ),
-    (error) => /carries no usable ValidityStartDate/u.test(error.message)
-      && /cannot be addressed/u.test(error.message),
-    'the refusal names the field and says the row cannot be addressed'
+    { Person: '', ValidityStartDate: '0001-01-01' }
   );
+});
+
+/**
+ * Substituting is safe here in the one way that matters, and ONLY here: it cannot address a
+ * different row, because no row of this entity can hold a different value. A date-keyed field with
+ * no such declared constraint is still refused rather than guessed at - which is why today's date
+ * was refused when this was first hit (BP 562): a real date could name another row.
+ */
+test('the substitution is declared per field, and only where the release allows one value', () => {
+  assert.deepEqual(
+    ADDRESS_CHILD_ASSIGNED_KEYS.AddressHomePageURLs.onlyPossibleValue,
+    { ValidityStartDate: '0001-01-01' }
+  );
+  for (const section of ['AddressEmails', 'AddressPhoneNumbers', 'AddressFaxNumbers']) {
+    assert.equal(ADDRESS_CHILD_ASSIGNED_KEYS[section].onlyPossibleValue, undefined, section);
+    assert.equal(ADDRESS_CHILD_ASSIGNED_KEYS[section].dateTimeFields, undefined, section);
+  }
+  // And the value is what S/4's metadata says, not an arbitrary floor.
+  const edmx = fs.readFileSync(
+    path.join(__dirname, '..', 'srv', 'external', 'API_BUSINESS_PARTNER.edmx'), 'utf8'
+  );
+  const start = edmx.indexOf('<EntityType Name="A_AddressHomePageURLType"');
+  const block = edmx.slice(start, edmx.indexOf('</EntityType>', start));
+  assert.match(block, /only 00010101 possible/u, 'SAP still states the single legal value');
 });
 
 test('a real validity date still resolves, unchanged', async () => {
@@ -365,23 +390,26 @@ test('usableDateTimeKey keeps a real date and rejects what cannot be a literal',
 });
 
 /**
- * A website row created without a `ValidityStartDate` is born unaddressable: it is part of the
- * entity's key, is not on the screen, and S/4 stores its INITIAL date when nothing is sent -
- * `0000-12-30`, outside Edm.DateTime. Confirmed on address 1205 (2026-09-07): both rows read back
- * `"ValidityStartDate": "0000-12-30"`, and neither can be updated or deleted.
+ * `ValidityStartDate` is part of this entity's key and is not on the screen, so the create has to
+ * supply it - and there is exactly one value it may be. Today's date was sent first (2026-09-07)
+ * and S/4 **accepted it and ignored it**: BP 646's row read back `"ValidityStartDate":
+ * "0000-12-30"` all the same, as did both rows of address 1205 before it. Its own metadata says
+ * why - `sap:quickinfo="Valid-from date - in current Release only 00010101 possible"`.
  */
-test('a website create carries a validity date nobody is asked for', () => {
+test('a website create carries the one validity date the release allows', () => {
   const { MAINTENANCE_ENTITIES, createDefaultsFor } = require('../srv/business-partner-service')._internals;
   const defaults = createDefaultsFor(MAINTENANCE_ENTITIES.AddressHomePageURLs);
 
-  assert.deepEqual(Object.keys(defaults), ['ValidityStartDate'], 'one field, and only that one');
-  assert.match(defaults.ValidityStartDate, /^\d{4}-\d{2}-\d{2}$/u, 'date-only, as the facade reads it');
-  // Today's, and above all a year Edm.DateTime accepts - which is the whole point.
-  assert.ok(Number(defaults.ValidityStartDate.slice(0, 4)) >= 2026);
-  assert.equal(usableDateTimeKey(defaults.ValidityStartDate), defaults.ValidityStartDate);
-
-  // Computed per call, not frozen at module load.
-  assert.equal(typeof MAINTENANCE_ENTITIES.AddressHomePageURLs.createDefaults, 'function');
+  assert.deepEqual(defaults, { ValidityStartDate: '0001-01-01' });
+  // And it is a value Edm.DateTime can carry, unlike the 0000-12-30 the same row reads back as.
+  assert.equal(usableDateTimeKey(defaults.ValidityStartDate), '0001-01-01');
+  assert.equal(usableDateTimeKey('0000-12-30'), null);
+  // It is the same value resolveAddressChildKeys addresses an existing row by - one constant, two
+  // places, and they must not drift.
+  assert.equal(
+    ADDRESS_CHILD_ASSIGNED_KEYS.AddressHomePageURLs.onlyPossibleValue.ValidityStartDate,
+    defaults.ValidityStartDate
+  );
 });
 
 test('no other maintenance node invents a create value', () => {
@@ -474,92 +502,9 @@ test('the two date-keyed nodes are covered by different means, on purpose', () =
   assert.ok(MAINTENANCE_ENTITIES.BusinessPartnerContacts.requiredCreateFields.includes('ValidityEndDate'));
   assert.equal(MAINTENANCE_ENTITIES.BusinessPartnerContacts.createDefaults, undefined);
 
-  // Nobody cares about a website's, so the app fills it rather than asking.
+  // A website's is not a decision at all - the release allows one value - so the app fills it in
+  // rather than asking a requester for the only answer there is.
   assert.ok(!MAINTENANCE_ENTITIES.AddressHomePageURLs.requiredCreateFields.includes('ValidityStartDate'));
-  assert.ok(createDefaultsFor(MAINTENANCE_ENTITIES.AddressHomePageURLs).ValidityStartDate);
+  assert.equal(createDefaultsFor(MAINTENANCE_ENTITIES.AddressHomePageURLs).ValidityStartDate, '0001-01-01');
 });
 
-/**
- * An unaddressable row is a PERMANENT refusal - no literal can name it - so a request that holds
- * one fails at exactly the same row on every retry, forever. Reported live 2026-09-07 (BP 646): the
- * partner, the address and the website row were all already in S/4 from an earlier attempt of the
- * same request, the retry flipped the created row to `action: 'U'`, and the update it then tried
- * could never be addressed. Nothing had actually changed, so nothing needed updating.
- *
- * The refusal therefore carries the row it read, and `stagedRowMatchesRemote` is what decides
- * whether there was anything to do. A row the requester DID edit still refuses.
- */
-test('the refusal carries the row it could not address, and says how to get unstuck', async () => {
-  const remote = {
-    Person: '', ValidityStartDate: '0000-12-30T00:00:00', OrdinalNumber: '1',
-    WebsiteURL: 'google.com', IsDefaultURLAddress: true
-  };
-  await assert.rejects(
-    () => resolveAddressChildKeys(s4With([remote]), 'AddressHomePageURLs',
-      { AddressID: '1205', OrdinalNumber: '1' }),
-    (error) => {
-      assert.deepEqual(error.unaddressableRow, remote, 'the row travels on the error');
-      assert.equal(error.unaddressableField, 'ValidityStartDate');
-      // Two ways out, and the second is the only one inside this app.
-      assert.match(error.message, /Change it in S\/4 instead/u);
-      assert.match(error.message, /remove the row from this request/u);
-      return true;
-    }
-  );
-});
-
-test('the read fetches every column, since the row itself is what the caller may need', async () => {
-  const s4 = s4With([{ Person: '' }]);
-  await resolveAddressChildKeys(s4, 'AddressEmails', { AddressID: '77', OrdinalNumber: '1' });
-  const { SELECT } = s4.calls[0];
-  assert.ok(!SELECT.columns, 'no projection - all columns');
-});
-
-test('an unchanged staged row matches, whatever staging carries that S/4 does not', () => {
-  const remote = { Person: '', OrdinalNumber: '1', WebsiteURL: 'google.com', IsDefaultURLAddress: true };
-  assert.equal(stagedRowMatchesRemote({
-    // Everything a staged row really carries at this point, injected keys and all.
-    ID: 'a-cuid', action: 'U', request_ID: 'r', address_ID: 'x', AddressID: '1205',
-    BusinessPartner: '646', OrdinalNumber: '1', WebsiteURL: 'google.com', IsDefaultURLAddress: true
-  }, remote), true);
-});
-
-test('an edited field does not match, so the post still refuses it', () => {
-  const remote = { OrdinalNumber: '1', WebsiteURL: 'google.com' };
-  assert.equal(stagedRowMatchesRemote({ OrdinalNumber: '1', WebsiteURL: 'google.be' }, remote), false);
-  // A field CLEARED on the request is an edit too, not an absence.
-  assert.equal(stagedRowMatchesRemote({ OrdinalNumber: '1', WebsiteURL: '' }, remote), false);
-});
-
-test('blank, null and absent are one value on both sides', () => {
-  // Person is blank for every address-level row; a staged column nobody filled is null.
-  assert.equal(stagedRowMatchesRemote({ Person: '' }, { Person: null }), true);
-  assert.equal(stagedRowMatchesRemote({ Person: null }, { Person: '' }), true);
-  assert.equal(stagedRowMatchesRemote({ Person: '  ' }, { Person: '' }), true);
-  // A field S/4 does not have at all is not comparable and never a difference.
-  assert.equal(stagedRowMatchesRemote({ __addressKey: 'zz' }, { OrdinalNumber: '1' }), true);
-  // A field the REMOTE row has and the staged row does not is not a difference either - staging
-  // declares only a subset of the remote entity's columns.
-  assert.equal(stagedRowMatchesRemote({}, { WebsiteURL: 'google.com' }), true);
-});
-
-test('numbers and booleans compare by value, not by type', () => {
-  assert.equal(stagedRowMatchesRemote({ IsDefaultURLAddress: true }, { IsDefaultURLAddress: true }), true);
-  assert.equal(stagedRowMatchesRemote({ IsDefaultURLAddress: false }, { IsDefaultURLAddress: true }), false);
-  assert.equal(stagedRowMatchesRemote({ OrdinalNumber: '1' }, { OrdinalNumber: 1 }), true);
-});
-
-/**
- * Where the skip is allowed, and where it is not. A DELETE of an unaddressable row genuinely cannot
- * happen, and skipping it would leave behind a row the approver agreed to remove.
- */
-test('only a no-op UPDATE is skipped - a delete and a real edit still throw', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'srv', 'change-request-service.js'), 'utf8');
-  const at = source.indexOf('if (!error.unaddressableRow');
-  assert.ok(at > 0, 'the post decides on the attached row');
-  const guard = source.slice(at, source.indexOf('throw error;', at) + 12);
-  assert.match(guard, /action !== 'U'/u, 'a delete is never skipped');
-  assert.match(guard, /!stagedRowMatchesRemote\(data, error\.unaddressableRow\)/u);
-  // And an error of any other kind is rethrown untouched.
-  assert.match(guard, /!error\.unaddressableRow/u);
-});

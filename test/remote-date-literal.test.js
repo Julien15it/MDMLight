@@ -90,14 +90,19 @@ test('it copies rather than mutating, and survives a missing model', () => {
   assert.equal(serializeRemoteDates(null, WEBSITE_ELEMENTS), null);
 });
 
-/** The one date this app actually sends, end to end: the website default it invented itself. */
+/**
+ * The one date this app actually sends, end to end. It is `0001-01-01` and not today's: S/4's own
+ * metadata says "in current Release only 00010101 possible", and today's was accepted and silently
+ * ignored (BP 646). The ms are NEGATIVE, which is the case worth pinning - a naive serialiser that
+ * treats the epoch as a floor would emit 0 and address the wrong row.
+ */
 test("the website create's own default converts to a literal S/4 accepts", () => {
   const defaults = createDefaultsFor(MAINTENANCE_ENTITIES.AddressHomePageURLs);
   const body = serializeRemoteDates(defaults, WEBSITE_ELEMENTS);
-  assert.match(body.ValidityStartDate, /^\/Date\(\d+\)\/$/u);
-  // A year Edm.DateTime accepts, which was the point of defaulting it at all.
+  assert.equal(body.ValidityStartDate, '/Date(-62135596800000)/');
   const milliseconds = Number(body.ValidityStartDate.slice(6, -2));
-  assert.ok(new Date(milliseconds).getUTCFullYear() >= 2026);
+  assert.ok(milliseconds < 0, 'a year-1 date is before the epoch');
+  assert.equal(new Date(milliseconds).toISOString().slice(0, 10), '0001-01-01');
 });
 
 /**
