@@ -707,17 +707,46 @@ function validateMaintenanceCreate(entityName, payload, configuration) {
   }
 }
 
+/** The fields that address a node's parent, whether or not the node itself has them. */
+function parentKeyFieldsOf(configuration) {
+  return configuration.parentKeyFields
+    || [configuration.parentKeyField || 'BusinessPartner'];
+}
+
+/**
+ * The parent's keys, taken from the RAW staged/client data rather than from the sanitized payload.
+ *
+ * They travel in the URL, never in the body, and `sanitizeEntityPayload` keeps only what is an
+ * element of the node's OWN entity - so any parent key the child does not itself carry is dropped
+ * before it can address anything. `A_AddressEmailAddress` and its Phone/Fax/HomePageURL siblings
+ * key on `AddressID/Person/OrdinalNumber` and have no `BusinessPartner` element at all, while their
+ * parent `A_BusinessPartnerAddress` keys on `BusinessPartner` AND `AddressID`. `postToS4` supplies
+ * both, and the sanitize dropped the one of the two that mattered: the create then failed at
+ * activation with *"enter required field(s) BusinessPartner"*, and past that with *"Enter a
+ * BusinessPartner number."* - for a value the request had all along (2026-09-07). Only
+ * `AddressTaxNumbers` escaped it, because `A_BusPartAddrDepdntTaxNmbr` does have the element.
+ *
+ * Returned separately from the payload, so the POST body still carries only the node's own fields.
+ */
+function parentKeyContext(configuration, data) {
+  return Object.fromEntries(
+    parentKeyFieldsOf(configuration)
+      .filter((field) => data[field] !== undefined && data[field] !== null)
+      .map((field) => [field, data[field]])
+  );
+}
+
 /**
  * The parent's canonical URI plus the navigation. A parent may itself be a child with a composite
  * key, hence parentKeyFields as a list (parentKeyField stays for the single-key nodes). Key values
- * come off the client payload - a grandchild carries its parent's keys, so no extra round trip.
+ * come off `keySource` - the payload merged over the parent key context, so a grandchild still
+ * costs no extra round trip and a parent key the child does not carry is still there to be used.
  */
-function businessPartnerNavigationPath(configuration, payload) {
+function businessPartnerNavigationPath(configuration, keySource) {
   const parentEntity = configuration.parentEntity || 'A_BusinessPartner';
-  const parentKeyFields = configuration.parentKeyFields
-    || [configuration.parentKeyField || 'BusinessPartner'];
+  const parentKeyFields = parentKeyFieldsOf(configuration);
   const values = parentKeyFields.map((field) => {
-    const value = String(payload[field] ?? '').trim();
+    const value = String(keySource[field] ?? '').trim();
     if (!value) {
       throw Object.assign(new Error(`Enter a ${field} number.`), { statusCode: 400 });
     }
@@ -731,10 +760,10 @@ function businessPartnerNavigationPath(configuration, payload) {
   return `/${parentEntity}(${keyPredicate})/${configuration.navigation}`;
 }
 
-async function createBusinessPartnerChild(s4, configuration, payload) {
+async function createBusinessPartnerChild(s4, configuration, payload, keySource = payload) {
   return normalizeRemoteResult(await s4.send({
     method: 'POST',
-    path: businessPartnerNavigationPath(configuration, payload),
+    path: businessPartnerNavigationPath(configuration, keySource),
     data: payload
   }));
 }
@@ -2437,10 +2466,14 @@ class BusinessPartnerService extends cds.ApplicationService {
 
       if (isCreate) {
         try {
-          validateMaintenanceCreate(req.data.Entity, payload, configuration);
+          // Validated and addressed against the payload PLUS the parent keys, which travel in the
+          // URL and are therefore legitimately absent from the body -- see parentKeyContext. The
+          // POST body below stays `payload`, so no node is sent a field its own entity has not got.
+          const addressed = { ...parentKeyContext(configuration, data), ...payload };
+          validateMaintenanceCreate(req.data.Entity, addressed, configuration);
           const result = req.data.Entity === 'Addresses'
             ? await createBusinessPartnerAddress(s4, payload)
-            : await createBusinessPartnerChild(s4, configuration, payload);
+            : await createBusinessPartnerChild(s4, configuration, payload, addressed);
           return JSON.stringify(result || payload);
         } catch (error) {
           const message = remoteErrorMessage(error, `S/4HANA rejected the ${req.data.Entity} create request.`);
@@ -2871,6 +2904,7 @@ BusinessPartnerService._internals = {
   normalizeRemoteResult,
   remoteErrorMessage,
   businessPartnerNavigationPath,
+  parentKeyContext,
   createBusinessPartnerChild,
   addDefaultAddressUsage,
   taxTypeLanguageRank,

@@ -224,11 +224,30 @@ entity StagedAddresses : cuid {
 // value onto every child row via `address` the moment its own address has actually been created,
 // exactly the way `Customer`/`Supplier` are resolved onto their own children today, just per-row
 // instead of once for the whole request.
+//
+// `OrdinalNumber` is staged for the four NON-tax children for the same reason `AddressID` above and
+// `StagedContacts.RelationshipNumber` are: S/4 assigns it on create, and a later change-type request
+// reading the row back needs somewhere to carry it so an update or delete can address the row at
+// all. Their S/4 key is AddressID+Person+OrdinalNumber, and without the ordinal a `U` or `D` failed
+// with "Missing key field(s): Person, OrdinalNumber" (2026-09-07) - `stageable` drops any field the
+// staging entity does not declare, so the ordinal the read HAD brought back from S/4 was thrown
+// away at staging time. It is the one part of that key that cannot be recovered later: an ordinal
+// IDENTIFIES which of an address's several emails a row is, and once the requester has edited the
+// address itself nothing else on the row still says which one it used to be. `Person` and
+// A_AddressHomePageURL's `ValidityStartDate` are NOT staged, because they can be: postToS4 reads
+// them back from S/4 on AddressID+OrdinalNumber (see resolveAddressChildKeys). Blank on a create,
+// and never rendered - it is absent from the generated screen metadata, so no requester is ever
+// asked for a number S/4 has not assigned yet.
+//
+// AddressTaxNumbers needs none of this: its key is BusinessPartner+AddressID+BPTaxType, and all
+// three are either staged or injected by postToS4 already.
 entity StagedAddressEmails : cuid {
   request                    : Association to ChangeRequests;
   address                    : Association to StagedAddresses;
   action                     : NodeAction not null default 'C';
   AddressID                  : String(10);
+  // S/4-assigned; see the note above. Blank on create, carried so a U/D can address the row.
+  OrdinalNumber              : String(3);
   EmailAddress               : String(241);
   IsDefaultEmailAddress      : Boolean;
 }
@@ -238,6 +257,8 @@ entity StagedAddressPhoneNumbers : cuid {
   address                    : Association to StagedAddresses;
   action                     : NodeAction not null default 'C';
   AddressID                  : String(10);
+  // S/4-assigned; see the note above. Blank on create, carried so a U/D can address the row.
+  OrdinalNumber              : String(3);
   PhoneNumber                : String(30);
   PhoneNumberExtension       : String(10);
   // '1' Standard Phone Number, '3' Mobile Phone Number, per TSAD3T.
@@ -250,6 +271,8 @@ entity StagedAddressFaxNumbers : cuid {
   address                    : Association to StagedAddresses;
   action                     : NodeAction not null default 'C';
   AddressID                  : String(10);
+  // S/4-assigned; see the note above. Blank on create, carried so a U/D can address the row.
+  OrdinalNumber              : String(3);
   FaxNumber                  : String(30);
   FaxNumberExtension         : String(10);
   IsDefaultFaxNumber         : Boolean;
@@ -260,6 +283,8 @@ entity StagedAddressHomePageURLs : cuid {
   address                    : Association to StagedAddresses;
   action                     : NodeAction not null default 'C';
   AddressID                  : String(10);
+  // S/4-assigned; see the note above. Blank on create, carried so a U/D can address the row.
+  OrdinalNumber              : String(3);
   WebsiteURL                 : String(2048);
   IsDefaultURLAddress        : Boolean;
 }
