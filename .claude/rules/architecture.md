@@ -11,6 +11,19 @@
 section read failing with "Resource not found for the segment" usually means a field needs to move
 into an exclude, not that there is a bug.
 
+**A filtered projection over a REMOTE entity does not restrict what S/4 returns.**
+`BusinessPartnerPersons` is `A_BusinessPartner as projection on ... where BusinessPartnerCategory =
+'1'`, the facade's only filtered projection — and the contact-person value help it backs showed
+organisations and groups all the same (reported live 2026-09-07). The condition is compiler-resolved
+and never reached the outgoing `$filter`, so the only WHERE S/4 ever saw was whatever the client
+sent. `restrictReadTo` ANDs it in from a `before('READ')` handler instead, in the same CQN shape
+`applyBusinessPartnerSearch` builds so the two compose. **The CDS `where` is deliberately kept** —
+it documents the intent where the entity is declared and keeps the served metadata honest — but it
+is the handler that does the work. **Nothing else in the facade depends on a filtered projection**,
+which is why this went unnoticed for as long as it did: every other value help reads a
+`ZSRVB_MDMLIGHT_VH` code list that is already exactly the set it should offer. Restrict the read in
+JS for any new one, and never assume a projection's `where` reached the remote.
+
 **Excluding a field in the CDS must reach the create screen too.**
 `app/businesspartner/scripts/generate-maintenance-metadata.js` compiles the service CDS and diffs each
 section's projected elements against the raw CSN. A CDS-excluded field still named in a `fieldGroups`

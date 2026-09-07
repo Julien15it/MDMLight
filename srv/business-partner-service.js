@@ -1059,6 +1059,31 @@ function applyBusinessPartnerSearch(query) {
   return query;
 }
 
+/**
+ * ANDs a fixed equality into a READ's own WHERE, in the same CQN shape
+ * `applyBusinessPartnerSearch` builds so the two compose rather than overwrite each other.
+ *
+ * Exists because a filtered projection over a REMOTE entity is not reliably pushed into the
+ * outgoing `$filter`. `BusinessPartnerPersons` is `A_BusinessPartner` projected
+ * `where BusinessPartnerCategory = '1'`, and the contact-person value help offered organisations
+ * and groups all the same (reported 2026-09-07) - so the only condition S/4 ever saw was whatever
+ * the client had sent. Nothing else in this facade relies on a filtered projection, which is why
+ * this went unnoticed: every other value help reads a `ZSRVB_MDMLIGHT_VH` code list that is
+ * already exactly the set it should offer.
+ *
+ * Applied in this app's own code rather than left to the compiler, so what reaches S/4 is a
+ * condition somebody can read here and a test can pin.
+ */
+function restrictReadTo(query, field, value) {
+  const select = query && query.SELECT;
+  if (!select) return query;
+  const condition = [{ ref: [field] }, '=', { val: value }];
+  select.where = select.where && select.where.length
+    ? [{ xpr: select.where }, 'and', { xpr: condition }]
+    : condition;
+  return query;
+}
+
 function validateBusinessPartnerCreate(data = {}) {
   const errors = [];
   const category = data.BusinessPartnerCategory;
@@ -2364,6 +2389,14 @@ class BusinessPartnerService extends cds.ApplicationService {
       applyBusinessPartnerSearch(req.query);
     });
 
+    // The contact-person value help, and the ONE place a category restriction has to hold: a
+    // Contacts row points at an existing person, so an organisation or a group in this list is not
+    // a choice a requester may make. The CDS projection says so too and is deliberately kept -
+    // see restrictReadTo for why saying it twice is not belt-and-braces but the only reliable half.
+    this.before('READ', 'BusinessPartnerPersons', (req) => {
+      restrictReadTo(req.query, 'BusinessPartnerCategory', '1');
+    });
+
     /**
      * The one search list: the live partners and the requests in flight over them. Staging is read
      * first because the staged rows take the top of the list - a pending create has no partner
@@ -3075,6 +3108,7 @@ BusinessPartnerService._internals = {
   ASSISTANT_ADDRESS_CHUNK,
   ASSISTANT_MAX_ROWS,
   applyBusinessPartnerSearch,
+  restrictReadTo,
   ACTIVE_REQUEST_STATUSES,
   assistantAddressFilter,
   assistantSearchFilter,
