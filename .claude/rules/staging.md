@@ -306,6 +306,18 @@ never expands an association).
   `Person` and `ValidityStartDate` are NOT staged, because they CAN be recovered — once the ordinal
   identifies the row, `resolveAddressChildKeys` reads them back on `AddressID` + `OrdinalNumber`,
   one read per changed or deleted row, and only when `action !== 'C'`.
+  **A BLANK `Person` is the real key value, not a missing one** (2026-09-07, reported live:
+  *"S/4 returned no Person for address 1367 row 1"* on the change after the create finally
+  succeeded). `Person` is `ADR6`/`ADRT-PERSNUMBER` — the CONTACT PERSON a row hangs off — and it is
+  blank for an **address-level** entry, which every row of these five is, on an organisation or a
+  person alike. So `resolveAddressChildKeys` checks the field is PRESENT, not non-empty, and
+  normalises `null` to `''`; and `sanitizeEntityKeys` takes a `blankable` list, fed from the new
+  `blankableKeyFields: ['Person']` on the four. **Staging `Person` would not have helped** — the
+  value being carried is blank either way, which is why the earlier "read it back" split was right
+  for the wrong reason. `sanitizeEntityKeys` stays strict everywhere else: the emptiness test is
+  what it was added for (every update once failed on *"Missing key field(s)"* because the keys
+  travelled empty), so blank passes only where an entity declares it, an ABSENT key is still
+  missing, and a blank the entity does not name is still refused.
   **It never returns a partial key.** No ordinal, a row S/4 no longer has, two rows sharing an
   ordinal, or a key part the read came back empty for all throw — a key missing a part addresses a
   DIFFERENT row than the requester picked, so an update would overwrite and a delete would remove

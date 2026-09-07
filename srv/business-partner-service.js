@@ -184,6 +184,10 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     navigation: 'to_EmailAddress',
     parentEntity: 'A_BusinessPartnerAddress',
     parentKeyFields: ['BusinessPartner', 'AddressID'],
+    // ADR6/ADRT-PERSNUMBER: the CONTACT PERSON this row hangs off, blank for an
+    // address-level entry - which every row of this section is. Part of the key all the
+    // same, so sanitizeEntityKeys has to accept it blank rather than read it as missing.
+    blankableKeyFields: ['Person'],
     creatable: true,
     deletable: true,
     requiredCreateFields: ['BusinessPartner', 'AddressID', 'EmailAddress']
@@ -193,6 +197,10 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     navigation: 'to_PhoneNumber',
     parentEntity: 'A_BusinessPartnerAddress',
     parentKeyFields: ['BusinessPartner', 'AddressID'],
+    // ADR6/ADRT-PERSNUMBER: the CONTACT PERSON this row hangs off, blank for an
+    // address-level entry - which every row of this section is. Part of the key all the
+    // same, so sanitizeEntityKeys has to accept it blank rather than read it as missing.
+    blankableKeyFields: ['Person'],
     creatable: true,
     deletable: true,
     requiredCreateFields: ['BusinessPartner', 'AddressID', 'PhoneNumber']
@@ -202,6 +210,10 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     navigation: 'to_FaxNumber',
     parentEntity: 'A_BusinessPartnerAddress',
     parentKeyFields: ['BusinessPartner', 'AddressID'],
+    // ADR6/ADRT-PERSNUMBER: the CONTACT PERSON this row hangs off, blank for an
+    // address-level entry - which every row of this section is. Part of the key all the
+    // same, so sanitizeEntityKeys has to accept it blank rather than read it as missing.
+    blankableKeyFields: ['Person'],
     creatable: true,
     deletable: true,
     requiredCreateFields: ['BusinessPartner', 'AddressID', 'FaxNumber']
@@ -211,6 +223,10 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     navigation: 'to_URLAddress',
     parentEntity: 'A_BusinessPartnerAddress',
     parentKeyFields: ['BusinessPartner', 'AddressID'],
+    // ADR6/ADRT-PERSNUMBER: the CONTACT PERSON this row hangs off, blank for an
+    // address-level entry - which every row of this section is. Part of the key all the
+    // same, so sanitizeEntityKeys has to accept it blank rather than read it as missing.
+    blankableKeyFields: ['Person'],
     creatable: true,
     deletable: true,
     requiredCreateFields: ['BusinessPartner', 'AddressID', 'WebsiteURL']
@@ -643,11 +659,27 @@ function maintenanceEntity(service, section, configuration) {
   return entity;
 }
 
-function sanitizeEntityKeys(data, entity) {
+/**
+ * `blankable` names key fields whose real value in S/4 may legitimately be the EMPTY STRING, which
+ * is otherwise indistinguishable here from a key nobody supplied.
+ *
+ * `A_AddressEmailAddress` and its Phone/Fax/HomePageURL siblings key on
+ * `AddressID/Person/OrdinalNumber`, and `Person` (ADR6-PERSNUMBER) is blank for an ADDRESS-level
+ * entry - it identifies a contact person, and these rows hang off the address itself. So a change
+ * or a delete of an existing email failed on a key S/4 had answered with correctly (2026-09-07),
+ * and staging `Person` would not have helped: the value being carried IS blank.
+ *
+ * Left strict everywhere else on purpose - the emptiness test is what this function was added for
+ * (every update once failed on "Missing key field(s)" because the keys travelled empty), so a
+ * field is only allowed through blank where the entity is declared to permit it.
+ */
+function sanitizeEntityKeys(data, entity, { blankable = [] } = {}) {
+  const permitted = new Set(blankable);
   const keys = scalarElements(entity).filter(([, element]) => element.key);
   const sanitized = Object.fromEntries(
     keys
-      .filter(([name]) => data[name] !== undefined && data[name] !== null && data[name] !== '')
+      .filter(([name]) => data[name] !== undefined && data[name] !== null
+        && (data[name] !== '' || permitted.has(name)))
       .map(([name]) => [name, data[name]])
   );
 
@@ -2537,7 +2569,7 @@ class BusinessPartnerService extends cds.ApplicationService {
       }
 
       try {
-        keys = sanitizeEntityKeys(keys, entity);
+        keys = sanitizeEntityKeys(keys, entity, { blankable: configuration.blankableKeyFields });
       } catch (error) {
         req.reject(error.statusCode || 400, error.message, 'KeyJson');
       }
@@ -2566,7 +2598,8 @@ class BusinessPartnerService extends cds.ApplicationService {
       try {
         keys = sanitizeEntityKeys(
           parseJsonObject(req.data.KeyJson, 'KeyJson'),
-          maintenanceEntity(this, req.data.Entity, configuration)
+          maintenanceEntity(this, req.data.Entity, configuration),
+          { blankable: configuration.blankableKeyFields }
         );
       } catch (error) {
         req.reject(error.statusCode || 400, error.message, 'KeyJson');

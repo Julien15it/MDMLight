@@ -149,10 +149,10 @@ test('a row that cannot be identified is refused, never guessed', async () => {
       message: /2 rows numbered 002/u
     },
     {
-      what: 'S/4 answered without a key part',
-      rows: [{ Person: '' }],
+      what: 'S/4 answered without the key part at all',
+      rows: [{ SomethingElse: 'x' }],
       row: { AddressID: '77', OrdinalNumber: '002' },
-      message: /no Person for address 77 row 002/u
+      message: /did not return Person for address 77 row 002/u
     }
   ];
 
@@ -228,4 +228,85 @@ test('a create records the ordinal S/4 assigned, so a resubmit can address the r
   const block = source.slice(createAt, source.indexOf('.where({ ID }));', createAt));
   assert.match(block, /ADDRESS_CHILD_ASSIGNED_KEYS\[section\]/u, 'only for the four that need it');
   assert.match(block, /persisted\.OrdinalNumber = assigned/u, 'and it is persisted, not just read');
+});
+
+/**
+ * `Person` (ADR6/ADRT-PERSNUMBER) is the CONTACT PERSON a row hangs off, and is blank for an
+ * address-level entry - which every row of these sections is, on an organisation or a person alike.
+ * So blank is the real key value, and demanding a non-empty one refused a change S/4 had answered
+ * correctly (reported live 2026-09-07: "S/4 returned no Person for address 1367 row 1"). Staging
+ * `Person` would not have helped for the same reason: the value being carried IS blank.
+ */
+test('a blank Person is a real key value, not a missing one', async () => {
+  const s4 = s4With([{ Person: '' }]);
+  assert.deepEqual(
+    await resolveAddressChildKeys(s4, 'AddressEmails', { AddressID: '1367', OrdinalNumber: '1' }),
+    { Person: '' },
+    'the blank comes back as the key value it is'
+  );
+});
+
+test('a null key part is normalised to the blank the key predicate needs', async () => {
+  // sanitizeEntityKeys drops null as missing, so null and '' cannot both reach it.
+  const s4 = s4With([{ Person: null }]);
+  assert.deepEqual(
+    await resolveAddressChildKeys(s4, 'AddressEmails', { AddressID: '1367', OrdinalNumber: '1' }),
+    { Person: '' }
+  );
+});
+
+/**
+ * The other half: `sanitizeEntityKeys` reads '' as a key nobody supplied, which is what it was
+ * added for. The four address children declare `Person` blankable so it alone gets through.
+ */
+test('the four children declare Person blankable, and nothing else does', () => {
+  const { MAINTENANCE_ENTITIES } = require('../srv/business-partner-service')._internals;
+
+  for (const section of Object.keys(STAGED)) {
+    assert.deepEqual(
+      MAINTENANCE_ENTITIES[section].blankableKeyFields, ['Person'],
+      `${section} must allow a blank Person`
+    );
+  }
+  // A tax number keys on BusinessPartner/AddressID/BPTaxType - none of them may be blank.
+  assert.equal(MAINTENANCE_ENTITIES.AddressTaxNumbers.blankableKeyFields, undefined);
+
+  const blankable = Object.entries(MAINTENANCE_ENTITIES)
+    .filter(([, config]) => config.blankableKeyFields)
+    .map(([section]) => section)
+    .sort();
+  assert.deepEqual(
+    blankable,
+    ['AddressEmails', 'AddressFaxNumbers', 'AddressHomePageURLs', 'AddressPhoneNumbers'],
+    'the emptiness test stays strict for every other node'
+  );
+});
+
+test('sanitizeEntityKeys lets a declared blank key through, and still catches a missing one', async () => {
+  const cds = require('@sap/cds');
+  const { sanitizeEntityKeys } = require('../srv/business-partner-service')._internals;
+  const model = await cds.load(path.join(__dirname, '..', 'srv'));
+  const entity = model.definitions['BusinessPartnerService.AddressEmails'];
+
+  assert.deepEqual(
+    sanitizeEntityKeys(
+      { AddressID: '1367', Person: '', OrdinalNumber: '1' }, entity, { blankable: ['Person'] }
+    ),
+    { AddressID: '1367', Person: '', OrdinalNumber: '1' }
+  );
+  // Without the declaration the blank still reads as missing - the default is unchanged.
+  assert.throws(
+    () => sanitizeEntityKeys({ AddressID: '1367', Person: '', OrdinalNumber: '1' }, entity),
+    (error) => error.statusCode === 400 && /Person/u.test(error.message)
+  );
+  // Blankable is not "optional": an absent key is still missing.
+  assert.throws(
+    () => sanitizeEntityKeys({ AddressID: '1367', OrdinalNumber: '1' }, entity, { blankable: ['Person'] }),
+    (error) => error.statusCode === 400 && /Person/u.test(error.message)
+  );
+  // And a blank the entity does NOT permit is still refused.
+  assert.throws(
+    () => sanitizeEntityKeys({ AddressID: '', Person: '', OrdinalNumber: '1' }, entity, { blankable: ['Person'] }),
+    (error) => error.statusCode === 400 && /AddressID/u.test(error.message)
+  );
 });

@@ -240,15 +240,21 @@ async function resolveAddressChildKeys(s4, section, row, { read } = {}) {
     );
   }
 
+  // PRESENT, not non-empty. `Person` (ADR6-PERSNUMBER) is the contact person a row hangs off and
+  // is BLANK for an address-level entry - which every row of these sections is, on an organisation
+  // or a person alike. Blank is the real key value, so demanding a non-empty one refused a change
+  // S/4 had answered correctly (2026-09-07: "S/4 returned no Person for address 1367 row 1").
+  // Staging it would not have helped for the same reason. `null` is normalised to '' because that
+  // is what the key predicate has to carry, and sanitizeEntityKeys drops null as missing.
   const resolved = {};
   for (const field of config.fields) {
-    if (!hasKeyValue(rows[0][field])) {
+    if (!(field in rows[0]) || rows[0][field] === undefined) {
       throw new Error(
-        `Cannot change ${section}: S/4 returned no ${field} for address ${row.AddressID} row `
+        `Cannot change ${section}: S/4 did not return ${field} for address ${row.AddressID} row `
         + `${row.OrdinalNumber}, and it is part of the key.`
       );
     }
-    resolved[field] = rows[0][field];
+    resolved[field] = rows[0][field] === null ? '' : rows[0][field];
   }
   return resolved;
 }
