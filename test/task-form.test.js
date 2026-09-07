@@ -387,3 +387,49 @@ test('each task open handler clears the other two handoff keys', () => {
     }
   }
 });
+
+/**
+ * `onInit` must not throw over a missing owner component.
+ *
+ * Reported live 2026-09-07 from the task app's console: *"Cannot read properties of undefined
+ * (reading 'getEventBus')"* three times over, followed by UI5's own *"The following error occurred
+ * while displaying routing target with name 'BusinessPartnerMaintenance'"*. The controller had
+ * ALREADY said the component was missing a few lines earlier - `[maintenance] no router for this
+ * view` comes from the same cause, `UIComponent.getRouterFor(this)` on a view with no owner - and
+ * then dereferenced it anyway. Nothing after that line ran: not one handover subscription, not one
+ * of the three exclusive startup reads, not the permissions load. So the screen rendered on the
+ * empty create state and could never be handed a task.
+ *
+ * Skipped and said out loud instead, the same way a missing ROUTE already is, and for the reason
+ * the file already states about routes: a missing entry point must not take the whole screen down.
+ */
+const maintenanceController = fs.readFileSync(
+  path.join(
+    __dirname, '..', 'app', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse',
+    'controller', 'BusinessPartnerMaintenance.controller.js'
+  ),
+  'utf8'
+);
+
+test('a view with no owner component is refused, not dereferenced', () => {
+  const at = maintenanceController.indexOf('var component = this.getOwnerComponent();');
+  assert.ok(at > 0, 'onInit still reads the owner component');
+  const guard = maintenanceController.slice(at, maintenanceController.indexOf('.subscribe(', at));
+
+  assert.match(guard, /if \(!component\) \{/u, 'the component is checked before it is used');
+  assert.match(guard, /no owner component for this view/u, 'and the reason is logged, not swallowed');
+  assert.match(guard, /return;/u, 'the rest of onInit is skipped rather than throwing');
+});
+
+test('nothing reads the owner component before that guard', () => {
+  const onInit = maintenanceController.slice(
+    maintenanceController.indexOf('onInit: function () {'),
+    maintenanceController.indexOf('var component = this.getOwnerComponent();')
+  );
+  assert.equal(
+    /getOwnerComponent|getEventBus|getModel\("env"\)/u.test(onInit), false,
+    'the component-dependent half of onInit all sits after the guard'
+  );
+  // The router is guarded the same way, and its warning names the same cause.
+  assert.match(onInit, /if \(!this\._router\) console\.warn/u);
+});

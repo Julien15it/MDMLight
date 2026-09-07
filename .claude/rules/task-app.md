@@ -65,6 +65,18 @@ applies and it needs no tile, catalog or role.
   Fixed on both sides: `Component.js`'s `_open*` clears its two siblings per open, and `onInit`'s
   reads are now `!pending && !pendingRework && …` chained. Keep both; the read-side guard is what
   holds when the clearing has not reached the browser yet.
+- **`onInit` must not throw over a missing owner component.** Reported live 2026-09-07 from the
+  task app's console: *"Cannot read properties of undefined (reading 'getEventBus')"* three times,
+  then UI5's own *"error occurred while displaying routing target with name
+  'BusinessPartnerMaintenance'"*. The controller had **already said** the component was missing a
+  few lines earlier - `[maintenance] no router for this view` comes from the same cause,
+  `UIComponent.getRouterFor(this)` on a view with no owner - and then dereferenced it anyway.
+  Nothing after that line ran: no handover subscription, none of the three exclusive startup reads,
+  no permissions load. So the screen rendered on the empty create state and could never be handed a
+  task. Guarded and logged now, the same way a missing ROUTE already is and for the reason the file
+  already states about routes: **a missing entry point must not take the whole screen down.** Keep
+  the component-dependent half of `onInit` after that guard - a test pins that nothing reads
+  `getOwnerComponent`/`getEventBus`/the `env` model before it.
 - **A service model is read through `_serviceModel()`, never straight off the view.** The handover calls
   `_loadStagedRequest` from `onInit`, and a view has not inherited its component's models at that point.
 

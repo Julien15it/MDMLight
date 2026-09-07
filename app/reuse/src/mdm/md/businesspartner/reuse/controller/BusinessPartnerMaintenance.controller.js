@@ -616,6 +616,20 @@ sap.ui.define([
         this.getView().setModel(new JSONModel(this._emptyState()), "maintenance");
 
         var component = this.getOwnerComponent();
+        // Everything below this line needs the owner component: the My Inbox handover channels and
+        // the `env` model both hang off it. It comes back undefined for the SAME reason the router
+        // did a few lines up - a view with no owner component - and dereferencing it threw from
+        // inside onInit, which took the whole screen down with it: "Cannot read properties of
+        // undefined (reading 'getEventBus')", three times over, followed by UI5's own "error
+        // occurred while displaying routing target" (reported 2026-09-07). Nothing after it ran -
+        // not one subscription, not one of the three startup reads, not the permissions load.
+        // Refused out loud and skipped instead, exactly the way a missing route already is: a
+        // screen that renders but can never be handed a task is bad, and it is not a crash.
+        if (!component) {
+          console.warn("[maintenance] no owner component for this view - the My Inbox task handover"
+            + " and the env model are off");
+          return;
+        }
         component.getEventBus().subscribe("taskform", "approve", function (channel, event, data) {
           if (data && data.changeRequest) {
             this._loadStagedRequest(data.changeRequest, "approve", data.specificRole);
