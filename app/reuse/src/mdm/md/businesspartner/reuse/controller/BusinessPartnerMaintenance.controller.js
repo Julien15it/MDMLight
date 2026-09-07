@@ -1231,10 +1231,12 @@ sap.ui.define([
         this._renderRootForm();
         this._metadata
           .filter(function (section) { return section.kind !== "root"; })
-          // NOT `.forEach(this._renderSection.bind(this))` - forEach passes (element, index, array),
-          // so the index landed in _renderSection's `parentRow`. Harmless only because no
-          // address-owned child has a container of its own on the object page (they render inside
-          // the Address dialog), so addressRowKey(3) answered null and the section drew unscoped.
+          // An explicit one-argument callback, never a bound method reference handed straight to
+          // forEach: forEach calls back with (element, index, array), so the INDEX arrived as
+          // _renderSection's second parameter, `parentRow`, where a row object belongs. Harmless
+          // only because no address-owned child has a container of its own on the object page (they
+          // render inside the Address dialog), so addressRowKey(3) answered null and the section
+          // drew unscoped. A test forbids the bound form; see address-child-linking.test.js.
           .forEach(function (section) { this._renderSection(section); }, this);
       },
 

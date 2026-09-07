@@ -26,11 +26,13 @@ const controller = fs.readFileSync(
  * fields (company name, category, search term) and every section (Addresses included), not only the
  * address - the address was just the one field someone was watching for.
  */
+/** An array OR object literal, so ADDRESS_CHILD_SECTIONS can be read the same way. */
 function extractConst(name) {
-  const match = controller.match(new RegExp('var ' + name + ' = (\\[[\\s\\S]*?\\]);'));
+  const match = controller.match(new RegExp('var ' + name + ' = ([\\[{][\\s\\S]*?[\\]}]);'));
   if (!match) throw new Error(name + ' not found');
+  // Parenthesised: an object literal at the head of an eval is a BLOCK, not a value.
   // eslint-disable-next-line no-eval
-  return eval(match[1]);
+  return eval('(' + match[1] + ')');
 }
 
 function extractFunctionSource(name) {
@@ -61,13 +63,17 @@ function extractOnCreateRoute() {
     }
   }
   const body = controller.slice(controller.indexOf('(event)', labelAt), end);
-  // generateRowKey is called on a new Addresses draft row - a real module-level helper, not a
-  // stub, so a malformed key would show up here the same way it would in the real app.
+  // generateRowKey and addressRowKey are called on the Addresses draft row and on linking its
+  // address-owned children - real module-level helpers, not stubs, so a malformed key or a wrong
+  // precedence between AddressID and __rowKey shows up here the way it would in the real app.
   // eslint-disable-next-line no-new-func
   return new Function(
     'ROOT_DRAFT_FIELDS',
-    extractFunctionSource('generateRowKey') + '\nreturn (async function ' + body + ')'
-  )(extractConst('ROOT_DRAFT_FIELDS'));
+    'ADDRESS_CHILD_SECTIONS',
+    extractFunctionSource('generateRowKey')
+      + '\n' + extractFunctionSource('addressRowKey')
+      + '\nreturn (async function ' + body + ')'
+  )(extractConst('ROOT_DRAFT_FIELDS'), extractConst('ADDRESS_CHILD_SECTIONS'));
 }
 
 /** A minimal stand-in for the "maintenance" JSONModel/view/component `_onCreateRoute` touches. */
@@ -84,6 +90,8 @@ function fakeContext() {
       _metadata: [
         { id: 'BusinessPartners', kind: 'root' },
         { id: 'Addresses', kind: 'collection' },
+        { id: 'AddressEmails', kind: 'collection' },
+        { id: 'AddressPhoneNumbers', kind: 'collection' },
         { id: 'BankDetails', kind: 'collection' }
       ],
       getView: () => ({ getModel: () => model }),
@@ -126,6 +134,54 @@ test('a Business Partner Assistant draft is decoded before being parsed, address
   assert.deepEqual(rest, {
     StreetName: 'Herengracht 2A', PostalCode: '2312LD', CityName: 'Leiden', Country: 'NL', __state: 'new'
   });
+});
+
+/**
+ * A draft's address-owned children carry no `__addressKey` for the same reason its address carries
+ * no `__rowKey`: the server that built the suggestion knows nothing about the client's own keys.
+ *
+ * Left unstamped this was worse than an unlinked row at submit time - `_renderSection` scopes an
+ * address's child table BY `__addressKey`, so the row would be invisible in the very dialog the
+ * requester would have to fix it in. One address is one candidate, so the link is a derivation.
+ */
+test("a draft's address-owned children are linked to its only address", async () => {
+  const onCreateRoute = extractOnCreateRoute();
+  const { model, ctx } = fakeContext();
+  const draft = {
+    root: { OrganizationBPName1: 'Alluvion B.V.' },
+    sections: {
+      Addresses: [{ StreetName: 'Herengracht 2A', Country: 'NL' }],
+      AddressEmails: [{ EmailAddress: 'info@alluvion.eu' }],
+      AddressPhoneNumbers: [{ PhoneNumber: '+3212345678' }]
+    }
+  };
+
+  await onCreateRoute.call(ctx, routeEventFor(draft));
+
+  const sections = model.getData().sections;
+  const addressKey = sections.Addresses[0].__rowKey;
+  assert.equal(typeof addressKey, 'string');
+  assert.ok(addressKey.length > 0);
+  assert.equal(sections.AddressEmails[0].__addressKey, addressKey, 'the email points at the address');
+  assert.equal(sections.AddressPhoneNumbers[0].__addressKey, addressKey, 'and so does the phone');
+});
+
+/** Two addresses is not a choice this may make - see writeStagedNodes for the same rule. */
+test('a draft with several addresses links nothing rather than picking one', async () => {
+  const onCreateRoute = extractOnCreateRoute();
+  const { model, ctx } = fakeContext();
+  const draft = {
+    sections: {
+      Addresses: [{ StreetName: 'Herengracht 2A' }, { StreetName: 'Dorpstraat 1' }],
+      AddressEmails: [{ EmailAddress: 'info@alluvion.eu' }]
+    }
+  };
+
+  await onCreateRoute.call(ctx, routeEventFor(draft));
+
+  const sections = model.getData().sections;
+  assert.equal(sections.Addresses.length, 2);
+  assert.equal(sections.AddressEmails[0].__addressKey, undefined);
 });
 
 test('a create route with no draft still renders the plain empty-create state', async () => {
