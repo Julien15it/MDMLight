@@ -220,6 +220,34 @@ never expands an association).
   `normalizeRemoteRows` is `normalizeRemoteResult`'s every-row counterpart and exists because the
   on-premise V2 proxy answers a one-row read with a **bare object**, which an `Array.isArray` check
   reads as no rows at all — that alone would have made every second address claim the standard usage.
+- **One address means one candidate: an unlinked child is LINKED to it, not refused** (2026-09-07,
+  reported twice — BP 639 then BP 642). The client key is the weak link in the chain, and every way
+  of losing it ends in `writeStagedNodes` with no `address_ID`. The `[stage]` warning answered it:
+  `__addressKey=(absent)` on **all five** child sections, with exactly one known address key — and
+  that key was a **UUID**, which `generateRowKey()` (`Date.now().toString(36)` plus random) cannot
+  produce and only `cleanStagedRow`'s `__rowKey = ID` can. So the rows came from a staged **reload**,
+  where a child is handed back `__addressKey = address_ID || null`: **once a request has staged an
+  unlinked child, null is all it can ever offer again**, so resubmitting could never recover a link
+  the first submit lost. That self-perpetuation is what made this worth fixing at the staging end
+  rather than only in the client. `stagedAddressIds` (every staged address row id, keyed or not —
+  `addressIdByRowKey` cannot count, since an unkeyed row is absent from it) drives it, and the
+  stamped key is still tried first. **Deliberately NOT extended to several addresses**: with two,
+  picking one would attach an email to an address nobody chose, and staging the wrong link is worse
+  than refusing to post — that case keeps the warning and stays unlinked.
+- **`postToS4` also falls back to the `AddressID` the row already carries.** A child read back FROM
+  S/4 has the real key in its own staged column, so it needs no link at all — which is what makes a
+  change or a delete of an existing email work even on a request whose link was never made. The
+  resolved link still wins where there is one: on a create that is the id S/4 has just assigned, and
+  the staged column is blank.
+- **Two client-side holes closed with it, both latent.** `_renderAll` used
+  `.forEach(this._renderSection.bind(this))`, and `forEach` passes `(element, index, array)` — so the
+  **index** landed in `parentRow`, where a row object belongs. Harmless only because no
+  address-owned child has a container of its own on the object page, so `addressRowKey(3)` answered
+  null and the section drew unscoped. And `_onCreateRoute` stamped `__rowKey` on a draft's addresses
+  but never `__addressKey` on its address-owned children — worse than unlinked at submit, because
+  `_renderSection` scopes an address's child table BY `__addressKey`, so such a row was **invisible
+  in the very dialog it would have to be fixed in**. Stamped in a second pass, since the draft lists
+  its sections in any order and the address may not have had its key yet.
 - **The two ways a child cannot find its address are different problems, and the message says
   which.** No `address_ID` at all means the LINK was never made (`writeStagedNodes` had no
   `__addressKey`, or none matching an Addresses `__rowKey`) — a client/staging question. An

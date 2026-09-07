@@ -842,6 +842,24 @@ sap.ui.define([
             return staged;
           });
         });
+        // An address-owned child in a draft has no `__addressKey` for the same reason an address has
+        // no `__rowKey`: the server that built the suggestion knows nothing about the client's keys.
+        // Stamped in a SECOND pass, because the sections above are applied in whatever order the
+        // draft happens to list them and the address may not have had its own key yet.
+        //
+        // One address means one candidate, so this is a derivation, not a guess - the same rule
+        // writeStagedNodes applies at the other end. Without it such a row is not merely unlinked at
+        // submit: `_renderSection` scopes an address's child table BY `__addressKey`, so the row
+        // would be invisible in the dialog the requester would have to fix it in.
+        var draftAddresses = state.sections.Addresses || [];
+        if (draftAddresses.length === 1) {
+          var onlyAddressKey = addressRowKey(draftAddresses[0]);
+          Object.keys(ADDRESS_CHILD_SECTIONS).forEach(function (sectionId) {
+            (state.sections[sectionId] || []).forEach(function (row) {
+              if (!row.__addressKey && onlyAddressKey) row.__addressKey = onlyAddressKey;
+            });
+          });
+        }
         this.getView().getModel("maintenance").refresh(true);
         this._updatePreview(state);
         // Before the first render: rendering is synchronous, and a field the profiles hide must never
@@ -1213,7 +1231,11 @@ sap.ui.define([
         this._renderRootForm();
         this._metadata
           .filter(function (section) { return section.kind !== "root"; })
-          .forEach(this._renderSection.bind(this));
+          // NOT `.forEach(this._renderSection.bind(this))` - forEach passes (element, index, array),
+          // so the index landed in _renderSection's `parentRow`. Harmless only because no
+          // address-owned child has a container of its own on the object page (they render inside
+          // the Address dialog), so addressRowKey(3) answered null and the section drew unscoped.
+          .forEach(function (section) { this._renderSection(section); }, this);
       },
 
       _renderRootForm: function () {

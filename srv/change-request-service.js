@@ -689,6 +689,10 @@ class ChangeRequestService extends cds.ApplicationService {
       // row id, in the same write, before either has a real S/4 key. postToS4 backfills the actual
       // AddressID onto these children once the address that owns them has actually been created.
       const addressIdByRowKey = {};
+      // The staged row id of EVERY address on this request, keyed or not. `addressIdByRowKey` cannot
+      // answer "how many addresses are there" - a row that arrived without a `__rowKey` is absent
+      // from it - and the single-address fallback below turns on exactly that count.
+      const stagedAddressIds = [];
 
       for (const [section, config] of Object.entries(NODES)) {
         await db.run(cds.ql.DELETE.from(config.entity).where({ request_ID: changeRequest }));
@@ -708,6 +712,9 @@ class ChangeRequestService extends cds.ApplicationService {
 
         const isAddresses = section === 'Addresses';
         const isAddressChild = ADDRESS_CHILD_NODES.has(section);
+        // Every address this request stages, in order, whether or not it carried a `__rowKey` -
+        // the fallback below needs to know how MANY there are, which `addressIdByRowKey` cannot
+        // say (a row with no key is absent from it entirely).
         const rows = [
           ...(Array.isArray(sections[section]) ? sections[section] : []).map((record) => {
             const row = {
@@ -720,10 +727,32 @@ class ChangeRequestService extends cds.ApplicationService {
               // fill this in exactly the same way, just not in time for a child section processed
               // right after in this same loop to resolve which address it belongs to.
               row.ID = row.ID || cds.utils.uuid();
+              stagedAddressIds.push(row.ID);
               if (record?.__rowKey) addressIdByRowKey[record.__rowKey] = row.ID;
             }
             if (isAddressChild && record?.__addressKey && addressIdByRowKey[record.__addressKey]) {
               row.address_ID = addressIdByRowKey[record.__addressKey];
+            } else if (isAddressChild && stagedAddressIds.length === 1) {
+              // ONE address on the request means there is only one thing this row can belong to, so
+              // the link is a derivation rather than a guess - the same reasoning
+              // createBusinessPartnerAddress uses for a single new AddressID.
+              //
+              // It exists because the client-side key is the weak link in the chain and every way of
+              // losing it ends here: a path that forgets to stamp `__addressKey` (the assistant's
+              // draft never did), and - self-perpetuating, which is what made it worth fixing at
+              // this end - a reload, where `cleanStagedRow` hands a child back
+              // `__addressKey = address_ID || null`. Once a request has staged an unlinked child,
+              // null is all it can ever offer again, so no amount of resubmitting could recover a
+              // link the first submit lost (2026-09-07, BP 639 and 642).
+              //
+              // Deliberately NOT extended to several addresses: with two, picking one would attach
+              // an email to an address nobody chose, and staging the wrong link is worse than
+              // refusing to post. That case still falls through to the warning below.
+              row.address_ID = stagedAddressIds[0];
+              console.log(
+                `[stage] ${section} row had no usable __addressKey `
+                + `(${record?.__addressKey ?? 'absent'}); linked to the request's only address.`
+              );
             } else if (isAddressChild) {
               // Named here, at the moment the link is lost, rather than at the post - postToS4
               // cannot say WHY a row has no address_ID, only that it has none, and by then the
@@ -1881,7 +1910,14 @@ class ChangeRequestService extends cds.ApplicationService {
           let isRoleNode = false;
 
           if (isAddressChild) {
-            const resolvedAddressId = data.address_ID ? addressIdByStagedRow[data.address_ID] : null;
+            // The link is how a child of a BRAND NEW address finds a key that did not exist when
+            // the request was filled in. A row read back FROM S/4 already carries the real one, so
+            // it needs no link at all - which is what makes a change or a delete of an existing
+            // email work even on a request whose staged link was never made. The resolved link
+            // still wins where there is one: on a create it is the id S/4 has just assigned, and
+            // the staged column is blank.
+            const resolvedAddressId = (data.address_ID ? addressIdByStagedRow[data.address_ID] : null)
+              || (hasKeyValue(data.AddressID) ? data.AddressID : null);
             if (!resolvedAddressId) {
               // The two ways this happens are unrelated problems in different files, and the one
               // message could not tell them apart (2026-09-07: BP 639 was created and this threw
