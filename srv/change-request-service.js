@@ -173,6 +173,87 @@ const ADDRESS_CHILD_NODES = new Set([
 ]);
 
 /**
+ * Present enough to be part of a key. `sanitizeEntityKeys` in business-partner-service.js rejects
+ * '' as well as null, so this is the same emptiness test the post's own key check applies.
+ */
+const hasKeyValue = (value) => value !== undefined && value !== null
+  && (typeof value !== 'string' || value.trim() !== '');
+
+/**
+ * The parts of an address-owned child's S/4 key that are NOT staged, per section.
+ *
+ * Their key is `AddressID+Person+OrdinalNumber` (`A_AddressHomePageURL` adds `ValidityStartDate`
+ * and `IsDefaultURLAddress`, the latter already staged). Only `OrdinalNumber` is carried in
+ * staging, because only the ordinal IDENTIFIES which of an address's rows this is - once the
+ * requester has edited the value itself, nothing else on the row still says which one it used to
+ * be. Everything listed here is recoverable from S/4 afterwards on `AddressID+OrdinalNumber`, so it
+ * is read back at post time rather than kept in a staging column.
+ *
+ * `AddressTaxNumbers` is absent on purpose: its key is `BusinessPartner+AddressID+BPTaxType` and
+ * all three are staged or injected already.
+ */
+const ADDRESS_CHILD_ASSIGNED_KEYS = Object.freeze({
+  AddressEmails:       { remote: 'A_AddressEmailAddress', fields: ['Person'] },
+  AddressPhoneNumbers: { remote: 'A_AddressPhoneNumber',  fields: ['Person'] },
+  AddressFaxNumbers:   { remote: 'A_AddressFaxNumber',    fields: ['Person'] },
+  AddressHomePageURLs: { remote: 'A_AddressHomePageURL',  fields: ['Person', 'ValidityStartDate'] }
+});
+
+/**
+ * The rest of an existing address-owned child's key, read back from S/4 for a change or a delete.
+ *
+ * Never silently partial: a row that cannot be identified throws rather than reaching S/4 with a
+ * key that would address a DIFFERENT row than the one the requester edited. `read` is injected so
+ * this is testable without S/4.
+ */
+async function resolveAddressChildKeys(s4, section, row, { read } = {}) {
+  const config = ADDRESS_CHILD_ASSIGNED_KEYS[section];
+  if (!config) return {};
+
+  if (!hasKeyValue(row.OrdinalNumber)) {
+    throw new Error(
+      `Cannot change ${section}: the staged row carries no OrdinalNumber, so which of address `
+      + `${row.AddressID}'s rows it is cannot be established. A request staged before the ordinal `
+      + `was carried has to be raised again.`
+    );
+  }
+
+  const where = { AddressID: row.AddressID, OrdinalNumber: row.OrdinalNumber };
+  const run = read || ((query) => s4.run(query));
+  const matches = await run(
+    cds.ql.SELECT.from(`API_BUSINESS_PARTNER.${config.remote}`).columns(...config.fields).where(where)
+  );
+  const rows = Array.isArray(matches) ? matches : (matches ? [matches] : []);
+
+  if (rows.length === 0) {
+    throw new Error(
+      `Cannot change ${section}: address ${row.AddressID} has no row ${row.OrdinalNumber} in S/4 `
+      + `any more. It was removed after this request was raised.`
+    );
+  }
+  // Person is part of the key, so two rows can share an ordinal in principle. Refused rather than
+  // guessed: picking one would update or delete a row nobody chose.
+  if (rows.length > 1) {
+    throw new Error(
+      `Cannot change ${section}: address ${row.AddressID} has ${rows.length} rows numbered `
+      + `${row.OrdinalNumber}, so the one to change is ambiguous.`
+    );
+  }
+
+  const resolved = {};
+  for (const field of config.fields) {
+    if (!hasKeyValue(rows[0][field])) {
+      throw new Error(
+        `Cannot change ${section}: S/4 returned no ${field} for address ${row.AddressID} row `
+        + `${row.OrdinalNumber}, and it is part of the key.`
+      );
+    }
+    resolved[field] = rows[0][field];
+  }
+  return resolved;
+}
+
+/**
  * The two nodes that are themselves the Customer/Supplier record rather than something
  * hanging off it. They are the only ones where a missing relation number is a state to
  * act on instead of an error, and the only ones whose create addresses A_BusinessPartner.
@@ -1749,6 +1830,20 @@ class ChangeRequestService extends cds.ApplicationService {
       // the same id writeStagedNodes used to link a child to it via `address`/`__addressKey`.
       const addressIdByStagedRow = {};
 
+      // Seeded from EVERY staged address first, including the untouched ones. On a change request
+      // the address a new email or phone belongs to usually needs no change itself, so its own row
+      // is `N` and the loop below `continue`s past it before it can be recorded - which then threw
+      // "its own address was not created in this run" for a child of a perfectly good, existing
+      // address (2026-09-04). An untouched row already carries the real AddressID it was staged
+      // with, so it is the one case that needs no S/4 round trip at all. A create's row has none
+      // yet and is not seeded; the loop records S/4's assigned id when it comes back.
+      const stagedAddresses = await db.run(
+        cds.ql.SELECT.from(NODES.Addresses.entity).where({ request_ID: header.ID })
+      );
+      for (const address of stagedAddresses) {
+        if (address.AddressID) addressIdByStagedRow[address.ID] = address.AddressID;
+      }
+
       for (const [section, config] of Object.entries(NODES)) {
         const rows = await db.run(
           cds.ql.SELECT.from(config.entity).where({ request_ID: header.ID })
@@ -1784,6 +1879,14 @@ class ChangeRequestService extends cds.ApplicationService {
             // sanitizeEntityPayload drops it again for the ones with no such element, the same way
             // it already does for a role node below.
             data.BusinessPartner = businessPartner;
+            // A change or a delete has to address the EXACT row the requester picked, and for the
+            // four non-tax children that key is AddressID+Person+OrdinalNumber (+ValidityStartDate
+            // for a website). Only the ordinal is staged, being the one part that identifies the
+            // row; the rest is read back here. A create needs none of it - S/4 assigns the whole
+            // lot - and asking would fail on a row that does not exist yet.
+            if (action !== 'C') {
+              Object.assign(data, await resolveAddressChildKeys(s4, section, data));
+            }
           } else {
             const relationField = RELATION_FIELDS[section] || 'BusinessPartner';
 
@@ -1809,10 +1912,24 @@ class ChangeRequestService extends cds.ApplicationService {
               );
             }
             if (relationValue != null) data[relationField] = relationValue;
-            // What a create of the role node addresses its parent by: to_Customer hangs off
-            // A_BusinessPartner, not off A_Customer. Dropped again by sanitizeEntityPayload for
-            // every node whose entity has no such element.
-            if (isRoleNode) data.BusinessPartner = businessPartner;
+            // What a create addresses its PARENT by, whenever that parent is A_BusinessPartner:
+            // the POST goes to /A_BusinessPartner('x')/<navigation> and
+            // businessPartnerNavigationPath reads that 'x' off the row. Dropped again by
+            // sanitizeEntityPayload for every node whose own entity has no such element, so it
+            // never reaches S/4 in a body - which is the whole reason it is safe to set here.
+            //
+            // Was `if (isRoleNode)` alone, and to_Customer/to_Supplier hanging off
+            // A_BusinessPartner rather than A_Customer is only the most visible case.
+            // A_BusinessPartnerContact keys on BusinessPartnerCompany/BusinessPartnerPerson and
+            // has no BusinessPartner element either, so the sanitize dropped the only value that
+            // could address its parent and every contact create failed with "Enter a
+            // BusinessPartner number." - for a value the run has held all along (2026-09-07).
+            //
+            // Unconditional rather than per node: no maintenance node has BOTH a relation field
+            // other than BusinessPartner AND a BusinessPartner element of its own (audited against
+            // the imported EDMX), so for every node this either sets the value the relation field
+            // already set, or sets one the sanitize drops from the body and the keys alike.
+            data.BusinessPartner = businessPartner;
           }
 
           if (action === 'D') {
@@ -1873,7 +1990,22 @@ class ChangeRequestService extends cds.ApplicationService {
           // 'U' here makes the next retry an update instead - the same way header.businessPartner
           // turns the whole post from create to update once it is known.
           if (isCreate) {
-            await db.run(cds.ql.UPDATE(config.entity).set({ action: 'U' }).where({ ID }));
+            const persisted = { action: 'U' };
+            // The key half of that same retry-safety. Flipping to 'U' is not enough for the four
+            // non-tax address children: the resubmit's update has to ADDRESS the row this run just
+            // created, and resolveAddressChildKeys identifies it by the ordinal S/4 assigns - which
+            // staging would otherwise never learn, so the retry threw "carries no OrdinalNumber"
+            // for a row that had in fact been created (2026-09-07). Addresses records its own
+            // AddressID a few lines up for exactly this reason.
+            if (ADDRESS_CHILD_ASSIGNED_KEYS[section]) {
+              try {
+                const assigned = JSON.parse(saveResult || '{}').OrdinalNumber;
+                if (assigned) persisted.OrdinalNumber = assigned;
+              } catch (error) {
+                console.warn(`[post] Could not read the OrdinalNumber S/4 assigned for ${ID}:`, error.message);
+              }
+            }
+            await db.run(cds.ql.UPDATE(config.entity).set(persisted).where({ ID }));
           }
         }
       }
@@ -2159,6 +2291,9 @@ ChangeRequestService._internals = {
   RELATION_WAIT_MS,
   RELATION_NAVIGATION,
   RELATION_FIELDS,
+  ADDRESS_CHILD_NODES,
+  ADDRESS_CHILD_ASSIGNED_KEYS,
+  resolveAddressChildKeys,
   resolveEffectiveRole,
   currentStepAssignee
 };

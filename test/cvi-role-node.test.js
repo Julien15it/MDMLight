@@ -52,7 +52,18 @@ test('a missing relation number creates the role node and blocks a child', () =>
 test('a create of the role node carries the business partner it hangs off', () => {
   // to_Customer is a navigation off A_BusinessPartner, so the payload needs that key or
   // businessPartnerNavigationPath refuses with "Enter a BusinessPartner number".
-  assert.match(loop, /if \(isRoleNode\) data\.BusinessPartner = businessPartner;/u);
+  //
+  // Unconditional since 2026-09-07, where this used to read `if (isRoleNode)` - which is strictly
+  // stronger for the role node, and was widened because A_BusinessPartnerContact hangs off
+  // A_BusinessPartner the same way and has no BusinessPartner element either, so it hit exactly the
+  // refusal this test names. Safe for every other node because sanitizeEntityPayload drops the
+  // field again wherever the node's own entity has not got it. See "A parent key is addressed from
+  // the RAW row" in staging.md.
+  assert.match(loop, /\n\s*data\.BusinessPartner = businessPartner;/u);
+  assert.doesNotMatch(
+    loop, /if \(isRoleNode\) data\.BusinessPartner = businessPartner;/u,
+    'the role-node-only condition is gone, not restored'
+  );
 
   const { MAINTENANCE_ENTITIES } = require('../srv/business-partner-service')._internals;
   for (const section of ['Customers', 'Suppliers']) {
@@ -74,11 +85,16 @@ test('a create of the role node carries the business partner it hangs off', () =
  * which never learned that its own create had, in fact, already gone through.
  */
 test('a successful create is remembered, so a retry over a later failure updates instead', () => {
-  assert.match(loop, /if \(isCreate\) \{\s*\n\s*await db\.run\(cds\.ql\.UPDATE\(config\.entity\)\.set\(\{ action: 'U' \}\)\.where\(\{ ID \}\)\);\s*\n\s*\}/u);
+  // Written through `persisted` since 2026-09-07 rather than an inline `{ action: 'U' }`: the four
+  // non-tax address children have to record the OrdinalNumber S/4 just assigned in the SAME write,
+  // or the retry's update cannot address the row this run created (resolveAddressChildKeys
+  // identifies it by that ordinal). The action flip itself is unchanged and still unconditional.
+  assert.match(loop, /if \(isCreate\) \{\s*\n\s*const persisted = \{ action: 'U' \};/u);
+  assert.match(loop, /await db\.run\(cds\.ql\.UPDATE\(config\.entity\)\.set\(persisted\)\.where\(\{ ID \}\)\);/u);
   // Marked AFTER the save actually succeeded, and only for a create - an update needs no marker,
   // since its own retry was already safe (action stays whatever it already was).
   const saveAt = loop.indexOf("await bp.send('saveBusinessPartnerEntity'");
-  const markAt = loop.indexOf("UPDATE(config.entity).set({ action: 'U' })");
+  const markAt = loop.indexOf('UPDATE(config.entity).set(persisted)');
   assert.ok(saveAt > -1 && markAt > saveAt, 'marked after the save, not before it');
 });
 

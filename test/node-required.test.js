@@ -31,27 +31,34 @@ const ENTITIES = Object.freeze({
     requiredCreateFields: ['Customer', 'SalesOrganization', 'DistributionChannel', 'Division']
   },
   BusinessPartners: { creatable: false, requiredCreateFields: ['BusinessPartnerCategory'] },
-  // Address-owned child (Email/Phone/Fax/Website/Tax Number) - AddressID is required for S/4 to
-  // accept the row, but postToS4 resolves and injects it PER ROW from whichever staged address it
-  // belongs to (never known up front, unlike Customer/Supplier's single relation value), so it must
-  // never be demanded here.
+  // Address-owned children: absent from RELATION_FIELDS on purpose, so `AddressID` is injected
+  // through `addressChildNodes` instead. See ADDRESS_CHILD_NODES in change-request-service.js.
   AddressEmails: {
     creatable: true,
     requiredCreateFields: ['BusinessPartner', 'AddressID', 'EmailAddress']
-  }
+  },
+  AddressTaxNumbers: {
+    creatable: true,
+    requiredCreateFields: ['BusinessPartner', 'AddressID', 'BPTaxType']
+  },
+  // References an address, but is not OWNED by one: its AddressID is the requester's to pick.
+  CustomerAddressInfo: { creatable: true, requiredCreateFields: ['Customer', 'AddressID'] }
 });
 
 const RELATION_FIELDS = Object.freeze({
   CustomerTaxIndicators: 'Customer',
   CustomerSalesArea: 'Customer',
-  Customers: 'Customer'
+  Customers: 'Customer',
+  CustomerAddressInfo: 'Customer'
 });
 
 const ROLE_NODES = new Set(['Customers', 'Suppliers']);
-const ADDRESS_CHILD_NODES = new Set(['AddressEmails']);
+const ADDRESS_CHILD_NODES = new Set(['AddressEmails', 'AddressTaxNumbers']);
 
 const stage = () => createNodeRequiredStages({
-  entities: ENTITIES, relationFields: RELATION_FIELDS, roleNodes: ROLE_NODES,
+  entities: ENTITIES,
+  relationFields: RELATION_FIELDS,
+  roleNodes: ROLE_NODES,
   addressChildNodes: ADDRESS_CHILD_NODES
 }).validations[0];
 
@@ -92,21 +99,6 @@ test('fields the post injects are never demanded', async () => {
   assert.deepEqual(await run({
     Customers: [{ action: 'C', CustomerAccountGroup: 'DEBI' }]
   }), [], 'a role node also gets BusinessPartner injected');
-});
-
-/**
- * Reported live 2026-09-04, right after "Address-owned children" shipped: creating a brand new
- * address together with its own email/phone/etc. in the same request failed Check with
- * "AddressEmails: enter required field(s) AddressID." - exactly the row this feature exists to
- * accept, since AddressID cannot be known until the address itself is created. AddressID is real
- * S/4 API data postToS4 resolves and injects PER ROW (from whichever staged address a child
- * belongs to), the same way Customer/Supplier's single relation value already is - it must never
- * be demanded here just because it has no relationFields entry of its own.
- */
-test('an address-owned child never has its AddressID demanded, even brand new', async () => {
-  assert.deepEqual(await run({
-    AddressEmails: [{ action: 'C', EmailAddress: 'info@example.com' }]
-  }), [], 'AddressID comes from the address this row belongs to, resolved at post time');
 });
 
 // postToS4 skips N, deletes D without a create check and sends U as an update, so validating any of
@@ -176,4 +168,47 @@ test('the stage runs on every gate, submit included', () => {
   assert.match(service, /entities: MAINTENANCE_ENTITIES/u);
   assert.match(service, /relationFields: RELATION_FIELDS/u);
   assert.match(service, /roleNodes: ROLE_NODES/u);
+});
+
+/**
+ * Reported live 2026-09-04, right after the five address-owned child sections were added: every
+ * new email, phone, fax, website and address tax number was refused for a missing `AddressID`.
+ *
+ * It cannot be supplied at check time and is not meant to be. A brand new address has no S/4 key
+ * until the moment it is created, so the child is linked to its parent through
+ * `__addressKey`/`address_ID` and `postToS4` backfills the real `AddressID` per row from
+ * `addressIdByStagedRow`. These sections are deliberately absent from `RELATION_FIELDS` -- their
+ * relation is not one value resolved once for the whole section -- which is exactly why the
+ * `relationFields[section]` fallback did not cover them.
+ */
+test('an address-owned child never has to carry AddressID', async () => {
+  assert.deepEqual(
+    await run({ AddressEmails: [{ action: 'C', EmailAddress: 'info@alluvion.eu' }] }),
+    [],
+    'a new email on a brand new address is complete without an AddressID'
+  );
+  assert.deepEqual(
+    await run({ AddressTaxNumbers: [{ action: 'C', BPTaxType: 'BE0' }] }),
+    [],
+    'and so is an address-dependent tax number'
+  );
+});
+
+/**
+ * The injection is scoped to the five address-OWNED sections, not to the field name. Several
+ * customer sections also require an `AddressID`, and theirs is a real requirement the requester
+ * picks from the addresses on the request -- nothing backfills it.
+ */
+test('AddressID is still demanded on a section that merely references an address', async () => {
+  const findings = await run({ CustomerAddressInfo: [{ action: 'C' }] });
+  assert.equal(findings.length, 1);
+  // Customer is injected via RELATION_FIELDS; AddressID is not.
+  assert.equal(findings[0].message, 'CustomerAddressInfo: enter required field(s) AddressID.');
+});
+
+test("the child's own required fields are still enforced", async () => {
+  const findings = await run({ AddressEmails: [{ action: 'C' }] });
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].severity, 'error');
+  assert.equal(findings[0].message, 'AddressEmails: enter required field(s) EmailAddress.');
 });

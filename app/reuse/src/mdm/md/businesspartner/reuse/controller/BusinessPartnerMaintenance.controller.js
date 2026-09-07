@@ -632,7 +632,7 @@ sap.ui.define([
           if (data && data.changeRequest) this._loadStagedRequest(data.changeRequest, "rework");
         }, this);
         var pendingRework = component.getModel("env").getProperty("/taskReworkChangeRequest");
-        if (pendingRework) this._loadStagedRequest(pendingRework, "rework");
+        if (!pending && pendingRework) this._loadStagedRequest(pendingRework, "rework");
 
         // Same bypass again, for the data steward task: a My Inbox task carrying
         // tasktype: "datasteward" hands its id over the same way, on its own channel.
@@ -641,8 +641,15 @@ sap.ui.define([
             this._loadStagedRequest(data.changeRequest, "datasteward", data.specificRole);
           }
         }, this);
+        // EXCLUSIVE with the two above, and that is the whole point. These are startup reads that
+        // run on EVERY controller init, so a key left over from an earlier task open in the same
+        // browser session is read again -- and this one runs LAST, so when two are set it silently
+        // overrides the approve screen the user actually opened and `_claimDataStewardReview`
+        // flips a live request to checkAndEnrich (reported twice, 2026-09-04). The keys are also
+        // cleared per open in Component.js `_open*`; this is the read side of the same fix, so a
+        // stale value cannot claim anything even if the clearing has not reached the browser.
         var pendingDataSteward = component.getModel("env").getProperty("/taskDataStewardChangeRequest");
-        if (pendingDataSteward) {
+        if (!pending && !pendingRework && pendingDataSteward) {
           this._loadStagedRequest(
             pendingDataSteward, "datasteward", component.getModel("env").getProperty("/taskSpecificRole")
           );

@@ -208,16 +208,73 @@ never expands an association).
   not resolve to an entry in `addressIdByStagedRow`, `postToS4` throws (*"its own address was not
   created in this run"*) rather than posting a child with no `AddressID` at all, which S/4 would
   refuse anyway but with a far less useful message.
-- **`node-required.js` must know `AddressID` is injected too** (fixed 2026-09-04, reported live the
-  same day the feature shipped: Check refused a brand new address's own email with *"AddressEmails:
-  enter required field(s) AddressID"* — exactly the row this feature exists to accept).
+- **`AddressID` is an INJECTED field for these five, at check time.** It cannot exist while the
+  request is being filled in — a brand new address has no S/4 key — so `node-required.js`'s
+  `injectedFields` adds `AddressID` (and `BusinessPartner`) for every section in
+  `addressChildNodes`, the same way it already skipped a relation number resolved at post time.
+  Without it, Check and submit refused **every** new email, phone, fax, website and address tax
+  number (2026-09-04) for a field the requester cannot supply and the post never reads from
+  staging. **Scoped to the five owned sections, not to the field name**: `CustomerAddressInfo`,
+  `CustomerAddressExtIdentifier`, `CustomerSalesAreaAddressInfo` and
+  `CustomerUnloadingPointAddressInfo` also require an `AddressID`, and theirs is a real
+  requirement the requester picks — nothing backfills those.
+- **A parent key is addressed from the RAW row, not from the sanitized payload** (2026-09-07).
+  `sanitizeEntityPayload` keeps only what is an element of the node's OWN entity, and
+  `A_AddressEmailAddress`/`A_AddressPhoneNumber`/`A_AddressFaxNumber`/`A_AddressHomePageURL` key on
+  `AddressID/Person/OrdinalNumber` and have **no `BusinessPartner` element at all** — while the
+  parent they are POSTed under, `A_BusinessPartnerAddress`, keys on `BusinessPartner` AND
+  `AddressID`. So the sanitize dropped the one value that could address the parent, and the create
+  asked for it back: first `AddressEmails: enter required field(s) BusinessPartner.`, and past that
+  `Enter a BusinessPartner number.` — after every check had passed. `parentKeyContext` now recovers
+  the parent keys from the raw row and `saveBusinessPartnerEntity` validates and addresses against
+  `{...parentKeyContext, ...payload}`; the POST **body** is still `payload` alone, so no node is
+  sent a field its own entity has not got. `AddressTaxNumbers` was the only one of the five that
+  ever worked, because `A_BusPartAddrDepdntTaxNmbr` does carry `BusinessPartner`.
+  **Same defect, different node:** `A_BusinessPartnerContact` spells the partner
+  `BusinessPartnerCompany` and has no `BusinessPartner` element either, and `postToS4` stamped
+  `data.BusinessPartner` for a **role node only** — so contacts never had one to drop. That stamp
+  is now unconditional: no maintenance node has both a relation field other than `BusinessPartner`
+  and a `BusinessPartner` element of its own (audited against the imported EDMX), so it either sets
+  what the relation field already set or sets what the sanitize drops.
+- **`OrdinalNumber` IS staged for the four non-tax children; the rest of their key is read back.**
+  Their S/4 key is `AddressID/Person/OrdinalNumber` (`A_AddressHomePageURL` adds
+  `ValidityStartDate` and `IsDefaultURLAddress`, the latter already staged). `StagedAddress*`
+  declared none of it beyond `AddressID`, and `stageable` drops any field the staging entity does
+  not declare — so the keys the read HAD brought back from S/4 were thrown away at staging time,
+  and `postToS4`'s `U`/`D` branch hit `sanitizeEntityKeys` with *"Missing key field(s): Person,
+  OrdinalNumber."* (2026-09-07). Live, not latent: the screen offers both paths (`deletable: true`,
+  `EmailAddress` `updatable: true`). Adding a new child was never affected.
+  **Only the ordinal is carried, and the split is the point.** An ordinal is an IDENTITY, not a
+  derivable technical value: once a requester edits `EmailAddress` from `a@x` to `b@x`, staging
+  holds `b@x` and nothing left on the row says which of the address's several emails it used to
+  be — S/4 answers with all of them and no way to align. So it is staged, exactly the way
+  `StagedAddresses.AddressID` and `StagedContacts.RelationshipNumber` are: S/4-assigned, blank on
+  create, and absent from the generated screen metadata so no requester is asked for it.
+  `Person` and `ValidityStartDate` are NOT staged, because they CAN be recovered — once the ordinal
+  identifies the row, `resolveAddressChildKeys` reads them back on `AddressID` + `OrdinalNumber`,
+  one read per changed or deleted row, and only when `action !== 'C'`.
+  **It never returns a partial key.** No ordinal, a row S/4 no longer has, two rows sharing an
+  ordinal, or a key part the read came back empty for all throw — a key missing a part addresses a
+  DIFFERENT row than the requester picked, so an update would overwrite and a delete would remove
+  something nobody chose. Same reasoning as *"a candidate never resolves silently to nothing"*
+  above. A request staged before the column existed carries no ordinal and has to be raised again;
+  the error says so.
+  `AddressTaxNumbers` needs none of this: its key is `BusinessPartner/AddressID/BPTaxType`, all
+  three staged or injected already.
+- **`addressIdByStagedRow` is SEEDED from every staged address before the post loop runs,
+  untouched rows included.** On a change request the address a new email belongs to usually needs
+  no change itself, so its own row is `N` — and the loop's `if (!action || action === UNTOUCHED)
+  continue` skips it *before* the recording, which then threw *"its own address was not created in
+  this run"* for a child of a perfectly good existing address (2026-09-04). An untouched row
+  already carries the real `AddressID` it was staged with, so seeding costs no S/4 round trip. A
+  create's row has none yet and is not seeded; the loop still records what S/4 assigns. The throw
+  now only fires for what it was written for: a child whose brand new address genuinely failed.
+- **`node-required.js` must know `AddressID` is injected too, and `BusinessPartner` with it.**
   `injectedFields` already excluded the one relation field `postToS4` resolves and stamps itself
-  (`Customer`/`Supplier`/`BusinessPartner`) from the required-field check, on the reasoning that a
-  field the post supplies can never be legitimately missing from staging. `AddressID` is exactly that
-  kind of field for the five address-owned sections — resolved and injected **per row** instead of
-  once per section — but `ADDRESS_CHILD_NODES` was never passed into `createNodeRequiredStages`, so
-  the check still demanded it as if it were ordinary staged data. Fixed by threading
-  `addressChildNodes` through the same way `relationFields`/`roleNodes` already are.
+  (`Customer`/`Supplier`/`BusinessPartner`), on the reasoning that a field the post supplies can
+  never be legitimately missing from staging. `ADDRESS_CHILD_NODES` was simply never passed into
+  `createNodeRequiredStages`, so the check demanded both as if they were ordinary staged data;
+  fixed by threading `addressChildNodes` through the same way `relationFields`/`roleNodes` are.
 
 ## Security gaps, known and open
 
