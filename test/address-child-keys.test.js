@@ -25,7 +25,8 @@ const cds = require('@sap/cds');
 const {
   ADDRESS_CHILD_NODES,
   ADDRESS_CHILD_ASSIGNED_KEYS,
-  resolveAddressChildKeys
+  resolveAddressChildKeys,
+  usableDateTimeKey
 } = require('../srv/change-request-service')._internals;
 
 const STAGED = {
@@ -309,4 +310,55 @@ test('sanitizeEntityKeys lets a declared blank key through, and still catches a 
     () => sanitizeEntityKeys({ AddressID: '', Person: '', OrdinalNumber: '1' }, entity, { blankable: ['Person'] }),
     (error) => error.statusCode === 400 && /AddressID/u.test(error.message)
   );
+});
+
+/**
+ * `A_AddressHomePageURL` is the one address child whose key is not all strings - it adds
+ * `ValidityStartDate` (Edm.DateTime) and `IsDefaultURLAddress` (Edm.Boolean).
+ *
+ * Reported live 2026-09-07, after BP 562: the gateway refused
+ * `A_AddressHomePageURL(AddressID='1205',Person='',OrdinalNumber='1',
+ * ValidityStartDate=datetime'0000-12-30T00:00:00',IsDefaultURLAddress=true)` with *"Malformed URI
+ * literal syntax"*. The FORM was right - `Person=''`, a bare `true`, a `datetime'...'` literal -
+ * but Edm.DateTime starts at 0001-01-01, and `0000-12-30` is how CAP renders an SAP INITIAL date.
+ * A website row with no validity date read back as one, and we tried to put it in a key.
+ */
+test('an initial date is refused, not sent as a malformed key', async () => {
+  await assert.rejects(
+    () => resolveAddressChildKeys(
+      s4With([{ Person: '', ValidityStartDate: '0000-12-30T00:00:00' }]),
+      'AddressHomePageURLs',
+      { AddressID: '1205', OrdinalNumber: '1' }
+    ),
+    (error) => /carries no usable ValidityStartDate/u.test(error.message)
+      && /cannot be addressed/u.test(error.message),
+    'the refusal names the field and says the row cannot be addressed'
+  );
+});
+
+test('a real validity date still resolves, unchanged', async () => {
+  const s4 = s4With([{ Person: '', ValidityStartDate: '2026-01-01T00:00:00' }]);
+  assert.deepEqual(
+    await resolveAddressChildKeys(s4, 'AddressHomePageURLs', { AddressID: '1205', OrdinalNumber: '1' }),
+    { Person: '', ValidityStartDate: '2026-01-01T00:00:00' },
+    'passed through as S/4 gave it - a key is an address, not a value to normalise'
+  );
+});
+
+test('only the website declares a DateTime key part', () => {
+  assert.deepEqual(ADDRESS_CHILD_ASSIGNED_KEYS.AddressHomePageURLs.dateTimeFields, ['ValidityStartDate']);
+  for (const section of ['AddressEmails', 'AddressPhoneNumbers', 'AddressFaxNumbers']) {
+    assert.equal(ADDRESS_CHILD_ASSIGNED_KEYS[section].dateTimeFields, undefined, section);
+  }
+});
+
+test('usableDateTimeKey keeps a real date and rejects what cannot be a literal', () => {
+  // Kept, and returned as given rather than reformatted.
+  for (const value of ['2026-01-01T00:00:00', new Date('2026-01-01T00:00:00Z'), '0001-01-01T00:00:00']) {
+    assert.equal(usableDateTimeKey(value), value, String(value));
+  }
+  // Year 0 is outside Edm.DateTime, and nonsense is not a date at all.
+  for (const value of ['0000-12-30T00:00:00', '0000-01-01T00:00:00', '', 'not-a-date', null]) {
+    assert.equal(usableDateTimeKey(value), null, JSON.stringify(value));
+  }
 });

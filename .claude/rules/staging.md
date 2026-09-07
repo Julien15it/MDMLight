@@ -289,6 +289,23 @@ never expands an association).
   is now unconditional: no maintenance node has both a relation field other than `BusinessPartner`
   and a `BusinessPartner` element of its own (audited against the imported EDMX), so it either sets
   what the relation field already set or sets what the sanitize drops.
+- **A website row with no validity date cannot be ADDRESSED, and is refused rather than sent**
+  (2026-09-07, after BP 562: *"Malformed URI literal syntax"*). `A_AddressHomePageURL` is the one
+  address child whose key is not all strings — it adds `ValidityStartDate` (`Edm.DateTime`) and
+  `IsDefaultURLAddress` (`Edm.Boolean`), so it is the only one that can hit this. The URL we built
+  was
+  `A_AddressHomePageURL(AddressID='1205',Person='',OrdinalNumber='1',ValidityStartDate=datetime'0000-12-30T00:00:00',IsDefaultURLAddress=true)`
+  — the **form is right** (`Person=''`, a bare `true`, a `datetime'…'` literal); the value is not.
+  `Edm.DateTime` starts at `0001-01-01`, and **`0000-12-30` is how CAP renders an SAP INITIAL
+  date** — so a website row carrying no validity date reads back as one and cannot go into a key.
+  `usableDateTimeKey` now refuses it and `resolveAddressChildKeys` throws naming the field, because
+  a stated refusal beats a malformed request. **Deliberately NOT substituted** with `0001-01-01`
+  or today: a key is an ADDRESS, and a different date addresses a different row, or none.
+  **Only reachable on a change or a delete** — a newly added row is a POST through the navigation
+  and has no key predicate at all, which is why every earlier run (all adds) never saw it.
+  **Still open:** what literal this system actually accepts for such a row, and the deeper oddity
+  that `IsDefaultURLAddress` is both a KEY part and an editable field — so ticking the default flag
+  changes the key, which an update-by-key cannot express at all.
 - **`AddressTaxNumbers` is READ-ONLY: S/4 cannot create one through this API at all** (2026-09-07,
   reported live: BP 638 created, then *"Operation is not supported"*). The gateway answered the POST
   to `/A_BusinessPartner('638')/to_BusPartAddrDepdntTaxNmbr` with `/IWBEP/CM_MGW_RT/027 Operation

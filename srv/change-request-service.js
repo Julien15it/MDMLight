@@ -196,8 +196,36 @@ const ADDRESS_CHILD_ASSIGNED_KEYS = Object.freeze({
   AddressEmails:       { remote: 'A_AddressEmailAddress', fields: ['Person'] },
   AddressPhoneNumbers: { remote: 'A_AddressPhoneNumber',  fields: ['Person'] },
   AddressFaxNumbers:   { remote: 'A_AddressFaxNumber',    fields: ['Person'] },
-  AddressHomePageURLs: { remote: 'A_AddressHomePageURL',  fields: ['Person', 'ValidityStartDate'] }
+  AddressHomePageURLs: {
+    remote: 'A_AddressHomePageURL',
+    fields: ['Person', 'ValidityStartDate'],
+    // The only Edm.DateTime among the four keys, and the only one that can come back
+    // unusable - see usableDateTimeKey.
+    dateTimeFields: ['ValidityStartDate']
+  }
 });
+
+/**
+ * An `Edm.DateTime` key part S/4 answered with, only if it can actually go INTO a key predicate.
+ *
+ * `A_AddressHomePageURL` is the one address child whose key is not all strings: it adds
+ * `ValidityStartDate` (Edm.DateTime) and `IsDefaultURLAddress` (Edm.Boolean). A website row that
+ * carries no validity date reads back as an SAP INITIAL date, which CAP renders as year 0000 - and
+ * `datetime'0000-12-30T00:00:00'` is outside Edm.DateTime (it starts at 0001-01-01), so the gateway
+ * refused the whole URL with *"Malformed URI literal syntax"* (2026-09-07, after BP 562).
+ *
+ * Returned as-is when it is a real date, and null when it is not - the caller turns that into a
+ * refusal rather than a malformed request. Deliberately NOT substituted with 0001-01-01 or today:
+ * a key is an ADDRESS, and a different date addresses a different row (or none).
+ */
+const usableDateTimeKey = (value) => {
+  // Absent or blank first, explicitly: `new Date(null)` is the epoch, which would otherwise read as
+  // a perfectly good 1970 and let a missing key part through.
+  if (value === null || value === undefined || value === '') return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime()) || date.getUTCFullYear() < 1) return null;
+  return value;
+};
 
 /**
  * The rest of an existing address-owned child's key, read back from S/4 for a change or a delete.
@@ -253,6 +281,21 @@ async function resolveAddressChildKeys(s4, section, row, { read } = {}) {
         `Cannot change ${section}: S/4 did not return ${field} for address ${row.AddressID} row `
         + `${row.OrdinalNumber}, and it is part of the key.`
       );
+    }
+    // A DateTime key part has to survive being written back as an Edm.DateTime literal. An initial
+    // date cannot, and a malformed URL is a worse answer than a stated refusal - see
+    // usableDateTimeKey.
+    if ((config.dateTimeFields || []).includes(field)) {
+      const usable = usableDateTimeKey(rows[0][field]);
+      if (usable === null) {
+        throw new Error(
+          `Cannot change ${section}: address ${row.AddressID} row ${row.OrdinalNumber} carries no `
+          + `usable ${field} (S/4 answered ${JSON.stringify(rows[0][field])}), and it is part of `
+          + `the key - so this row cannot be addressed. Change it in S/4 instead.`
+        );
+      }
+      resolved[field] = usable;
+      continue;
     }
     resolved[field] = rows[0][field] === null ? '' : rows[0][field];
   }
@@ -2367,6 +2410,7 @@ ChangeRequestService._internals = {
   ADDRESS_CHILD_NODES,
   ADDRESS_CHILD_ASSIGNED_KEYS,
   resolveAddressChildKeys,
+  usableDateTimeKey,
   resolveEffectiveRole,
   currentStepAssignee
 };
