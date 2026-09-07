@@ -314,6 +314,21 @@ never expands an association).
   nothing, so a supplied value always wins, and it is a FUNCTION so the date is the request's.
   **Rows created before this stay stuck** — unaddressable by any literal, so they cannot be repaired
   or removed through this API at all; that needs S/4 itself.
+  **And a request that HOLDS such a row was stuck with them** (2026-09-07, BP 646). The refusal is
+  permanent by construction, so every retry failed at the same row forever: the partner, the address
+  and the website row were all already in S/4 from an earlier attempt, `postToS4` had flipped the
+  created row to `action: 'U'` for retry-safety, and that update could never be addressed — while
+  nothing had actually changed, so nothing needed updating. `resolveAddressChildKeys` now reads
+  **every** column (not just the key parts) and attaches the row to the refusal
+  (`error.unaddressableRow`); `postToS4` skips the write, with a `[post]` warning, when
+  `stagedRowMatchesRemote` establishes the staged row already says what S/4 holds. **Only a
+  no-op UPDATE is skipped**: a DELETE of such a row genuinely cannot happen and skipping it would
+  leave behind a row the approver agreed to remove, and a row the requester really did edit still
+  refuses — nothing signed off is silently dropped. The comparison runs over the REMOTE row's own
+  fields, so a staging-only column (`action`, the backlinks, the ordinal) cannot make an untouched
+  row look edited; blank, null and absent are one value on both sides. The refusal also now names
+  the second way out, the only one inside this app: **remove the row from the request** (the client
+  no longer sending it drops it from staging) so the rest can post.
   **No other node needs the same fix, audited against the EDMX 2026-09-07.** Only two creatable
   maintenance nodes have a non-string key field at all: this one, and `BusinessPartnerContacts`
   (`ValidityEndDate`, `Edm.DateTime`) — which is already safe because `ValidityEndDate` is in its
