@@ -724,6 +724,17 @@ class ChangeRequestService extends cds.ApplicationService {
             }
             if (isAddressChild && record?.__addressKey && addressIdByRowKey[record.__addressKey]) {
               row.address_ID = addressIdByRowKey[record.__addressKey];
+            } else if (isAddressChild) {
+              // Named here, at the moment the link is lost, rather than at the post - postToS4
+              // cannot say WHY a row has no address_ID, only that it has none, and by then the
+              // request has been approved and a business partner may already exist (2026-09-07).
+              // Not thrown: a submit that refused here would strand a requester over a linkage
+              // detail they cannot see, and postToS4 already refuses to post an unlinked child.
+              console.warn(
+                `[stage] ${section} row is not linked to any staged address:`
+                + ` __addressKey=${record?.__addressKey ?? '(absent)'},`
+                + ` known address keys=${JSON.stringify(Object.keys(addressIdByRowKey))}`
+              );
             }
             return row;
           }),
@@ -1893,7 +1904,19 @@ class ChangeRequestService extends cds.ApplicationService {
           if (isAddressChild) {
             const resolvedAddressId = data.address_ID ? addressIdByStagedRow[data.address_ID] : null;
             if (!resolvedAddressId) {
-              throw new Error(`Cannot post ${section}: its own address was not created in this run.`);
+              // The two ways this happens are unrelated problems in different files, and the one
+              // message could not tell them apart (2026-09-07: BP 639 was created and this threw
+              // with nothing to act on). NO address_ID at all means the LINK was never made -
+              // writeStagedNodes had no `__addressKey` on the row, or none that matched an
+              // Addresses `__rowKey`, so the client/staging side is where to look. An address_ID
+              // that resolves to nothing means the link is fine but the ADDRESS did not yield an
+              // AddressID when it was posted a few sections earlier.
+              throw new Error(data.address_ID
+                ? `Cannot post ${section}: its own address (staged row ${data.address_ID}) produced `
+                  + `no AddressID when it was created. Addresses recorded: `
+                  + `${Object.keys(addressIdByStagedRow).length}.`
+                : `Cannot post ${section}: this row is not linked to any staged address `
+                  + `(no address_ID), so there is no address to attach it to.`);
             }
             data.AddressID = resolvedAddressId;
             // BusinessPartner is part of AddressTaxNumbers' own key but not Email/Phone/Fax/URL's -
@@ -1996,6 +2019,14 @@ class ChangeRequestService extends cds.ApplicationService {
                 console.warn(`[post] Could not read the AddressID S/4 assigned for ${ID}:`, error.message);
               }
             }
+            // Logged either way: every address-owned child in this run depends on this one value,
+            // and when it is missing the child's own failure is several sections away from the
+            // cause. The raw result is included because "what did the create actually answer" is
+            // the question, and it is not reconstructible afterwards.
+            console.log(
+              `[post] Addresses ${ID}: AddressID=${addressId || '(none)'}`
+              + `${isCreate ? ` from create result ${saveResult}` : ' (already staged)'}`
+            );
             if (addressId) addressIdByStagedRow[ID] = addressId;
           }
 

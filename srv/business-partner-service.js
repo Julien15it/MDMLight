@@ -670,6 +670,20 @@ function normalizeRemoteResult(result) {
   return result;
 }
 
+/**
+ * EVERY row of a remote answer, across the same V2/V4 shapes `normalizeRemoteResult` picks the
+ * first one out of - including a bare single object, which the on-premise V2 proxy does return for
+ * a one-row read and which an `Array.isArray` check alone silently reads as no rows at all.
+ */
+function normalizeRemoteRows(result) {
+  if (Array.isArray(result)) return result;
+  if (!result || typeof result !== 'object') return [];
+  if (Array.isArray(result.value)) return result.value;
+  if (result.d && Array.isArray(result.d.results)) return result.d.results;
+  if (result.d && typeof result.d === 'object') return [result.d];
+  return [result];
+}
+
 function remoteErrorMessage(error, fallback) {
   const data = error?.response?.data || error?.cause?.response?.data;
   const message = data?.error?.message?.value
@@ -810,22 +824,58 @@ function addDefaultAddressUsage(payload, hasExistingAddress) {
   return result;
 }
 
+/** Every AddressID this partner already has, as a Set. Small by nature - a BP has a handful. */
+async function addressIdsOf(s4, businessPartner) {
+  const rows = normalizeRemoteRows(await s4.run(
+    cds.ql.SELECT
+      .from(remoteEntity(s4, 'A_BusinessPartnerAddress'))
+      .columns('AddressID')
+      .where({ BusinessPartner: businessPartner })
+  ));
+  return new Set(rows.map((row) => row?.AddressID).filter(Boolean));
+}
+
+/**
+ * Creates the address AND answers with its new `AddressID`, which every address-owned child in the
+ * same post depends on (`addressIdByStagedRow` in change-request-service.js).
+ *
+ * **The AddressID is derived from a re-read, not only from the POST response.** Unlike the root
+ * create - which goes through `s4.run(INSERT)` and demonstrably answers with its `BusinessPartner`
+ * - an address must be POSTed through the `to_BusinessPartnerAddress` navigation (SAP KBA 3109298,
+ * for the XXDEFAULT usage), and that raw `s4.send` response is a shape nothing in this app had ever
+ * read a field out of. So the address create is verified against the partner's own address list
+ * instead: the ids are captured before the POST, and the one that is there afterwards and was not
+ * there before IS the address just created.
+ *
+ * That set difference is a derivation, not a heuristic - exactly one id can be new - and it is only
+ * paid for when the response did not carry the key itself. Anything other than exactly one new id
+ * returns the create result unchanged rather than picking one: attaching an email to the wrong
+ * address is far worse than the caller reporting that it has no AddressID to attach it to.
+ */
 async function createBusinessPartnerAddress(s4, payload) {
   const businessPartner = String(payload.BusinessPartner || '').trim();
   if (!businessPartner) {
     throw Object.assign(new Error('Enter a business partner number for the address.'), { statusCode: 400 });
   }
 
-  const existing = normalizeRemoteResult(await s4.run(
-    cds.ql.SELECT.one
-      .from(remoteEntity(s4, 'A_BusinessPartnerAddress'))
-      .columns('AddressID')
-      .where({ BusinessPartner: businessPartner })
-  ));
-  const data = addDefaultAddressUsage(payload, Boolean(existing));
-  // SAP KBA 3109298 requires the first address to be created through this
-  // navigation with an explicit XXDEFAULT address usage.
-  return createBusinessPartnerChild(s4, MAINTENANCE_ENTITIES.Addresses, data);
+  // One read, two answers: whether the XXDEFAULT usage is needed (this is the FIRST address) and
+  // the baseline the new id is identified against below.
+  const before = await addressIdsOf(s4, businessPartner);
+  const data = addDefaultAddressUsage(payload, before.size > 0);
+  const created = await createBusinessPartnerChild(s4, MAINTENANCE_ENTITIES.Addresses, data);
+  if (created?.AddressID) return created;
+
+  const added = [...await addressIdsOf(s4, businessPartner)].filter((id) => !before.has(id));
+  if (added.length !== 1) {
+    console.warn(
+      `[address] The create of an address for ${businessPartner} answered without an AddressID, `
+      + `and ${added.length} new addresses are on the partner - so which one it is cannot be `
+      + `established. Address-owned children of this address cannot be posted.`
+    );
+    return created;
+  }
+  console.log(`[address] AddressID ${added[0]} derived by re-read for ${businessPartner}.`);
+  return { ...(created || {}), AddressID: added[0] };
 }
 
 function extractSearchTerms(searchExpression) {
@@ -2902,6 +2952,7 @@ BusinessPartnerService._internals = {
   resolveQuestionIntent,
   parseJsonObject,
   normalizeRemoteResult,
+  normalizeRemoteRows,
   remoteErrorMessage,
   businessPartnerNavigationPath,
   parentKeyContext,
@@ -2910,6 +2961,7 @@ BusinessPartnerService._internals = {
   taxTypeLanguageRank,
   oneRowPerTaxType,
   createBusinessPartnerAddress,
+  addressIdsOf,
   maintenanceEntity,
   sanitizeEntityKeys,
   sanitizeEntityPayload,

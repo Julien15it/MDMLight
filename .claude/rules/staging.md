@@ -204,6 +204,31 @@ never expands an association).
   section still has its own database id stripped, same as always; only `Addresses` (`__rowKey = ID`)
   and its five children (`__addressKey = address_ID`) get this, because that id is the only thing that
   can correlate a still-unsaved address to its children before an approval ever runs.
+- **The new `AddressID` is DERIVED from a re-read, not taken on trust from the POST response**
+  (2026-09-07, reported live: BP 639 was created and the post then failed *"Cannot post
+  AddressEmails: its own address was not created in this run."*). The root create goes through
+  `s4.run(INSERT)` and demonstrably answers with its own `BusinessPartner`, but an address has to be
+  POSTed through the `to_BusinessPartnerAddress` navigation (SAP KBA 3109298, for the XXDEFAULT
+  usage) — and that raw `s4.send` response is a shape **nothing in this app had ever read a field
+  out of**. The recording added with this feature was written assuming it carried the key, and the
+  earlier check-time refusals meant no create ever got far enough to find out.
+  `createBusinessPartnerAddress` now captures the partner's address ids **before** the POST and
+  takes the one that is there afterwards and was not there before. **A derivation, not a
+  heuristic** — exactly one id can be new — and paid for only when the response gave nothing.
+  Anything other than exactly one new id **picks none**: attaching an email to the wrong address is
+  worse than the caller reporting it has no `AddressID` to attach one to.
+  `normalizeRemoteRows` is `normalizeRemoteResult`'s every-row counterpart and exists because the
+  on-premise V2 proxy answers a one-row read with a **bare object**, which an `Array.isArray` check
+  reads as no rows at all — that alone would have made every second address claim the standard usage.
+- **The two ways a child cannot find its address are different problems, and the message says
+  which.** No `address_ID` at all means the LINK was never made (`writeStagedNodes` had no
+  `__addressKey`, or none matching an Addresses `__rowKey`) — a client/staging question. An
+  `address_ID` that resolves to nothing means the link is fine and the ADDRESS yielded no
+  `AddressID` sections earlier. One message for both left a live failure with nothing to act on.
+  `writeStagedNodes` also warns (`[stage]`) the moment a child ends up unlinked, rather than only at
+  the post — by then the request is approved and a partner may already exist. It **warns, never
+  throws**: a submit refused over a linkage detail the requester cannot see would strand them, and
+  `postToS4` already refuses to post an unlinked child.
 - **A candidate never resolves silently to nothing** — if an address-owned child's `address_ID` does
   not resolve to an entry in `addressIdByStagedRow`, `postToS4` throws (*"its own address was not
   created in this run"*) rather than posting a child with no `AddressID` at all, which S/4 would
