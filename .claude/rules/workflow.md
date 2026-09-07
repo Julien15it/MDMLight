@@ -127,11 +127,14 @@ array once at submit. **What decides whether an approve actually posts to S/4 li
 - **Accepted, not solved:** two decisions for the same approver arriving concurrently could double-count
   `approvalsReceived`, because nothing here identifies WHO is deciding. No worse than the trust
   `postedBP`'s idempotency guard already extends to the final step.
-- **`app/bptask` stays at 1.5.0 through this**, deliberately: removing inputs the form no longer reads
-  is backwards-compatible, and the version is an address the Lobby resolves — raising it strands the
-  User Task until somebody re-points it by hand. 1.6.0 was raised and reverted the same day for that
-  reason. The **deploy** is still what makes the fixed `Component.js` run. This is the one exception to
-  the bump-on-every-deploy standing rule; `test/task-form.test.js` pins the number and says why.
+- **`app/bptask`'s version is NOT bumped on a deploy** — the one exception to the bump-on-every-deploy
+  standing rule. It is an address the Lobby resolves, so raising it strands the User Task until
+  somebody re-points it by hand; 1.6.0 was raised and reverted the same day for exactly that. It was
+  held at 1.5.0 through the 2026-09-02 multiple-approver fix (removing inputs the form no longer reads
+  is backwards-compatible) and **raised to 1.8.0 on 2026-09-04, agreed with Arthur first**. The
+  **deploy** is what makes fixed `Component.js` or `app/reuse` code run, not the number.
+  `test/task-form.test.js` pins the current value and records why each move happened — read it there
+  rather than trusting a number quoted here.
 
 ## Rework — the requester's screen
 
