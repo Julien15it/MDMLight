@@ -74,6 +74,40 @@ function createNodeRequiredStages({
 } = {}) {
   return {
     validations: [{
+      /**
+       * A row the post can never create, refused before an approver spends their time on it.
+       *
+       * `node_required_fields` below deliberately skips a section that is not `creatable` - it has
+       * no create rules to check. Nothing then said the row could not be posted AT ALL, so
+       * `AddressTaxNumbers` passed every check and failed at activation with S/4's own *"Operation
+       * is not supported"* - after the business partner had already been created (2026-09-07).
+       *
+       * Same shape as the 2026-08-28 fix this module exists for: the post's own refusal, evaluated
+       * at check time, in the post's own words. `notCreatableReason` is the entity's if it has one.
+       */
+      name: 'node_not_creatable',
+      async run(payload) {
+        const findings = [];
+
+        for (const [section, rows] of Object.entries(payload?.sections || {})) {
+          const config = entities[section];
+          if (!config || config.creatable !== false || !Array.isArray(rows)) continue;
+
+          rows.forEach((row, index) => {
+            if (!isCreateRow(row)) return;
+            findings.push({
+              severity: 'error',
+              target: section,
+              index,
+              message: config.notCreatableReason
+                || `${section} cannot be created directly. Add the corresponding role first.`
+            });
+          });
+        }
+
+        return findings;
+      }
+    }, {
       name: 'node_required_fields',
       async run(payload) {
         const findings = [];

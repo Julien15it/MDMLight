@@ -289,6 +289,27 @@ never expands an association).
   is now unconditional: no maintenance node has both a relation field other than `BusinessPartner`
   and a `BusinessPartner` element of its own (audited against the imported EDMX), so it either sets
   what the relation field already set or sets what the sanitize drops.
+- **`AddressTaxNumbers` is READ-ONLY: S/4 cannot create one through this API at all** (2026-09-07,
+  reported live: BP 638 created, then *"Operation is not supported"*). The gateway answered the POST
+  to `/A_BusinessPartner('638')/to_BusPartAddrDepdntTaxNmbr` with `/IWBEP/CM_MGW_RT/027 Operation
+  'CREATE_ENTITY' not supported for entity type 'A_BusPartAddrDepdntTaxNmbrType'` — the entity set
+  has **no create implementation**. **Not a wrong URL:** that navigation hangs off
+  `A_BusinessPartner` and is the only route to this entity anywhere in the model —
+  `A_BusinessPartnerAddress` has `to_EmailAddress`/`to_PhoneNumber`/`to_FaxNumber`/`to_URLAddress`
+  and **no tax-number navigation**, so there is no address-parented route and no deep-insert route
+  either. **And not visible in the checked-in model:** the entity set carries no
+  `sap:creatable="false"`, so the copy reads as creatable — the same *"the imported models are
+  copies and go stale silently"* trap as the `excluding {}` lists (`architecture.md`). Only the live
+  system says otherwise, so **do not "fix" the config back from the metadata**.
+  Closed at three levels: `creatable: false` + `notCreatableReason` on the entity (the post's
+  refusal now says why instead of naming a role that has nothing to do with it), `creatable: false`
+  + an `emptyText` in the generated screen metadata so the Add button is gone, and a new
+  `node_not_creatable` validation so a row staged before this — or any direct service call — is
+  refused at CHECK time rather than after an approver has spent their time and a partner exists.
+  `node_required_fields` could never have caught it: it deliberately skips a non-creatable section,
+  having no create rules to check. **Reading and deleting existing rows is untouched** — nothing has
+  exercised DELETE on this entity, so guessing it away would remove a path that may work.
+  **The other four are unaffected and do create.**
 - **`OrdinalNumber` IS staged for the four non-tax children; the rest of their key is read back.**
   Their S/4 key is `AddressID/Person/OrdinalNumber` (`A_AddressHomePageURL` adds
   `ValidityStartDate` and `IsDefaultURLAddress`, the latter already staged). `StagedAddress*`

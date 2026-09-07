@@ -112,7 +112,13 @@ const sections = [
     kind: 'collection',
     fieldNames: ['AddressID', 'BPTaxType', 'BPTaxNumber', 'BPTaxLongNumber'],
     summaryFields: ['BPTaxType', 'BPTaxNumber', 'BPTaxLongNumber'],
-    requiredCreateFields: ['BPTaxType']
+    requiredCreateFields: ['BPTaxType'],
+    // Read-only on this S/4 release - the entity set has no CREATE_ENTITY at all, and there is no
+    // address-parented navigation to it either. `creatable: false` is what _renderSection keys off
+    // to drop the Add button, so the screen stops offering what the post cannot do. See
+    // MAINTENANCE_ENTITIES.AddressTaxNumbers in srv/business-partner-service.js for the live error.
+    creatable: false,
+    emptyText: 'No address-dependent tax numbers. S/4HANA does not support creating one through this API - maintain it in the Business Partner transaction.'
   },
   {
     id: 'BusinessPartnerRoles',

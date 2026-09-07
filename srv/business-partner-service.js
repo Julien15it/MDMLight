@@ -235,10 +235,31 @@ const MAINTENANCE_ENTITIES = Object.freeze({
   // - its own key already carries BusinessPartner+AddressID+BPTaxType, so it takes the same plain
   // top-level shape TaxNumbers does, with AddressID as an extra required field rather than a
   // parentKeyFields entry.
+  /**
+   * READ-ONLY on this S/4 release, unlike its four siblings (2026-09-07, reported live: BP 638 was
+   * created and the post then failed *"Operation is not supported"*). The gateway answered the POST
+   * to `/A_BusinessPartner('638')/to_BusPartAddrDepdntTaxNmbr` with
+   * `/IWBEP/CM_MGW_RT/027 Operation 'CREATE_ENTITY' not supported for entity type
+   * 'A_BusPartAddrDepdntTaxNmbrType'` - the entity set has no create implementation at all.
+   *
+   * NOT a wrong URL: `to_BusPartAddrDepdntTaxNmbr` hangs off `A_BusinessPartner` and is the ONLY
+   * navigation to this entity in the whole imported model - `A_BusinessPartnerAddress` has
+   * to_EmailAddress/to_FaxNumber/to_PhoneNumber/to_URLAddress and no tax-number navigation, so
+   * there is no address-parented route and no deep-insert route either. And NOT visible in the
+   * imported metadata: the entity set carries no `sap:creatable="false"`, so it reads as creatable -
+   * the same "the imported models are copies and go stale silently" trap as the `excluding {}` lists
+   * (architecture.md). Only the live system says otherwise.
+   *
+   * Reading and displaying existing rows is unaffected. `deletable` is left as it was: nothing has
+   * exercised DELETE on this entity, and guessing it away would remove a path that may work.
+   */
   AddressTaxNumbers: Object.freeze({
     remote: 'A_BusPartAddrDepdntTaxNmbr',
     navigation: 'to_BusPartAddrDepdntTaxNmbr',
-    creatable: true,
+    creatable: false,
+    notCreatableReason: 'S/4HANA does not support creating an address-dependent tax number through '
+      + 'API_BUSINESS_PARTNER (the entity set has no CREATE_ENTITY implementation). Maintain it in '
+      + 'the Business Partner transaction instead.',
     deletable: true,
     requiredCreateFields: ['BusinessPartner', 'AddressID', 'BPTaxType']
   }),
@@ -2522,7 +2543,11 @@ class BusinessPartnerService extends cds.ApplicationService {
 
       const isCreate = Boolean(req.data.IsCreate);
       if (isCreate && !configuration.creatable) {
-        req.reject(400, `${req.data.Entity} cannot be created directly. Add the corresponding role first.`);
+        // The default names the role, which is why Customers/Suppliers are not creatable here. A
+        // node that is read-only for a DIFFERENT reason says its own, or the message sends whoever
+        // reads it looking for a role that has nothing to do with it.
+        req.reject(400, configuration.notCreatableReason
+          || `${req.data.Entity} cannot be created directly. Add the corresponding role first.`);
       }
 
       let data;
