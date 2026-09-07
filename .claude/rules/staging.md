@@ -314,6 +314,17 @@ never expands an association).
   nothing, so a supplied value always wins, and it is a FUNCTION so the date is the request's.
   **Rows created before this stay stuck** — unaddressable by any literal, so they cannot be repaired
   or removed through this API at all; that needs S/4 itself.
+  **No other node needs the same fix, audited against the EDMX 2026-09-07.** Only two creatable
+  maintenance nodes have a non-string key field at all: this one, and `BusinessPartnerContacts`
+  (`ValidityEndDate`, `Edm.DateTime`) — which is already safe because `ValidityEndDate` is in its
+  `requiredCreateFields`, so `node_required_fields` refuses a create without it. Every other date
+  across the 15 creatable nodes with dates is a **non-key** field, where an initial value cannot
+  make a row unaddressable, and `sanitizeEntityPayload` drops an absent field rather than sending
+  one, so S/4 applies its own default. **Do not "fix" those by defaulting them** — it would replace
+  SAP's own defaulting with a guess and fabricate business data (exemption periods, dunning dates,
+  certification dates). The general rule is pinned by *"no creatable node has a date in its key that
+  a create could leave empty"* in `test/address-child-keys.test.js`, so a node added later that
+  breaks it fails a test rather than a live post.
   **Still open:** whether S/4 accepts `ValidityStartDate` on the create POST at all (untested), and
   the deeper oddity that `IsDefaultURLAddress` is both a KEY part and an editable field — so ticking
   the default flag changes the key, which an update-by-key cannot express even with a good date.

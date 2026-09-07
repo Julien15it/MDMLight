@@ -404,3 +404,76 @@ test('the default never overwrites what was supplied', () => {
   const defaulted = { ...createDefaultsFor(MAINTENANCE_ENTITIES.AddressHomePageURLs), ...payload };
   assert.equal(defaulted.ValidityStartDate, '2020-01-01');
 });
+
+/**
+ * The GENERAL form of the website bug, so it cannot come back on a node nobody was thinking about.
+ *
+ * A row is unaddressable forever if its key contains a date the create left initial: S/4 stores its
+ * own initial value, renders it as year 0, and then refuses its own literal. A key field that is
+ * not a plain string is therefore only safe if the create is guaranteed to fill it - either because
+ * the requester must (`requiredCreateFields`) or because the app defaults it (`createDefaults`).
+ *
+ * Booleans are exempt: `false` is a perfectly good key literal, so an unset one cannot be malformed
+ * (it is still a design smell where the field is also editable - see IsDefaultURLAddress).
+ */
+test('no creatable node has a date in its key that a create could leave empty', () => {
+  const { MAINTENANCE_ENTITIES } = require('../srv/business-partner-service')._internals;
+  const edmxText = fs.readFileSync(
+    path.join(__dirname, '..', 'srv', 'external', 'API_BUSINESS_PARTNER.edmx'), 'utf8'
+  );
+
+  // Sliced rather than matched with a built RegExp: inside a template literal `[\s\S]` collapses to
+  // `[sS]`, which silently matches nothing useful and would make this test pass by finding no keys.
+  const entityKeys = (remote) => {
+    const start = edmxText.indexOf(`<EntityType Name="${remote}Type"`);
+    if (start < 0) return [];
+    const block = edmxText.slice(start, edmxText.indexOf('</EntityType>', start));
+    const [head] = block.split('</Key>');
+    const keys = [...head.matchAll(/<PropertyRef Name="([^"]+)"/gu)].map((m) => m[1]);
+    const types = new Map(
+      [...block.matchAll(/<Property Name="([^"]+)" Type="([^"]+)"/gu)].map((m) => [m[1], m[2]])
+    );
+    return keys.map((name) => ({ name, type: types.get(name) }));
+  };
+
+  const unguarded = [];
+  const dateKeys = [];
+  for (const [section, config] of Object.entries(MAINTENANCE_ENTITIES)) {
+    if (config.creatable === false || !config.remote) continue;
+    const filled = new Set(config.requiredCreateFields || []);
+    const defaulted = new Set(Object.keys(
+      typeof config.createDefaults === 'function' ? config.createDefaults() : {}
+    ));
+    for (const key of entityKeys(config.remote)) {
+      if (!/^Edm\.(DateTime|DateTimeOffset|Date)$/u.test(key.type || '')) continue;
+      dateKeys.push(`${section}.${key.name}`);
+      if (filled.has(key.name) || defaulted.has(key.name)) continue;
+      unguarded.push(`${section}.${key.name} (${key.type})`);
+    }
+  }
+
+  // Or the whole test passes because the EDMX slicing found no keys at all.
+  assert.deepEqual(
+    dateKeys.sort(),
+    ['AddressHomePageURLs.ValidityStartDate', 'BusinessPartnerContacts.ValidityEndDate'],
+    'the two date-keyed nodes were actually read out of the EDMX'
+  );
+  assert.deepEqual(
+    unguarded, [],
+    'a date in the key must be required of the requester or defaulted by the app, or the row it '
+    + 'creates can never be addressed again'
+  );
+});
+
+/** The two nodes this actually applies to, and how each is covered - so a change is deliberate. */
+test('the two date-keyed nodes are covered by different means, on purpose', () => {
+  const { MAINTENANCE_ENTITIES, createDefaultsFor } = require('../srv/business-partner-service')._internals;
+
+  // A contact's validity is a business decision, so the requester supplies it.
+  assert.ok(MAINTENANCE_ENTITIES.BusinessPartnerContacts.requiredCreateFields.includes('ValidityEndDate'));
+  assert.equal(MAINTENANCE_ENTITIES.BusinessPartnerContacts.createDefaults, undefined);
+
+  // Nobody cares about a website's, so the app fills it rather than asking.
+  assert.ok(!MAINTENANCE_ENTITIES.AddressHomePageURLs.requiredCreateFields.includes('ValidityStartDate'));
+  assert.ok(createDefaultsFor(MAINTENANCE_ENTITIES.AddressHomePageURLs).ValidityStartDate);
+});
