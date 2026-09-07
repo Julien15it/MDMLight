@@ -303,9 +303,20 @@ never expands an association).
   or today: a key is an ADDRESS, and a different date addresses a different row, or none.
   **Only reachable on a change or a delete** — a newly added row is a POST through the navigation
   and has no key predicate at all, which is why every earlier run (all adds) never saw it.
-  **Still open:** what literal this system actually accepts for such a row, and the deeper oddity
-  that `IsDefaultURLAddress` is both a KEY part and an editable field — so ticking the default flag
-  changes the key, which an update-by-key cannot express at all.
+  **The row is born that way, and that is the half worth fixing.** Read back through the facade
+  (address 1205, 2026-09-07) BOTH website rows carry `"ValidityStartDate": "0000-12-30"` — so S/4's
+  own serialiser emits a value its own URI parser rejects, and such a row can be neither updated nor
+  deleted (delete builds the same predicate). They got that way because this app POSTs a website
+  without a `ValidityStartDate`: it is part of the key, it is not on the screen, and S/4 then stores
+  its initial date. `MAINTENANCE_ENTITIES.AddressHomePageURLs.createDefaults` now sends **today's
+  date** on create — what the BP transaction itself defaults — so every row this app creates from
+  now on stays addressable. `createDefaultsFor` applies a default only where the payload has
+  nothing, so a supplied value always wins, and it is a FUNCTION so the date is the request's.
+  **Rows created before this stay stuck** — unaddressable by any literal, so they cannot be repaired
+  or removed through this API at all; that needs S/4 itself.
+  **Still open:** whether S/4 accepts `ValidityStartDate` on the create POST at all (untested), and
+  the deeper oddity that `IsDefaultURLAddress` is both a KEY part and an editable field — so ticking
+  the default flag changes the key, which an update-by-key cannot express even with a good date.
 - **`AddressTaxNumbers` is READ-ONLY: S/4 cannot create one through this API at all** (2026-09-07,
   reported live: BP 638 created, then *"Operation is not supported"*). The gateway answered the POST
   to `/A_BusinessPartner('638')/to_BusPartAddrDepdntTaxNmbr` with `/IWBEP/CM_MGW_RT/027 Operation

@@ -227,6 +227,8 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     // address-level entry - which every row of this section is. Part of the key all the
     // same, so sanitizeEntityKeys has to accept it blank rather than read it as missing.
     blankableKeyFields: ['Person'],
+    // Part of the key, absent from the screen, and fatal to leave empty - see createDefaultsFor.
+    createDefaults: () => ({ ValidityStartDate: new Date().toISOString().slice(0, 10) }),
     creatable: true,
     deletable: true,
     requiredCreateFields: ['BusinessPartner', 'AddressID', 'WebsiteURL']
@@ -753,6 +755,23 @@ function remoteEntity(service, name) {
 function hasMaintenanceValue(value) {
   return value !== undefined && value !== null
     && (typeof value !== 'string' || value.trim() !== '');
+}
+
+/**
+ * Values a create must carry that no requester is asked for, applied only where the payload has
+ * nothing. Kept as a FUNCTION so a date is the date of the request, not of the last deploy.
+ *
+ * `A_AddressHomePageURL.ValidityStartDate` is the case this exists for. It is part of that entity's
+ * key, it is not on the screen, and posting without it makes S/4 store its INITIAL date - which
+ * comes back as `0000-12-30`, outside Edm.DateTime, so the row can never afterwards be addressed by
+ * a key predicate. Confirmed on address 1205 (2026-09-07): both website rows read back
+ * `"ValidityStartDate": "0000-12-30"`, and the update failed *"Malformed URI literal syntax"*.
+ * S/4's own serialiser emits a value its own URI parser rejects, so such a row cannot be updated OR
+ * deleted - a website row created without this is born unaddressable. Sending today's date is what
+ * the BP transaction itself defaults, and it makes every row this app creates addressable for good.
+ */
+function createDefaultsFor(configuration) {
+  return typeof configuration.createDefaults === 'function' ? configuration.createDefaults() : {};
 }
 
 function validateMaintenanceCreate(entityName, payload, configuration) {
@@ -2576,11 +2595,14 @@ class BusinessPartnerService extends cds.ApplicationService {
           // Validated and addressed against the payload PLUS the parent keys, which travel in the
           // URL and are therefore legitimately absent from the body -- see parentKeyContext. The
           // POST body below stays `payload`, so no node is sent a field its own entity has not got.
-          const addressed = { ...parentKeyContext(configuration, data), ...payload };
+          // Defaults first, so a field the requester is never shown can still reach S/4 - and so
+          // the required-field check below judges what will actually be posted.
+          const defaulted = { ...createDefaultsFor(configuration), ...payload };
+          const addressed = { ...parentKeyContext(configuration, data), ...defaulted };
           validateMaintenanceCreate(req.data.Entity, addressed, configuration);
           const result = req.data.Entity === 'Addresses'
-            ? await createBusinessPartnerAddress(s4, payload)
-            : await createBusinessPartnerChild(s4, configuration, payload, addressed);
+            ? await createBusinessPartnerAddress(s4, defaulted)
+            : await createBusinessPartnerChild(s4, configuration, defaulted, addressed);
           return JSON.stringify(result || payload);
         } catch (error) {
           const message = remoteErrorMessage(error, `S/4HANA rejected the ${req.data.Entity} create request.`);
@@ -3023,6 +3045,7 @@ BusinessPartnerService._internals = {
   maintenanceEntity,
   sanitizeEntityKeys,
   sanitizeEntityPayload,
+  createDefaultsFor,
   validateMaintenanceCreate,
   validateBusinessPartnerCreate,
   answerBusinessPartnerQuestion,

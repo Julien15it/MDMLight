@@ -362,3 +362,45 @@ test('usableDateTimeKey keeps a real date and rejects what cannot be a literal',
     assert.equal(usableDateTimeKey(value), null, JSON.stringify(value));
   }
 });
+
+/**
+ * A website row created without a `ValidityStartDate` is born unaddressable: it is part of the
+ * entity's key, is not on the screen, and S/4 stores its INITIAL date when nothing is sent -
+ * `0000-12-30`, outside Edm.DateTime. Confirmed on address 1205 (2026-09-07): both rows read back
+ * `"ValidityStartDate": "0000-12-30"`, and neither can be updated or deleted.
+ */
+test('a website create carries a validity date nobody is asked for', () => {
+  const { MAINTENANCE_ENTITIES, createDefaultsFor } = require('../srv/business-partner-service')._internals;
+  const defaults = createDefaultsFor(MAINTENANCE_ENTITIES.AddressHomePageURLs);
+
+  assert.deepEqual(Object.keys(defaults), ['ValidityStartDate'], 'one field, and only that one');
+  assert.match(defaults.ValidityStartDate, /^\d{4}-\d{2}-\d{2}$/u, 'date-only, as the facade reads it');
+  // Today's, and above all a year Edm.DateTime accepts - which is the whole point.
+  assert.ok(Number(defaults.ValidityStartDate.slice(0, 4)) >= 2026);
+  assert.equal(usableDateTimeKey(defaults.ValidityStartDate), defaults.ValidityStartDate);
+
+  // Computed per call, not frozen at module load.
+  assert.equal(typeof MAINTENANCE_ENTITIES.AddressHomePageURLs.createDefaults, 'function');
+});
+
+test('no other maintenance node invents a create value', () => {
+  const { MAINTENANCE_ENTITIES, createDefaultsFor } = require('../srv/business-partner-service')._internals;
+
+  const withDefaults = Object.entries(MAINTENANCE_ENTITIES)
+    .filter(([, config]) => config.createDefaults)
+    .map(([section]) => section);
+  assert.deepEqual(withDefaults, ['AddressHomePageURLs']);
+  // And the helper is empty for everything else, so the create payload is untouched.
+  assert.deepEqual(createDefaultsFor(MAINTENANCE_ENTITIES.AddressEmails), {});
+  assert.deepEqual(createDefaultsFor(MAINTENANCE_ENTITIES.Addresses), {});
+});
+
+/**
+ * A requester's own value must win: the default exists only to fill a field the screen never shows.
+ */
+test('the default never overwrites what was supplied', () => {
+  const { MAINTENANCE_ENTITIES, createDefaultsFor } = require('../srv/business-partner-service')._internals;
+  const payload = { WebsiteURL: 'alluvion.eu', ValidityStartDate: '2020-01-01' };
+  const defaulted = { ...createDefaultsFor(MAINTENANCE_ENTITIES.AddressHomePageURLs), ...payload };
+  assert.equal(defaulted.ValidityStartDate, '2020-01-01');
+});
