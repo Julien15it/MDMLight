@@ -222,7 +222,7 @@ sap.ui.define([
         MessageBox.error("This profile has no id yet, so its fields cannot be set. Save the page first.");
         return;
       }
-      await this._openPropertyDialog(profile, context.getProperty("name"), context.getProperty("role"));
+      await this._openPropertyDialog(profile, context.getProperty("name"));
     },
 
     _confirmSaveFirst: function () {
@@ -244,26 +244,15 @@ sap.ui.define([
       }.bind(this));
     },
 
-    _openPropertyDialog: async function (profile, name, role) {
+    _openPropertyDialog: async function (profile, name) {
       var view = this.getView().getModel("view");
       view.setProperty("/busy", true);
       try {
         var stored = await this._callAction("fieldPropertiesOf", { Profile: profile });
-        // { settings, requesterCritical } since 2026-08-27 - a bare array before that. requesterCritical
-        // is what a matching Requester-scoped profile actually marked critical, for reflecting it
-        // read-only on every other role's dialog - see _buildTree.
         var parsed = JSON.parse(stored || "{}");
         var settings = parsed.settings || [];
-        // Critical is only ever editable from a Requester-scoped profile - `*` counts too, since it
-        // covers Requester along with everything else - because that is the only role
-        // resolveProfiles (srv/checks/field-properties.js) actually reads it FROM any more: a flag
-        // set on an Approver/DataSteward/specific-BTP-role profile would be stored but never taken
-        // into account, which is worse than not offering the box at all. See CLAUDE.md "Field
-        // property profiles". A profile with no role yet (a just-added row) counts as editable too -
-        // it defaults to matching everything, same as `*`, until something narrower is chosen.
-        var canEditCritical = !role || role === "*" || role === "Requester";
         this._profile = profile;
-        this._tree = this._buildTree(settings, canEditCritical ? null : (parsed.requesterCritical || {}));
+        this._tree = this._buildTree(settings);
         if (!this._dialog) {
           this._dialog = await Fragment.load({
             id: this.getView().getId(),
@@ -276,7 +265,6 @@ sap.ui.define([
         this._dialog.getModel("fp").setProperty(
           "/title", "Field Properties" + (name ? " — " + name : "")
         );
-        this._dialog.getModel("fp").setProperty("/canEditCritical", canEditCritical);
         this._query = "";
         this._rebuildRows();
         this._dialog.open();
@@ -291,28 +279,16 @@ sap.ui.define([
      * The catalog turned into rows the dialog can both render and mutate: an entity node IS the row
      * the table binds, and so is a field node, so ticking a box writes straight through and
      * rebuilding the visible list keeps whatever was ticked.
-     *
-     * `readOnlyCritical`, when given (a non-Requester profile - see _openPropertyDialog), replaces
-     * THIS profile's own stored critical column with `{ entities: [...] }` from a matching Requester
-     * profile instead: resolveProfiles only ever reads critical off a Requester-scoped profile, so
-     * showing this profile's own (normally empty, since editing it here is blocked) value would make
-     * "read-only" look like "always unticked" rather than an actual reflection of what is critical.
      */
-    _buildTree: function (settings, readOnlyCritical) {
+    _buildTree: function (settings) {
       var byTarget = {};
-      var criticalByTarget = {};
       (settings || []).forEach(function (setting) {
         var key = setting.section + "." + (setting.element || "");
         byTarget[key] = setting.property;
-        criticalByTarget[key] = !!setting.critical;
       });
-      var requesterCriticalEntities = readOnlyCritical && readOnlyCritical.entities || [];
       var options = this.getView().getModel("opt");
       var entities = (options && options.getProperty("/entities")) || [];
       return entities.map(function (entity) {
-        var critical = readOnlyCritical
-          ? requesterCriticalEntities.includes(entity.section)
-          : (criticalByTarget[entity.section + "."] || false);
         return {
           kind: "entity",
           section: entity.section,
@@ -320,20 +296,13 @@ sap.ui.define([
           text: entity.text,
           expanded: false,
           property: byTarget[entity.section + "."] || null,
-          critical: critical,
-          // Critical is entity-level only (2026-08-26) - a field row never carries it into the
-          // editable tree, even if an older save left one stored, or resaving this profile with the
-          // box now disabled would resend that stale value and the server would refuse the whole
-          // batch. Leaving it off here is what lets a profile with old field-level data self-migrate
-          // the next time someone presses Apply, rather than becoming unsavable.
           fields: (entity.fields || []).map(function (field) {
             return {
               kind: "field",
               section: entity.section,
               element: field.element,
               text: field.text,
-              property: byTarget[entity.section + "." + field.element] || null,
-              critical: false
+              property: byTarget[entity.section + "." + field.element] || null
             };
           })
         };
@@ -397,37 +366,14 @@ sap.ui.define([
       this._dialog.getModel("fp").refresh(true);
     },
 
-    /**
-     * Independent of the four above - ticking or clearing Critical never touches `property`, and
-     * vice versa. An entity can be mandatory AND critical, or carry no property at all and only be
-     * critical.
-     *
-     * Entity-level only (2026-08-26): the box is disabled on a field row (see the fragment), so this
-     * should never fire for one - guarded anyway, the same "refused, not filtered" discipline the
-     * server side applies, rather than trusting the `enabled` binding alone.
-     *
-     * Requester-scoped profiles only (2026-08-27), for the same reason: `resolveProfiles` only reads
-     * `critical` off a profile matching role `Requester` (or `*`) at all, so setting it from any
-     * other role's profile would silently do nothing. Guarded here too, not only via the fragment's
-     * `enabled` binding.
-     */
-    onCriticalSelect: function (event) {
-      var row = event.getSource().getBindingContext("fp").getObject();
-      if (row.kind !== "entity") return;
-      if (!this._dialog.getModel("fp").getProperty("/canEditCritical")) return;
-      row.critical = event.getParameter("selected");
-    },
-
     onClearProperties: function () {
-      MessageBox.confirm("Clear every property and critical flag in this profile?", {
+      MessageBox.confirm("Clear every property in this profile?", {
         onClose: function (action) {
           if (action !== MessageBox.Action.OK) return;
           (this._tree || []).forEach(function (entity) {
             entity.property = null;
-            entity.critical = false;
             entity.fields.forEach(function (field) {
               field.property = null;
-              field.critical = false;
             });
           });
           this._dialog.getModel("fp").refresh(true);
@@ -435,33 +381,16 @@ sap.ui.define([
       });
     },
 
-    /**
-     * Everything that is set, entity rows included - untouched rows are simply not sent.
-     *
-     * Critical is left OFF entirely when this profile cannot edit it (canEditCritical false): the
-     * tree's own `critical` is then a READ-ONLY REFLECTION of a Requester profile's own setting (see
-     * _buildTree), never something this profile owns - sending it back would persist someone else's
-     * flag onto THIS profile's storage the moment a steward pressed Apply without touching a thing,
-     * which is exactly the copy this whole feature exists to avoid.
-     */
+    /** Everything that is set, entity rows included - untouched rows are simply not sent. */
     _settingsFromTree: function () {
-      var canEditCritical = this._dialog.getModel("fp").getProperty("/canEditCritical");
       var settings = [];
       (this._tree || []).forEach(function (entity) {
-        var entityCritical = canEditCritical && entity.critical;
-        if (entity.property || entityCritical) {
-          settings.push({
-            section: entity.section, element: null,
-            property: entity.property || null, critical: !!entityCritical
-          });
+        if (entity.property) {
+          settings.push({ section: entity.section, element: null, property: entity.property });
         }
         entity.fields.forEach(function (field) {
-          var fieldCritical = canEditCritical && field.critical;
-          if (!field.property && !fieldCritical) return;
-          settings.push({
-            section: field.section, element: field.element,
-            property: field.property || null, critical: !!fieldCritical
-          });
+          if (!field.property) return;
+          settings.push({ section: field.section, element: field.element, property: field.property });
         });
       });
       return settings;

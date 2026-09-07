@@ -48,9 +48,11 @@ These apply everywhere and the rule files assume them.
   `deploy_to_postgresql` at compile time, identically on every retry. So abandoned columns stay in the
   model as documented dead weight, and a reworked mechanism gets a NEW name rather than reusing a
   deployed one. Currently dead and read by nothing: `DerivationRules.createsRow`, the four `cond*`
-  columns on `DuplicateRules`, `FieldPropertyProfiles.sequence`, and on `WorkflowRules` the
-  `conditions : LargeString` column plus the whole `conditionRows`/`WorkflowRuleConditions` composition.
-  **Never delete these; never "revive" them either.**
+  columns on `DuplicateRules`, `FieldPropertyProfiles.sequence`, `FieldPropertySettings.critical`
+  (the "critical entity" feature it backed was withdrawn 2026-09-07 — see `field-properties.md`), and
+  on `WorkflowRules` the `conditions : LargeString` column plus the whole
+  `conditionRows`/`WorkflowRuleConditions` composition. **Never delete these; never "revive" them
+  either.**
 - **Half a mechanism nobody calls is what the next person mistakes for a working one.** Withdrawn
   client-side code is deleted, not left dormant. A *read* path is kept where stored data may still be in
   the old shape (e.g. `srv/checks/value-lists.js` still parses `BE|NL` delimited lists).

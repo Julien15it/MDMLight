@@ -79,13 +79,6 @@ function legacyConditionPairs(rule) {
   }));
 }
 
-// Deliberately loose: SBPA resolves both a user and a role, so an entry only has to be readable.
-// A stricter address check here would reject the technical users a real installation ends up using.
-const looksLikeEmail = (entry) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(entry);
-
-/** `user` for an e-mail address, `role` for anything else - the one thing SBPA needs told apart. */
-const approverKind = (entry) => (looksLikeEmail(entry) ? 'user' : 'role');
-
 const trimmed = (value) => String(value === null || value === undefined ? '' : value).trim();
 
 /** A known operator, defaulting a blank or unusable one to `eq` - the read side always has one to
@@ -211,16 +204,15 @@ function validateWorkflowRule(rule = {}, model) {
   // A step with nobody on it is the one row that looks configured and stops a request dead: SBPA
   // would be handed a step it cannot assign.
   if (!approvers.length) {
-    errors.push({ field: 'approvers', message: 'A workflow rule needs at least one approver — an e-mail address or a role.' });
+    errors.push({ field: 'approvers', message: 'A workflow rule needs at least one approver — a role.' });
   }
+  // Only ever a role since 2026-09-07 - an e-mail address is refused rather than silently passed on,
+  // now that nothing on the SBPA side resolves one to a user any more (see workflow.md).
   for (const entry of approvers) {
-    if (approverKind(entry) === 'user') continue;
-    // Not an error: roles live in SBPA, not here, and a list of them kept in CAP would go stale.
-    // But a mistyped address falls through to this branch, so it is worth saying out loud.
-    if (entry.includes('@') || entry.includes(' ')) {
-      warnings.push({
+    if (entry.includes('@')) {
+      errors.push({
         field: 'approvers',
-        message: `“${entry}” is passed on as a role, not as a user. An e-mail address needs the form name@example.com.`
+        message: `“${entry}” looks like an e-mail address. An approver can only be a role - use the value help to pick one.`
       });
     }
   }
@@ -246,8 +238,9 @@ const runnable = (rules, model) => (Array.isArray(rules) ? rules : [])
 
 /**
  * The `approvers` list for one request: every entry of every matching row, in table order, as
- * `{ step, kind, value }`. Deduplicated on step + value, so one person named by two rows is one
- * approver rather than two identical tasks. Rows are additive and carry no order of their own.
+ * `{ step, value }` - `value` is always a role name (see `WorkflowRules.approvers`). Deduplicated on
+ * step + value, so one role named by two rows is one approver rather than two identical tasks. Rows
+ * are additive and carry no order of their own.
  *
  * Empty is a legitimate answer - no rule matched - and SBPA has to read it as "route it the way you
  * did before this table existed" rather than as a request nobody can approve.
@@ -266,11 +259,7 @@ function resolveApprovers({ rules = [], requestType, payload = {}, model } = {})
       const key = `${trimmed(rule.step)}|${entry.toLocaleLowerCase()}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      approvers.push({
-        step: trimmed(rule.step),
-        kind: approverKind(entry),
-        value: entry
-      });
+      approvers.push({ step: trimmed(rule.step), value: entry });
     }
   }
   return approvers;
@@ -286,7 +275,6 @@ module.exports = {
   DEFAULT_CONDITION_OPERATOR,
   operatorOf,
   legacyConditionPairs,
-  approverKind,
   readConditions,
   conditionHolds,
   conditionsHold,

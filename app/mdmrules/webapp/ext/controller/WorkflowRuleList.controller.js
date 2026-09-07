@@ -529,9 +529,9 @@ sap.ui.define([
     // --- The role value help -----------------------------------------------
 
     /**
-     * The approver half of the cell. Typing an address is the other half and needs no dialog; a
-     * role has to be spelled exactly as SBPA knows it, so it is picked rather than remembered - and
-     * so is a user, since nobody should have to know how a colleague's e-mail is written.
+     * The approver cell's value help. A role has to be spelled exactly as SBPA knows it, so it is
+     * picked rather than remembered - typing it in directly still works too. Only ever a role since
+     * 2026-09-07 (see workflow.md); an e-mail address is no longer offered or accepted here.
      *
      * One entry, because the cell holds one approver: several approvers are several rows, which is
      * what the Add button is for and what the engine merges.
@@ -560,9 +560,8 @@ sap.ui.define([
       this._roleHelp.open();
     },
 
-    // A real Table, not a SelectDialog, so Type and Name/E-mail render as genuine columns - see the
-    // fragment. Looked up by local id rather than kept as a field, the same way _table() looks up
-    // the main table: the fragment owns its own control tree.
+    // Looked up by local id rather than kept as a field, the same way _table() looks up the main
+    // table: the fragment owns its own control tree.
     _roleTable: function () {
       return Fragment.byId(this._roleFragmentId, "agentTable");
     },
@@ -574,13 +573,7 @@ sap.ui.define([
       var query = event.getParameter("newValue") || event.getParameter("query") || "";
       var items = this._roleTable().getBinding("items");
       if (!items) return;
-      items.filter(query ? new Filter({
-        filters: [
-          new Filter("value", FilterOperator.Contains, query),
-          new Filter("type", FilterOperator.Contains, query)
-        ],
-        and: false
-      }) : []);
+      items.filter(query ? new Filter("value", FilterOperator.Contains, query) : []);
     },
 
     // The value is read off its binding context before anything touches the list, for the reason

@@ -111,16 +111,14 @@ test('the approvers are sent with the workflow context, and never absent', () =>
   assert.match(body, /requestType: req\.data\.RequestType/u);
   // Flattened to plain strings at this boundary: the deployed process declares `approvers` as an
   // array of strings, and sending objects failed the whole submit with "/approvers/0 The value must
-  // be of string type". resolveApprovers still returns { step, kind, value } - only what crosses to
-  // SBPA is narrowed.
+  // be of string type". resolveApprovers returns { step, value } - only `value` crosses to SBPA.
   //
   // A role entry travelled as its actual member e-mails between 2026-08-27 and 2026-08-31, because
   // SBPA did not resolve BTP role collection membership itself at the time - reverted once it did
-  // (confirmed with Arthur), back to sending the bare role name unresolved, same as a user entry's
-  // e-mail. `emailsForRoleCollections` is no longer imported for this purpose (it is still used by
-  // srv/wf/data-stewards.js for `datastewards`, a separate field this table has nothing to do with).
+  // (confirmed with Arthur), back to sending the bare role name unresolved. `emailsForRoleCollections`
+  // is no longer imported for this purpose (it is still used by srv/wf/data-stewards.js for
+  // `datastewards`, a separate field this table has nothing to do with).
   assert.equal(/emailsForRoleCollections/u.test(body), false, 'no longer resolved here');
-  assert.equal(/approver\.kind === 'user'|approver\.kind === 'role'/u.test(body), false, 'not split by kind any more');
   assert.match(body, /approverValues = \[\.\.\.new Set\(approvers\.map\(\(approver\) => approver\.value\)\)\]/u);
   assert.match(body, /approvers: approverValues/u, 'the context carries the raw values - role names included');
   // Best-effort, like `businesspartnerinput`: an empty list is what SBPA read before this table
@@ -129,20 +127,21 @@ test('the approvers are sent with the workflow context, and never absent', () =>
 });
 
 /**
- * An approver is an e-mail address or a role, and the two are entered differently on purpose: an
- * address is free text nobody could offer a list for, while a role has to be spelled exactly as
- * SBPA knows it. So the cell takes typing AND offers the roles.
+ * An approver is a role, spelled exactly as SBPA knows it - typing an e-mail address was withdrawn
+ * 2026-09-07 (see workflow.md), so the cell only ever offers roles now.
  */
 
 /**
  * The picker is sourced from the BTP subaccount itself, not from this app's own hand-kept role list
  * (ROLES/ROLE_TEXT, still used by the Field Property Profiles page, unchanged - a different concept:
  * Requester/Approver/DataSteward, versus who can actually be assigned an approval in the subaccount).
+ * Filtered to roles only (2026-09-07) - `btp-agents.js` itself still reads both roles and users, for
+ * its other consumers.
  */
-test('the approver picker is served from the BTP subaccount, not the hard-coded roles', () => {
+test('the approver picker is served from the BTP subaccount, roles only', () => {
   assert.match(serviceCds, /agents {7}: array of Agent;/u);
   assert.match(serviceJs, /require\('\.\/wf\/btp-agents'\)/u);
-  assert.match(serviceJs, /agents: await workflowAgents\(\)/u);
+  assert.match(serviceJs, /agents: \(await workflowAgents\(\)\)\.filter\(\(agent\) => agent\.type === 'Role'\)/u);
   assert.equal(/roles: ROLES\.filter/u.test(serviceJs), false, 'the hard-coded role list is gone here');
   // ROLES/ROLE_TEXT stay imported for fieldPropertyOptions - a different picker, untouched.
   assert.match(serviceJs, /ROLES, ROLE_TEXT/u);
@@ -151,6 +150,7 @@ test('the approver picker is served from the BTP subaccount, not the hard-coded 
   assert.match(agentsModule, /ROLE_COLLECTION_PREFIX = 'MDMLIGHT'/u);
   // Case-insensitive on purpose (2026-08-27): an admin's "Mdmlight"/"mdmlight" must still match.
   assert.match(agentsModule, /description\.toUpperCase\(\)\.startsWith\(ROLE_COLLECTION_PREFIX\)/u);
+  // The module itself still reads both kinds - it is shared with other consumers (see workflow.md).
   assert.match(agentsModule, /type: 'Role'/u);
   assert.match(agentsModule, /type: 'User'/u);
   // Best-effort like every other BTP-platform read here: an unreachable subaccount API leaves the

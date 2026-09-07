@@ -102,11 +102,11 @@ entity WorkflowRules : managed {
       conditions      : LargeString;
 
       /**
-       * ONE approver: an e-mail address or a role name. An entry carrying an `@` is passed on as a
-       * user, anything else as a role - SBPA resolves both, and CAP deliberately does not check
-       * that a role exists. **Several approvers means several rows**, which is what the table is
-       * for and what `resolveApprovers` merges. Wide enough for the list it used to hold, and the
-       * read path still parses one.
+       * ONE approver: a role name, as SBPA knows it - CAP deliberately does not check that the role
+       * exists. **Several approvers means several rows**, which is what the table is for and what
+       * `resolveApprovers` merges. **Only ever a role since 2026-09-07** - typing an e-mail address
+       * here was withdrawn (see `workflow.md`); the column stays `String(1000)` because `cds-deploy`
+       * can neither retype nor narrow a deployed element.
        */
       approvers       : String(1000) not null;
 

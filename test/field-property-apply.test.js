@@ -150,55 +150,6 @@ test('entity settings and field settings are kept apart', () => {
   assert.equal(entityProperty(resolved, 'Addresses'), null);
 });
 
-// --- Critical fields ---------------------------------------------------------------------
-
-/**
- * `critical` (2026-08-26) is a boolean on `FieldPropertySettings`, independent of `property` -
- * gathered in the same pass as the property merge, off the same matching profiles, but with nothing
- * to merge across profiles: any matching row saying critical is enough, deduped into a plain list.
- */
-test('every matching profile\'s critical rows contribute, deduped, field and entity kept apart', () => {
-  const profiles = [profile('global', '*', '*'), profile('creates', 'create', '*')];
-  const settings = [
-    { ...setting('global', 'Addresses', 'Country', null), critical: true },
-    { ...setting('creates', 'Addresses', 'Country', 'mandatory'), critical: true },
-    { ...setting('global', 'TaxNumbers', null, null), critical: true }
-  ];
-  const resolved = resolveProfiles(profiles, settings, { requestType: 'create', role: 'Requester' });
-  assert.deepEqual(resolved.criticalFields, ['Addresses.Country']);
-  assert.deepEqual(resolved.criticalEntities, ['TaxNumbers']);
-  // Still mandatory - critical never feeds the property merge.
-  assert.equal(resolved.fields['Addresses.Country'], 'mandatory');
-});
-
-test('a row can be critical with no property, or have a property and not be critical', () => {
-  const resolved = resolveProfiles(
-    [profile('p', '*', '*')],
-    [
-      { ...setting('p', 'Addresses', 'Country', null), critical: true },
-      { ...setting('p', 'Addresses', 'POBox', 'hidden'), critical: false }
-    ],
-    { requestType: 'create', role: 'Requester' }
-  );
-  assert.deepEqual(resolved.criticalFields, ['Addresses.Country']);
-  assert.equal(resolved.fields['Addresses.Country'], undefined, 'no property, so no state to merge');
-  assert.equal(resolved.fields['Addresses.POBox'], 'hidden');
-});
-
-test('an inactive profile, or one that does not match, contributes no critical rows either', () => {
-  const profiles = [
-    { ...profile('off', '*', '*'), isActive: false },
-    profile('other-type', 'change', '*')
-  ];
-  const settings = [
-    { ...setting('off', 'Addresses', 'Country', null), critical: true },
-    { ...setting('other-type', 'Addresses', 'POBox', null), critical: true }
-  ];
-  const resolved = resolveProfiles(profiles, settings, { requestType: 'create', role: 'Requester' });
-  assert.deepEqual(resolved.criticalFields, []);
-  assert.deepEqual(resolved.criticalEntities, []);
-});
-
 // --- The cascade -----------------------------------------------------------------------
 
 /**
@@ -262,19 +213,6 @@ test('a mandatory entity with no rows blocks the submit', async () => {
   assert.match(empty[0].message, /At least one Tax Number/u);
   const filled = await stages.validations[0].run({ root: {}, sections: { TaxNumbers: [{ BPTaxNumber: 'BE1' }] } });
   assert.deepEqual(filled, []);
-});
-
-/**
- * `critical` is a marker for a data steward (drawn as "!" next to the section title), never a gate
- * (2026-08-26, revised): an empty critical entity does not block, and contributes no stage on its own
- * - only `mandatory` does that. Whether it was filled in is reported to SBPA via the `criticalField`
- * flag in the workflow context, not enforced here.
- */
-test('critical alone contributes no validation stage, and blocks nothing', async () => {
-  const resolved = resolveProfiles([profile('p', '*', '*')], [
-    { ...setting('p', 'TaxNumbers', null, null), critical: true }
-  ], {});
-  assert.deepEqual(createFieldPropertyStages(resolved, csn).validations, []);
 });
 
 /**
@@ -399,41 +337,7 @@ test('a hidden entity hides its whole Object Page section', () => {
   assert.match(controller, /Boolean\(state\.editing\) && this\._entityProperty\(section\) !== "readOnly"/u);
 });
 
-/**
- * `critical` (2026-08-26, revised) draws an exclamation mark next to a section's title - a marker
- * for a data steward, never a message strip and never a gate. Wired through the same
- * `effectiveFieldProperties` read the other four properties use, so a screen loaded for one role
- * cannot see a stale answer from another.
- */
-test('a critical entity gets an exclamation mark next to its title, drawn on both root cards too', () => {
-  assert.match(controller, /_isCriticalEntity: function \(section\) \{/u);
-  assert.match(controller, /_markSectionCritical: function \(container, baseTitle, critical\)/u);
-  const marker = controller.slice(controller.indexOf('_markSectionCritical: function'));
-  const body = marker.slice(0, marker.indexOf('\n      },'));
-  assert.match(body, /section\.setTitle\(critical \? baseTitle \+ " ⚠" : baseTitle\)/u);
-  // Wired into the section renderer, and into both root cards (General Information and Names) -
-  // critical is entity-level, and both cards render the same `General` payload section.
-  const render = controller.slice(controller.indexOf('_renderSection: function'));
-  assert.match(render.slice(0, render.indexOf('_openNewRecord:')), /_markSectionCritical\(container, section\.title, this\._isCriticalEntity\(section\)\)/u);
-  assert.match(controller, /_isCriticalEntity\(this\._rootSection\)/u);
-});
-
 /** The metadata's root section id is not the payload catalog's, and only one place may know that. */
-
-// --- What workflowContext sends for critical fields -------------------------------------
-
-/**
- * `criticalField` is a scalar 'X'/' ' flag on the workflow context, not a list - `resolved
- * .criticalEntities` (from `resolveProfiles`, already exercised above) is what `workflowContext`
- * checks against the submitted payload's own sections via `sectionRows`, straight off
- * `resolvedProperties` - there is no separate store function for this any more.
- */
-test('workflowContext resolves criticalField from resolvedProperties, not a dedicated store call', () => {
-  assert.match(serviceJs, /const resolved = await resolvedProperties\(requesterContext\(req\)\);/u);
-  assert.match(serviceJs, /const critical = resolved\.criticalEntities \|\| \[\];/u);
-  assert.match(serviceJs, /if \(critical\.some\(\(section\) => sectionRows\(payload, section\)\.length > 0\)\) criticalField = 'X';/u);
-  assert.match(serviceJs, /let criticalField = ' ';/u);
-});
 
 /**
  * `datastewards` is read straight from BTP role collections, the same way `approvers` is fetched -

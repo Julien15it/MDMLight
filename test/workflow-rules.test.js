@@ -7,7 +7,7 @@ const {
   DELIMITER, parseValueList, formatValueList, listMatches
 } = require('../srv/checks/value-lists');
 const {
-  REQUEST_TYPES, STEPS, approverKind, conditionsHold, readConditions,
+  REQUEST_TYPES, STEPS, conditionsHold, readConditions,
   validateCondition, validateWorkflowRule, runnableWorkflowRules, resolveApprovers
 } = require('../srv/checks/workflow-rules');
 const { compare } = require('../srv/checks/rule-engine');
@@ -41,7 +41,7 @@ const payload = (root = {}, sections = {}) => ({ root, sections });
 const rule = (overrides = {}) => ({
   requestType: 'create',
   step: 'Approve',
-  approvers: 'maarten@alluvion.eu',
+  approvers: 'SalesApprover',
   isActive: true,
   ...overrides
 });
@@ -271,10 +271,10 @@ test('a rule needs a CR type, a step and somebody to approve it', () => {
  * same approver list onto four rows.
  */
 test('a rule with requestType "*" resolves approvers for every CR type', () => {
-  const rules = [rule({ requestType: '*', approvers: 'maarten@alluvion.eu' })];
+  const rules = [rule({ requestType: '*', approvers: 'SalesApprover' })];
   for (const requestType of ['create', 'change', 'block', 'delete']) {
     const approvers = resolveApprovers({ rules, requestType, payload: payload(), model });
-    assert.deepEqual(approvers.map((entry) => entry.value), ['maarten@alluvion.eu']);
+    assert.deepEqual(approvers.map((entry) => entry.value), ['SalesApprover']);
   }
 });
 
@@ -282,13 +282,13 @@ test('a rule with requestType "*" resolves approvers for every CR type', () => {
 // already do.
 test('a "*" rule and a specific-type rule both contribute for a matching request', () => {
   const rules = [
-    rule({ requestType: '*', approvers: 'general@alluvion.eu' }),
-    rule({ requestType: 'create', approvers: 'create-only@alluvion.eu' })
+    rule({ requestType: '*', approvers: 'GeneralApprover' }),
+    rule({ requestType: 'create', approvers: 'CreateOnlyApprover' })
   ];
   const forCreate = resolveApprovers({ rules, requestType: 'create', payload: payload(), model });
-  assert.deepEqual(forCreate.map((entry) => entry.value).sort(), ['create-only@alluvion.eu', 'general@alluvion.eu']);
+  assert.deepEqual(forCreate.map((entry) => entry.value).sort(), ['CreateOnlyApprover', 'GeneralApprover']);
   const forChange = resolveApprovers({ rules, requestType: 'change', payload: payload(), model });
-  assert.deepEqual(forChange.map((entry) => entry.value), ['general@alluvion.eu']);
+  assert.deepEqual(forChange.map((entry) => entry.value), ['GeneralApprover']);
 });
 
 // An unknown operator in either slot is refused the same way validateCondition refuses it alone.
@@ -306,17 +306,14 @@ test('an unknown operator in either slot is refused', () => {
 
 /**
  * A role is not checked against a list: roles live in SBPA, and a copy kept in CAP would go stale.
- * A mistyped address falls into the same branch though, so it is warned about rather than accepted
- * in silence.
+ * Only ever a role since 2026-09-07 - an e-mail address is refused outright, not silently passed on.
  */
-test('an approver is a user or a role, and a mistyped address is warned about', () => {
-  assert.equal(approverKind('maarten@alluvion.eu'), 'user');
-  assert.equal(approverKind('DataSteward'), 'role');
-  assert.equal(approverKind('SomeRoleNobodyDefinedYet'), 'role');
+test('an approver is a role, never an e-mail address', () => {
   assert.deepEqual(validateWorkflowRule(rule({ approvers: 'DataSteward' }), model).errors, []);
-  const warnings = validateWorkflowRule(rule({ approvers: 'maarten@alluvion' }), model).warnings;
-  assert.equal(warnings.length, 1);
-  assert.match(warnings[0].message, /passed on as a role/u);
+  assert.deepEqual(validateWorkflowRule(rule({ approvers: 'SomeRoleNobodyDefinedYet' }), model).errors, []);
+  const errors = validateWorkflowRule(rule({ approvers: 'maarten@alluvion.eu' }), model).errors;
+  assert.equal(errors.length, 1);
+  assert.match(errors[0].message, /can only be a role/u);
 });
 
 // ---------------------------------------------------------------------------
@@ -324,12 +321,12 @@ test('an approver is a user or a role, and a mistyped address is warned about', 
 // ---------------------------------------------------------------------------
 
 // Maarten's example, end to end: "CR type Create, Step Approve, Condition field Country, Condition
-// values BE NL FR DE, users three of us".
+// values BE NL FR DE, roles three of them".
 test('the configured line resolves to the three approvers it names', () => {
   const rules = [rule({
     conditionField: 'Addresses.Country',
     conditionValues: 'BE|NL|FR|DE',
-    approvers: 'maarten@alluvion.eu|arthur@alluvion.eu|julien@alluvion.eu'
+    approvers: 'SalesApprover|FinanceApprover|DataSteward'
   })];
   const approvers = resolveApprovers({
     rules,
@@ -338,25 +335,22 @@ test('the configured line resolves to the three approvers it names', () => {
     model
   });
   assert.deepEqual(approvers.map((entry) => entry.value), [
-    'maarten@alluvion.eu', 'arthur@alluvion.eu', 'julien@alluvion.eu'
+    'SalesApprover', 'FinanceApprover', 'DataSteward'
   ]);
   assert.deepEqual([...new Set(approvers.map((entry) => entry.step))], ['Approve']);
-  assert.deepEqual([...new Set(approvers.map((entry) => entry.kind))], ['user']);
 });
 
 // Extra lines are extra approvers, which is what the Add button is for. Rows are additive and carry
 // no order of their own, so they contribute in table order.
-test('several rules add up, in table order, without repeating a person', () => {
+test('several rules add up, in table order, without repeating a role', () => {
   const rules = [
-    rule({ approvers: 'first@alluvion.eu|second@alluvion.eu' }),
-    rule({ approvers: 'second@alluvion.eu|DataSteward' })
+    rule({ approvers: 'FirstApprover|SecondApprover' }),
+    rule({ approvers: 'SecondApprover|DataSteward' })
   ];
   const approvers = resolveApprovers({ rules, requestType: 'create', payload: payload(), model });
   assert.deepEqual(approvers.map((entry) => entry.value), [
-    'first@alluvion.eu', 'second@alluvion.eu', 'DataSteward'
+    'FirstApprover', 'SecondApprover', 'DataSteward'
   ]);
-  // A role and a user are told apart, because that is the one thing SBPA needs to assign a task.
-  assert.deepEqual(approvers.map((entry) => entry.kind), ['user', 'user', 'role']);
 });
 
 /**

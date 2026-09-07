@@ -115,7 +115,7 @@ const { withFullName, fullNameOf } = require('./partner-name');
 const { proposeNormalisations } = require('./checks/normalise');
 const { startWarmup } = require('./checks/warmup');
 const { aiAssistanceEnabled } = require('./ai/availability');
-const { PAYLOAD_NODES, ROOT_SECTION, sectionRows } = require('./checks/payload-fields');
+const { PAYLOAD_NODES, ROOT_SECTION } = require('./checks/payload-fields');
 const { uiPathPrefix } = require('./ui-prefix');
 
 const STAGING = 'mdmlight.staging.';
@@ -777,27 +777,11 @@ class ChangeRequestService extends cds.ApplicationService {
         payload: { root: payload.root || {}, sections: payload.sections || {} }
       });
       // SBPA now resolves BTP role collection membership itself (confirmed with Arthur,
-      // 2026-08-31), so a `role` entry (e.g. "Approver Customer", picked from the Workflow Agent
-      // Determination cell) is sent as its bare name again, not expanded here into member e-mails -
-      // reverting the 2026-08-27 fix now that the side that needed the expansion no longer does. A
-      // `user` entry is already an e-mail and travels unchanged either way. `kind` stays implicit on
-      // both sides of the wire, derivable from the `@` the same way it always was.
+      // 2026-08-31), so a role entry (e.g. "Approver Customer", picked from the Workflow Agent
+      // Determination cell) is sent as its bare name, not expanded here into member e-mails -
+      // reverting the 2026-08-27 fix now that the side that needed the expansion no longer does.
+      // Every entry is a role since 2026-09-07 - typing an e-mail address was withdrawn (workflow.md).
       const approverValues = [...new Set(approvers.map((approver) => approver.value))];
-      // `criticalField` is a scalar 'X'/' ' input parameter on Arthur's side, not a list - so this
-      // asks one question, not one per entity: does THIS request fill in an entity the field property
-      // profiles mark critical? 'X' when at least one does, ' ' otherwise (including when nothing is
-      // marked critical at all, or the profile table cannot be read). It is a marker only - CAP itself
-      // blocks or warns on nothing here; see "Critical fields" for why an empty critical entity is not
-      // an error. Best-effort like `approvers`, off the same requester context every other submit-time
-      // field-property read uses.
-      let criticalField = ' ';
-      try {
-        const resolved = await resolvedProperties(requesterContext(req));
-        const critical = resolved.criticalEntities || [];
-        if (critical.some((section) => sectionRows(payload, section).length > 0)) criticalField = 'X';
-      } catch (error) {
-        console.error(`Could not resolve the critical fields for change request ${changeRequest}:`, error);
-      }
       // The names of every BTP role collection carrying this app's own DataSteward role template -
       // not resolved to member e-mails (reverted 2026-08-31, same conversation with Arthur as
       // `approvers` above: SBPA resolves BTP role collection membership itself now). Read straight
@@ -837,11 +821,6 @@ class ChangeRequestService extends cds.ApplicationService {
         // `approvers` as an array of objects in the process context, after which the flattening
         // comes off again - resolveApprovers itself still returns the structured list.
         approvers: approverValues,
-        // 'X' when a critical entity was filled in on this request, ' ' otherwise - a scalar flag,
-        // not a list, because that is what the process input expects (see the comment above).
-        // Lowercase on the wire, like every other key in this context - the local variable keeps
-        // its camelCase name for readability, only the JSON key changes.
-        criticalfield: criticalField,
         // Array of strings, like `approvers` - the same lesson applies: the deployed process
         // validates the shape it was given, and an array of objects is not what an array-of-strings
         // input accepts. Never absent, empty when nobody carries the role or the subaccount API

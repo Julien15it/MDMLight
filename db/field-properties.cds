@@ -68,27 +68,18 @@ entity FieldPropertySettings {
        *  hide or require a section without naming every field in it. */
       element  : String(60);
 
-      /** mandatory | readOnly | hidden | optional, or empty when the row exists only to carry
-       *  `critical` below. One of the four per row: a field is in one state, and `hidden` +
-       *  `mandatory` on the same field is a request nobody can submit. */
+      /** mandatory | readOnly | hidden | optional. One of the four per row: a field is in one
+       *  state, and `hidden` + `mandatory` on the same field is a request nobody can submit. */
       property : String(12);
 
       /**
-       * Independent of `property` above - an entity can be mandatory AND critical, or optional AND
-       * critical, so it is its own checkbox rather than a fifth value in that one-per-row set.
-       *
-       * Entity-level only (2026-08-26): `element` must be null on a critical row - the write path
-       * (`validateSetting` in srv/checks/field-properties.js) refuses a field-level one, and the
-       * dialog greys the box out on a field row to match. `resolveProfiles` still reads an older
-       * field-level row rather than dropping it, the same tolerance the withdrawn multi-value feature
-       * left behind for its own stored data.
-       *
-       * A marker, not a gate (reverted 2026-08-26 the same day it was tried) - `createFieldPropertyStages`
-       * enforces `mandatory` only, never `critical`. Two things read it instead: the maintenance
-       * screen draws "⚠" next to a critical section's title, and `workflowContext`
-       * (srv/change-request-service.js) reduces every critical entity on the request to one scalar
-       * `criticalField` - `'X'` if any of them has data, `' '` otherwise. Neither ever names which
-       * entity; that is what the screen's marker is for.
+       * Withdrawn 2026-09-07 - the "critical entity" feature (a "⚠" marker plus a `criticalField`
+       * scalar sent to the workflow) is gone from the working process this app supports, and every
+       * reader of this column went with it: `validateSetting`/`resolveProfiles`
+       * (srv/checks/field-properties.js), the maintenance screen's marker, and `workflowContext`'s
+       * `criticalfield`. Kept only because `cds-deploy` refuses to drop an element - the same reason
+       * `FieldPropertyProfiles.criticalField`/`sequence` are still here. **Nothing reads or writes
+       * this column any more. Do not revive it.**
        */
       critical : Boolean default false;
 }

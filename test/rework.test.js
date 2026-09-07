@@ -200,30 +200,12 @@ test('submit, resubmit and a data steward completing review send the same BP con
   assert.equal((builder.match(/changerequestid:/gu) || []).length, 1, 'one context literal');
   for (const key of [
     'businesspartnerinput', 'bpduplicates', 'bpurl', 'reworkurl', 'datastewardurl', 'requesttype',
-    'prefix', 'criticalfield'
+    'prefix'
   ]) {
     assert.match(builder, new RegExp(`${key}[,:]`, 'u'), `${key} is in the context`);
   }
   // Last key in the object, shorthand, no trailing comma - checked in its own test below.
   assert.match(builder, /\n\s*datastewards\n\s*\};/u, 'datastewards is in the context');
-});
-
-/**
- * `criticalfield` is a scalar 'X'/' ' flag, not a list - a marker for a data steward, not a gate:
- * CAP itself blocks or warns on nothing here. Best-effort like `approvers`: an unreadable profile
- * table leaves it ' ' rather than losing the submit. Lowercase on the wire like every other key in
- * this context; the local variable keeps its camelCase name for readability.
- */
-test('criticalfield is X only when a critical entity was actually filled in on this request', () => {
-  const builder = serviceJs.slice(
-    serviceJs.indexOf('const workflowContext ='), serviceJs.indexOf('const persist =')
-  );
-  assert.match(builder, /let criticalField = ' ';/u);
-  assert.match(builder, /const resolved = await resolvedProperties\(requesterContext\(req\)\);/u);
-  assert.match(builder, /const critical = resolved\.criticalEntities \|\| \[\];/u);
-  assert.match(builder, /if \(critical\.some\(\(section\) => sectionRows\(payload, section\)\.length > 0\)\) criticalField = 'X';/u);
-  assert.match(builder, /catch \(error\) \{\s*console\.error\(`Could not resolve the critical fields/u);
-  assert.match(builder, /criticalfield: criticalField,/u);
 });
 
 /**

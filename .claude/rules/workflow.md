@@ -10,10 +10,12 @@ Produces the `approvers` list in the workflow context; SBPA routes on it.
 
 - **The table decides WHO, never how many approvals or in what order.** CAP does not check that a role
   exists — roles live in SBPA and a copy here would go stale.
-- **An entry carrying an `@` is a user, anything else a role.** `resolveApprovers` returns
-  `{ step, kind, value }`. The two halves are entered differently on purpose: an address is free text, a
-  role has to be spelled as SBPA knows it, so the cell takes typing *and* offers a value help. The
-  condition cells deliberately do not get it.
+- **An entry is a role, never an e-mail address (withdrawn 2026-09-07).** Typing a user's address into
+  the cell used to be accepted too — SBPA resolves both, and CAP deliberately did not check that either
+  existed — but the working process only routes on roles now, so `validateWorkflowRule` refuses any
+  entry containing `@` outright rather than passing it on. `resolveApprovers` returns `{ step, value }`;
+  the cell still takes typing *and* offers a value help, because a role has to be spelled exactly as
+  SBPA knows it. The condition cells deliberately do not get it.
 - **Rows are additive** — every matching row contributes, nothing needs ranking, no order column.
   **Several approvers means several rows**; `resolveApprovers` de-duplicates on step + value.
 - **All four CR types plus `*` ("Any").** Unlike the field property profiles' closed list this table
@@ -26,8 +28,12 @@ Produces the `approvers` list in the workflow context; SBPA routes on it.
 
 ## The approver picker (`srv/wf/btp-agents.js`)
 
-The subaccount's own **role collections** and **users**, read live from the BTP Authorization Management
-API — not this app's `ROLES` list, which is a different question.
+The subaccount's own **role collections**, read live from the BTP Authorization Management API — not
+this app's `ROLES` list, which is a different question. `workflowAgents()` itself still reads **users**
+too and returns both (`{ type: 'Role'|'User', value }[]`) — it is shared infrastructure, also behind the
+`RequestedByUsers` value help and `specificRoleFor`'s role disambiguation (`field-properties.md`) — but
+`duplicate-config-service.js`'s `workflowRuleOptions` filters the result to `type === 'Role'` before
+serving it to the Workflow Agent Determination picker, which is where users stopped being offered.
 
 - Role collections are filtered to those whose **Description** starts with `MDMLIGHT` — **Description,
   never Name**: the prefix is a convention applied to text an admin writes. Users are named by e-mail.
@@ -43,9 +49,10 @@ API — not this app's `ROLES` list, which is a different question.
   twice per open on the data steward screen, which checks itself on load — and used to fetch the whole
   subaccount each time. A failed read is not cached; `force` threads down so a forced refresh is not
   served the cache it asked to bypass.
-- **The F4 dialog is a real two-column table**, not `sap.m.SelectDialog` — that control wraps a plain
-  `sap.m.List` with no column headers, and *Type* vs *Name / E-mail* is exactly the distinction a
-  combined picker must make visible.
+- **The F4 dialog is a real table**, not `sap.m.SelectDialog` — that control wraps a plain `sap.m.List`
+  with no column headers. It was a two-column *Type* vs *Name / E-mail* table until 2026-09-07, when it
+  still had to make that distinction visible for a combined role-and-user picker; now that the picker is
+  role-only it is a single `Role` column.
 
 **Two BTP API facts, live-tested rather than assumed:**
 `GET /sap/rest/authorization/v2/rolecollections` already returns each collection's roles inline as
@@ -207,11 +214,6 @@ that does not is swapped in, this reverts to expanding them via `emailsForRoleCo
 a task landing with an approver list of one unresolvable string. `srv/wf/data-stewards.js` genuinely
 needs both shapes, permanently: `dataStewardEmails` for the human-readable strip, `dataStewardRoles` for
 the wire — separate cached functions, not one with a flag.
-
-**`criticalfield`** (lowercase on the wire; the local variable stays `criticalField`) is a **scalar
-`'X'`/`' '`**, never a list. `workflowContext` answers one question: does this request fill in **any**
-entity a **Requester-scoped** profile marks critical? SBPA is told *that*, never *which* — the "⚠" is
-where a human sees that.
 
 **Still open:** wiring SBPA to actually consume `approvers` — Arthur's definition ignores the field, so
 the table is inert until his process assigns its approver task from it.
