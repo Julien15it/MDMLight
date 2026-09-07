@@ -27,17 +27,29 @@ const isCreateRow = (row) => String(row?.action || CREATE).trim().toUpperCase() 
 
 /**
  * Fields `postToS4` supplies itself, which are therefore legitimately absent from staging: the
- * relation number it resolves per section, `BusinessPartner` on a role node, and `AddressID` on an
- * address-owned child (Email/Phone/Fax/Website/Tax Number) - the one relation `postToS4` resolves
- * PER ROW, from whichever staged address it belongs to, rather than once for the whole section (see
- * ADDRESS_CHILD_NODES/addressIdByStagedRow in change-request-service.js and "Address-owned
- * children" in staging.md). A brand new address has no AddressID at all until its own create
- * returns one, so requiring it here would refuse the exact row this app is designed to accept.
+ * relation number it resolves per section, `BusinessPartner` on a role node, and -- for an
+ * address-owned child (Email/Phone/Fax/Website/Tax Number) -- `AddressID` AND `BusinessPartner`.
+ *
+ * `AddressID` is the one relation `postToS4` resolves PER ROW, from whichever staged address the
+ * row belongs to, rather than once for the whole section (see ADDRESS_CHILD_NODES/
+ * addressIdByStagedRow in change-request-service.js and "Address-owned children" in staging.md).
+ * It cannot exist at check time by design: a brand new address has no S/4 key until its own create
+ * returns one, and the child is linked to it through `__addressKey`/`address_ID` instead.
+ * `BusinessPartner` is injected for the same reason one line down for a role node -- the post sets
+ * it from the partner it has just created or is updating, and sanitizeEntityPayload drops it again
+ * for the four children whose key does not carry it.
+ *
+ * Demanding either here refused every new email, phone, fax, website and address tax number on a
+ * create (reported 2026-09-04) for fields the requester cannot supply and the post never reads
+ * from staging.
  */
 function injectedFields(section, relationFields, roleNodes, addressChildNodes) {
   const injected = new Set([relationFields[section] || 'BusinessPartner']);
   if (roleNodes.has(section)) injected.add('BusinessPartner');
-  if (addressChildNodes && addressChildNodes.has(section)) injected.add('AddressID');
+  if (addressChildNodes && addressChildNodes.has(section)) {
+    injected.add('AddressID');
+    injected.add('BusinessPartner');
+  }
   return injected;
 }
 

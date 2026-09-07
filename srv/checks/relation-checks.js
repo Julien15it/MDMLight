@@ -24,6 +24,26 @@ const RELATION_ROLE_NODE = Object.freeze({
 });
 
 /**
+ * This stage only speaks about relations that are a SEPARATE record the request has to bring
+ * along -- exactly the ones `RELATION_ROLE_NODE` names a section for.
+ *
+ * `BusinessPartnerContacts` is the counter-example that made this explicit (2026-09-04).
+ * `A_BusinessPartnerContact` spells its relation `BusinessPartnerCompany`, and that IS the
+ * business partner being maintained -- not a customer or vendor master hanging off it. On a create
+ * there is nothing to add and nothing to check: the root of the very same request creates it. But
+ * the stage treated it like any other relation and produced *"BusinessPartnerContacts needs a
+ * BusinessPartnerCompany record, and a new business partner has none. Add the **undefined** section
+ * to this request."* -- a blocking error naming a section that cannot exist, with a hole in the
+ * sentence where `RELATION_ROLE_NODE['BusinessPartnerCompany']` should have been.
+ *
+ * **This is a check that does not APPLY, not one that could not run** -- the distinction the
+ * standing rule turns on. `readRelationNumber` already encodes the same fact from the other end: a
+ * relation field with no `RELATION_NAVIGATION` entry resolves to the business partner itself, so
+ * the change path answered correctly all along and only the create path had to guess.
+ */
+const BROUGHT_BY_THE_PARTNER = (relationField) => !(relationField in RELATION_ROLE_NODE);
+
+/**
  * @param resolve  async (relationField, businessPartner) -> number | null. Injected so the
  *                 stage is testable without S/4, and called at most once per relation field.
  * @param relationFields  section id -> 'Customer' | 'Supplier'.
@@ -54,6 +74,8 @@ function createRelationStages({ resolve, relationFields, roleNodes, businessPart
         for (const [section, rows] of Object.entries(sections)) {
           const relationField = relationFields[section];
           if (!relationField || !Array.isArray(rows) || rows.length === 0) continue;
+          // The partner itself is the parent, so no section brings it and none is missing.
+          if (BROUGHT_BY_THE_PARTNER(relationField)) continue;
           if (roleNodes.has(section)) broughtAlong.add(relationField);
           else needed.add(relationField);
         }

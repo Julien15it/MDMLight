@@ -54,6 +54,17 @@ applies and it needs no tile, catalog or role.
   workflow. `decideRequest` is passed `SignalWorkflow: false`.
 - Embedded, `window.location` is the **host's** — the change request id comes from the task **context**,
   never the hash.
+- **The three task handoff keys are EXCLUSIVE, on both sides.** `env>/taskChangeRequest`,
+  `/taskReworkChangeRequest` and `/taskDataStewardChangeRequest` are read by `onInit` as startup
+  reads that run on **every controller init** — so a key left over from an earlier task open in the
+  same browser session is read again. They used to be three independent `if`s with the datasteward
+  one **last**, so whenever two were set it won, silently replaced the approve screen the user had
+  opened, and `_claimDataStewardReview` flipped a live `inApproval` request to `checkAndEnrich`
+  (reported twice on 2026-09-04; the approver then gets `409 … is checkAndEnrich, not awaiting
+  approval`). **No deep link is needed for this** — the `datastewardurl` need never have been sent.
+  Fixed on both sides: `Component.js`'s `_open*` clears its two siblings per open, and `onInit`'s
+  reads are now `!pending && !pendingRework && …` chained. Keep both; the read-side guard is what
+  holds when the clearing has not reached the browser yet.
 - **A service model is read through `_serviceModel()`, never straight off the view.** The handover calls
   `_loadStagedRequest` from `onInit`, and a view has not inherited its component's models at that point.
 
