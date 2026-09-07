@@ -140,11 +140,14 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
           code, text: symbolOnly(comparison.text), needsValue: comparison.needsValue
         })),
         conditionSlots: MAX_CONDITIONS,
-        // The subaccount's own role collections (MDMLIGHT* only) and users - see srv/wf/btp-agents.js
-        // and CLAUDE.md "Workflow Agent Determination". Not this app's own Requester/Approver/
-        // DataSteward roles: those are what the Field Property Profiles page still conditions on
-        // (ROLES/ROLE_TEXT, unchanged), a different concept entirely.
-        agents: await workflowAgents(),
+        // The subaccount's own role collections (MDMLIGHT* only) - see srv/wf/btp-agents.js and
+        // workflow.md. Not this app's own Requester/Approver/DataSteward roles: those are what the
+        // Field Property Profiles page still conditions on (ROLES/ROLE_TEXT, unchanged), a different
+        // concept entirely. Filtered to roles only (2026-09-07): `WorkflowRules.approvers` no longer
+        // accepts a typed e-mail address, so a user from `workflowAgents()` is not something this
+        // picker may offer any more - `btp-agents.js` itself is left reading both, since it is shared
+        // with other consumers.
+        agents: (await workflowAgents()).filter((agent) => agent.type === 'Role'),
         ruleCount
       };
     });
@@ -262,35 +265,10 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
     this.on('fieldPropertiesOf', async (req) => {
       const rows = await cds.run(
         cds.ql.SELECT.from(SETTINGS)
-          .columns('section', 'element', 'property', 'critical')
+          .columns('section', 'element', 'property')
           .where({ profile_ID: req.data.Profile })
       );
-      // Critical is only ever EDITABLE from a Requester-scoped profile (see resolveProfiles in
-      // field-properties.js), but the Modify dialog for every OTHER role still shows the box, read-
-      // only - and a box that always renders unticked there would not be "read-only", it would just
-      // be wrong. This reflects what a matching Requester profile actually marked critical, by
-      // reusing the exact same resolution the running app renders "!" from, so the config screen and
-      // the app can never disagree about what critical means for the request type this profile is for.
-      // Entity-level only, like critical itself (validateSetting refuses a field-level critical row),
-      // so only criticalEntities is worth carrying over here - the field-level half of that resolved
-      // shape is the same abandoned-column tolerance covered elsewhere and has no bearing on this
-      // reflection.
-      let requesterCritical = { entities: [] };
-      try {
-        const own = await cds.run(
-          cds.ql.SELECT.one.from(PROFILES).columns('requestType').where({ ID: req.data.Profile })
-        );
-        const resolved = await fieldPropertyStore.resolvedProperties({
-          requestType: own && own.requestType,
-          role: 'Requester'
-        });
-        requesterCritical = { entities: resolved.criticalEntities || [] };
-      } catch (error) {
-        // Best-effort: the dialog still has to open and let a steward see/change the properties even
-        // if this extra reflection could not be built.
-        console.warn('[field-properties] Could not resolve the Requester-critical reflection:', error.message);
-      }
-      return JSON.stringify({ settings: rows || [], requesterCritical });
+      return JSON.stringify({ settings: rows || [] });
     });
 
     // Wholesale replace: the dialog always sends the complete state of the profile, so rewriting

@@ -113,25 +113,18 @@ A profile's role is one of `*`, `Requester` (the only two non-role-collection co
   anything specific that the mismatch rarely surfaced — the `specificrole` task input (`task-app.md`)
   made resolution reliable enough to expose it.
 
-## Critical entities
+## Critical entities — withdrawn 2026-09-07
 
-- **Critical is entity-level only.** `validateSetting` refuses a row carrying both `element` and
-  `critical: true`; the dialog greys the box on a field row and `onCriticalSelect` guards it again.
-  `resolveProfiles` still *reads* an older field-level row rather than dropping it, and `_buildTree`
-  never carries one back, so such a profile self-migrates on the next Apply.
-- **Critical is a marker, not a gate.** `createFieldPropertyStages` enforces `mandatory` only; a first
-  version that blocked an empty critical entity was rejected.
-- **Drawn on the screen, not written as a message** — `_isCriticalEntity` reads `criticalEntities` off
-  the already-loaded properties and `_markSectionCritical` appends "⚠" to the section title. Applied in
-  `_renderSection` for the nine node sections and in `_renderRootForm`/`_renderRootSection` for the two
-  cards the root splits into.
-- **Critical is Requester-scoped and reflected read-only everywhere else.** A request carries one set of
-  critical entities for its lifetime, decided by whoever files it. `resolveProfiles` computes it from a
-  **separate** matching set, re-running `profileMatches` against `role: 'Requester'`, independent of the
-  caller's own role. The Modify dialog computes `canEditCritical = !role || role === "*" || role ===
-  "Requester"`, guards both the checkbox binding and `onCriticalSelect` with it, and `_settingsFromTree`
-  multiplies every `critical` it sends by that flag — **Apply on an Approver profile must not copy the
-  Requester profile's flag into it.** Other roles' dialogs still SHOW the box, disabled.
-- `field-property-store.js` caches profiles for 60s, dropped on any write.
-- **Watch the read column lists.** The Critical checkbox silently stopped saving because
-  `fieldPropertiesOf`'s SELECT omitted `critical` — the save side had always been correct.
+The "critical entity" marker (a fifth checkbox in the Modify dialog, drawn as "⚠" next to a section's
+title, reduced to a `criticalfield` scalar in the workflow context) is gone: the working process this
+app supports no longer needs it, and every reader went with it — `validateSetting`/`resolveProfiles`
+(`srv/checks/field-properties.js`), the Modify dialog's fifth column, `_isCriticalEntity`/
+`_markSectionCritical` on the maintenance screen, and `workflowContext`'s `criticalfield`.
+
+**`FieldPropertySettings.critical` stays in `db/field-properties.cds`, permanently dead** —
+`cds-deploy` can add an element but never drop one (CLAUDE.md's standing rule), the same reason
+`FieldPropertyProfiles.criticalField`/`sequence` are still there. Nothing reads or writes it any more;
+do not revive it and do not "clean it up" by dropping the column.
+
+`field-property-store.js` still caches profiles for 60s, dropped on any write — unrelated to this,
+still true for `mandatory`/`readOnly`/`hidden`/`optional`.

@@ -4,9 +4,8 @@ const { callApi, emailsForRoleCollections } = require('./btp-agents');
 
 /**
  * E-mail addresses of every BTP subaccount user holding this app's own `DataSteward` role
- * (`xs-security.json`'s role template of that name), for the `datastewards` hint sent alongside
- * `criticalField` in the workflow context - see CLAUDE.md "Critical fields, entity-level only, and
- * who to notify". Distinct from `btp-agents.js`'s `MDMLIGHT`-prefixed role collections, which back the
+ * (`xs-security.json`'s role template of that name), for the `datastewards` hint sent in the
+ * workflow context. Distinct from `btp-agents.js`'s `MDMLIGHT`-prefixed role collections, which back the
  * separate Workflow Agent Determination approver picker: those are told apart by a naming convention a
  * subaccount admin follows, but `DataSteward` is one specific role template this app itself declares,
  * and a role collection carrying it can be named anything - so membership has to be resolved by role

@@ -71,8 +71,12 @@ Still open, Julien's call: a failed post from My Inbox completes the task anyway
   producing the dead standalone host, so unset now yields `''` and a missing link is diagnosable where a
   404 is not. The intent must match the `BusinessPartner-manage` inbound.
 - Workflow context at submit: `{ changerequestid, requesttype, businesspartner, emailadressinitiator,
-  bpurl, reworkurl, datastewardurl, prefix, businesspartnerinput, bpduplicates, approvers, criticalfield,
+  bpurl, reworkurl, datastewardurl, prefix, businesspartnerinput, bpduplicates, approvers,
   datastewards }`
+  **`criticalfield` was dropped from this context 2026-09-07** (the field property "critical entity"
+  feature was withdrawn - see `field-properties.md`). If Arthur's process definition still maps it to a
+  task input, that mapping now receives nothing rather than `'X'`/`' '` - confirm with Arthur before
+  relying on this contract change downstream.
 - **`prefix` must be mapped onto the approval AND rework task inputs.** **An undeclared key never becomes
   task context**, so sending it is not enough — the process definition has to declare and map it.
 - **`specificrole`, optional, on the approval and data steward task inputs.** The BTP role collection

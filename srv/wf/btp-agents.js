@@ -17,7 +17,13 @@ const axios = require('axios');
  *
  * Best-effort like every other BTP-platform read in this codebase (workflow-rule-store.js,
  * processAutomation.js): an unreachable subaccount API must not take the value help down, only leave
- * it offering nothing - the cell still takes a typed e-mail address or role name either way.
+ * it offering nothing.
+ *
+ * `fetchUsers`/`allUsers`/`emailsForRoleCollections` still read USERS, not only role collections -
+ * this module is shared with other consumers (the `RequestedByUsers` value help, data steward
+ * e-mail resolution, `specificRoleFor`'s own-role disambiguation) even though the Workflow Agent
+ * Determination approver picker itself is role-only since 2026-09-07 (see workflow.md) and no
+ * longer offers a typed e-mail address.
  */
 
 const SERVICE_NAME = 'mdm-businesspartner-authmgmt';

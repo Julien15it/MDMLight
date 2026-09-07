@@ -577,7 +577,7 @@ sap.ui.define([
       onInit: function () {
         this._metadata = Metadata.sections;
         // Empty until a route loads them, so a render that beats the call renders as it always did.
-        this._fieldProperties = { entities: {}, fields: {}, criticalEntities: [] };
+        this._fieldProperties = { entities: {}, fields: {} };
         this._rootSection = this._metadata.find(function (section) {
           return section.kind === "root";
         });
@@ -1152,7 +1152,7 @@ sap.ui.define([
        * its profiles cannot submit past one.
        */
       _loadFieldProperties: async function (requestType, role, changeRequest) {
-        this._fieldProperties = { entities: {}, fields: {}, criticalEntities: [] };
+        this._fieldProperties = { entities: {}, fields: {} };
         try {
           var result = await this._executeAction("effectiveFieldProperties", {
             ChangeRequest: changeRequest || null,
@@ -1163,11 +1163,7 @@ sap.ui.define([
           var parsed = typeof raw === "string" ? JSON.parse(raw || "{}") : (raw || {});
           this._fieldProperties = {
             entities: parsed.entities || {},
-            fields: parsed.fields || {},
-            // Marker only - never gates anything here, the same way hidden/readOnly/mandatory do.
-            // The field property profile's `criticalEntities` list (entity-level only, see
-            // db/field-properties.cds), used to draw the exclamation mark next to a section's title.
-            criticalEntities: parsed.criticalEntities || []
+            fields: parsed.fields || {}
           };
         } catch (error) {
           // Nothing to tell the user: they asked to maintain a partner, not to hear about a
@@ -1184,12 +1180,6 @@ sap.ui.define([
 
       _entityProperty: function (section) {
         return (this._fieldProperties && this._fieldProperties.entities || {})[this._sectionKey(section)] || null;
-      },
-
-      /** A marker only, drawn as "!" next to the section title - never a gate. */
-      _isCriticalEntity: function (section) {
-        var criticalEntities = (this._fieldProperties && this._fieldProperties.criticalEntities) || [];
-        return criticalEntities.indexOf(this._sectionKey(section)) !== -1;
       },
 
       /**
@@ -1221,16 +1211,14 @@ sap.ui.define([
 
       _renderRootForm: function () {
         var state = this.getView().getModel("maintenance").getData();
-        var critical = this._isCriticalEntity(this._rootSection);
-        this._renderRootSection("GeneralInformationContent", "General Information", GENERAL_FIELDS, true, state, critical);
-        this._renderRootSection("NamesContent", "Names", nameFieldsForCategory(state.root.BusinessPartnerCategory), false, state, critical);
+        this._renderRootSection("GeneralInformationContent", GENERAL_FIELDS, true, state);
+        this._renderRootSection("NamesContent", nameFieldsForCategory(state.root.BusinessPartnerCategory), false, state);
       },
 
-      _renderRootSection: function (containerId, title, fieldNames, showAdditionalFields, state, critical) {
+      _renderRootSection: function (containerId, fieldNames, showAdditionalFields, state) {
         var container = this.byId(containerId);
         if (!container) return;
         container.removeAllItems();
-        this._markSectionCritical(container, title, critical);
 
         var section = Object.assign({}, this._rootSection, {
           fields: fieldNames.map(function (fieldName) {
@@ -1455,10 +1443,7 @@ sap.ui.define([
             // Re-render the Names card so it only shows the fields S/4 will
             // actually keep for this category (see nameFieldsForCategory).
             var state = this.getView().getModel("maintenance").getData();
-            this._renderRootSection(
-              "NamesContent", "Names", nameFieldsForCategory(newCategory), false, state,
-              this._isCriticalEntity(this._rootSection)
-            );
+            this._renderRootSection("NamesContent", nameFieldsForCategory(newCategory), false, state);
           }.bind(this));
         } else if (isBoolean(field)) {
           control = new CheckBox({ selected: Boolean(record[field.name]), enabled: editable });
@@ -1694,19 +1679,6 @@ sap.ui.define([
         (this._objectPageSection(container) || container).setVisible(visible);
       },
 
-      /**
-       * The exclamation mark next to a critical section's title - a marker, nothing more. No message,
-       * no block: a data steward reads the screen and sees which sections were flagged, the same way
-       * `criticalField` in the workflow context only ever says whether one was filled in, not which.
-       * A hosted container (a child section in a record dialog) has no ObjectPageSection title to
-       * mark, so this is a no-op there - the marker belongs on the Object Page, not inside a dialog.
-       */
-      _markSectionCritical: function (container, baseTitle, critical) {
-        var section = this._objectPageSection(container);
-        if (!section || !section.setTitle) return;
-        section.setTitle(critical ? baseTitle + " ⚠" : baseTitle);
-      },
-
       // `parentRow` is set only for an address-owned child (Email/Phone/Fax/Website/Tax Number),
       // rendered inside the ONE Address record's Details dialog it was opened from -
       // state.sections[section.id] holds that child section's rows for every address on the BP
@@ -1724,7 +1696,6 @@ sap.ui.define([
         // Emptying the container would leave a heading over nothing, which reads as a load failure.
         var entityProperty = this._entityProperty(section);
         this._setSectionVisible(container, entityProperty !== "hidden");
-        this._markSectionCritical(container, section.title, this._isCriticalEntity(section));
         if (entityProperty === "hidden") return;
 
         var state = this.getView().getModel("maintenance").getData();

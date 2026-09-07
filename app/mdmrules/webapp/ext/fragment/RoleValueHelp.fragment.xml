@@ -2,20 +2,16 @@
   xmlns="sap.m"
   xmlns:core="sap.ui.core">
   <!--
-    Who can be named as an approver. Typing an e-mail address straight into the cell still works and
-    is the common case - this is for picking one from the BTP subaccount instead of remembering it.
-
-    A real two-column table, not sap.m.SelectDialog: a SelectDialog wraps a plain List and has no
-    column headers, and Type/Name-or-e-mail is exactly the distinction a picker over BOTH role
-    collections and users has to make visible - a bare list of values would leave "SalesApprover"
-    and "julien@alluvion.eu" looking like the same kind of thing.
+    Who can be named as an approver - a role, spelled exactly as SBPA knows it, picked from the BTP
+    subaccount instead of remembered. Typing straight into the cell still works too.
 
     One entry per cell, because the cell holds one approver: several approvers are several rows,
     which is what the Add button is for and what the engine merges.
 
-    The list is served by `workflowRuleOptions()` (srv/wf/btp-agents.js): the subaccount's own role
-    collections, filtered to the ones whose Description starts with MDMLIGHT, and the subaccount's
-    users.
+    The list is served by `workflowRuleOptions()` (srv/duplicate-config-service.js), filtered to the
+    subaccount's own role collections whose Description starts with MDMLIGHT - a typed e-mail address
+    is no longer offered here (withdrawn 2026-09-07, see workflow.md), so this is a plain single-column
+    list rather than the two-column Type/Name-or-e-mail table it used to need.
   -->
   <Dialog
     id="agentValueHelpDialog"
@@ -41,19 +37,15 @@
         mode="None"
         growing="true"
         growingThreshold="50"
-        noDataText="No role or user matches that search."
+        noDataText="No role matches that search."
         items="{ path: 'opt>/agents', templateShareable: false }"
         itemPress=".onRolesChosen">
         <columns>
-          <Column width="8rem"><Text text="Type" /></Column>
-          <Column><Text text="Name / E-mail" /></Column>
+          <Column><Text text="Role" /></Column>
         </columns>
         <items>
           <ColumnListItem type="Active">
             <cells>
-              <ObjectStatus
-                text="{opt>type}"
-                state="{= ${opt>type} === 'Role' ? 'Information' : 'Success' }" />
               <Text text="{opt>value}" />
             </cells>
           </ColumnListItem>
