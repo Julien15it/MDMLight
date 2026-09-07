@@ -157,3 +157,49 @@ test('the new stage is appended, not prepended', () => {
     .validations.map((validation) => validation.name);
   assert.deepEqual(names, ['node_required_fields', 'node_not_creatable']);
 });
+
+/**
+ * And on a CREATE it is not drawn at all (asked for 2026-09-07): a section nothing can be added to,
+ * with nothing in it, is a heading over nothing - no Add button, no rows, and no way for either to
+ * appear. A CHANGE request that HAS tax numbers still shows them, and can still edit or delete
+ * them, so the rule is "empty and non-creatable", never "this is a create".
+ */
+test('an empty non-creatable child section is not rendered inside the parent dialog', () => {
+  const controller = fs.readFileSync(
+    path.join(
+      ROOT, 'app', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse', 'controller',
+      'BusinessPartnerMaintenance.controller.js'
+    ),
+    'utf8'
+  );
+  const start = controller.indexOf('var hosted = (section.childSections || []).map');
+  assert.ok(start > -1, 'the childSections loop moved');
+  const block = controller.slice(start, controller.indexOf('this._hostedSectionContainers =', start));
+
+  assert.match(block, /if \(child\.creatable === false && !hasData\) return null;/u);
+  // hasData is what decides it, so it must already be computed - and the Panel must come after.
+  assert.ok(
+    block.indexOf('var hasData') < block.indexOf('child.creatable === false'),
+    'the rows are counted before the section is dropped'
+  );
+  assert.ok(
+    block.indexOf('child.creatable === false') < block.indexOf('items.push(new Panel({'),
+    'dropped before the Panel is built, not hidden afterwards'
+  );
+});
+
+/**
+ * The rule reaches exactly one section, and that is what makes it safe: the SERVER config marks
+ * Customers/Suppliers non-creatable too (S/4 has no create verb for a customer master), but the
+ * generated screen metadata deliberately does not - those sections must stay visible and empty on a
+ * create, because `cvi_account_group` is what fills them on the next Check.
+ */
+test('exactly one SCREEN section is non-creatable', () => {
+  const readOnly = [...screenSections().values()]
+    .filter((section) => section.creatable === false)
+    .map((section) => section.id);
+  assert.deepEqual(readOnly, ['AddressTaxNumbers']);
+  for (const section of ['Customers', 'Suppliers']) {
+    assert.notEqual(screenSections().get(section).creatable, false, section);
+  }
+});

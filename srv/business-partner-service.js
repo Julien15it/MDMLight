@@ -793,6 +793,56 @@ function validateMaintenanceCreate(entityName, payload, configuration) {
   }
 }
 
+const REMOTE_DATE_TYPES = new Set(['cds.Date', 'cds.DateTime', 'cds.Timestamp']);
+
+/**
+ * A date value in the shape OData V2 transports one: `/Date(<ms since epoch>)/`.
+ *
+ * Returns null for anything it cannot read as a date, so the caller can leave the original value
+ * alone and let S/4 complain about what was actually sent rather than about a number invented here.
+ * A value that is ALREADY in this form is left alone the same way - nothing double-wraps.
+ */
+function remoteDateLiteral(value) {
+  if (typeof value !== 'string' && !(value instanceof Date)) return null;
+  if (typeof value === 'string' && value.startsWith('/Date(')) return null;
+  // A date-only value is midnight UTC. Without the explicit Z, Node reads 'YYYY-MM-DD' as UTC but
+  // 'YYYY-MM-DDTHH:mm:ss' as LOCAL time, which would shift a datetime by the container's offset.
+  const text = value instanceof Date
+    ? value.toISOString()
+    : (/^\d{4}-\d{2}-\d{2}$/u.test(value) ? `${value}T00:00:00Z` : value);
+  const milliseconds = Date.parse(/[Zz]|[+-]\d{2}:?\d{2}$/u.test(text) ? text : `${text}Z`);
+  return Number.isNaN(milliseconds) ? null : `/Date(${milliseconds})/`;
+}
+
+/**
+ * Converts every date-typed field of a CREATE body into its OData V2 wire form.
+ *
+ * A create is POSTed raw through `s4.send` with a navigation path, so nothing on the way out looks
+ * at the target's types: whatever is in the object is what reaches the gateway. A `cds.Date` value
+ * is a plain `'2026-09-07'` in this app - the form the facade reads and the form `createDefaults`
+ * produces - and S/4 answered that with *"Conversion error for property 'ValidityStartDate' at
+ * offset '33'"* (BP 645, 2026-09-07), the offset landing exactly on the value. `/Date(<ms>)/` is
+ * the form S/4 itself emits for these properties, which is why an initial one reads back through
+ * the facade as `0000-12-30`.
+ *
+ * **The UPDATE path must not use this.** `cds.ql.UPDATE` goes through CAP's own remote client,
+ * which serializes by the model - converting first would hand it a string where it expects a date.
+ *
+ * Driven by the model, never by the look of a value: a `cds.String` field whose content happens to
+ * read as a date (a remark, a search term) stays a string, and a field the entity does not declare
+ * is left untouched - `sanitizeEntityPayload` has already dropped anything the entity has not got.
+ */
+function serializeRemoteDates(payload, elements) {
+  if (!payload || !elements) return payload;
+  const result = { ...payload };
+  for (const [field, value] of Object.entries(result)) {
+    if (!REMOTE_DATE_TYPES.has(elements[field]?.type)) continue;
+    const literal = remoteDateLiteral(value);
+    if (literal) result[field] = literal;
+  }
+  return result;
+}
+
 /** The fields that address a node's parent, whether or not the node itself has them. */
 function parentKeyFieldsOf(configuration) {
   return configuration.parentKeyFields
@@ -2600,9 +2650,13 @@ class BusinessPartnerService extends cds.ApplicationService {
           const defaulted = { ...createDefaultsFor(configuration), ...payload };
           const addressed = { ...parentKeyContext(configuration, data), ...defaulted };
           validateMaintenanceCreate(req.data.Entity, addressed, configuration);
+          // Converted LAST, so everything above judges and addresses real values. This is the
+          // boundary where a raw POST body is handed over, and the only place that needs it - the
+          // update below goes through cds.ql, which serializes by the model itself.
+          const body = serializeRemoteDates(defaulted, entity.elements);
           const result = req.data.Entity === 'Addresses'
-            ? await createBusinessPartnerAddress(s4, defaulted)
-            : await createBusinessPartnerChild(s4, configuration, defaulted, addressed);
+            ? await createBusinessPartnerAddress(s4, body)
+            : await createBusinessPartnerChild(s4, configuration, body, addressed);
           return JSON.stringify(result || payload);
         } catch (error) {
           const message = remoteErrorMessage(error, `S/4HANA rejected the ${req.data.Entity} create request.`);
@@ -3037,6 +3091,8 @@ BusinessPartnerService._internals = {
   businessPartnerNavigationPath,
   parentKeyContext,
   createBusinessPartnerChild,
+  remoteDateLiteral,
+  serializeRemoteDates,
   addDefaultAddressUsage,
   taxTypeLanguageRank,
   oneRowPerTaxType,

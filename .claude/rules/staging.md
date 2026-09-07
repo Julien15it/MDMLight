@@ -325,9 +325,24 @@ never expands an association).
   certification dates). The general rule is pinned by *"no creatable node has a date in its key that
   a create could leave empty"* in `test/address-child-keys.test.js`, so a node added later that
   breaks it fails a test rather than a live post.
-  **Still open:** whether S/4 accepts `ValidityStartDate` on the create POST at all (untested), and
-  the deeper oddity that `IsDefaultURLAddress` is both a KEY part and an editable field — so ticking
-  the default flag changes the key, which an update-by-key cannot express even with a good date.
+  **S/4 does accept it, but only as `/Date(<ms>)/`** (2026-09-07, BP 645: *"Conversion error for
+  property 'ValidityStartDate' at offset '33'"* on the very first create that sent the field). A
+  create is POSTed **raw** through `s4.send` with a navigation path, so nothing between the payload
+  and the gateway looks at the target's types: the plain `'2026-09-07'` `createDefaults` produces
+  went out as a JSON string and offset 33 landed exactly on it. `serializeRemoteDates` converts
+  every `cds.Date`/`cds.DateTime`/`cds.Timestamp` element of the body at the boundary where it is
+  handed over — **after** `validateMaintenanceCreate` and after the parent key context is built, so
+  everything upstream still judges and addresses real values. `/Date(<ms>)/` is the form S/4 itself
+  emits for these properties, which is why an initial one reads back through the facade as
+  `0000-12-30`. **Driven by the MODEL, never by the look of a value:** a `cds.String` field whose
+  content happens to read as a date stays a string. **The UPDATE path must not use it** —
+  `cds.ql.UPDATE` goes through CAP's own remote client, which serializes by the model, and a
+  pre-converted string is what that would choke on. A date-only value is read as **midnight UTC**
+  (an explicit `Z`): `Date.parse` reads `'YYYY-MM-DD'` as UTC but `'YYYY-MM-DDTHH:mm:ss'` as LOCAL,
+  so a container east of UTC would otherwise send the previous day.
+  **Still open:** the oddity that `IsDefaultURLAddress` is both a KEY part and an editable field — so
+  ticking the default flag changes the key, which an update-by-key cannot express even with a good
+  date.
 - **`AddressTaxNumbers` is READ-ONLY: S/4 cannot create one through this API at all** (2026-09-07,
   reported live: BP 638 created, then *"Operation is not supported"*). The gateway answered the POST
   to `/A_BusinessPartner('638')/to_BusPartAddrDepdntTaxNmbr` with `/IWBEP/CM_MGW_RT/027 Operation
@@ -345,6 +360,17 @@ never expands an association).
   + an `emptyText` in the generated screen metadata so the Add button is gone, and a new
   `node_not_creatable` validation so a row staged before this — or any direct service call — is
   refused at CHECK time rather than after an approver has spent their time and a partner exists.
+  **And the section is not DRAWN at all while it is empty** (asked for 2026-09-07): a section
+  nothing can be added to, with nothing in it, is a heading over nothing — no Add button, no rows,
+  and no way for either to appear. `_openRecordDialog`'s `childSections` loop drops a child whose
+  `creatable === false` and which has no rows *for this address*, before its `Panel` is built. The
+  rule is **"empty and non-creatable", never "this is a create"** — a change request that HAS tax
+  numbers still shows them and can still edit or delete them. It is safe to key off the screen
+  metadata's `creatable` because **`AddressTaxNumbers` is the only section marked so there**: the
+  SERVER config marks `Customers`/`Suppliers` non-creatable too (S/4 has no create verb for a
+  customer master), but the generated metadata deliberately does not, because those sections must
+  stay visible and empty on a create for `cvi_account_group` to fill on the next Check. Both halves
+  are pinned by tests.
   `node_required_fields` could never have caught it: it deliberately skips a non-creatable section,
   having no create rules to check. **Reading and deleting existing rows is untouched** — nothing has
   exercised DELETE on this entity, so guessing it away would remove a path that may work.

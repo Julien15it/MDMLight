@@ -2017,6 +2017,12 @@ sap.ui.define([
           var hasData = (state.sections[child.id] || []).some(function (row) {
             return scoped ? row.__addressKey === scopeKey : true;
           });
+          // A section nothing can be added to, with nothing in it, is a heading over nothing: no
+          // Add button, no rows, and no way for either to appear. AddressTaxNumbers is the only
+          // one - S/4 has no CREATE_ENTITY for it at all (see staging.md) - so it is dead on
+          // every create, while a change request that HAS tax numbers still shows them and can
+          // still edit or delete them.
+          if (child.creatable === false && !hasData) return null;
           items.push(new Panel({
             headerText: child.title,
             expandable: true,
