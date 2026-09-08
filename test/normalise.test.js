@@ -357,3 +357,89 @@ test('a proposal with no detail still gets a sentence to hover', () => {
   assert.equal(proposal.reason, 'Capitalisation');
   assert.match(proposal.detail, /OrganizationBPName1 is proposed as “Acme” instead of “acme”\./u);
 });
+
+// ---------------------------------------------------------------------------
+// Uppercase code fields (widened 2026-09-08, asked for)
+// ---------------------------------------------------------------------------
+
+/**
+ * `Country` was the only code field this uppercased ("be" -> "BE"), and every other picker had the
+ * same problem - "eur" typed into Currency, "nl" into Language, "be0" into Tax Type are all refused
+ * by S/4 just as flatly. The criterion asked for is "a field whose values come from a code list",
+ * so the list IS the value-help list, and this test is what keeps the two from drifting: a value
+ * help added to the maintenance screen later has to be named here or refused here, never silently
+ * left out.
+ */
+const fs = require('node:fs');
+const path = require('node:path');
+const {
+  UPPERCASE_CODE_FIELDS, NOT_A_CODE
+} = require('../srv/checks/normalise');
+
+function valueHelpFields() {
+  const controller = fs.readFileSync(
+    path.join(
+      __dirname, '..', 'app', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse', 'controller',
+      'BusinessPartnerMaintenance.controller.js'
+    ),
+    'utf8'
+  );
+  const start = controller.indexOf('var VALUE_HELP_FIELDS = {');
+  assert.ok(start > -1, 'VALUE_HELP_FIELDS moved');
+  const block = controller.slice(start, controller.indexOf('\n  };', start));
+  // The field name is the key of each top-level entry: four-space indent, then the name.
+  return [...block.matchAll(/^ {4}([A-Za-z][A-Za-z0-9]*): \{$/gmu)].map((match) => match[1]);
+}
+
+test('every value-help field is either uppercased or named as not a code', () => {
+  const helps = valueHelpFields();
+  assert.ok(helps.length > 30, `only ${helps.length} value helps found - the scan broke`);
+  for (const field of helps) {
+    assert.equal(
+      UPPERCASE_CODE_FIELDS.has(field) || NOT_A_CODE.has(field), true,
+      `${field} has a value help but is neither uppercased nor listed in NOT_A_CODE`
+    );
+  }
+  // And nothing is uppercased that has no code list behind it.
+  for (const field of UPPERCASE_CODE_FIELDS) {
+    assert.ok(helps.includes(field), `${field} is uppercased but has no value help`);
+  }
+  // A business partner number is picked from live partners, not from a code list.
+  assert.deepEqual([...NOT_A_CODE], ['BusinessPartnerPerson']);
+});
+
+test('the fields the report named are proposed in capitals', () => {
+  const proposals = deterministicProposals(payload(
+    { CorrespondenceLanguage: 'nl', BusinessPartnerGrouping: 'mdm0' },
+    {
+      Addresses: [{ Country: 'be', Language: 'nl', CityName: 'Gent' }],
+      TaxNumbers: [{ BPTaxType: 'be0', BPTaxNumber: 'BE0403200393' }],
+      SupplierPurchasingOrg: [{ PurchaseOrderCurrency: 'eur' }]
+    }
+  ));
+  assert.deepEqual(
+    proposals.map((proposal) => [proposal.target, proposal.field, proposal.proposed]).sort(),
+    [
+      ['Addresses', 'Country', 'BE'],
+      ['Addresses', 'Language', 'NL'],
+      ['SupplierPurchasingOrg', 'PurchaseOrderCurrency', 'EUR'],
+      ['TaxNumbers', 'BPTaxType', 'BE0'],
+      ['root', 'BusinessPartnerGrouping', 'MDM0'],
+      ['root', 'CorrespondenceLanguage', 'NL']
+    ].sort()
+  );
+  // CityName is a name, not a code - it is the model's business, and only on Check.
+  assert.equal(proposals.some((proposal) => proposal.field === 'CityName'), false);
+  // A tax NUMBER is an identifier, and identifiers are outside this entirely.
+  assert.equal(proposals.some((proposal) => proposal.field === 'BPTaxNumber'), false);
+});
+
+// The row's own bookkeeping is not data, and no code field shares a name with any of it.
+test('staging bookkeeping is never proposed', () => {
+  assert.deepEqual(
+    deterministicProposals(payload({}, {
+      Addresses: [{ action: 'c', __state: 'new', __rowKey: 'abc123', Country: 'BE' }]
+    })),
+    []
+  );
+});

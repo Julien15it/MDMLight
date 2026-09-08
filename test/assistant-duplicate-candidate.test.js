@@ -34,8 +34,7 @@ const suggestionFor = (registry) => ({
   SuggestedData: JSON.stringify({
     root: {
       BusinessPartnerCategory: '2',
-      OrganizationBPName1: registry.name,
-      SearchTerm1: 'Alluvion'
+      OrganizationBPName1: registry.name
     },
     sections: {
       Addresses: [registry.address],

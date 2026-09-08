@@ -128,8 +128,14 @@ sap.ui.define([
   // Root fields the Business Partner Assistant's creation suggestion is allowed to prefill. An
   // explicit allowlist rather than merging the draft's root object wholesale: the draft reaches this
   // route through a query string, which a hand-built URL can shape however it likes.
+  //
+  // SearchTerm1 is deliberately NOT here (2026-09-08, reported live: a prompt arrived in the field
+  // as "cole compan"). A search term is the requester's own shorthand for finding this partner
+  // again, and the assistant has nothing to base one on but the words of the question it was asked
+  // - so it proposed a truncated, sometimes mistyped fragment of the prompt into a field nobody had
+  // asked it to fill. It is left empty for the requester, who knows what they will search for.
   var ROOT_DRAFT_FIELDS = [
-    "BusinessPartnerCategory", "BusinessPartnerGrouping", "OrganizationBPName1", "SearchTerm1",
+    "BusinessPartnerCategory", "BusinessPartnerGrouping", "OrganizationBPName1",
     "CorrespondenceLanguage"
   ];
 

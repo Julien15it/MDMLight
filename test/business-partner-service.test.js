@@ -428,14 +428,19 @@ test('assistant duplicate check catches legal-form and spelling variants', () =>
   assert.equal(findPotentialDuplicates('Completely Different Company', partners).length, 0);
 });
 
-test('assistant proposes a prefilled Business Partner when a company is absent', () => {
+/**
+ * No SearchTerm1 since 2026-09-08 (reported live: a prompt reached the field as "cole compan").
+ * It was built from the words of the question, which is the only material the assistant has, so it
+ * proposed a truncated fragment of what the requester typed into a field that exists to hold the
+ * requester's OWN shorthand. There is nothing here to base one on.
+ */
+test('assistant proposes a prefilled Business Partner when a company is absent, and never a search term', () => {
   const suggestion = businessPartnerCreationSuggestion('Geef info over het bedrijf Coca-Cola');
   assert.equal(suggestion.SuggestedAction, 'CREATE_BUSINESS_PARTNER');
   assert.deepEqual(JSON.parse(suggestion.SuggestedData), {
     root: {
       BusinessPartnerCategory: '2',
-      OrganizationBPName1: 'Coca-Cola',
-      SearchTerm1: 'Coca Cola'
+      OrganizationBPName1: 'Coca-Cola'
     },
     sections: {}
   });

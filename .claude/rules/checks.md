@@ -124,6 +124,30 @@ package `ZMDM_LIGHT`.
 - **Configuration, not SAP's verdict.** `CVI_FS_CHECK_CUST` is a module pool with no callable API.
 - Deliberately not built: contact person synchronisation — MDM Light stages no contact persons.
 
+### Customer/supplier data with no role that creates it (`relation_role_requested`)
+
+Lives in `relation-checks.js`, beside `relation_parent_exists`, and reads the same CVI customizing
+through `requestedRelations` (exported by `cvi-checks.js`). The two answer halves of one question:
+that one asks whether the customer/vendor RECORD exists, this one whether anything in the request
+would bring one into being. Reported live 2026-09-08: a request carrying supplier data with no
+supplier role was accepted, routed, approved, and then failed at ACTIVATION — a create satisfies
+`relation_parent_exists` by carrying a `Suppliers` section, and it is the ROLE, not the section,
+that makes CVI create the vendor master.
+
+- **Blocking**, unlike everything else derived from the CVI customizing: this is a request that
+  cannot be activated, and one click fixes it.
+- **A configuration that could not be READ still warns and steps aside** — `cvi_configuration`'s
+  posture, for its reason: an unreachable S/4 must not stop every submit. `requestedRelations`
+  therefore THROWS rather than answering with an empty set, so the two cases cannot read alike.
+- **Which role creates which account comes from `TBD002`/`TBC002`**, never from the role name —
+  `SYNC_TARGETS` carries a `relation` key so this stage needs no second map.
+- **A partner that already has the record is silent**, and pays no extra lookup: `numberFor` is
+  shared with `relation_parent_exists`. A lookup that throws is passed over here — that stage
+  already warns about the same failure, naming it.
+- **Appended, never prepended** (`validations[1]`): several tests reach `relation_parent_exists` as
+  `validations[0]`, and a caller supplying no `requestedRelations` gets no stage at all rather than
+  one that silently passes.
+
 **`cvi_account_group`** fills `Customers.CustomerAccountGroup`/`Suppliers.SupplierAccountGroup` from
 `TBD001`. Silent wherever it cannot be sure. It **proposes over** a hand-picked account group;
 `accountGroupConflictFindings` stays beside it regardless, because S/4 uses `TBD001`'s whether or not
@@ -269,6 +293,18 @@ value that is there should be *written*.
 `sanitizeProposals` drops a proposal for a field that was not offered or that changes nothing.
 Identifiers (tax numbers, IBAN, BP number) are outside `NORMALISABLE`. Runs on **Check only** and
 returns `[]` on any failure.
+
+**`UPPERCASE_CODE_FIELDS` IS the value-help list** (widened 2026-09-08, asked for). Country and
+Region were hardcoded, and every other picker had the same problem — "eur" in Currency, "nl" in
+Language, "be0" in Tax Type are refused by S/4 just as flatly. The criterion is now "a field whose
+values come from a code list", so the set is exactly `VALUE_HELP_FIELDS` (the maintenance
+controller's own table) minus `NOT_A_CODE`, which holds the one entry that is a business partner
+NUMBER rather than a code. **A test reads the controller and pins the two lists together**, so a
+value help added later is named here or refused here, never silently left out. `deterministicProposals`
+walks the ROOT as well as the sections for this — `BusinessPartnerGrouping`, `LegalForm` and
+`CorrespondenceLanguage` are root fields, and while only `Addresses` carried a code field it had
+nothing to do up there. Deterministic on purpose: asked to reformat "be", a model could answer
+"Belgium".
 
 **Never reuse the same example word across two different corrections in `SYSTEM_PROMPT`** (fixed
 2026-09-04, reported live: a real `StreetName: "Koedreef"` — already correct, `dreef` is a complete

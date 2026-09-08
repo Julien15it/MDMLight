@@ -51,7 +51,19 @@ const BROUGHT_BY_THE_PARTNER = (relationField) => !(relationField in RELATION_RO
  * @param businessPartner  the partner being changed. A create has none, and the payload root
  *                 does not always carry it, so the caller passes what it knows.
  */
-function createRelationStages({ resolve, relationFields, roleNodes, businessPartner: known }) {
+/** The rows of a section that will still exist after the request posts - `cvi-checks.js`'s own. */
+const liveRows = (rows) => (Array.isArray(rows) ? rows : [])
+  .filter((row) => String(row?.action || 'C').trim().toUpperCase() !== 'D');
+
+/**
+ * @param requestedRelations  async (payload) -> Set of 'Customer' | 'Supplier'. The relations the
+ *                 request's OWN roles would create, per S/4's `TBD002`/`TBC002` - injected the same
+ *                 way `resolve` is, and for the same reason. Omitted, the second stage is not built
+ *                 at all rather than silently passing everything.
+ */
+function createRelationStages({
+  resolve, relationFields, roleNodes, businessPartner: known, requestedRelations
+}) {
   const resolved = new Map();
 
   const numberFor = async (relationField, businessPartner) => {
@@ -59,6 +71,84 @@ function createRelationStages({ resolve, relationFields, roleNodes, businessPart
       resolved.set(relationField, await resolve(relationField, businessPartner));
     }
     return resolved.get(relationField);
+  };
+
+  /**
+   * Customer or supplier data with no role that creates the account.
+   *
+   * Reported live 2026-09-08: a request carrying supplier data but no supplier role was accepted,
+   * routed, approved, and then failed at ACTIVATION. It is the sibling of `relation_parent_exists`
+   * above and deliberately a separate stage: that one asks whether the customer/vendor RECORD is
+   * there, this one whether anything in the request would bring one into being. A create satisfies
+   * the first by carrying a `Suppliers` section - and then satisfies nothing at all, because it is
+   * the ROLE that makes CVI create the vendor master, not the section.
+   *
+   * **Which role creates which account comes from S/4, never from the role name** (`TBD002`/
+   * `TBC002`, via `requestedSyncTargets`) - `checks.md`'s standing rule; pattern-matching `FLVN*`
+   * would be a guess.
+   *
+   * Blocking, unlike everything else read out of the CVI customizing: a warning here is a request
+   * that cannot be activated, and the requester can act on it in one click. **A configuration that
+   * could not be READ still never blocks** - it says so and steps aside, the same posture
+   * `cvi_configuration` takes, because an unreachable S/4 must not stop every submit.
+   */
+  const roleRequestedStage = {
+    name: 'relation_role_requested',
+    async run(payload) {
+      const sections = payload.sections || {};
+      const businessPartner = known || payload.root?.BusinessPartner;
+
+      // Every section that is customer or supplier data, the role node itself included.
+      const carried = new Map();
+      for (const [section, rows] of Object.entries(sections)) {
+        const relationField = relationFields[section];
+        if (!relationField || !(relationField in RELATION_ROLE_NODE)) continue;
+        if (!liveRows(rows).length) continue;
+        if (!carried.has(relationField)) carried.set(relationField, []);
+        carried.get(relationField).push(section);
+      }
+      if (!carried.size) return [];
+
+      // A partner that already HAS the record already has the role that made it, so there is
+      // nothing for this request to ask for. Shares `numberFor` with the stage above, so a change
+      // request costs no second lookup - and a create has no partner and never asks at all.
+      const stillNeeded = [];
+      for (const [relationField, dependents] of carried) {
+        if (!businessPartner) { stillNeeded.push([relationField, dependents]); continue; }
+        try {
+          if (await numberFor(relationField, businessPartner)) continue;
+        } catch {
+          // `relation_parent_exists` already warns about this exact lookup, naming the error. A
+          // second warning saying the same thing would only make the list longer.
+          continue;
+        }
+        stillNeeded.push([relationField, dependents]);
+      }
+      if (!stillNeeded.length) return [];
+
+      let requested;
+      try {
+        requested = await requestedRelations(payload);
+      } catch (error) {
+        return [{
+          severity: 'warning',
+          message: `The CVI configuration could not be read (${error.message}), so it is not known`
+            + ' whether the roles on this request create the customer or supplier record its data'
+            + ' needs.'
+        }];
+      }
+
+      return stillNeeded
+        .filter(([relationField]) => !requested.has(relationField))
+        .map(([relationField, dependents]) => ({
+          severity: 'error',
+          target: dependents[0],
+          message: `${dependents.join(', ')} ${dependents.length > 1 ? 'carry' : 'carries'}`
+            + ` ${relationField.toLowerCase()} data, but no business partner role on this request`
+            + ` creates a ${relationField.toLowerCase()} in S/4. Add a role that does to the Business`
+            + ' Partner Roles section, or remove those sections.'
+        }));
+    }
   };
 
   return {
@@ -132,7 +222,11 @@ function createRelationStages({ resolve, relationFields, roleNodes, businessPart
         }
         return messages;
       }
-    }]
+    },
+    // Appended, never prepended: several tests reach `relation_parent_exists` as `validations[0]`.
+    // Built only when the caller supplied the resolver - a stage that cannot answer its question
+    // must not be registered as one that did.
+    ...(typeof requestedRelations === 'function' ? [roleRequestedStage] : [])]
   };
 }
 

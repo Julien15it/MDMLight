@@ -1,6 +1,7 @@
 'use strict';
 
 const { fetchJson } = require('./company-research');
+const { shapeSuggestedAddress } = require('./address-shape');
 
 const VIES_API = 'https://ec.europa.eu/taxation_customs/vies/rest-api/ms/';
 
@@ -84,14 +85,25 @@ function parseAddress(address, country) {
   const postalCity = last.match(/^(\S{3,10})\s+(.+)$/u);
   const street = (postalCity ? lines.slice(0, -1) : lines).join(' ');
   // VIES sends "Koedreef 12" as one line while S/4 keeps the number apart. Only a plain trailing
-  // number, so "Kerkstraat 12 bus 3" stays whole.
-  const numbered = street.match(/^(\D+?)[\s,]+(\d+[A-Za-z]?)$/u);
-  return {
-    StreetName: numbered ? numbered[1] : street,
-    HouseNumber: numbered ? numbered[2] : '',
+  // number, so "Kerkstraat 12 bus 3" stays whole. That split, and the "is this a street name at
+  // all" judgement, are shared with the GLEIF and public-web branches (srv/ai/address-shape.js): a
+  // member state that formats its address as prose reaches the same trap they do. The keys stay
+  // present-but-empty rather than absent - every reader here (differingAddressFields, the
+  // derivation, addressText) already treats an empty value as a gap, and a missing key would be a
+  // second way of saying the same thing.
+  const shaped = shapeSuggestedAddress({
+    StreetName: street,
     PostalCode: postalCity ? postalCity[1] : '',
     CityName: postalCity ? postalCity[2] : '',
-    Country: String(country || '').toLocaleUpperCase()
+    Country: country
+  }) || {};
+  return {
+    StreetName: '',
+    HouseNumber: '',
+    PostalCode: '',
+    CityName: '',
+    Country: String(country || '').toLocaleUpperCase(),
+    ...shaped
   };
 }
 

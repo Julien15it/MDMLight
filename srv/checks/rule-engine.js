@@ -46,6 +46,13 @@ const COMPARISONS = Object.freeze({
   gt:       { text: '>  greater than',             needsValue: true,  apply: (a, b) => compare(a, b) > 0 },
   ge:       { text: '>=  at least',                needsValue: true,  apply: (a, b) => compare(a, b) >= 0 },
   contains: { text: 'contains',                    needsValue: true,  apply: (a, b) => text(a).includes(text(b)) },
+  // The negative counterpart of `contains` (asked for 2026-09-08: every rule page offered
+  // =/</contains/is empty and no way to say the opposite of contains at all). Across SEVERAL listed
+  // values it folds the way `ne` already does - OR - so `Name does not contain BV, NV` holds on a
+  // value missing EITHER of them, not only on one missing both. That is the shape every non-`eq`
+  // operator on these tables has; making this one alone mean "contains none of them" would leave
+  // the two negative operators reading two different ways.
+  notContains: { text: 'does not contain',         needsValue: true,  apply: (a, b) => !text(a).includes(text(b)) },
   empty:    { text: 'is empty',                    needsValue: false, apply: (a) => isEmptyValue(a) },
   notEmpty: { text: 'is not empty',                needsValue: false, apply: (a) => !isEmptyValue(a) }
 });
@@ -53,9 +60,9 @@ const COMPARISONS = Object.freeze({
 /**
  * The operator label every rule page shows: "=  equal to" -> "=" (2026-09-01, asked for on the
  * Workflow Agent Determination page, then on the other three). The symbol already says it and the
- * cell is narrow; `contains`, `is empty` and `is not empty` carry no symbol and no double space, so
- * they come back whole. It lives here because this is where COMPARISONS itself lives - the text is
- * still defined once, and this only chooses which half of it a picker shows.
+ * cell is narrow; `contains`, `does not contain`, `is empty` and `is not empty` carry no symbol and
+ * no double space, so they come back whole. It lives here because this is where COMPARISONS itself
+ * lives - the text is still defined once, and this only chooses which half of it a picker shows.
  */
 function symbolOnly(text) {
   return String(text === null || text === undefined ? '' : text).trim().split('  ')[0].trim();
@@ -207,7 +214,8 @@ const label = (resolved) => `${resolved.section} ${humanise(resolved.element)}`;
 // A steward wrote `eq`, but the message a requester reads should say what they meant.
 const OPERATOR_TEXT = Object.freeze({
   eq: 'must be', ne: 'must not be', lt: 'must be less than', le: 'must be at most',
-  gt: 'must be greater than', ge: 'must be at least', contains: 'must contain'
+  gt: 'must be greater than', ge: 'must be at least', contains: 'must contain',
+  notContains: 'must not contain'
 });
 
 // `logic` is in the sentence because it changes what the rule means: a requester told "where A and

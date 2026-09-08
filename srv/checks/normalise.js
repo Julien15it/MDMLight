@@ -39,10 +39,44 @@ const NORMALISABLE = Object.freeze({
   ])
 });
 
-// One right answer, so no model: asked to reformat "be", one could return "Belgium" instead of "BE".
-const UPPERCASE_CODES = Object.freeze({
-  Addresses: Object.freeze(['Country', 'Region'])
-});
+/**
+ * Code fields stored in CAPITALS in S/4. **One right answer, so no model**: asked to reformat "be",
+ * a model could return "Belgium" instead of "BE".
+ *
+ * **The list is exactly the value-help fields** (`VALUE_HELP_FIELDS` in the maintenance controller),
+ * minus the one that is not a code - see `NOT_A_CODE` below. That is the rule asked for on
+ * 2026-09-08: Country was hardcoded here and every other picker had the same problem ("be" typed
+ * into Language, Currency or Tax Type is refused by S/4 just as flatly), so the criterion is now
+ * "a field whose values come from a code list" rather than a list somebody remembered to extend.
+ * `test/normalise.test.js` reads the controller's own table and pins the two lists together, which
+ * is what keeps a value help added later from silently missing out.
+ *
+ * A field name, not a section/field pair: these names mean the same thing in every section that
+ * carries them (`Country` on Addresses, `Currency` on two different supplier nodes), so the set is
+ * applied to the root and to every section alike.
+ */
+const NOT_A_CODE = Object.freeze(new Set([
+  // A business partner NUMBER, picked from live partners rather than a code list. Uppercasing a
+  // number changes nothing, but a key into another record is not a formatting matter.
+  'BusinessPartnerPerson'
+]));
+
+const UPPERCASE_CODE_FIELDS = Object.freeze(new Set([
+  // Root
+  'BusinessPartnerGrouping', 'LegalForm', 'FormOfAddress', 'AcademicTitle', 'GenderCodeName',
+  'Industry', 'CorrespondenceLanguage',
+  // Addresses
+  'Country', 'Region', 'Language',
+  // Identification, tax and roles
+  'BPIdentificationType', 'BPTaxType', 'TaxNumberType', 'CustomerTaxGroupingCode',
+  'BusinessPartnerRole', 'IndustrySystemType', 'IndustrySector',
+  'IndustryCode1', 'IndustryCode2', 'IndustryCode3', 'IndustryCode4', 'IndustryCode5',
+  // Customer and supplier organisational units
+  'CustomerAccountGroup', 'SupplierAccountGroup', 'CustomerClassification',
+  'CompanyCode', 'SalesOrganization', 'DistributionChannel', 'Division', 'SalesDistrict',
+  'CustomerPriceGroup', 'CustomerPricingProcedure', 'PurchasingOrganization',
+  'Currency', 'PurchaseOrderCurrency'
+]));
 
 const PROPOSAL_SCHEMA = Object.freeze({
   type: 'object',
@@ -250,29 +284,39 @@ function sanitizeProposals(raw, fields) {
   return proposals;
 }
 
-/** Code fields uppercased. Same proposal shape as the model's, so the accept dialog is shared. */
+/**
+ * Code fields uppercased. Same proposal shape as the model's, so the accept dialog is shared.
+ *
+ * The root is walked as well as the sections (2026-09-08): `BusinessPartnerGrouping`, `LegalForm`
+ * and `CorrespondenceLanguage` are root fields, and while only `Addresses` carried a code field this
+ * loop had nothing to do up there.
+ */
 function deterministicProposals(payload = {}, fieldEditable = () => true) {
   const proposals = [];
-  for (const [section, names] of Object.entries(UPPERCASE_CODES)) {
-    const rows = payload.sections?.[section];
+  const propose = (target, index, field, current) => {
+    if (!UPPERCASE_CODE_FIELDS.has(field)) return;
+    if (!fieldEditable(target, field)) return;
+    if (typeof current !== 'string' || !current.trim()) return;
+    const proposed = current.trim().toLocaleUpperCase('en-US');
+    if (proposed === current) return;
+    proposals.push({
+      target,
+      index,
+      field,
+      current,
+      proposed,
+      reason: 'Uppercase code',
+      detail: `${field} is a code and is stored in capitals, so “${current}” is proposed as “${proposed}”.`
+    });
+  };
+
+  for (const [field, current] of Object.entries(payload.root || {})) {
+    propose('root', 0, field, current);
+  }
+  for (const [section, rows] of Object.entries(payload.sections || {})) {
     if (!Array.isArray(rows)) continue;
     rows.forEach((row, index) => {
-      for (const field of names) {
-        if (!fieldEditable(section, field)) continue;
-        const current = row?.[field];
-        if (typeof current !== 'string' || !current.trim()) continue;
-        const proposed = current.trim().toLocaleUpperCase('en-US');
-        if (proposed === current) continue;
-        proposals.push({
-          target: section,
-          index,
-          field,
-          current,
-          proposed,
-          reason: 'Uppercase code',
-          detail: `${field} is a code and is stored in capitals, so “${current}” is proposed as “${proposed}”.`
-        });
-      }
+      for (const [field, current] of Object.entries(row || {})) propose(section, index, field, current);
     });
   }
   return proposals;
@@ -332,7 +376,8 @@ async function proposeNormalisations({
 module.exports = {
   DEFAULT_NORMALISE_MODEL,
   NORMALISABLE,
-  UPPERCASE_CODES,
+  UPPERCASE_CODE_FIELDS,
+  NOT_A_CODE,
   PROPOSAL_SCHEMA,
   SYSTEM_PROMPT,
   deterministicProposals,

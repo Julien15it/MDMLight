@@ -158,7 +158,12 @@ difference; each `CONDITION_PAIRS` names its own.
 - **A blank comparator reads as `eq`** (`operatorOf`, like `conditionLogicOf` for a blank Logic) — every
   row stored before the operator column existed meant equality, so nothing was migrated.
   `empty`/`notEmpty` read the **RAW** value via `sectionRows`, never `fieldValues`. `eq` keeps wildcard
-  and `|`-multi-value matching; every other operator is OR across the listed values. The duplicate
+  and `|`-multi-value matching; every other operator is OR across the listed values —
+  **`notContains` included** (added 2026-09-08, asked for: every page offered `=`/`<`/`contains`/`is
+  empty` and no way at all to say the opposite of `contains`). So `Name does not contain BV, NV`
+  holds on a value missing EITHER, not only on one missing both; making the one negative operator
+  read differently from `ne` would be worse than the shared fold. It is word-shaped, so `symbolOnly`
+  returns it whole, and it reaches all four pages because it lives in `COMPARISONS`. The duplicate
   engine's bag holds **normalised** values, so its `is empty` means "no value for that field at all".
 - **`is empty`/`is not empty` are a COMPLETE condition with no value**, **named** by a shared constant
   (`EMPTINESS_COMPARISONS`), not signalled over the wire — a served `needsValue` flag that failed to

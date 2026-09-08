@@ -87,9 +87,14 @@ test('maps the GLEIF record onto the paths the live API actually uses', () => {
   assert.equal(entity.registeredAs, '0404616494');
   assert.equal(entity.registeredAt, 'RA000045');
   assert.equal(entity.status, 'ACTIVE');
-  // GLEIF sends addressLines, so no house number is split out here — only VIES needs that.
+  // GLEIF joins its free-text addressLines, and the house number sits at the end of the street
+  // line - S/4 keeps the two apart, so `shapeSuggestedAddress` splits it here too (2026-09-08).
   assert.deepEqual(entity.address, {
-    StreetName: 'Begijnenvest 113', PostalCode: '2000', CityName: 'Antwerpen', Country: 'BE'
+    StreetName: 'Begijnenvest',
+    HouseNumber: '113',
+    PostalCode: '2000',
+    CityName: 'Antwerpen',
+    Country: 'BE'
   });
 });
 

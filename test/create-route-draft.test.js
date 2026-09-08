@@ -114,6 +114,8 @@ test('a Business Partner Assistant draft is decoded before being parsed, address
   const { model, ctx } = fakeContext();
   const draft = {
     root: { OrganizationBPName1: 'Alluvion B.V.', SearchTerm1: 'Alluvion', CorrespondenceLanguage: 'NL' },
+    // SearchTerm1 is in the draft on purpose here: the allowlist has to DROP it, not merely never
+    // be handed one - the route is a URL a query string can be hand-built against.
     sections: {
       Addresses: [{ StreetName: 'Herengracht 2A', PostalCode: '2312LD', CityName: 'Leiden', Country: 'NL' }]
     }
@@ -122,7 +124,10 @@ test('a Business Partner Assistant draft is decoded before being parsed, address
   await onCreateRoute.call(ctx, routeEventFor(draft));
 
   assert.equal(model.getData().root.OrganizationBPName1, 'Alluvion B.V.');
-  assert.equal(model.getData().root.SearchTerm1, 'Alluvion');
+  assert.equal(model.getData().root.CorrespondenceLanguage, 'NL');
+  // Withdrawn 2026-09-08: the assistant has nothing to base a search term on but the words of the
+  // question, and it showed - "cole compan" reached the field live. See ROOT_DRAFT_FIELDS.
+  assert.equal(model.getData().root.SearchTerm1, undefined);
   const address = model.getData().sections.Addresses[0];
   // __rowKey is a fresh random value every run (generateRowKey) - a suggestion never carries one,
   // since the server that built it has no concept of the client's own row keys, and it is what

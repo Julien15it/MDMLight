@@ -535,3 +535,62 @@ test('the reason a rule fired says which comparator it used', () => {
     /Addresses\.Region is not empty/u
   );
 });
+
+// ---------------------------------------------------------------------------
+// `does not contain` (2026-09-08, asked for)
+// ---------------------------------------------------------------------------
+
+/**
+ * Every rule page offered `=`, `<`, `contains` and the emptiness pair, and no way at all to say the
+ * opposite of `contains`. It lives in COMPARISONS with the rest, so all four pages get it from the
+ * one place the service serves their pickers from.
+ */
+test('notContains is the negation of contains, and needs a value like it', () => {
+  assert.equal(COMPARISONS.notContains.needsValue, true);
+  assert.equal(COMPARISONS.notContains.apply('Alluvion BV', 'BV'), false);
+  assert.equal(COMPARISONS.contains.apply('Alluvion BV', 'BV'), true);
+  assert.equal(COMPARISONS.notContains.apply('Alluvion NV', 'BV'), true);
+  // Trimmed and case-insensitive, exactly as `contains` is - both go through `text`.
+  assert.equal(COMPARISONS.notContains.apply(' alluvion bv ', 'BV'), false);
+});
+
+// Word-shaped, so `symbolOnly` returns it whole - it has no symbol to keep and no double space.
+test('the picker shows it whole', () => {
+  const { symbolOnly } = require('../srv/checks/rule-engine');
+  assert.equal(symbolOnly(COMPARISONS.notContains.text), 'does not contain');
+});
+
+test('a validation rule can be written with it, and reads as a sentence', async () => {
+  const stages = createConfiguredStages({
+    validations: [{ field: 'General.OrganizationBPName1', comparison: 'notContains', value: 'TEST' }],
+    model
+  });
+  const clean = await stages.validations[0].run(payload({ OrganizationBPName1: 'Alluvion BV' }));
+  assert.deepEqual(clean, []);
+
+  const findings = await stages.validations[0].run(payload({ OrganizationBPName1: 'Alluvion TEST BV' }));
+  assert.equal(findings.length, 1);
+  assert.match(findings[0].message, /must not contain TEST/u);
+});
+
+// A condition slot takes it too, on all four tables - `conditionMatches` reads the same COMPARISONS.
+test('a condition can be written with it', async () => {
+  const stages = createConfiguredStages({
+    validations: [{
+      field: 'General.Language',
+      comparison: 'notEmpty',
+      conditionField: 'General.OrganizationBPName1',
+      conditionOperator: 'notContains',
+      conditionValue: 'TEST'
+    }],
+    model
+  });
+  assert.equal(
+    (await stages.validations[0].run(payload({ OrganizationBPName1: 'Alluvion TEST BV' }))).length, 0,
+    'the condition does not hold, so the rule does not fire'
+  );
+  assert.equal(
+    (await stages.validations[0].run(payload({ OrganizationBPName1: 'Alluvion BV' }))).length, 1,
+    'it holds, and the rule fires'
+  );
+});

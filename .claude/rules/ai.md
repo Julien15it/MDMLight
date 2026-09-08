@@ -105,6 +105,29 @@ fallback** whenever `parseIntent` returns null. `company-research.js` is a separ
   `ASSISTANT_INTENT_SOURCE`-gated parser); both can fire. **Only the role row is added** —
   `cvi_account_group` fills Customers/Suppliers on the next Check, through the proposal path every other
   derivation follows.
+- **The suggestion never proposes a SearchTerm1** (withdrawn 2026-09-08, reported live: a prompt
+  arrived in the field as *"cole compan"*). It was built from the words of the QUESTION — the only
+  material the assistant has — so it wrote a truncated, sometimes mistyped fragment of what the
+  requester typed into a field whose whole purpose is the requester's own shorthand for finding this
+  partner again. Dropped at both ends: `businessPartnerCreationSuggestion` no longer builds one and
+  `ROOT_DRAFT_FIELDS` no longer accepts one, because the create route is a URL a query string can be
+  hand-built against.
+- **A suggested address is shaped before it can reach a field** — `srv/ai/address-shape.js`, one
+  module for all three sources (2026-09-08, three reported values): `StreetName: "situé a huistreet"`
+  (the snippet matcher allows three words in front of the street-type word, and the French phrase
+  introducing the address filled them), `StreetName: "huistreet+50"` (a URL-encoded fragment inside a
+  snippet), and `StreetName: "Huistreet 50"` with `HouseNumber` empty (GLEIF joins its free-text
+  `addressLines` and never separates the number). It answers two questions only — **is this a street
+  name at all**, and **is the number hiding inside it** — and **never invents, corrects or completes
+  a value**: a street it cannot vouch for is DROPPED, because a wrong street quietly typed into a
+  create is worse than an empty field. The postal code, city and country survive a dropped street.
+  **The two word sets are separate on purpose**: `ADDRESS_INTRODUCERS` (a verb, a possessive, a kind
+  of premises, a preposition of place) comes off freely, `ADDRESS_CONNECTORS` (articles and
+  particles) only BEHIND one — "De Keyserlei", "Le Grand Rue" and "Van Eycklei" are real streets, and
+  the snippet-only noise list this replaced stripped their first word unconditionally. Applied in
+  `vies.js`, `gleif.js`, `company-research.js` **and** once more in
+  `businessPartnerCreationSuggestion`, which is the last point before the values become a filled-in
+  form.
 - **`SuggestedData` is `{ root, sections }`**, the same shape a staged payload uses — a `TaxNumbers` row
   is a child entity and no flat key list can express one. The client JSON-encodes the whole object into a
   single `?draft=` query parameter. `_onCreateRoute` applies root fields off the explicit allowlist

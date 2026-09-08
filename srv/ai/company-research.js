@@ -1,5 +1,7 @@
 'use strict';
 
+const { shapeSuggestedAddress } = require('./address-shape');
+
 const WIKIPEDIA_API = 'https://en.wikipedia.org/w/api.php';
 const WIKIPEDIA_SUMMARY_API = 'https://en.wikipedia.org/api/rest_v1/page/summary/';
 const PUBLIC_SEARCH_API = 'https://html.duckduckgo.com/html/';
@@ -94,25 +96,27 @@ function countryFromResult(result) {
   }
 }
 
+/**
+ * A snippet is prose, so the phrase that INTRODUCES the address is captured along with it: the
+ * pattern allows three words in front of the street-type word, and "situé à Huistreet" fills all
+ * three. Trimming that, and judging whether what is left is a street name at all, is
+ * `shapeSuggestedAddress`'s job - shared with the VIES and GLEIF branches, which reach the same
+ * problem from their own directions. A result whose street does not survive it is skipped rather
+ * than returned half-shaped: the next result may carry a clean one.
+ */
 function suggestedAddressFromResults(results = []) {
   const addressPattern = /((?:[\p{L}\p{M}'’.-]+\s+){0,3}[\p{L}\p{M}'’.-]*(?:straat|steenweg|laan|weg|lei|dreef|kaai|plein|avenue|street|road|boulevard|chaussée|rue))\s+(\d+[a-z]?)\s*,?\s*(\d{4,6})\s+([\p{L}\p{M}'’.-]+(?:\s+[\p{L}\p{M}'’.-]+){0,2})/iu;
   for (const result of results) {
     const match = decodeHtml(result.snippet).match(addressPattern);
     if (!match) continue;
-    const streetWords = match[1].trim().split(/\s+/u);
-    const leadingNoise = new Set([
-      'at', 'de', 'het', 'in', 'langs', 'located', 'op', 'our', 'shop', 'the', 'visit', 'winkel'
-    ]);
-    while (streetWords.length > 1 && leadingNoise.has(streetWords[0].toLocaleLowerCase())) {
-      streetWords.shift();
-    }
-    return {
-      StreetName: streetWords.join(' '),
-      HouseNumber: match[2].trim(),
-      PostalCode: match[3].trim(),
-      CityName: match[4].trim().replace(/[,.]+$/u, ''),
+    const shaped = shapeSuggestedAddress({
+      StreetName: match[1],
+      HouseNumber: match[2],
+      PostalCode: match[3],
+      CityName: match[4],
       Country: countryFromResult(result)
-    };
+    });
+    if (shaped && shaped.StreetName) return shaped;
   }
   return null;
 }

@@ -7,6 +7,7 @@ const { aiAssistanceEnabled } = require('./ai/availability');
 const { researchCompany, vatNumberFromPublicWeb } = require('./ai/company-research');
 const { enrichCandidate } = require('./ai/registry');
 const { checkVatNumber, STATUS: VIES_STATUS, VIES_COUNTRIES } = require('./ai/vies');
+const { shapeSuggestedAddress } = require('./ai/address-shape');
 const { startWorkflow } = require("./wf/processAutomation");
 const { workflowAgents } = require('./wf/btp-agents');
 const { createCache } = require('./ai/cache');
@@ -2006,7 +2007,11 @@ function businessPartnerCreationSuggestion(
   ).trim();
   // Same ordering for the address: a register (GLEIF, or VIES once it has confirmed a number) is
   // structured and sourced, the DuckDuckGo-backed research is a last resort.
-  const address = registry?.address || research?.suggestedAddress || {};
+  //
+  // Shaped once more here even though all three sources shape their own (srv/ai/address-shape.js):
+  // this is the last point before the values become a filled-in create form, and a source added
+  // later must not be able to walk a street name of its own into it.
+  const address = shapeSuggestedAddress(registry?.address || research?.suggestedAddress) || {};
   const language = COUNTRY_LANGUAGE[address.Country] || '';
 
   const addressRow = {
@@ -2021,10 +2026,15 @@ function businessPartnerCreationSuggestion(
   return {
     SuggestedAction: 'CREATE_BUSINESS_PARTNER',
     SuggestedData: JSON.stringify({
+      // No SearchTerm1 (withdrawn 2026-09-08, reported live: a prompt arrived in the field as
+      // "cole compan"). It was built from the words of the QUESTION - the only thing the assistant
+      // has - so it proposed a truncated, sometimes mistyped fragment of what the requester typed
+      // into a field whose whole purpose is the requester's own shorthand for finding this partner
+      // again. There is nothing here to base one on, and a requester knows what they will search
+      // for. `ROOT_DRAFT_FIELDS` on the screen no longer accepts one either.
       root: {
         BusinessPartnerCategory: '2',
         OrganizationBPName1: proposedName.slice(0, 40),
-        SearchTerm1: name.replace(/[^\p{L}\p{N}]+/gu, ' ').trim().slice(0, 20),
         ...(language ? { CorrespondenceLanguage: language } : {})
       },
       sections: {

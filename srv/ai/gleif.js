@@ -1,6 +1,7 @@
 'use strict';
 
 const { fetchJson } = require('./company-research');
+const { shapeSuggestedAddress } = require('./address-shape');
 
 // Free, CC0, no key, global. The only registry source that works from a name alone worldwide.
 const GLEIF_API = 'https://api.gleif.org/api/v1/';
@@ -12,16 +13,31 @@ function firstText(value) {
   return String(value || '').trim();
 }
 
+/**
+ * GLEIF has no house-number field: `addressLines` is free text and the number, where there is one,
+ * sits at the end of the street line. Joining the lines and calling the result a street name is
+ * what put "Huistreet 50" in `StreetName` with `HouseNumber` empty (2026-09-08) - S/4 keeps the two
+ * apart, and so does every other address this app proposes. `shapeSuggestedAddress` splits it and
+ * judges what is left; an address it cannot vouch for keeps its city and postal code and loses only
+ * the street.
+ */
 function toAddress(address = {}) {
   const street = (Array.isArray(address.addressLines) ? address.addressLines : [])
     .map(firstText)
     .filter(Boolean)
     .join(' ');
   return {
-    StreetName: street,
-    PostalCode: firstText(address.postalCode),
-    CityName: firstText(address.city),
-    Country: firstText(address.country).toLocaleUpperCase()
+    StreetName: '',
+    HouseNumber: '',
+    PostalCode: '',
+    CityName: '',
+    Country: '',
+    ...shapeSuggestedAddress({
+      StreetName: street,
+      PostalCode: firstText(address.postalCode),
+      CityName: firstText(address.city),
+      Country: firstText(address.country)
+    })
   };
 }
 

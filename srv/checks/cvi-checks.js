@@ -74,6 +74,9 @@ const SYNC_TARGETS = Object.freeze([
     accountRangeField: 'CustomerNumberRange',
     numberRangeObject: 'DEBITOR',
     createsFlags: Object.freeze(['CreatesCustomerMandatory', 'CreatesCustomerOptional']),
+    // RELATION_FIELDS' name for this target, so `relation-checks.js` can ask "does any requested
+    // role create THIS relation" without a second map of its own.
+    relation: 'Customer',
     // Where the derived account group lands. Both are single nodes (`many: false` in
     // PAYLOAD_NODES) but the UI still sends them as one-element arrays, so index 0 is the row.
     section: 'Customers',
@@ -89,6 +92,7 @@ const SYNC_TARGETS = Object.freeze([
     accountRangeField: 'SupplierNumberRange',
     numberRangeObject: 'KREDITOR',
     createsFlags: Object.freeze(['CreatesSupplierMandatory', 'CreatesSupplierOptional']),
+    relation: 'Supplier',
     section: 'Suppliers',
     payloadField: 'SupplierAccountGroup'
   })
@@ -548,6 +552,23 @@ function createCviStages({ read = readConfiguration } = {}) {
 }
 
 /**
+ * The RELATIONS this request's roles would create - `'Customer'`, `'Supplier'`, or neither - keyed
+ * the way `RELATION_FIELDS` names them.
+ *
+ * Exported for `relation-checks.js`'s `relation_role_requested`, which answers the other half of the
+ * same question that stage already asks: it checks the customer/vendor RECORD exists, this says
+ * whether the request asks for a ROLE that would create one. Both are the same S/4 answer
+ * (`TBD002`/`TBC002`), never a guess from the role name - see `requestedSyncTargets`.
+ *
+ * **Throws when the configuration cannot be read**, deliberately: the caller has to be able to tell
+ * "no role creates a supplier" from "nobody could find out", and only the first may block.
+ */
+async function requestedRelations(payload, { read = readConfiguration } = {}) {
+  const config = await configuration(read);
+  return new Set(requestedSyncTargets(payload, config).map(({ target }) => target.relation));
+}
+
+/**
  * Fill the cache without running a check, for warmup.js. Nothing else may call this.
  *
  * Reads FIRST and swaps after, so a refresh never leaves a window where the cache is empty
@@ -565,6 +586,7 @@ module.exports = {
   createCviStages,
   invalidate,
   prime,
+  requestedRelations,
   TTL_MS,
   ROLE_CATEGORY_SEVERITY,
   NUMBER_ASSIGNMENT_SEVERITY,

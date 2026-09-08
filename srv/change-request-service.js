@@ -11,7 +11,7 @@ const {
 const { candidateFromStagedRequest, duplicateSummary } = require('./ai/duplicate-check');
 const { runChecks, runValidations, BLOCKING } = require('./checks/pipeline');
 const { createRegistryStages } = require('./checks/registry-checks');
-const { createCviStages } = require('./checks/cvi-checks');
+const { createCviStages, requestedRelations } = require('./checks/cvi-checks');
 const { createDerivationStages } = require('./checks/derivation-checks');
 const { createBpCheckStage } = require('./checks/bp-check');
 const { createRelationStages } = require('./checks/relation-checks');
@@ -1146,7 +1146,12 @@ class ChangeRequestService extends cds.ApplicationService {
       resolve: async (relationField, partner) => {
         const s4 = await cds.connect.to('API_BUSINESS_PARTNER');
         return readRelationNumber(s4, partner, relationField);
-      }
+      },
+      // Which relations the request's own roles create, straight from the CVI customizing this
+      // pipeline already reads (15-minute cache, shared with cvi-checks' own stages) - see
+      // `relation_role_requested`. Not defaulted inside the stage: a check that could not be wired
+      // must not register as one that passed.
+      requestedRelations
     });
 
     // Both buttons, one pipeline: each runs only the stages its answer needs, and neither stages
