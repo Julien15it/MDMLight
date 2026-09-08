@@ -145,10 +145,8 @@ test('a contact create records the RelationshipNumber S/4 assigned', () => {
   const createAt = changeRequestService.indexOf("const persisted = { action: 'U' };");
   assert.ok(createAt > 0);
   const block = changeRequestService.slice(createAt, changeRequestService.indexOf('.where({ ID }));', createAt));
-  assert.match(
-    block, /persisted\.RelationshipNumber = contactRelationshipNumber/u,
-    'the number resolved for the contact write is persisted, not just read'
-  );
+  assert.match(block, /section === 'BusinessPartnerContacts'/u, 'only the node whose key S/4 numbers');
+  assert.match(block, /persisted\.RelationshipNumber = assigned/u, 'and it is persisted, not just read');
 });
 
 test('the staged contact has somewhere to keep that number', async () => {

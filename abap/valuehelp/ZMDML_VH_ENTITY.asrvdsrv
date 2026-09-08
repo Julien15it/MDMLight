@@ -35,11 +35,6 @@ define service ZMDML_VH_ENTITY {
   expose I_BusPartIndustryKeyText       as IndustrySectorTexts;
   expose I_BusPartIndustryCode          as IndustryCodes;
   expose I_BusPartIndustryCodeText      as IndustryCodeTexts;
-  // TB912 / TB910: the Function and Department on a Contacts row.
-  expose I_ContactPersonFunction        as ContactPersonFunctions;
-  expose I_ContactPersonFunctionT       as ContactPersonFunctionTexts;
-  expose I_ContactPersonDepartment      as ContactPersonDepartments;
-  expose I_ContactPersonDepartmentT     as ContactPersonDepartmentTexts;
   expose I_BusinessPartnerBank          as Banks;
   expose I_CustomerAccountGroupStdVH    as CustomerAccountGroups;
   expose I_CustomerClassification       as CustomerClassifications;

@@ -140,13 +140,11 @@ test('only rows the post would CREATE are refused', async () => {
  * The stage keys off `creatable === false`, so anything that becomes non-creatable is blocked with
  * it. Today that is exactly one section - a wider list would be a behaviour change to notice.
  */
-test('the non-creatable maintenance nodes are the two S/4 has no create verb for', () => {
+test('exactly one maintenance node is non-creatable', () => {
   const readOnly = Object.entries(MAINTENANCE_ENTITIES)
     .filter(([, config]) => config.creatable === false)
     .map(([section]) => section);
-  // ContactFunctionAndDepartment is not a SECTION, so the stage never reaches it - a contact's
-  // function/department row exists as soon as the contact does and is only ever updated.
-  assert.deepEqual(readOnly, ['AddressTaxNumbers', 'ContactFunctionAndDepartment']);
+  assert.deepEqual(readOnly, ['AddressTaxNumbers']);
 });
 
 /**

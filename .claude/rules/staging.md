@@ -414,19 +414,6 @@ never expands an association).
   `createNodeRequiredStages`, so the check demanded both as if they were ordinary staged data;
   fixed by threading `addressChildNodes` through the same way `relationFields`/`roleNodes` are.
 
-- **A contact's Function, Department and Note are a SECOND write, not part of the contact.** They
-  are elements of `A_BPContactToFuncAndDept`, which shares `A_BusinessPartnerContact`'s four-part
-  key and has `sap:creatable="false"`: the row exists as soon as the contact does. They are staged
-  on `StagedContacts` because that is the row the requester fills in, `sanitizeEntityPayload` drops
-  them from the contact's own body, and `postContactDetail` updates them right after the contact is
-  written — addressed by the `RelationshipNumber` S/4 assigns, which is why the create response is
-  now read. `ContactFunctionAndDepartment` is the one `MAINTENANCE_ENTITIES` entry with no section,
-  no staging entity and no rule of its own (`FOLLOW_UP_WRITES` in `test/mdg-node-tree.test.js`).
-  **A row with all three empty is skipped, not sent as blanks** — it is indistinguishable from one
-  the screen never read back, and an update would clear what S/4 holds; clearing the last of the
-  three is the one thing this cannot express. The screen reads them back per BP through
-  `_mergeContactDetails`, keyed by relationship number, so a change request shows what S/4 has.
-
 ## Security gaps, known and open
 
 - **Nothing authorises the staged payload.** `getRequestPayload` has no check in front of it and

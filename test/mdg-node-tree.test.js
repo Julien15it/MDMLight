@@ -19,15 +19,6 @@ const {
 } = require('../srv/business-partner-service')._internals;
 const { PAYLOAD_NODES, ROOT_SECTION } = require('../srv/checks/payload-fields');
 
-/**
- * The one registry entry that is NOT a node of its own: `A_BPContactToFuncAndDept` shares
- * `A_BusinessPartnerContact`'s key and holds a contact's Function, Department and Note, which are
- * staged on the CONTACT row and written by `postContactDetail` in a second update. So it has a
- * write to configure but no section, no staging entity and no rule of its own - named here for the
- * same reason the value-help test names its own exceptions, rather than loosening the check.
- */
-const FOLLOW_UP_WRITES = Object.freeze(['ContactFunctionAndDepartment']);
-
 function screenSections() {
   const file = path.join(
     __dirname, '..', 'app', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse', 'BusinessPartnerMetadata.js'
@@ -53,7 +44,6 @@ test('every MDG node is wired through registry, staging, catalog and screen', ()
   }
 
   for (const id of Object.keys(MAINTENANCE_ENTITIES)) {
-    if (FOLLOW_UP_WRITES.includes(id)) continue;
     assert.ok(PAYLOAD_NODES[id], `${id} posts but a request cannot carry it`);
   }
 

@@ -323,11 +323,6 @@ entity StagedRoles : cuid {
  * on create, and a later change-type request reading this contact back from S/4 needs somewhere
  * to carry that key so an update/delete can address it.
  *
- * `ContactPersonFunction`/`ContactPersonDepartment`/`ContactPersonRemarkText` are elements of
- * `A_BPContactToFuncAndDept`, not of `A_BusinessPartnerContact` - the same key, a second entity,
- * update-only. They are staged on this row because that is the row the requester fills in, and
- * `postToS4` sends them in a follow-up update once the contact itself has been written.
- *
  * `ValidityStartDate`/`ValidityEndDate` are plain `Date`, matching `A_BusinessPartnerContact`'s
  * own type exactly (confirmed against the imported CSN) - not `DateTime` like `StagedRoles.ValidFrom`/
  * `ValidTo`. `Date` gives a date-only `DatePicker` (see `isDateTime`/`_createForm`), because there is
@@ -347,9 +342,6 @@ entity StagedContacts : cuid {
   BusinessPartnerFullName : String(81);
   ValidityStartDate       : Date;
   ValidityEndDate         : Date;
-  ContactPersonFunction   : String(4);
-  ContactPersonDepartment : String(4);
-  ContactPersonRemarkText : String(40);
 }
 
 entity StagedBankDetails : cuid {

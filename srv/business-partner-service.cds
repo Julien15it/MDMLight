@@ -178,9 +178,6 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
   @readonly entity CustomerPriceGroups       as projection on VH.CustomerPriceGroups;
   @readonly entity Currencies                as projection on VH.Currencies;
   @readonly entity CustomerPricingProcedures as projection on VH.CustomerPricingProcedures;
-  // TB912 / TB910, behind a Contacts row's Function and Department.
-  @readonly entity ContactPersonFunctions    as projection on VH.ContactPersonFunctions;
-  @readonly entity ContactPersonDepartments  as projection on VH.ContactPersonDepartments;
   // Renamed to avoid clashing with the existing BusinessPartnerRoles child
   // entity below (S4.A_BusinessPartnerRole) — this one is the code/text list.
   @readonly entity BusinessPartnerRoleCodes  as projection on VH.BusinessPartnerRoles;
