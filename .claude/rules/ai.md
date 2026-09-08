@@ -110,6 +110,19 @@ fallback** whenever `parseIntent` returns null. `company-research.js` is a separ
   single `?draft=` query parameter. `_onCreateRoute` applies root fields off the explicit allowlist
   `ROOT_DRAFT_FIELDS` and section rows by id, stamping each `__state: "new"`; an unknown section key is
   ignored rather than refused.
+- **The assistant asks the duplicate engine about the RECORD IT WOULD CREATE, not the name it was
+  asked about** (reported 2026-09-08: the assistant called a company clean, the Duplicate Check button
+  then found it). Both run the same index, ruleset and engine, so the candidate was the whole
+  difference, and `{ Name: companyName }` loses a duplicate three silent ways: a rule on any other
+  field cannot fire (`compareValues` scores 0 against a blank side), a rule carrying a condition on
+  Country/Category/Role is not even **applicable** (`applicableRules` needs both bags to satisfy it),
+  and one name indicator can never reach `strong` (`verdictFor` wants two). `assistantDuplicateCandidate`
+  builds it from the creation suggestion's own `SuggestedData` through the same
+  `candidateFromStagedRequest` the button uses, plus whatever VIES and GLEIF confirmed — so it runs
+  **after** the registry chain, which is the other half of the fix. A question that is nothing but a VAT
+  number is now checked too: it resolves no `companyName`, and the old gate skipped the check entirely.
+  **Only a VIES-confirmed number reaches the bag** — the same rule the proposal path follows — and the
+  candidate is `null`, never an empty bag, when there is neither a name nor a number to match on.
 - **The chat is a coloured list of turns** — a `sap.m.List` of `FeedListItem`s built by a **factory** (a
   template cannot vary a row's style class). Three classes keyed off SAP semantic tokens, never fixed
   hex. `pushMessage(role, sender, text)` is the only writer. `conversationHistory` — the narrower list

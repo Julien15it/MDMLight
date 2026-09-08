@@ -1449,6 +1449,51 @@ async function findIndexedDuplicates(s4, candidate, partners = [], { excludeRequ
     : checkAgainstPartners(record, partners, { extra: pending });
 }
 
+/**
+ * The candidate the ASSISTANT asks the duplicate engine about: the record it would create, not the
+ * bare name it was asked about.
+ *
+ * A name-only bag loses duplicates three ways, all of them silent: a rule on any other field
+ * cannot fire (`compareValues` scores 0 against a blank side), a rule carrying a condition on
+ * Country/Category/Role is not even applicable (`applicableRules` needs both bags to satisfy it),
+ * and one name indicator can never reach `strong` (`verdictFor` wants two). So the Duplicate Check
+ * button reported hits the assistant had just called clean (reported 2026-09-08).
+ *
+ * Built from the creation suggestion's own draft, through the same `candidateFromStagedRequest` the
+ * button uses, plus whatever VIES and GLEIF confirmed. Null when there is neither a name nor a tax
+ * number to match on - the one case where there is genuinely nothing to ask.
+ */
+function assistantDuplicateCandidate({
+  companyName = '', suggestion = null, registry = null, directVat = null
+} = {}) {
+  let draft = {};
+  if (suggestion?.SuggestedData) {
+    try {
+      draft = parseJsonObject(suggestion.SuggestedData, 'SuggestedData');
+    } catch (error) {
+      console.warn('[duplicates] The creation suggestion could not be read:', error.message);
+    }
+  }
+  const candidate = candidateFromStagedRequest(draft.root || {}, draft.sections || {});
+  // Both names are asked at once, not one instead of the other: the catalog folds `Name` and
+  // `additionalNames` into one bag, and a register often answers under a different legal name than
+  // the one the requester typed.
+  if (companyName) candidate.Name = companyName;
+  candidate.additionalNames = [registry?.name, directVat?.name]
+    .filter(Boolean)
+    .filter((name) => name !== companyName);
+  // A confirmed number even where no suggestion was built - a question that is nothing but a VAT
+  // number resolves no company name at all, and used to skip the duplicate check entirely.
+  const confirmedTaxNumber = registry?.taxNumber
+    || (directVat?.status === VIES_STATUS.VALID ? directVat.taxNumber : null);
+  if (confirmedTaxNumber && !candidate.taxNumbers.length) candidate.taxNumbers = [confirmedTaxNumber];
+  const address = registry?.address || directVat?.address || null;
+  if (address && !candidate.addresses.length) candidate.addresses = [address];
+
+  const hasName = Boolean(candidate.Name || candidate.OrganizationBPName1 || candidate.additionalNames.length);
+  return hasName || candidate.taxNumbers.length ? candidate : null;
+}
+
 // Any term, ranked by how many hit. Requiring every term makes a natural sentence unsatisfiable,
 // because no partner contains every word of it.
 function matchingBusinessPartners(terms, partners = [], addresses = []) {
@@ -2949,7 +2994,6 @@ class BusinessPartnerService extends cds.ApplicationService {
         const addresses = partnerFilter
           ? await assistantCache.get(`addresses:${cacheKey}`, () => readAssistantAddresses(s4, partners))
           : [];
-        const duplicates = companyName ? await findIndexedDuplicates(s4, companyName, partners) : [];
         // Independent of company-name resolution and the duplicate gate: a VAT number the requester
         // typed is a direct question about that number, and deserves a direct answer either way.
         const directVat = await directVatPending;
@@ -3006,8 +3050,21 @@ class BusinessPartnerService extends cds.ApplicationService {
         // Built regardless of duplicates (2026-09-04, asked for): a possible match is a warning the
         // requester reviews, not a reason to refuse preparing a different, genuinely new company.
         const suggestion = businessPartnerCreationSuggestion(question, research, companyName, registry);
+        // AFTER the registry chain, and about the whole suggested record: the tax number, country
+        // and city VIES and GLEIF just confirmed are exactly the fields a duplicate rule needs, and
+        // asking before they arrived is what made this miss what the Duplicate Check button then
+        // found (2026-09-08). See assistantDuplicateCandidate.
+        const duplicateCandidate = assistantDuplicateCandidate({
+          companyName, suggestion, registry, directVat
+        });
+        const duplicates = duplicateCandidate
+          ? await findIndexedDuplicates(s4, duplicateCandidate, partners)
+          : [];
+        // A VAT-only question resolves no company name, so the register that confirmed the number
+        // is the only thing that can name the company the answer is written about.
+        const askedName = companyName || registry?.name || directVat?.name || '';
         const fallbackAnswer = duplicates.length
-          ? [duplicateAnswer(companyName, duplicates, Boolean(suggestion)), ...directVatAnswerLine(directVat)].join('\n')
+          ? [duplicateAnswer(askedName, duplicates, Boolean(suggestion)), ...directVatAnswerLine(directVat)].join('\n')
           : suggestion
             ? externalResearchAnswer(companyName, research, registry, directVat)
             : [answerBusinessPartnerQuestion(question, partners, addresses), ...directVatAnswerLine(directVat)].join('\n');
@@ -3116,6 +3173,7 @@ BusinessPartnerService._internals = {
   readAssistantAddresses,
   createIndexReader,
   findIndexedDuplicates,
+  assistantDuplicateCandidate,
   nameIndex,
   extractSearchTerms,
   pickDefined,
