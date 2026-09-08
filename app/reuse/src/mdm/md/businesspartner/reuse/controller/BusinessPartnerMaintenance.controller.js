@@ -141,6 +141,20 @@ sap.ui.define([
     AddressHomePageURLs: true, AddressTaxNumbers: true
   };
 
+  // A contact's Function, Department and Note are elements of A_BPContactToFuncAndDept, which
+  // shares A_BusinessPartnerContact's key - so they are staged on the contact row but have to be
+  // read from their own entity, keyed by the relationship rather than by the partner alone.
+  var CONTACT_DETAIL_FIELDS = ["ContactPersonFunction", "ContactPersonDepartment", "ContactPersonRemarkText"];
+  var CONTACT_DETAIL_SECTION = {
+    id: "ContactFunctionAndDepartment",
+    title: "Contact Function and Department",
+    entitySet: "A_BPContactToFuncAndDept",
+    relationField: "BusinessPartnerCompany",
+    fields: [{ name: "RelationshipNumber", key: true }].concat(
+      CONTACT_DETAIL_FIELDS.map(function (name) { return { name: name, key: false }; })
+    )
+  };
+
   var VALUE_HELP_FIELDS = {
     BusinessPartnerGrouping: {
       collectionPath: "BusinessPartnerGroupings", keyField: "BusinessPartnerGrouping",
@@ -298,6 +312,14 @@ sap.ui.define([
     IndustryCode5: {
       collectionPath: "IndustryCodes", keyField: "BusinessPartnerIndustryCode",
       descriptionField: "BusinessPartnerIndustryCode_Text", title: "Select Industry Code"
+    },
+    ContactPersonFunction: {
+      collectionPath: "ContactPersonFunctions", keyField: "ContactPersonFunction",
+      descriptionField: "ContactPersonFunction_Text", title: "Select Function"
+    },
+    ContactPersonDepartment: {
+      collectionPath: "ContactPersonDepartments", keyField: "ContactPersonDepartment",
+      descriptionField: "ContactPersonDepartment_Text", title: "Select Department"
     },
     // Not a ZSRVB_MDMLIGHT_VH code list like every entry above - `BusinessPartnerPersons`
     // (business-partner-service.cds) is a live S/4 read of `A_BusinessPartner` itself, filtered
@@ -999,6 +1021,9 @@ sap.ui.define([
               state.sections[section.id] = (state.sections[section.id] || []).concat(scoped);
             }
           }.bind(this)));
+
+          // Before originalSections is taken, or these three would read as edits on every render.
+          await this._mergeContactDetails(businessPartner, state.sections.BusinessPartnerContacts || []);
 
           // The live values as read, before editing touches any of them - see "Highlighting what
           // changed" in CLAUDE.md. Only meaningful while actually editing: a plain display has
@@ -2106,6 +2131,29 @@ sap.ui.define([
       },
 
       /**
+       * A contact's Function, Department and Note, merged onto the staged Contacts rows by
+       * relationship number. Best-effort, like an address child that cannot be read: the section
+       * still renders, only without these three.
+       */
+      _mergeContactDetails: async function (businessPartner, contacts) {
+        if (!contacts.length) return;
+        try {
+          var loaded = await this._loadSection(businessPartner, CONTACT_DETAIL_SECTION);
+          var byRelationship = {};
+          loaded.records.forEach(function (record) {
+            byRelationship[record.RelationshipNumber] = record;
+          });
+          contacts.forEach(function (contact) {
+            var detail = byRelationship[contact.RelationshipNumber];
+            if (!detail) return;
+            CONTACT_DETAIL_FIELDS.forEach(function (field) { contact[field] = detail[field]; });
+          });
+        } catch (error) {
+          console.warn("[contacts] Could not read function, department and note:", error);
+        }
+      },
+
+      /**
        * A Contacts row's own read-only detail: the picked person's default address email/phone,
        * read live via `personContactInfo` (business-partner-service.cds) - never staged, so this
        * is not a childSections entry (those only ever read `state.sections`). Starts showing
@@ -2115,16 +2163,22 @@ sap.ui.define([
       _buildContactPersonInfoPanel: function (businessPartner) {
         var emailText = new Text({ text: "Loading contact information…" });
         var phoneText = new Text({ text: "" });
+        // A Panel lays its content out inline, so two bare Texts ran together as "Email: -Phone: -".
         var panel = new Panel({
           headerText: "Contact Information",
           expandable: true,
           expanded: true,
-          content: [emailText, phoneText]
+          content: [new VBox({
+            items: [
+              new HBox({ items: [new Label({ text: "Email", width: "5rem" }), emailText] }),
+              new HBox({ items: [new Label({ text: "Phone", width: "5rem" }), phoneText] })
+            ]
+          }).addStyleClass("sapUiSmallMargin")]
         }).addStyleClass("sapUiSmallMarginTop");
         this._executeAction("personContactInfo", { BusinessPartner: businessPartner })
           .then(function (result) {
-            emailText.setText("Email: " + ((result && result.Email) || "—"));
-            phoneText.setText("Phone: " + ((result && result.Phone) || "—"));
+            emailText.setText((result && result.Email) || "—");
+            phoneText.setText((result && result.Phone) || "—");
           })
           .catch(function (error) {
             emailText.setText("Contact information could not be read: " + errorMessage(error, "unknown error"));
@@ -3972,6 +4026,7 @@ sap.ui.define([
               }
             }.bind(this))
         );
+        await this._mergeContactDetails(businessPartner, sections.BusinessPartnerContacts || []);
         return { root: root, sections: sections };
       },
 

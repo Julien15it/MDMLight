@@ -1272,6 +1272,36 @@ sap.ui.define([], function () {
             "maxLength": 81,
             "creatable": false,
             "updatable": false
+          },
+          {
+            "name": "ContactPersonFunction",
+            "label": "Function",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ContactPersonDepartment",
+            "label": "Department",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 4,
+            "creatable": true,
+            "updatable": true
+          },
+          {
+            "name": "ContactPersonRemarkText",
+            "label": "Note",
+            "type": "cds.String",
+            "key": false,
+            "nullable": true,
+            "maxLength": 40,
+            "creatable": true,
+            "updatable": true
           }
         ],
         "deletable": true

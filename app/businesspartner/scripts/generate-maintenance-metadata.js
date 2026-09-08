@@ -167,6 +167,18 @@ const sections = [
       {
         name: 'BusinessPartnerFullName', label: 'Full Name', type: 'cds.String',
         key: false, nullable: true, maxLength: 81, creatable: false, updatable: false
+      },
+      {
+        name: 'ContactPersonFunction', label: 'Function', type: 'cds.String',
+        key: false, nullable: true, maxLength: 4, creatable: true, updatable: true
+      },
+      {
+        name: 'ContactPersonDepartment', label: 'Department', type: 'cds.String',
+        key: false, nullable: true, maxLength: 4, creatable: true, updatable: true
+      },
+      {
+        name: 'ContactPersonRemarkText', label: 'Note', type: 'cds.String',
+        key: false, nullable: true, maxLength: 40, creatable: true, updatable: true
       }
     ]
   },
@@ -1043,12 +1055,12 @@ async function cdsExcludedFieldsBySection() {
           updatable: property['sap:updatable'] !== 'false'
         };
       })
-      // A section may declare `localFields` for a value staged locally but not backed by ANY
-      // remote element - Contacts' own LastName/FirstName/BusinessPartnerFullName, a snapshot of
-      // the chosen person captured at F4-selection time (see StagedContacts in db/staging.cds).
-      // Never creatable/updatable: nothing here is meant to reach S/4, and sanitizeEntityPayload
-      // (business-partner-service.js) already drops any staged field the remote entity does not
-      // declare, so marking these editable would only offer an input that silently does nothing.
+      // A section may declare `localFields` for a value staged locally but not backed by THIS
+      // section's remote element - Contacts' LastName/FirstName/BusinessPartnerFullName snapshot
+      // of the chosen person, and its Function/Department/Note, which are elements of
+      // A_BPContactToFuncAndDept and reach S/4 in postToS4's follow-up update. An editable one is
+      // only ever safe where such a write exists: sanitizeEntityPayload drops every staged field
+      // the section's own remote entity does not declare, so otherwise the input does nothing.
       .concat(section.localFields || []);
   }
 

@@ -172,6 +172,48 @@ const ADDRESS_CHILD_NODES = new Set([
   'AddressEmails', 'AddressPhoneNumbers', 'AddressFaxNumbers', 'AddressHomePageURLs', 'AddressTaxNumbers'
 ]);
 
+/**
+ * A contact's Function, Department and Note: elements of `A_BPContactToFuncAndDept`, which shares
+ * `A_BusinessPartnerContact`'s key and supports UPDATE only - the row exists as soon as the contact
+ * does. Staged on the contact row, sent in a second write once the contact itself is written.
+ */
+const CONTACT_DETAIL_NODE = 'ContactFunctionAndDepartment';
+const CONTACT_DETAIL_FIELDS = Object.freeze([
+  'ContactPersonFunction', 'ContactPersonDepartment', 'ContactPersonRemarkText'
+]);
+const CONTACT_DETAIL_KEYS = Object.freeze([
+  'RelationshipNumber', 'BusinessPartnerCompany', 'BusinessPartnerPerson', 'ValidityEndDate'
+]);
+
+/**
+ * The follow-up update, or nothing at all when the row carries none of the three.
+ *
+ * Skipped rather than sent as blanks: a row with all three empty is indistinguishable from one the
+ * screen never read back, and an update would then clear what S/4 holds. Clearing the LAST of the
+ * three is the one thing this cannot express, and it is the safe way round.
+ */
+async function postContactDetail(bp, row, relationshipNumber) {
+  const fields = Object.fromEntries(CONTACT_DETAIL_FIELDS
+    .filter((field) => row[field] !== undefined)
+    .map((field) => [field, row[field] === null ? '' : row[field]]));
+  if (!Object.values(fields).some((value) => String(value).trim() !== '')) return;
+
+  if (!relationshipNumber) {
+    throw new Error(
+      'Cannot post the function, department or note: S/4HANA returned no RelationshipNumber '
+      + 'for this contact, so there is no row to address.'
+    );
+  }
+  const keys = Object.fromEntries(CONTACT_DETAIL_KEYS
+    .map((field) => [field, field === 'RelationshipNumber' ? relationshipNumber : row[field]]));
+  await bp.send('saveBusinessPartnerEntity', {
+    Entity: CONTACT_DETAIL_NODE,
+    IsCreate: false,
+    KeyJson: JSON.stringify(keys),
+    DataJson: JSON.stringify({ ...keys, ...fields })
+  });
+}
+
 /** The key S/4 assigned on create, off the create response, or null when it did not answer with one. */
 function assignedKeyOf(saveResult, field, stagedRow) {
   try {
@@ -2115,6 +2157,18 @@ class ChangeRequestService extends cds.ApplicationService {
             DataJson: JSON.stringify(data)
           });
 
+          let contactRelationshipNumber = null;
+          if (section === 'BusinessPartnerContacts') {
+            contactRelationshipNumber = isCreate
+              ? assignedKeyOf(saveResult, 'RelationshipNumber', ID)
+              : (data.RelationshipNumber || null);
+            console.log(
+              `[post] ${section} ${ID}: RelationshipNumber=${contactRelationshipNumber || '(none)'}`
+              + `${isCreate ? ` from create result ${saveResult}` : ' (already staged)'}`
+            );
+            await postContactDetail(bp, data, contactRelationshipNumber);
+          }
+
           if (section === 'Addresses') {
             // Every address this run touches is recorded here, create or update - an update's own
             // row already carries a real AddressID (it was read from S/4 when the request was
@@ -2164,11 +2218,7 @@ class ChangeRequestService extends cds.ApplicationService {
               if (assigned) persisted.OrdinalNumber = assigned;
             }
             // Only S/4 knows the RelationshipNumber it assigned, and no later update can address the row without it.
-            if (section === 'BusinessPartnerContacts') {
-              const assigned = assignedKeyOf(saveResult, 'RelationshipNumber', ID);
-              if (assigned) persisted.RelationshipNumber = assigned;
-              console.log(`[post] ${section} ${ID}: RelationshipNumber=${assigned || '(none)'} from create result ${saveResult}`);
-            }
+            if (contactRelationshipNumber) persisted.RelationshipNumber = contactRelationshipNumber;
             await db.run(cds.ql.UPDATE(config.entity).set(persisted).where({ ID }));
           }
         }
@@ -2457,6 +2507,10 @@ ChangeRequestService._internals = {
   RELATION_FIELDS,
   ADDRESS_CHILD_NODES,
   ADDRESS_CHILD_ASSIGNED_KEYS,
+  CONTACT_DETAIL_NODE,
+  CONTACT_DETAIL_FIELDS,
+  postContactDetail,
+  assignedKeyOf,
   resolveAddressChildKeys,
   usableDateTimeKey,
   resolveEffectiveRole,

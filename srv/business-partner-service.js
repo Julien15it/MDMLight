@@ -161,7 +161,9 @@ const VALUE_HELP_ENTITIES = Object.freeze([
   'SalesDistricts',
   'CustomerPriceGroups',
   'Currencies',
-  'CustomerPricingProcedures'
+  'CustomerPricingProcedures',
+  'ContactPersonFunctions',
+  'ContactPersonDepartments'
 ]);
 
 // `deletable` mirrors `sap:deletable` on the entity set in API_BUSINESS_PARTNER.edmx. Six said
@@ -291,6 +293,18 @@ const MAINTENANCE_ENTITIES = Object.freeze({
     // Customer/Supplier here either. Naming it would demand a value nothing on the staged row ever
     // carries, blocking every contact from being addable at all.
     requiredCreateFields: ['BusinessPartnerPerson', 'ValidityEndDate']
+  }),
+  // A contact's Function, Department and Note live on A_BPContactToFuncAndDept, which shares
+  // A_BusinessPartnerContact's key and supports READ and UPDATE only - the row exists as soon as
+  // the contact does, so postToS4 updates it in a second write rather than creating anything.
+  ContactFunctionAndDepartment: Object.freeze({
+    remote: 'A_BPContactToFuncAndDept',
+    navigation: 'to_ContactRelationship',
+    creatable: false,
+    notCreatableReason: 'The function and department of a contact cannot be created on their own; '
+      + 'they belong to the contact and are updated with it.',
+    deletable: false,
+    updatable: true
   }),
   TaxNumbers: Object.freeze({
     remote: 'A_BusinessPartnerTaxNumber',

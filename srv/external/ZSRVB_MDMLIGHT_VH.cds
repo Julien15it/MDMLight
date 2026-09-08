@@ -1692,3 +1692,85 @@ entity ZSRVB_MDMLIGHT_VH.DerTimeZones {
   IsDefault : Boolean;
 };
 
+
+@cds.external : true
+@cds.persistence.skip : true
+@sap.creatable : 'false'
+@sap.updatable : 'false'
+@sap.deletable : 'false'
+@sap.searchable : 'true'
+@sap.content.version : '1'
+@sap.label : 'Value Help for Func of Contact Person'
+entity ZSRVB_MDMLIGHT_VH.ContactPersonFunctions {
+  @sap.display.format : 'UpperCase'
+  @sap.text : 'ContactPersonFunction_Text'
+  @sap.label : 'Function'
+  @sap.quickinfo : 'Function of Partner'
+  key ContactPersonFunction : String(4) not null;
+  @sap.label : 'Function name'
+  @sap.quickinfo : 'Function name of partner'
+  @sap.creatable : 'false'
+  @sap.updatable : 'false'
+  ContactPersonFunction_Text : String(40);
+  to_Text : Association to many ZSRVB_MDMLIGHT_VH.ContactPersonFunctionTexts {  };
+};
+
+@cds.external : true
+@cds.persistence.skip : true
+@sap.creatable : 'false'
+@sap.updatable : 'false'
+@sap.deletable : 'false'
+@sap.searchable : 'true'
+@sap.content.version : '1'
+@sap.label : 'Function of Contact Person Textview'
+entity ZSRVB_MDMLIGHT_VH.ContactPersonFunctionTexts {
+  @sap.label : 'Language Key'
+  key Language : String(2) not null;
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Function'
+  @sap.quickinfo : 'Function of Partner'
+  key ContactPersonFunction : String(4) not null;
+  @sap.label : 'Function name'
+  @sap.quickinfo : 'Function name of partner'
+  ContactPersonFunctionName : String(40);
+};
+
+@cds.external : true
+@cds.persistence.skip : true
+@sap.creatable : 'false'
+@sap.updatable : 'false'
+@sap.deletable : 'false'
+@sap.searchable : 'true'
+@sap.content.version : '1'
+@sap.label : 'Value Help for Dept of Contact Person'
+entity ZSRVB_MDMLIGHT_VH.ContactPersonDepartments {
+  @sap.display.format : 'UpperCase'
+  @sap.text : 'ContactPersonDepartment_Text'
+  @sap.label : 'Department'
+  key ContactPersonDepartment : String(4) not null;
+  @sap.label : 'Company department'
+  @sap.quickinfo : 'Department at business partner'
+  @sap.creatable : 'false'
+  @sap.updatable : 'false'
+  ContactPersonDepartment_Text : String(40);
+  to_Text : Association to many ZSRVB_MDMLIGHT_VH.ContactPersonDepartmentTexts {  };
+};
+
+@cds.external : true
+@cds.persistence.skip : true
+@sap.creatable : 'false'
+@sap.updatable : 'false'
+@sap.deletable : 'false'
+@sap.searchable : 'true'
+@sap.content.version : '1'
+@sap.label : 'Department of Contact Person Textview'
+entity ZSRVB_MDMLIGHT_VH.ContactPersonDepartmentTexts {
+  @sap.label : 'Language Key'
+  key Language : String(2) not null;
+  @sap.display.format : 'UpperCase'
+  @sap.label : 'Department'
+  key ContactPersonDepartment : String(4) not null;
+  @sap.label : 'Company department'
+  @sap.quickinfo : 'Department at business partner'
+  ContactPersonDepartmentName : String(40);
+};
