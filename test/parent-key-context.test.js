@@ -33,6 +33,10 @@ const {
 
 const ROOT = path.join(__dirname, '..');
 const changeRequestService = fs.readFileSync(path.join(ROOT, 'srv', 'change-request-service.js'), 'utf8');
+const maintenanceController = fs.readFileSync(path.join(
+  ROOT, 'app', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse',
+  'controller', 'BusinessPartnerMaintenance.controller.js'
+), 'utf8');
 
 /** The five address-owned children, and the one of them that escaped the bug. */
 const ADDRESS_CHILDREN = ['AddressEmails', 'AddressPhoneNumbers', 'AddressFaxNumbers', 'AddressHomePageURLs'];
@@ -118,4 +122,36 @@ test('postToS4 stamps BusinessPartner for every node, not just a role node', () 
     /if \(isRoleNode\) data\.BusinessPartner = businessPartner;/u,
     'nothing is left that would leave a contact or an address child without one'
   );
+});
+
+/**
+ * The same spelling, one layer up: the screen resolves a section's relation value from a map keyed
+ * by relationField, and `BusinessPartnerCompany` was not in it - so a change request read its
+ * contacts as "the role was never assigned" and showed the section empty.
+ */
+test('the screen resolves a relation value for BusinessPartnerCompany on both read paths', () => {
+  const maps = maintenanceController.match(/var relationValues = \{[\s\S]*?\};/gu) || [];
+  assert.equal(maps.length, 2, 'the load path and the diff baseline');
+  for (const map of maps) {
+    assert.match(map, /BusinessPartnerCompany: businessPartner/u, map);
+  }
+});
+
+/**
+ * A create flips the staged row to 'U', so the number S/4 assigned is a retry dependency - the
+ * same reasoning that made the four address children carry their OrdinalNumber.
+ */
+test('a contact create records the RelationshipNumber S/4 assigned', () => {
+  const createAt = changeRequestService.indexOf("const persisted = { action: 'U' };");
+  assert.ok(createAt > 0);
+  const block = changeRequestService.slice(createAt, changeRequestService.indexOf('.where({ ID }));', createAt));
+  assert.match(block, /section === 'BusinessPartnerContacts'/u, 'only the node whose key S/4 numbers');
+  assert.match(block, /persisted\.RelationshipNumber = assigned/u, 'and it is persisted, not just read');
+});
+
+test('the staged contact has somewhere to keep that number', async () => {
+  const model = cds.linked(await cds.load(path.join(ROOT, 'db')));
+  const elements = model.definitions['mdmlight.staging.StagedContacts'].elements;
+  assert.ok(elements.RelationshipNumber, 'StagedContacts carries RelationshipNumber');
+  assert.equal(elements.RelationshipNumber.length, 12, 'RelationshipNumber is CHAR12 in S/4');
 });

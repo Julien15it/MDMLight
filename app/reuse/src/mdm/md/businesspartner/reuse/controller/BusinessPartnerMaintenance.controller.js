@@ -935,6 +935,8 @@ sap.ui.define([
 
           var relationValues = {
             BusinessPartner: businessPartner,
+            // A_BusinessPartnerContact names the maintained partner BusinessPartnerCompany.
+            BusinessPartnerCompany: businessPartner,
             Customer: state.customerNumber,
             Supplier: state.supplierNumber
           };
@@ -3945,6 +3947,8 @@ sap.ui.define([
 
         var relationValues = {
           BusinessPartner: businessPartner,
+          // Same spelling as the load path above, or a contact has no baseline to be coloured against.
+          BusinessPartnerCompany: businessPartner,
           Customer: root.Customer || null,
           Supplier: root.Supplier || null
         };

@@ -172,6 +172,16 @@ const ADDRESS_CHILD_NODES = new Set([
   'AddressEmails', 'AddressPhoneNumbers', 'AddressFaxNumbers', 'AddressHomePageURLs', 'AddressTaxNumbers'
 ]);
 
+/** The key S/4 assigned on create, off the create response, or null when it did not answer with one. */
+function assignedKeyOf(saveResult, field, stagedRow) {
+  try {
+    return JSON.parse(saveResult || '{}')[field] || null;
+  } catch (error) {
+    console.warn(`[post] Could not read the ${field} S/4 assigned for ${stagedRow}:`, error.message);
+    return null;
+  }
+}
+
 /**
  * Present enough to be part of a key. `sanitizeEntityKeys` in business-partner-service.js rejects
  * '' as well as null, so this is the same emptiness test the post's own key check applies.
@@ -1967,7 +1977,11 @@ class ChangeRequestService extends cds.ApplicationService {
           const { ID, request_ID: parent, action, ...data } = row;
           // Staged for context only - the user never touched it. Null covers rows staged before
           // `N` existed; both mean the same thing and neither may reach S/4.
-          if (!action || action === UNTOUCHED) continue;
+          if (!action || action === UNTOUCHED) {
+            // A row nobody touched and a row the post lost look identical from S/4's side.
+            console.log(`[post] ${section} ${ID}: staged for context only (action ${action || 'null'}); not posted.`);
+            continue;
+          }
           // Derived for the screen, never written. Before the relation read, so a section nothing
           // will post costs nothing. Named in the log rather than dropped in silence: a row that
           // deliberately does not reach S/4 is exactly the kind of thing someone later reads as a
@@ -2085,6 +2099,12 @@ class ChangeRequestService extends cds.ApplicationService {
           // follows the staged action, which is the only thing that knows about it.
           const isCreate = isRoleNode ? relationValue == null : action !== 'U';
 
+          // Field NAMES only: which fields a node actually sent is the question, and values are personal data.
+          console.log(
+            `[post] ${section} ${ID}: ${isCreate ? 'create' : 'update'} (staged action ${action}), `
+            + `fields ${Object.keys(data).join(',') || '(none)'}`
+          );
+
           const saveResult = await bp.send('saveBusinessPartnerEntity', {
             Entity: section,
             IsCreate: isCreate,
@@ -2140,12 +2160,14 @@ class ChangeRequestService extends cds.ApplicationService {
             // for a row that had in fact been created (2026-09-07). Addresses records its own
             // AddressID a few lines up for exactly this reason.
             if (ADDRESS_CHILD_ASSIGNED_KEYS[section]) {
-              try {
-                const assigned = JSON.parse(saveResult || '{}').OrdinalNumber;
-                if (assigned) persisted.OrdinalNumber = assigned;
-              } catch (error) {
-                console.warn(`[post] Could not read the OrdinalNumber S/4 assigned for ${ID}:`, error.message);
-              }
+              const assigned = assignedKeyOf(saveResult, 'OrdinalNumber', ID);
+              if (assigned) persisted.OrdinalNumber = assigned;
+            }
+            // Only S/4 knows the RelationshipNumber it assigned, and no later update can address the row without it.
+            if (section === 'BusinessPartnerContacts') {
+              const assigned = assignedKeyOf(saveResult, 'RelationshipNumber', ID);
+              if (assigned) persisted.RelationshipNumber = assigned;
+              console.log(`[post] ${section} ${ID}: RelationshipNumber=${assigned || '(none)'} from create result ${saveResult}`);
             }
             await db.run(cds.ql.UPDATE(config.entity).set(persisted).where({ ID }));
           }
