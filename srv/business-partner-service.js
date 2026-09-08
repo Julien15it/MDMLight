@@ -12,7 +12,7 @@ const { workflowAgents } = require('./wf/btp-agents');
 const { createCache } = require('./ai/cache');
 const {
   VERDICT_LABELS, activeRules, refreshRules, stagedEntries, checkAgainstPartners,
-  duplicateFindings, testRuleset
+  candidateFromStagedRequest, duplicateFindings, testRuleset
 } = require('./ai/duplicate-check');
 const { usableRules } = require('./ai/rule-config');
 const { createNameIndex } = require('./ai/name-index');

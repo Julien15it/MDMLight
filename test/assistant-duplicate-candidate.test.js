@@ -17,7 +17,8 @@ const assert = require('node:assert/strict');
 const { assistantDuplicateCandidate } = require('../srv/business-partner-service')._internals;
 const { checkAgainstPartners, toEntries } = require('../srv/ai/duplicate-check');
 const { evaluate, DEFAULT_RULES, VERDICTS } = require('../srv/ai/duplicate-engine');
-const { VIES_STATUS } = require('../srv/ai/vies');
+// Exported as STATUS; the service aliases it the same way.
+const { STATUS: VIES_STATUS } = require('../srv/ai/vies');
 
 const VIES_CONFIRMED = Object.freeze({
   name: 'ALLUVION CONSULTING NV',
@@ -169,7 +170,9 @@ test('the assistant asks only after the registry chain has settled', () => {
     path.join(__dirname, '..', 'srv', 'business-partner-service.js'), 'utf8'
   );
   const registryAt = source.indexOf('registryEnrichment(companyName)');
-  const askAt = source.indexOf('assistantDuplicateCandidate({');
+  // The CALL, not the definition - the builder itself lives beside findIndexedDuplicates,
+  // hundreds of lines ABOVE the handler, so matching the bare name asserts the wrong thing.
+  const askAt = source.indexOf('const duplicateCandidate = assistantDuplicateCandidate(');
   assert.ok(registryAt > 0 && askAt > registryAt, 'the duplicate question moved back before the enrichment');
   assert.ok(
     !/findIndexedDuplicates\(s4, companyName/u.test(source),
