@@ -50,9 +50,9 @@ test('only populated, normalisable fields are offered to the model', () => {
   assert.equal(fields[0].target, 'root');
 });
 
-// A tax number or an IBAN is not a formatting matter, and the duplicate engine already
-// normalises those for comparison without touching what is stored.
-test('identifiers are deliberately never normalised', () => {
+// An identifier is never a judgement call, so no model is asked about one. What is done to a tax
+// number deterministically (its separators) is covered further down.
+test('identifiers are never offered to the model', () => {
   const all = [...NORMALISABLE.root, ...NORMALISABLE.Addresses];
   for (const forbidden of ['BPTaxNumber', 'IBAN', 'BusinessPartner', 'BPIdentificationNumber']) {
     assert.equal(all.includes(forbidden), false, `${forbidden} must not be normalisable`);
@@ -430,8 +430,55 @@ test('the fields the report named are proposed in capitals', () => {
   );
   // CityName is a name, not a code - it is the model's business, and only on Check.
   assert.equal(proposals.some((proposal) => proposal.field === 'CityName'), false);
-  // A tax NUMBER is an identifier, and identifiers are outside this entirely.
+  // A tax NUMBER is never uppercased - the only thing done to one is stripping its separators,
+  // and this one has none.
   assert.equal(proposals.some((proposal) => proposal.field === 'BPTaxNumber'), false);
+});
+
+// Asked for on 2026-09-09: "BE0.4010.30860" typed into a tax number is the same number as
+// "BE0401030860", which is how S/4 stores it. The country prefix stays exactly as typed.
+test('tax number separators are proposed away without asking a model', () => {
+  const proposals = deterministicProposals(payload({}, {
+    TaxNumbers: [{ BPTaxNumber: 'BE0.4010.30860' }],
+    AddressTaxNumbers: [{ BPTaxNumber: 'BE 0401 030 860' }, { BPTaxNumber: 'be-0401030860' }]
+  }));
+  assert.deepEqual(
+    proposals.map((proposal) => [proposal.target, proposal.index, proposal.proposed]),
+    [
+      ['TaxNumbers', 0, 'BE0401030860'],
+      ['AddressTaxNumbers', 0, 'BE0401030860'],
+      // The prefix is left as typed: uppercasing it is a different change nobody asked for.
+      ['AddressTaxNumbers', 1, 'be0401030860']
+    ]
+  );
+  assert.equal(proposals[0].reason, 'Separators removed');
+  assert.equal(
+    proposals[0].detail,
+    'BPTaxNumber is stored without punctuation or spaces, '
+      + 'so “BE0.4010.30860” is proposed as “BE0401030860”.'
+  );
+});
+
+test('a tax number that is already clean is not proposed', () => {
+  assert.deepEqual(
+    deterministicProposals(payload({}, { TaxNumbers: [{ BPTaxNumber: 'BE0401030860' }] })),
+    []
+  );
+  // Nothing left after stripping is not a proposal either - it would blank the field.
+  assert.deepEqual(
+    deterministicProposals(payload({}, { TaxNumbers: [{ BPTaxNumber: '...' }] })),
+    []
+  );
+});
+
+test('a tax number fieldEditable refuses is left alone', () => {
+  assert.deepEqual(
+    deterministicProposals(
+      payload({}, { TaxNumbers: [{ BPTaxNumber: 'BE0.4010.30860' }] }),
+      (target, field) => field !== 'BPTaxNumber'
+    ),
+    []
+  );
 });
 
 // The row's own bookkeeping is not data, and no code field shares a name with any of it.

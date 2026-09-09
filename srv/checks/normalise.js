@@ -25,8 +25,9 @@ const MAX_PROPOSALS = 25;
 // The Why column is a label, not a sentence — the sentence is `detail`, behind its tooltip.
 const MAX_REASON_WORDS = 3;
 
-// Only fields a human reads. Identifiers are deliberately absent: a tax number is not a formatting
-// matter, and the duplicate engine already normalises them for comparison without storing that.
+// Only fields a human reads. Identifiers are deliberately absent: nothing about one is a judgement
+// call, so no model is asked about one - a tax number's separators are stripped deterministically
+// below, and everything else about it is left alone.
 const NORMALISABLE = Object.freeze({
   root: Object.freeze([
     'OrganizationBPName1', 'OrganizationBPName2',
@@ -77,6 +78,11 @@ const UPPERCASE_CODE_FIELDS = Object.freeze(new Set([
   'CustomerPriceGroup', 'CustomerPricingProcedure', 'PurchasingOrganization',
   'Currency', 'PurchaseOrderCurrency'
 ]));
+
+// Identifiers typed with separators: "BE0.4010.30860" is the same tax number as "BE0401030860",
+// and S/4 stores it without the punctuation. Only the separators go — the country prefix and the
+// digits are left exactly as typed, so this can never turn one tax number into another.
+const SEPARATOR_STRIPPED_FIELDS = Object.freeze(new Set(['BPTaxNumber']));
 
 const PROPOSAL_SCHEMA = Object.freeze({
   type: 'object',
@@ -285,7 +291,8 @@ function sanitizeProposals(raw, fields) {
 }
 
 /**
- * Code fields uppercased. Same proposal shape as the model's, so the accept dialog is shared.
+ * Code fields uppercased and identifier separators stripped. Same proposal shape as the model's,
+ * so the accept dialog is shared.
  *
  * The root is walked as well as the sections (2026-09-08): `BusinessPartnerGrouping`, `LegalForm`
  * and `CorrespondenceLanguage` are root fields, and while only `Addresses` carried a code field this
@@ -294,20 +301,35 @@ function sanitizeProposals(raw, fields) {
 function deterministicProposals(payload = {}, fieldEditable = () => true) {
   const proposals = [];
   const propose = (target, index, field, current) => {
-    if (!UPPERCASE_CODE_FIELDS.has(field)) return;
     if (!fieldEditable(target, field)) return;
     if (typeof current !== 'string' || !current.trim()) return;
-    const proposed = current.trim().toLocaleUpperCase('en-US');
-    if (proposed === current) return;
-    proposals.push({
-      target,
-      index,
-      field,
-      current,
-      proposed,
-      reason: 'Uppercase code',
-      detail: `${field} is a code and is stored in capitals, so “${current}” is proposed as “${proposed}”.`
-    });
+    if (UPPERCASE_CODE_FIELDS.has(field)) {
+      const proposed = current.trim().toLocaleUpperCase('en-US');
+      if (proposed === current) return;
+      proposals.push({
+        target,
+        index,
+        field,
+        current,
+        proposed,
+        reason: 'Uppercase code',
+        detail: `${field} is a code and is stored in capitals, so “${current}” is proposed as “${proposed}”.`
+      });
+      return;
+    }
+    if (SEPARATOR_STRIPPED_FIELDS.has(field)) {
+      const proposed = current.replace(/[^\p{L}\p{N}]+/gu, '');
+      if (!proposed || proposed === current) return;
+      proposals.push({
+        target,
+        index,
+        field,
+        current,
+        proposed,
+        reason: 'Separators removed',
+        detail: `${field} is stored without punctuation or spaces, so “${current}” is proposed as “${proposed}”.`
+      });
+    }
   };
 
   for (const [field, current] of Object.entries(payload.root || {})) {
@@ -379,6 +401,7 @@ module.exports = {
   UPPERCASE_CODE_FIELDS,
   NOT_A_CODE,
   PROPOSAL_SCHEMA,
+  SEPARATOR_STRIPPED_FIELDS,
   SYSTEM_PROMPT,
   deterministicProposals,
   mergeProposals,
