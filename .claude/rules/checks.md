@@ -161,6 +161,25 @@ report. Two reasons, and the second is the sharp one:
   refusing them for. Blocking at submit costs nothing here: by then the derivations have been
   offered and taken.
 
+**A payload code is matched against the customizing through `code()`, never `text()`** (2026-09-10,
+reported live). Every code field in these tables sits on an upper-case DDIC domain — `TB003` holds
+`FLVN01` — but the payload carries what was typed, and the screen's uppercasing is a *proposal*
+`pipeline.js` runs only **after** the derivations (`normalise.js`'s `UPPERCASE_CODE_FIELDS`). So a
+requester who typed `flvn01` reached `requestedSyncTargets`' `categoryOf.get('flvn01')`, missed a map
+keyed `FLVN01`, and got **no supplier target at all**: no `Suppliers` row from `cvi_account_group`, and
+then a steward's derivation rule — whose engine folds case on both sides (`rule-engine.js`'s own `text`)
+— added a purchasing-organisation row with no supplier segment to hang it on. Silent, because a role S/4
+does not know is not something this module speaks about. The same fold now covers the role, the BP
+category, the grouping and the typed account group; `accountGroupConflictFindings` was reporting a
+conflict on nothing but a difference in case. **A case fold is safe here where a substitution would not
+be — it cannot turn one code into a different valid code.** The two `text()` helpers in
+`rule-engine.js` and `cvi-checks.js` folding differently is what hid this; if a third module grows one,
+make it fold.
+
+**`derivation-checks.js` has the same shape and is NOT yet folded** — `partnerFunctionEntries` and
+`supplierFunctionEntries` match a payload account group, and `taxCategoryEntries` a payload country,
+against customizing with bare `text()`. Same silent-miss failure, not yet reported live.
+
 **`cvi_account_group`** fills `Customers.CustomerAccountGroup`/`Suppliers.SupplierAccountGroup` from
 `TBD001`. Silent wherever it cannot be sure. It **proposes over** a hand-picked account group;
 `accountGroupConflictFindings` stays beside it regardless, because S/4 uses `TBD001`'s whether or not

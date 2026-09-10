@@ -266,6 +266,56 @@ test('which sync targets a request reaches for comes from S/4, not from the role
   assert.deepStrictEqual(targets([{ BusinessPartnerRole: 'BUP001' }]), []);
 });
 
+/**
+ * Reported live 2026-09-10. A role typed in lower case reached this module in lower case -- the
+ * screen's uppercasing is a proposal the pipeline only runs AFTER the derivations -- and the map
+ * lookup against S/4's own `FLVN01` missed silently, so no supplier target, no `Suppliers` row, and
+ * a steward's rule (whose engine folds case) added a purchasing organisation with no segment to
+ * hold it. Both spellings must reach the same target.
+ */
+test('a role typed in lower case reaches the same sync target as its S/4 spelling', () => {
+  const targets = (roles) => _internals
+    .requestedSyncTargets(payload('2', roles), CONFIG)
+    .map((entry) => entry.target.key);
+
+  assert.deepStrictEqual(targets([{ BusinessPartnerRole: 'flvn01' }]), ['supplier']);
+  assert.deepStrictEqual(targets([{ BusinessPartnerRole: 'flcu01' }]), ['customer']);
+  assert.deepStrictEqual(targets([{ BusinessPartnerRole: ' FlVn01 ' }]), ['supplier']);
+  // Still nothing for a role that creates neither, whatever case it is typed in.
+  assert.deepStrictEqual(targets([{ BusinessPartnerRole: 'bup001' }]), []);
+});
+
+// Grouping 0002 is the only one the fixture gives a SUPPLIER assignment (-> LIEF); S100's is a
+// customer one, and a derivation with no assignment to read is silent by design.
+test('a lower-case role still derives the account group that creates the segment', async () => {
+  const derivation = createCviStages({ read: withConfig() }).derivations[0];
+  const run = async (role) => {
+    const { derived } = await runDerivations(
+      { root: { BusinessPartnerGrouping: '0002', BusinessPartnerCategory: '2' },
+        sections: { BusinessPartnerRoles: [{ BusinessPartnerRole: role }] } },
+      [derivation]
+    );
+    return derived.sections.Suppliers;
+  };
+
+  assert.deepStrictEqual(await run('flvn01'), await run('FLVN01'));
+  const rows = await run('flvn01');
+  assert.strictEqual(rows.length, 1);
+  assert.strictEqual(rows[0].SupplierAccountGroup, 'LIEF');
+});
+
+// The grouping is a code the requester types too, and it keys every assignment lookup. S100 is the
+// only fixture grouping with a letter in it, so it is the only one that can prove a fold at all.
+test('a lower-case grouping still finds its assignment', async () => {
+  const derivation = createCviStages({ read: withConfig() }).derivations[0];
+  const { derived } = await runDerivations(
+    { root: { BusinessPartnerGrouping: 's100', BusinessPartnerCategory: '2' },
+      sections: { BusinessPartnerRoles: [{ BusinessPartnerRole: 'flcu01' }] } },
+    [derivation]
+  );
+  assert.strictEqual(derived.sections.Customers[0].CustomerAccountGroup, '0100');
+});
+
 test('same number set but intervals that differ names both ranges and both intervals', async () => {
   const found = await stage(withConfig()).run(
     payload('2', [{ BusinessPartnerRole: 'FLCU01' }], 'S110')

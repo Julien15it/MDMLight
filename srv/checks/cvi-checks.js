@@ -122,6 +122,28 @@ const isSet = (value) => {
 
 const text = (value) => String(value ?? '').trim();
 
+/**
+ * A code the way S/4 holds it: trimmed and upper case.
+ *
+ * **Use this, not `text`, for anything out of the PAYLOAD that is matched against the customizing.**
+ * Every code field in these tables sits on an upper-case DDIC domain, so `TB003` holds `FLVN01` and
+ * never `flvn01` -- but a payload carries whatever was typed, and the screen's own uppercasing is a
+ * PROPOSAL that `pipeline.js` only runs after the derivations (`normalise.js`'s
+ * `UPPERCASE_CODE_FIELDS`). So on the press where somebody types a role in lower case, this module
+ * is handed it in lower case.
+ *
+ * Reported live 2026-09-10, and it cost a full diagnosis: a requester typed `flvn01`,
+ * `requestedSyncTargets` did `categoryOf.get('flvn01')` against a map keyed `FLVN01`, missed, and
+ * derived no supplier target -- so `cvi_account_group` created no `Suppliers` row, while the
+ * steward's own rule fired on the same role anyway (`rule-engine.js`'s `text` upper-cases both
+ * sides, this one did not) and added a purchasing-organisation row with no supplier segment to hang
+ * it on. A silent miss, because a role S/4 does not know is not something this module speaks about.
+ *
+ * A case fold is safe where a real comparison would not be: it cannot turn one code into a
+ * different valid code, only into the one S/4 would have stored.
+ */
+const code = (value) => text(value).toLocaleUpperCase('en-US');
+
 let cache = null;
 
 function invalidate() {
@@ -181,7 +203,7 @@ function liveRows(payload, section) {
  * here is the difference between a requester fixing it now and an approver discovering it later.
  */
 function roleCategoryFindings(payload, { roles, categories }) {
-  const category = text(payload?.root?.BusinessPartnerCategory);
+  const category = code(payload?.root?.BusinessPartnerCategory);
   const requested = liveRows(payload, 'BusinessPartnerRoles');
   if (!category || !requested.length) return [];
 
@@ -190,12 +212,12 @@ function roleCategoryFindings(payload, { roles, categories }) {
   // honest than guessing which flag to read.
   if (!flag) return [];
 
-  const categoryOf = new Map(roles.map((row) => [row.BPRole, row]));
-  const allowed = new Map(categories.map((row) => [row.BPRoleCategory, row]));
+  const categoryOf = new Map(roles.map((row) => [code(row.BPRole), row]));
+  const allowed = new Map(categories.map((row) => [code(row.BPRoleCategory), row]));
   const findings = [];
 
   for (const [index, row] of requested.entries()) {
-    const role = text(row?.BusinessPartnerRole);
+    const role = code(row?.BusinessPartnerRole);
     if (!role) continue;
 
     const definition = categoryOf.get(role);
@@ -210,7 +232,7 @@ function roleCategoryFindings(payload, { roles, categories }) {
       continue;
     }
 
-    const rules = allowed.get(definition.BPRoleCategory);
+    const rules = allowed.get(code(definition.BPRoleCategory));
     if (!rules) {
       findings.push({
         severity: 'info',
@@ -271,12 +293,14 @@ function postprocessingFindings(payload, { postprocessing }) {
  * `FLCU*`.
  */
 function requestedSyncTargets(payload, { roles, categories }) {
-  const categoryOf = new Map(roles.map((row) => [row.BPRole, row.BPRoleCategory]));
-  const settings = new Map(categories.map((row) => [row.BPRoleCategory, row]));
+  // Both sides through `code`: the payload half is what was actually wrong, and keying the S/4 half
+  // the same way costs nothing and drops the assumption that a customizing read is already upper case.
+  const categoryOf = new Map(roles.map((row) => [code(row.BPRole), code(row.BPRoleCategory)]));
+  const settings = new Map(categories.map((row) => [code(row.BPRoleCategory), row]));
   const asked = new Map();
 
   for (const row of liveRows(payload, 'BusinessPartnerRoles')) {
-    const role = text(row?.BusinessPartnerRole);
+    const role = code(row?.BusinessPartnerRole);
     if (!role) continue;
     const rules = settings.get(categoryOf.get(role));
     if (!rules) continue;
@@ -306,7 +330,7 @@ function directionIsActive(directions, target) {
 /** The outbound rows for one grouping. TBD001/TBC001 are keyed by grouping, so this is 0 or 1. */
 function assignmentsFor(assignments, target, grouping) {
   return (assignments[target.set] || []).filter(
-    (row) => text(row?.SyncDirection) === target.direction && text(row?.BPGrouping) === grouping
+    (row) => text(row?.SyncDirection) === target.direction && code(row?.BPGrouping) === grouping
   );
 }
 
@@ -349,7 +373,7 @@ const describe = (interval) => `${text(interval.FromNumber)}-${text(interval.ToN
  *    from). This is messages 022/031 turned around -- SAP checks it for the inbound direction only.
  */
 function numberAssignmentFindings(payload, config) {
-  const grouping = text(payload?.root?.BusinessPartnerGrouping);
+  const grouping = code(payload?.root?.BusinessPartnerGrouping);
   if (!grouping) return [];
 
   const requested = requestedSyncTargets(payload, config);
@@ -435,7 +459,7 @@ function numberAssignmentFindings(payload, config) {
  * `numberAssignmentFindings` already says out loud why nothing was filled in.
  */
 function accountGroupEntries(payload, config) {
-  const grouping = text(payload?.root?.BusinessPartnerGrouping);
+  const grouping = code(payload?.root?.BusinessPartnerGrouping);
   if (!grouping) return [];
 
   const entries = [];
@@ -472,7 +496,7 @@ function accountGroupEntries(payload, config) {
  * refused or quietly overridden by S/4, discovered by an approver.
  */
 function accountGroupConflictFindings(payload, config) {
-  const grouping = text(payload?.root?.BusinessPartnerGrouping);
+  const grouping = code(payload?.root?.BusinessPartnerGrouping);
   if (!grouping) return [];
 
   const findings = [];
@@ -482,8 +506,10 @@ function accountGroupConflictFindings(payload, config) {
     const assignment = soleAssignment(config, target, grouping);
     if (!assignment) continue;
 
-    const expected = text(assignment[target.accountGroupField]);
-    const typed = text(liveRows(payload, target.section)[0]?.[target.payloadField]);
+    // Both folded: a typed `flcu01` against S/4's `FLCU01` used to report a conflict that was only
+    // a difference in case, on a value CVI would have accepted.
+    const expected = code(assignment[target.accountGroupField]);
+    const typed = code(liveRows(payload, target.section)[0]?.[target.payloadField]);
     if (!expected || !typed || typed === expected) continue;
 
     findings.push({
@@ -599,6 +625,7 @@ module.exports = {
     accountGroupConflictFindings,
     requestedSyncTargets,
     liveRows,
-    isSet
+    isSet,
+    code
   }
 };
