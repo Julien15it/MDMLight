@@ -90,13 +90,28 @@ test('saving a rule invalidates the rules the pipeline is holding', () => {
  * The relation stage joined the tail on 2026-08-24, and last for the mirror of that reason: it is
  * the only validation that goes to S/4 - it reads CVI's business-partner-to-customer/vendor
  * assignment - so the offline complaints are the ones a requester reads first.
+ *
+ * On 2026-09-10 it left the CHECK list entirely and now runs on the submit gates alone. It judges a
+ * request as a whole, and a Check runs on a half-filled form; blocking there also suppressed the
+ * proposals dialog, which is where the derivation that fixes it lives. See the comment on the list
+ * itself.
  */
 test('the configured stages join the registry stages, configured first', () => {
   // node_required joined the offline group on 2026-08-28, before the cached and remote stages: it
   // reads MAINTENANCE_ENTITIES and the payload and nothing else, so it is the cheapest of the lot.
   assert.match(
     changeRequestJs,
-    /validations: \[\.\.\.properties\.validations, \.\.\.configured\.validations, \.\.\.nodeRequiredStages\.validations, \.\.\.fieldLengthStages\.validations,\s*\.\.\.createCviStages\(\)\.validations, \.\.\.registry\.validations,\s*\.\.\.relationStages\([^)]*\)\.validations\]/u
+    /validations: \[\.\.\.properties\.validations, \.\.\.configured\.validations, \.\.\.nodeRequiredStages\.validations, \.\.\.fieldLengthStages\.validations,\s*\.\.\.createCviStages\(\)\.validations, \.\.\.registry\.validations\]/u
+  );
+  // The relation stages, on the submit gates and nowhere else (2026-09-10). Asserted from inside
+  // runSubmitValidations rather than against the whole file, so putting them back on the Check list
+  // fails this test instead of quietly satisfying it somewhere else.
+  const submitValidations = changeRequestJs.slice(
+    changeRequestJs.indexOf('const runSubmitValidations =')
+  );
+  assert.match(
+    submitValidations.slice(0, submitValidations.indexOf('};')),
+    /\.\.\.relationStages\([^)]*\)\.validations\]/u
   );
   assert.match(
     changeRequestJs,

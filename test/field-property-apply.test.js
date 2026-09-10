@@ -276,9 +276,14 @@ test('the property validations run alongside the configured ones, on every gate'
   // One definition in runRequestChecks (check/duplicate-check), one in the shared
   // runSubmitValidations (submit, resubmit, data steward complete, decideRequest's approve gate) -
   // see "the enforcing context is the requester" above for the full call-site count.
+  //
+  // Matched up to `registry.validations` and no further: since 2026-09-10 the two lists differ
+  // after it - only the submit one carries the relation stages. That difference is the subject of
+  // its own test in quality-rules-page.test.js; this one is about the property stages being on
+  // every gate, which both lists still are.
   assert.equal(
     (serviceJs.match(
-      /\[\.\.\.properties\.validations, \.\.\.configured\.validations, \.\.\.nodeRequiredStages\.validations, \.\.\.fieldLengthStages\.validations,\s*\.\.\.createCviStages\(\)\.validations, \.\.\.registry\.validations,\s*\.\.\.relationStages\([^)]*\)\.validations\]/gu
+      /\[\.\.\.properties\.validations, \.\.\.configured\.validations, \.\.\.nodeRequiredStages\.validations, \.\.\.fieldLengthStages\.validations,\s*\.\.\.createCviStages\(\)\.validations, \.\.\.registry\.validations/gu
     ) || []).length,
     2,
     'runRequestChecks and runSubmitValidations'

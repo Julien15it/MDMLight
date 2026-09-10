@@ -148,6 +148,19 @@ that makes CVI create the vendor master.
   `validations[0]`, and a caller supplying no `requestedRelations` gets no stage at all rather than
   one that silently passes.
 
+**Both relation stages run on the SUBMIT gates only** (`runSubmitValidations` — submit, resubmit, the
+steward's Complete Review, decideRequest's approve), never on Check. Decided 2026-09-10 after a live
+report. Two reasons, and the second is the sharp one:
+
+- They judge a request **as a whole**. A Check runs on a form mid-entry, where the roles and the
+  sections that need them go in one at a time; every order passes through a state these stages
+  correctly call broken, and a requester cannot act on "finish the form".
+- **A blocking Check discards every proposal.** The client drops the whole proposals list when
+  `Valid === false`, so a blocked request never saw `cvi_account_group`'s offer to ADD the missing
+  `Suppliers` row — the check refused to show the requester the one-click fix for the thing it was
+  refusing them for. Blocking at submit costs nothing here: by then the derivations have been
+  offered and taken.
+
 **`cvi_account_group`** fills `Customers.CustomerAccountGroup`/`Suppliers.SupplierAccountGroup` from
 `TBD001`. Silent wherever it cannot be sure. It **proposes over** a hand-picked account group;
 `accountGroupConflictFindings` stays beside it regardless, because S/4 uses `TBD001`'s whether or not

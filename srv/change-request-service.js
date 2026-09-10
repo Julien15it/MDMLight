@@ -1211,9 +1211,19 @@ class ChangeRequestService extends cds.ApplicationService {
           // CVI before the registry: its configuration is cached for 60s, so it is effectively
           // offline after the first read, and a role this partner's category cannot carry is worth
           // saying before spending a VIES call on an address that will never synchronise anyway.
+          //
+          // The relation stages are deliberately NOT here (2026-09-10). They judge a request as a
+          // whole - "this supplier data has no supplier record, and no role that would create one" -
+          // which is only a fair question of a request somebody has finished. A Check runs on a form
+          // mid-entry: the roles go in before the sections they need, or the other way round, and
+          // either order spends time in a state the stages correctly call broken. Worse, they block:
+          // a blocking Check discards every proposal (see _proposalRows' caller), so the
+          // `cvi_account_group` derivation that would ADD the missing Suppliers row could never be
+          // offered - the check refused to show the requester the fix for the thing it refused them
+          // for. They still gate submit, resubmit, the steward's Complete Review and approve, all of
+          // which go through runSubmitValidations.
           validations: [...properties.validations, ...configured.validations, ...nodeRequiredStages.validations, ...fieldLengthStages.validations,
-            ...createCviStages().validations, ...registry.validations,
-            ...relationStages(req.data.BusinessPartner || data.root?.BusinessPartner).validations],
+            ...createCviStages().validations, ...registry.validations],
           // The CVI derivation last: an explicit rule and a registry lookup should both win over
           // it, and the pipeline never overwrites what an earlier derivation already wrote.
           // A second createCviStages() call is not a second read: the 60s cache lives in the
