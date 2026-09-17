@@ -788,6 +788,12 @@ sap.ui.define([
           previewSearchTerm: "",
           previewLanguage: "",
           sectionWarnings: [],
+          /** True when a change request in flight holds this partner - see _readLock. Edit is
+           *  withheld and onEdit refuses; the server refuses the write regardless. */
+          locked: false,
+          /** The lock's own strip, above the form. Also carries the "could not be checked" note,
+           *  which is a warning WITHOUT `locked` - see _readLock. */
+          lockWarnings: [],
           // Set only when a live BP is opened (edit/display) and S/4 already has it, its Customer or
           // its Supplier record marked for deletion - the same warning S/4's own BP screen shows.
           deletionWarnings: [],
@@ -899,6 +905,13 @@ sap.ui.define([
       _loadBusinessPartner: async function (event, editing) {
         var businessPartner = decodeURIComponent(event.getParameter("arguments").businessPartner);
         var maintenanceModel = this.getView().getModel("maintenance");
+        // Read BEFORE the mode is decided (2026-09-15). A partner somebody else's request holds
+        // opens in DISPLAY whatever route asked for edit: the edit route is reachable by deep link,
+        // by the browser's back button and from the list's own Edit, and refusing only at submit
+        // would mean a filled-in form thrown away. One local query, so it is not worth the flicker
+        // of painting an edit screen first and taking it back.
+        var lock = await this._readLock(businessPartner);
+        if (lock.Locked) editing = false;
         var state = this._emptyState();
         state.busy = true;
         state.mode = editing ? "edit" : "display";
@@ -909,7 +922,9 @@ sap.ui.define([
         state.editing = editing;
         // Editing an existing partner is a change request, not a direct write.
         state.requestType = editing ? "change" : "";
-        state.showEditButton = !editing;
+        state.locked = Boolean(lock.Locked);
+        state.lockWarnings = lock.Message ? [{ text: lock.Message }] : [];
+        state.showEditButton = !editing && !lock.Locked;
         state.showCheckButton = editing;
         state.showCancelButton = true;
         state.showSaveButton = editing;
@@ -2165,6 +2180,35 @@ sap.ui.define([
 
       // modelName selects the service: undefined is BusinessPartnerService,
       // "cr" is ChangeRequestService (the staging actions).
+      /**
+       * Whether a change request in flight holds this partner, as the SERVER sees it - the same
+       * `lockHolder` that gates `persist` and `updateBusinessPartner`, so the screen and the refusal
+       * cannot drift on what "locked" means.
+       *
+       * Best-effort HERE, and only here: the gates are on the server and run whatever this answered,
+       * so a read that fails leaves Edit offered and says why. Hiding Edit on every partner in the
+       * system over a staging hiccup is the worse failure. `Readable: false` comes back the same
+       * shape when the SERVER could not read it either.
+       */
+      _readLock: async function (businessPartner) {
+        var free = { Locked: false, Readable: true, Message: "" };
+        if (!businessPartner) return free;
+        try {
+          var result = await this._executeAction(
+            "businessPartnerLock", { BusinessPartner: businessPartner }
+          );
+          return result || free;
+        } catch (error) {
+          return {
+            Locked: false,
+            Readable: false,
+            Message: "Whether Business Partner " + businessPartner + " is locked by a change request"
+              + " could not be checked (" + errorMessage(error, "unknown error")
+              + "). A change request may still be refused."
+          };
+        }
+      },
+
       _executeAction: async function (name, parameters, modelName) {
         var model = this._serviceModel(modelName);
         // Named rather than thrown at by the framework: a missing service model is a wiring
@@ -2206,6 +2250,10 @@ sap.ui.define([
       onEdit: function () {
         var maintenanceModel = this.getView().getModel("maintenance");
         var state = maintenanceModel.getData();
+        // The button is hidden when the partner is locked; this is the second lock, for a binding
+        // that failed to evaluate rather than for a user who got past it. The strip already says
+        // which request is in the way, so this only has to refuse.
+        if (state.locked) return;
         state.editing = true;
         state.showEditButton = false;
         state.showCheckButton = true;

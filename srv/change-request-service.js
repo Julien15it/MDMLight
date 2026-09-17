@@ -8,6 +8,7 @@ const {
   buildWorkflowInputFromRows, businessPartnerNavigationPath, normalizeRemoteResult,
   MAINTENANCE_ENTITIES
 } = require('./business-partner-service')._internals;
+const { lockHolder, lockMessage } = require('./bp-lock');
 const { candidateFromStagedRequest, duplicateSummary } = require('./ai/duplicate-check');
 const { runChecks, runValidations, BLOCKING } = require('./checks/pipeline');
 const { createRegistryStages } = require('./checks/registry-checks');
@@ -1023,6 +1024,28 @@ class ChangeRequestService extends cds.ApplicationService {
         return req.reject(400, 'A change request needs the Business Partner it changes.');
       }
       let changeRequest = req.data.ChangeRequest;
+
+      /**
+       * The lock (2026-09-15). Two requests over one partner used to be possible all the way to
+       * approval, and the second one to be approved posted over the first one's staged values -
+       * `openEditPage` was the only guard, client side and on the list report alone.
+       *
+       * Here rather than in `submitRequest`, so `saveRequest` is gated by exactly the same check: a
+       * draft locks, so a draft must not be parkable on a partner somebody else already holds.
+       * Excludes this request, which holds its own lock from its first save onwards.
+       *
+       * A create has no partner number and locks nothing - the duplicate check is what covers two
+       * people creating the same company, and it already reads pending creates.
+       *
+       * NOT best-effort: an unreadable lock throws out of `persist` and the write is refused. A lock
+       * nobody could read must not read as "unlocked", which is the same rule that makes an
+       * unreadable rule table report itself.
+       */
+      const businessPartner = req.data.BusinessPartner;
+      if (businessPartner) {
+        const holder = await lockHolder(businessPartner, { excludeRequest: changeRequest || null });
+        if (holder) return req.reject(409, lockMessage(holder, businessPartner));
+      }
 
       if (changeRequest) {
         const existing = await db.run(

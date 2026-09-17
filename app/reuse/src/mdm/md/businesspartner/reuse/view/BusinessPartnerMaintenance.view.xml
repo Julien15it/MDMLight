@@ -34,6 +34,21 @@
             class="sapUiTinyMarginBottom" />
         </VBox>
       </Panel>
+      <!-- A change request in flight holds this partner, so Edit is withheld - or the lock could
+           not be read, which says so rather than claiming the partner is free. Above the deletion
+           flags on purpose: it is the one strip that explains a missing button. -->
+      <VBox
+        id="maintenanceLockWarnings"
+        class="sapUiSmallMarginBeginEnd sapUiSmallMarginTop"
+        visible="{= ${maintenance>/lockWarnings}.length > 0 }"
+        items="{ path: 'maintenance>/lockWarnings', templateShareable: false }">
+        <MessageStrip
+          text="{maintenance>text}"
+          type="Warning"
+          showIcon="true"
+          showCloseButton="false"
+          class="sapUiTinyMarginBottom" />
+      </VBox>
       <!-- Same S/4 record, up to three independent deletion flags: the BP root
            (IsMarkedForArchiving) and, separately, its Customer/Supplier records
            (DeletionIndicator). Only set on a live BP open (edit/display) - see

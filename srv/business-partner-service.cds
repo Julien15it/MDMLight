@@ -257,6 +257,32 @@ service BusinessPartnerService @(path: '/service/businesspartner') {
   };
 
   /**
+   * Whether a Business Partner is locked by a change request in flight, so the maintenance screen
+   * can withhold Edit instead of letting somebody fill in a form the server will refuse
+   * (2026-09-15). Rendering only: the gates are `persist` in ChangeRequestService and
+   * `updateBusinessPartner` here, and they run whatever this answered.
+   *
+   * `Readable` is what separates "not locked" from "could not tell": the lock read is the one
+   * staging read that is not best-effort, so a screen that could not reach it says so rather than
+   * offering Edit as if the partner were free.
+   */
+  function businessPartnerLock(
+    BusinessPartner : String(10) not null
+  ) returns {
+    /** True only when a request in a locking status actually holds this partner. */
+    Locked        : Boolean;
+    /** False when the lock could not be read at all; `Locked` is then meaningless. */
+    Readable      : Boolean;
+    ChangeRequest : UUID;
+    RequestType   : String;
+    Status        : String;
+    /** The submitter, or the author while it is still a draft. Empty when neither is recorded. */
+    HeldBy        : String;
+    /** The one sentence the screen shows, already composed. Empty when nothing holds the partner. */
+    Message       : String;
+  };
+
+  /**
    * The picked contact person's own read-only email/phone (2026-09-04, asked for), shown when a
    * Contacts row is opened - never `A_BPContactPersonEmlAddr`/`A_BPContactPersonTelNmbr`, which
    * are keyed by `RelationshipNumber` and so answer nothing for a contact not yet posted to S/4.

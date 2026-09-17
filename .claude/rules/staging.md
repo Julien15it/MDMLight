@@ -24,12 +24,16 @@ duplicating the link and producing a schema that later fails to migrate.
 
 ## Statuses
 
-`ACTIVE_REQUEST_STATUSES` is a **lock** (governs the refusal to edit, `openEditPage` in
-`CustomActions.js`) and includes `approved` and `failed`, because a failed post is not atomic.
-`IN_PROGRESS_REQUEST_STATUSES` (`srv/search-results.js`) is narrower — `draft`, `inApproval`,
-`reworkRequired`, `checkAndEnrich` — and answers "is a human still holding this". **Do not collapse
-them.** `posted` is the only terminal status; a withdrawn request is deleted. `rejected` is in the enum
-and nothing writes it any more, but it cannot be dropped, so **no reader may fall through on it**.
+`ACTIVE_REQUEST_STATUSES` is a **lock** and includes `approved` and `failed`, because a failed post is
+not atomic. It lives in `srv/bp-lock.js` as `LOCKING_STATUSES`; `business-partner-service.js` aliases it
+under the older name. `IN_PROGRESS_REQUEST_STATUSES` (`srv/search-results.js`) is narrower — `draft`,
+`inApproval`, `reworkRequired`, `checkAndEnrich` — and answers "is a human still holding this". **Do not
+collapse them.** `posted` is the only terminal status; a withdrawn request is deleted. `rejected` is in
+the enum and nothing writes it any more, but it cannot be dropped, so **no reader may fall through on
+it**.
+
+**What the lock actually refuses, and where, is `.claude/rules/bp-lock.md`.** Read it before touching
+`srv/bp-lock.js` or any of its three callers.
 
 `checkAndEnrich` is its own status, in `EDITABLE_STATUSES`, `ACTIVE_*` and `IN_PROGRESS_*`.
 `WITHDRAWABLE_STATUSES` aliases `EDITABLE_STATUSES` (test-pinned). `reworkRequired` is an

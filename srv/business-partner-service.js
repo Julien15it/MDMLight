@@ -26,6 +26,9 @@ const {
   pendingCreateEntry, partnerEntry, matchesWhere, matchesTerms, referencedFields, pageSplit,
   byRequestedAtDesc, remoteOrderBy, mergeLocalPage
 } = require('./search-results');
+const {
+  LOCKING_STATUSES, holderUser, lockHolder, lockMessage, rejectWhenLocked
+} = require('./bp-lock');
 const { executeHttpRequest } = require('@sap-cloud-sdk/http-client');
 
 const assistantCache = createCache();
@@ -1033,15 +1036,9 @@ function joinExpressions(expressions, operator) {
 
 // Not every S/4 release implements the V2 free-text search extension, so Fiori's `$search` becomes
 // ordinary `contains` filters.
-/**
- * A partner is locked while a request over it is in flight. `failed` counts as active because the
- * post is not atomic and may have left it half-written; `reworkRequired` counts because the
- * requester is about to edit and resubmit, so leaving it out would unlock the partner mid-rework.
- * `checkAndEnrich` counts for the same reason as `reworkRequired`: a data steward is mid-edit.
- */
-const ACTIVE_REQUEST_STATUSES = [
-  'draft', 'inApproval', 'approved', 'reworkRequired', 'checkAndEnrich', 'failed'
-];
+// The lock, defined once in srv/bp-lock.js and aliased here under the name this module and its
+// tests have always used. Read that file for why each status is in it.
+const ACTIVE_REQUEST_STATUSES = LOCKING_STATUSES;
 
 function applyBusinessPartnerSearch(query) {
   const select = query && query.SELECT;
@@ -1406,7 +1403,7 @@ async function pendingCreateRequests() {
     const requests = await db.run(
       cds.ql.SELECT.from('mdmlight.staging.ChangeRequests')
         .columns('ID', 'status', 'requestType')
-        .where({ status: { in: ACTIVE_REQUEST_STATUSES }, requestType: 'create' })
+        .where({ status: { in: [...ACTIVE_REQUEST_STATUSES] }, requestType: 'create' })
     );
     if (!requests.length) return [];
     const ids = requests.map((request) => request.ID);
@@ -2430,9 +2427,11 @@ class BusinessPartnerService extends cds.ApplicationService {
       };
     };
 
-    // Any write invalidates this instance's cached assistant reads.
+    // Any write invalidates this instance's cached assistant reads. `businessPartnerLock` is
+    // exempt with the two reads: it is a GET that writes nothing, and it fires on every display
+    // screen open - left in, it would wipe the cache and re-index every name on each of them.
     this.before('*', (req) => {
-      if (['READ', 'askBusinessPartnerAssistant'].includes(req.event)) return;
+      if (['READ', 'askBusinessPartnerAssistant', 'businessPartnerLock'].includes(req.event)) return;
       assistantCache.clear();
       nameIndex.markStale();
     });
@@ -2613,9 +2612,23 @@ class BusinessPartnerService extends cds.ApplicationService {
   }
 });
 
+    /**
+     * The one direct write to S/4 a user can still start from the UI - "Mark for Deletion" on the
+     * search page, which is not staged and not approved. It is therefore also the one that can walk
+     * straight over a request in flight, so it is gated by the same lock (2026-09-15).
+     *
+     * `postToS4` does NOT come through here: it posts an approved request through
+     * `saveBusinessPartner`/`saveBusinessPartnerEntity`/`deleteBusinessPartnerEntity`. Those three
+     * are deliberately NOT gated - the request holding the lock is `approved`, so a guard on them
+     * would make every approved request refuse its own post.
+     */
     this.on('updateBusinessPartner', async (req) => {
       const businessPartner = req.data.BusinessPartner;
       if (!businessPartner) req.reject(400, 'Enter a business partner number.', 'BusinessPartner');
+
+      // Before the payload is even shaped: a locked partner is refused whatever was being written.
+      // Not best-effort - an unreadable lock refuses rather than silently allowing the write.
+      if (await rejectWhenLocked(req, businessPartner)) return undefined;
 
       const payload = pickDefined(req.data, UPDATE_FIELDS);
       if (Object.keys(payload).length === 0) {
@@ -2861,6 +2874,45 @@ class BusinessPartnerService extends cds.ApplicationService {
       isAdmin: Boolean(req.user?.is?.('Admin')),
       aiAssistanceEnabled: await aiAssistanceEnabled()
     }));
+
+    /**
+     * Whether a request in flight holds this partner, for the maintenance screen's Edit button and
+     * its warning strip. Rendering only - `persist` and `updateBusinessPartner` gate the writes.
+     *
+     * The ONE caller of `lockHolder` that catches: this answer decides what a screen paints, and a
+     * staging hiccup that hid Edit on every partner in the system would be worse than a button the
+     * server then refuses. `Readable: false` is how it says so - the screen shows the partner may
+     * be locked rather than claiming it is free, which is the standing rule about a check that
+     * could not run, applied to a surface that is not itself the check.
+     */
+    this.on('businessPartnerLock', async (req) => {
+      const businessPartner = req.data.BusinessPartner;
+      const free = {
+        Locked: false, Readable: true, ChangeRequest: null,
+        RequestType: '', Status: '', HeldBy: '', Message: ''
+      };
+      try {
+        const holder = await lockHolder(businessPartner);
+        if (!holder) return free;
+        return {
+          Locked: true,
+          Readable: true,
+          ChangeRequest: holder.ID,
+          RequestType: holder.requestType || '',
+          Status: holder.status || '',
+          HeldBy: holderUser(holder),
+          Message: lockMessage(holder, businessPartner)
+        };
+      } catch (error) {
+        console.warn(`[lock] Could not read the lock on ${businessPartner}:`, error.message);
+        return {
+          ...free,
+          Readable: false,
+          Message: `Whether Business Partner ${businessPartner} is locked by a change request could `
+            + `not be checked (${error.message}). A change request may still be refused.`
+        };
+      }
+    });
 
     // The picked contact person's own default address email/phone - see the action's own doc
     // comment in business-partner-service.cds for why this reads A_BusinessPartnerAddress rather
@@ -3177,6 +3229,8 @@ BusinessPartnerService._internals = {
   applyBusinessPartnerSearch,
   restrictReadTo,
   ACTIVE_REQUEST_STATUSES,
+  lockHolder,
+  lockMessage,
   assistantAddressFilter,
   assistantSearchFilter,
   readAllPages,

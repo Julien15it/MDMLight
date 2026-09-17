@@ -89,6 +89,7 @@ These apply everywhere and the rule files assume them.
 | --- | --- |
 | `.claude/rules/architecture.md` | `srv/**`, `srv/external/**`, `abap/**`, `app/businesspartner/**` |
 | `.claude/rules/staging.md` | `db/staging.cds`, `srv/change-request-service.*`, `srv/search-results.js` |
+| `.claude/rules/bp-lock.md` | `srv/bp-lock.js` and its three callers — the refusal to raise a second request |
 | `.claude/rules/checks.md` | `srv/checks/**`, `srv/ai/registry.js` |
 | `.claude/rules/rule-tiles.md` | `app/mdmrules/**`, `srv/duplicate-config-service.*`, `srv/checks/rule-engine.js` |
 | `.claude/rules/field-properties.md` | `db/field-properties.cds`, `srv/checks/field-propert*` |

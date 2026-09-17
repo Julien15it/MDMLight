@@ -170,6 +170,13 @@ sap.ui.define([
      * A partner under a request in flight is not editable: a second request over the same partner
      * would post over the first one's staged values. The list used to hide such a partner outright,
      * which is why nothing checked here before.
+     *
+     * The FIRST of three checks, and the weakest: it reads this list's own marker, which is built
+     * from IN_PROGRESS_REQUEST_STATUSES and so does not see a partner held by an `approved` or
+     * `failed` request. That is deliberate - the list answers "is a human still holding this", not
+     * "is this locked". The maintenance screen asks the server (`businessPartnerLock`) and opens in
+     * display mode whatever this let through, and `persist` refuses the write either way. Do not
+     * widen the list marker to make this stricter; it would change what the list column means.
      */
     openEditPage: function (bindingContext, selectedContexts) {
       var selected = contextsFrom(bindingContext, selectedContexts);
