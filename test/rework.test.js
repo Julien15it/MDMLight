@@ -9,7 +9,10 @@ const ROOT = path.join(__dirname, '..');
 const APP = path.join(ROOT, 'app', 'businesspartner', 'webapp');
 const REUSE = path.join(__dirname, '..', 'app', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse');
 
-const read = (...parts) => fs.readFileSync(path.join(...parts), 'utf8');
+// Normalised because these assertions are about SOURCE, not about how the working tree stores it:
+// the repo is LF, `core.autocrlf` gives a Windows checkout CRLF, and a pattern spelling `\n` twice
+// around a line cannot match `\r\n`. Same reason as test/change-highlighting.test.js.
+const read = (...parts) => fs.readFileSync(path.join(...parts), 'utf8').replace(/\r\n/gu, '\n');
 
 const staging = read(ROOT, 'db', 'staging.cds');
 const serviceCds = read(ROOT, 'srv', 'change-request-service.cds');

@@ -6,7 +6,11 @@ const path = require('node:path');
 const test = require('node:test');
 
 const ROOT = path.join(__dirname, '..');
-const read = (...parts) => fs.readFileSync(path.join(...parts), 'utf8');
+// Line endings are normalised because every assertion below is about SOURCE, never about how the
+// working tree stores it. The repo is LF and `core.autocrlf` gives a Windows checkout CRLF, so a
+// slice anchored on `\n  }\n\n  function categoryText` found nothing, `indexOf` answered -1, and
+// `slice(0, -1)` handed the assertions the whole rest of the file - where `__state` does appear.
+const read = (...parts) => fs.readFileSync(path.join(...parts), 'utf8').replace(/\r\n/gu, '\n');
 
 const controller = read(
   ROOT, 'app', 'reuse', 'src', 'mdm', 'md', 'businesspartner', 'reuse', 'controller',

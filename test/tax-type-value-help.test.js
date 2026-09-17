@@ -135,22 +135,40 @@ test('the org-unit and pricing fields on Customer/Supplier all get real search h
  * moment the field itself was wired anywhere - this only extends the CDS @Common.ValueList side for
  * consistency with other OData consumers, and pins that no section was missed.
  */
+/**
+ * Each annotate block, by entity, so a field is asserted to be on THAT section rather than merely
+ * somewhere within a character budget of its header. The budgets this replaced (2026-09-17) were
+ * tuned to the blocks as they stood and broke the moment one grew: A_CustomerSalesAreaText's four
+ * value helps put 330 characters between SalesOrganization and DistributionChannel, past a 300-char
+ * bound, and a complete annotation read as a missing one.
+ */
+const annotateBlock = (source, entity) => {
+  const header = `annotate service.${entity} with {`;
+  const start = source.indexOf(header);
+  if (start === -1) return '';
+  const end = source.indexOf('\n};', start);
+  return end === -1 ? source.slice(start) : source.slice(start, end);
+};
+
 test('the same field, the same value help, on every child section that repeats it', () => {
   const annotations = read('srv', 'annotations.cds');
-  const withLanguage = ['A_CustomerText', 'A_SupplierText', 'A_CustomerCompanyText', 'A_SupplierCompanyText', 'A_CustomerSalesAreaText', 'A_SupplierPurchasingOrgText'];
-  for (const entity of withLanguage) {
-    assert.match(annotations, new RegExp(`annotate service\\.${entity} with \\{\\s*\\n\\s*Language @Common\\.ValueList`), `${entity} is missing the Language value help`);
-  }
-  const withCompanyCode = ['A_CustomerCompanyText', 'A_SupplierCompanyText', 'A_CustomerDunning', 'A_SupplierDunning', 'A_CustomerWithHoldingTax', 'A_SupplierWithHoldingTax'];
-  for (const entity of withCompanyCode) {
-    assert.match(annotations, new RegExp(`annotate service\\.${entity} with \\{[\\s\\S]{0,600}CompanyCode @Common\\.ValueList`), `${entity} is missing the CompanyCode value help`);
-  }
-  const withSalesArea = ['A_CustomerSalesAreaText', 'A_CustSalesPartnerFunc', 'A_CustSlsAreaAddrDepdntInfo'];
-  for (const entity of withSalesArea) {
-    assert.match(annotations, new RegExp(`annotate service\\.${entity} with \\{[\\s\\S]{0,600}SalesOrganization @Common\\.ValueList[\\s\\S]{0,300}DistributionChannel @Common\\.ValueList[\\s\\S]{0,300}Division @Common\\.ValueList`), `${entity} is missing a sales-area value help`);
-  }
-  const withPurchasingOrg = ['A_SupplierPartnerFunc', 'A_SupplierPurchasingOrgText'];
-  for (const entity of withPurchasingOrg) {
-    assert.match(annotations, new RegExp(`annotate service\\.${entity} with \\{[\\s\\S]{0,600}PurchasingOrganization @Common\\.ValueList`), `${entity} is missing the PurchasingOrganization value help`);
+  const valueHelps = {
+    Language: ['A_CustomerText', 'A_SupplierText', 'A_CustomerCompanyText', 'A_SupplierCompanyText', 'A_CustomerSalesAreaText', 'A_SupplierPurchasingOrgText'],
+    CompanyCode: ['A_CustomerCompanyText', 'A_SupplierCompanyText', 'A_CustomerDunning', 'A_SupplierDunning', 'A_CustomerWithHoldingTax', 'A_SupplierWithHoldingTax'],
+    SalesOrganization: ['A_CustomerSalesAreaText', 'A_CustSalesPartnerFunc', 'A_CustSlsAreaAddrDepdntInfo'],
+    DistributionChannel: ['A_CustomerSalesAreaText', 'A_CustSalesPartnerFunc', 'A_CustSlsAreaAddrDepdntInfo'],
+    Division: ['A_CustomerSalesAreaText', 'A_CustSalesPartnerFunc', 'A_CustSlsAreaAddrDepdntInfo'],
+    PurchasingOrganization: ['A_SupplierPartnerFunc', 'A_SupplierPurchasingOrgText']
+  };
+  for (const [field, entities] of Object.entries(valueHelps)) {
+    for (const entity of entities) {
+      const block = annotateBlock(annotations, entity);
+      assert.notEqual(block, '', `${entity} has no annotate block at all`);
+      assert.match(
+        block,
+        new RegExp(`\\n\\s*${field} @Common\\.ValueList`),
+        `${entity} is missing the ${field} value help`
+      );
+    }
   }
 });

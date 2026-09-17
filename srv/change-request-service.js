@@ -244,7 +244,13 @@ const usableDateTimeKey = (value) => {
   // Absent or blank first, explicitly: `new Date(null)` is the epoch, which would otherwise read as
   // a perfectly good 1970 and let a missing key part through.
   if (value === null || value === undefined || value === '') return null;
-  const date = value instanceof Date ? value : new Date(value);
+  // An Edm.DateTime literal carries no zone, so it is read as UTC - but `new Date` reads a bare
+  // date-TIME as LOCAL, which shifts the year on the one boundary this function exists to guard.
+  // East of UTC, `0001-01-01T00:00:00` - the valid value a website row actually reads back as -
+  // lands in year 0, and a usable key would be refused. A date-only string is already parsed as UTC.
+  const text = String(value);
+  const literal = /T[\d:.]+$/u.test(text) ? `${text}Z` : text;
+  const date = value instanceof Date ? value : new Date(literal);
   if (Number.isNaN(date.getTime()) || date.getUTCFullYear() < 1) return null;
   return value;
 };
