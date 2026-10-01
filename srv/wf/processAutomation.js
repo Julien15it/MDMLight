@@ -69,17 +69,18 @@ async function startWorkflow(definitionId, context) {
 
 // What a parked mDM_LIGHT_APPROVAL_WF instance waits on once a human has decided in our approve
 // view. `executionId` is `ChangeRequests.processInstanceId` - which instance to resume, not a call id.
-const APPROVAL_DECISION_TRIGGER_ID = "eu10.alluvion-dev-cf.mdmlightapproval.zApproved_wf";
+// TEST: the three trigger ids point at the SBPA copy project, revert before merging
+const APPROVAL_DECISION_TRIGGER_ID = "eu10.alluvion-dev-cf.mdmlightapprovalcopy.zApproved_wf";
 
 // The requester's trigger, used by resubmit and withdraw; approve and reject keep the approver's.
 // Only the id differs, so the host stays with `sbpa-destination` - hardcoding the gateway would
 // bypass the destination, and with it the proxy and the token.
-const REQUESTER_CALLBACK_TRIGGER_ID = "eu10.alluvion-dev-cf.mdmlightapproval.requesterCallBack";
+const REQUESTER_CALLBACK_TRIGGER_ID = "eu10.alluvion-dev-cf.mdmlightapprovalcopy.requesterCallBack";
 
 // What the instance parked after the approval waits on: the outcome of the S/4 post, not the human
 // decision. Its inputs are the four fields below and there is deliberately no `result` key, so it
 // cannot go through sendTrigger.
-const POST_RESULT_TRIGGER_ID = "eu10.alluvion-dev-cf.mdmlightapproval.waitForResult";
+const POST_RESULT_TRIGGER_ID = "eu10.alluvion-dev-cf.mdmlightapprovalcopy.waitForResult";
 
 // The one place a trigger is actually posted. The host stays with `sbpa-destination` for all of
 // them - hardcoding the gateway URL would bypass the destination, and with it the proxy and the

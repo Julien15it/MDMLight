@@ -115,7 +115,7 @@ test('notifyWorkflow is only used where it is declared', () => {
 test('the post result goes to its own trigger, with no result key', () => {
   assert.match(
     automation,
-    /POST_RESULT_TRIGGER_ID = "eu10\.alluvion-dev-cf\.mdmlightapproval\.waitForResult"/u
+    /POST_RESULT_TRIGGER_ID = "eu10\.alluvion-dev-cf\.mdmlightapprovalcopy.waitForResult"/u
   );
   const fn = automation.slice(automation.indexOf('async function triggerPostResult'));
   // To the closing brace of the function, not to the first one inside the payload literal.

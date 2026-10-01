@@ -516,8 +516,9 @@ const RESERVED = new Set([
   'createdAt', 'createdBy', 'modifiedAt', 'modifiedBy'
 ]);
 
+// TEST: points at the SBPA copy project for the step-loop test, revert before merging
 const APPROVAL_WORKFLOW_DEFINITION_ID =
-  'eu10.alluvion-dev-cf.mdmlightapproval.mDM_LIGHT_APPROVAL_WF';
+  'eu10.alluvion-dev-cf.mdmlightapprovalcopy.mDM_LIGHT_APPROVAL_WF';
 
 // staging.cds also declares block and delete: both reserved, and meaningless to postToS4. Checked
 // here because RequestType is a String(10), so a bad value otherwise fails at the database instead.

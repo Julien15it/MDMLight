@@ -2277,7 +2277,8 @@ function buildWorkflowInputFromRows(s4, rowsByEntity) {
   return result;
 }
 
-const APPROVAL_WORKFLOW_DEFINITION_ID = 'eu10.alluvion-dev-cf.mdmlightapproval.mDM_LIGHT_APPROVAL_WF';
+// TEST: points at the SBPA copy project for the step-loop test, revert before merging
+const APPROVAL_WORKFLOW_DEFINITION_ID = 'eu10.alluvion-dev-cf.mdmlightapprovalcopy.mDM_LIGHT_APPROVAL_WF';
 
 function triggerApprovalWorkflow(req, businessPartnerInput) {
   return startWorkflow(APPROVAL_WORKFLOW_DEFINITION_ID, {

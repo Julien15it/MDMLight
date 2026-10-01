@@ -251,8 +251,8 @@ test('the resubmit context is rebuilt after the edits, not before', () => {
  */
 test('the requester actions use their own trigger, the approver actions keep theirs', () => {
   const wf = read(ROOT, 'srv', 'wf', 'processAutomation.js');
-  assert.match(wf, /REQUESTER_CALLBACK_TRIGGER_ID = "eu10\.alluvion-dev-cf\.mdmlightapproval\.requesterCallBack"/u);
-  assert.match(wf, /APPROVAL_DECISION_TRIGGER_ID = "eu10\.alluvion-dev-cf\.mdmlightapproval\.zApproved_wf"/u);
+  assert.match(wf, /REQUESTER_CALLBACK_TRIGGER_ID = "eu10\.alluvion-dev-cf\.mdmlightapprovalcopy.requesterCallBack"/u);
+  assert.match(wf, /APPROVAL_DECISION_TRIGGER_ID = "eu10\.alluvion-dev-cf\.mdmlightapprovalcopy.zApproved_wf"/u);
   // The host stays with the destination. Writing the gateway in here would bypass the proxy and the
   // token that `sbpa-destination` provides.
   assert.equal(/spa-api-gateway/u.test(wf), false, 'the gateway host is not hardcoded');
@@ -266,7 +266,7 @@ test('the requester actions use their own trigger, the approver actions keep the
   // to pin lived in completeRequest, referencing a const declared inside the decideRequest handler,
   // so it threw a ReferenceError on every completion rather than signalling anything.
   assert.equal(serviceJs.includes("notifyWorkflow('approved')"), false);
-  assert.match(wf, /POST_RESULT_TRIGGER_ID = "eu10\.alluvion-dev-cf\.mdmlightapproval\.waitForResult"/u);
+  assert.match(wf, /POST_RESULT_TRIGGER_ID = "eu10\.alluvion-dev-cf\.mdmlightapprovalcopy.waitForResult"/u);
   // Following his `Resubmitted` convention, not his instruction - he never specified this one.
   assert.equal(WITHDRAWN_SIGNAL, 'Withdrawn');
   assert.equal(RESUBMITTED_SIGNAL, 'Resubmitted');
