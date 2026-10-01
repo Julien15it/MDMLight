@@ -16,7 +16,8 @@ const {
   stagedFinding,
   resolveRelationNumber,
   resolveEffectiveRole,
-  currentStepAssignee
+  currentStepAssignee,
+  stepPlanOf
 } = ChangeRequestService._internals;
 
 /** Fakes `db.run` against the staging tables, keyed by their bare entity name. */
@@ -306,4 +307,18 @@ test('resolveEffectiveRole never consults the approver sequence for DataSteward'
     approvalsReceived: 0
   };
   assert.equal(await resolveEffectiveRole(req, 'DataSteward', header), 'DataSteward');
+});
+
+// Since 2026-10-01 the sequence stores step plan entries; their roles are the step's assignee.
+test('currentStepAssignee reads a step plan entry, and stepPlanOf tells a plan from a legacy sequence', () => {
+  const plan = [
+    { no: 1, type: 'enrich', step: 'Enrich', recipients: 'DataSteward' },
+    { no: 2, type: 'approve', step: 'Approve', recipients: 'Approver Sales,Approver Backup' }
+  ];
+  const header = { approverSequenceJson: JSON.stringify(plan), approvalsReceived: 1 };
+  assert.equal(currentStepAssignee(header), 'Approver Sales,Approver Backup');
+  assert.deepEqual(stepPlanOf(header), plan);
+  assert.equal(stepPlanOf({ approverSequenceJson: JSON.stringify(['Approver Sales']) }), null);
+  assert.equal(stepPlanOf({ approverSequenceJson: null }), null);
+  assert.equal(stepPlanOf({ approverSequenceJson: 'not json' }), null);
 });

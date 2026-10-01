@@ -86,7 +86,8 @@
              condition width is what its three controls actually need. -->
         <columns>
           <Column width="9rem"><Text text="CR Type" /></Column>
-          <Column width="8rem"><Text text="Step" /></Column>
+          <Column width="5rem"><Text text="Sequence" /></Column>
+          <Column width="11rem"><Text text="Step" /></Column>
           <Column width="24rem"><Text text="Condition 1" /></Column>
           <Column width="6rem" visible="{= ${view>/conditions} &gt;= 2 }"><Text text="Logic" /></Column>
           <Column width="24rem" visible="{= ${view>/conditions} &gt;= 2 }"><Text text="Condition 2" /></Column>
@@ -111,7 +112,12 @@
                 change=".onCellChange">
                 <core:Item key="{opt>code}" text="{opt>text}" />
               </ComboBox>
-              <!-- One entry today. A column rather than an assumption - see db/workflow-rules.cds. -->
+              <!-- Step order: same number and step = one task; blank = one task per row, after the numbered ones. -->
+              <Input
+                width="100%"
+                value="{dc>sequence}"
+                change=".onCellChange" />
+              <!-- The step type: Approve (approver task) or Enrich (data steward task). -->
               <ComboBox
                 width="100%"
                 selectedKey="{dc>step}"

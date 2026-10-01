@@ -313,6 +313,9 @@ service ChangeRequestService @(path: '/service/changerequest') {
     MessagesJson      : LargeString;
     // Only set on `complete` - see resubmitRequest's ContextJson for what this carries and why.
     ContextJson       : LargeString;
+    // Only set when this review was the plan's last step and posted - decideRequest's own two fields.
+    BusinessPartner   : String(10);
+    ErrorMessage      : String(1000);
   };
 
   /**
