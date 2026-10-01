@@ -47,7 +47,7 @@ sap.ui.define([
    * table at `width="100%"` redistributes its columns into whatever space it has - which is the
    * squashing this exists to stop - so it needs a real width instead.
    *
-   * 37rem of columns that are always there (CR Type 9, Step 8, Approvers 16, Active 4), 24rem per
+   * 45rem of columns that are always there (CR Type 9, Sequence 5, Step 11, Approvers 16, Active 4), 24rem per
    * condition, and 6rem per Logic column, of which there is one fewer than there are conditions.
    * Kept here rather than as an expression binding in the view so the arithmetic and the column
    * widths it mirrors can be read (and tested) in one place.
@@ -61,7 +61,7 @@ sap.ui.define([
   var SELECT_REM = 3;
 
   function tableWidthFor(conditions) {
-    return (SELECT_REM + 37 + (24 * conditions) + (6 * (conditions - 1))) + "rem";
+    return (SELECT_REM + 45 + (24 * conditions) + (6 * (conditions - 1))) + "rem";
   }
 
   /**
@@ -82,6 +82,7 @@ sap.ui.define([
   function xlsxColumns() {
     return [
       { key: "requestType", label: "CR Type" },
+      { key: "sequence", label: "Sequence" },
       { key: "step", label: "Step" },
       { key: "conditionField", label: "Condition 1 Field" },
       { key: "conditionOperator", label: "Condition 1 Operator" },
@@ -507,6 +508,8 @@ sap.ui.define([
           if (index === undefined) return;
           var value = row[index];
           record[column.key] = column.key === "isActive" ? XlsxCodec.isTruthyCell(value) : (value === undefined ? "" : value);
+          // An Integer column: a blank cell is null, never "", which the typed binding refuses.
+          if (column.key === "sequence") record.sequence = String(record.sequence).trim() === "" ? null : Number(record.sequence);
         });
         if (record.requestType || record.approvers) {
           binding.create(record);

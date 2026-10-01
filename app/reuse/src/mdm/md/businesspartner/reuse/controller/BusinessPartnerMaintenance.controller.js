@@ -2597,6 +2597,15 @@ sap.ui.define([
               ? "Request completed and returned for approval"
               : "Request submitted for approval");
           state.messages = this._submitMessages(result);
+          // The review was the plan's last step, so it posted - say what S/4 answered instead.
+          if (action === "decideDataStewardReview" && result && (result.Status === "posted" || result.ErrorMessage)) {
+            state.title = result.Status === "posted"
+              ? "Request completed and created in S/4HANA"
+              : "Request completed, but it could not be posted";
+            state.messages = [result.Status === "posted"
+              ? { type: "Success", text: "Business Partner " + result.BusinessPartner + " was created in S/4HANA." }
+              : { type: "Error", text: result.ErrorMessage }];
+          }
           // The approver has these on CheckFindings; leaving the panel up invites editing a
           // request nobody can edit any more.
           state.duplicates = [];

@@ -35,13 +35,16 @@ const REQUEST_TYPE_TEXT = Object.freeze({
   delete: 'Delete'
 });
 
-// One step today. It is a column rather than an assumption because the next version of this table
-// describes whole request types with several steps each - see db/workflow-rules.cds.
-const STEPS = Object.freeze(['Approve']);
+// The step types a row can name; `Enrich` is a data steward task inside the plan (2026-10-01).
+const STEPS = Object.freeze(['Approve', 'Enrich']);
 
 const STEP_TEXT = Object.freeze({
-  Approve: 'Approve'
+  Approve: 'Approve',
+  Enrich: 'Enrich (data steward)'
 });
+
+// The `type` SBPA switches on, per step.
+const STEP_TYPES = Object.freeze({ Approve: 'approve', Enrich: 'enrich' });
 
 /** The default operator for a condition slot with nothing chosen - "field is one of these values" is
  *  exactly what `eq` means here, and it is what every condition meant before an operator existed. */
@@ -200,6 +203,12 @@ function validateWorkflowRule(rule = {}, model) {
     errors.push({ field: 'step', message: `“${step}” is not a step. Use one of: ${STEPS.join(', ')}.` });
   }
 
+  const sequence = rule.sequence;
+  if (sequence !== null && sequence !== undefined && sequence !== ''
+      && !(Number.isInteger(Number(sequence)) && Number(sequence) >= 0)) {
+    errors.push({ field: 'sequence', message: `“${sequence}” is not a sequence. Use a whole number, 0 or higher.` });
+  }
+
   const approvers = parseValueList(rule.approvers);
   // A step with nobody on it is the one row that looks configured and stops a request dead: SBPA
   // would be handed a step it cannot assign.
@@ -236,21 +245,68 @@ const runnable = (rules, model) => (Array.isArray(rules) ? rules : [])
   .filter((rule) => rule.isActive !== false)
   .filter((rule) => !validateWorkflowRule(rule, model).errors.length);
 
-/**
- * The `approvers` list for one request: every entry of every matching row, in table order, as
- * `{ step, value }` - `value` is always a role name (see `WorkflowRules.approvers`). Deduplicated on
- * step + value, so one role named by two rows is one approver rather than two identical tasks. Rows
- * are additive and carry no order of their own.
- *
- * Empty is a legitimate answer - no rule matched - and SBPA has to read it as "route it the way you
- * did before this table existed" rather than as a request nobody can approve.
- */
-function resolveApprovers({ rules = [], requestType, payload = {}, model } = {}) {
+// The runnable rows that apply to this request, in table order - shared by both resolvers.
+function matchingRules({ rules = [], requestType, payload = {}, model } = {}) {
   const type = trimmed(requestType);
-  const matching = runnable(rules, model)
+  return runnable(rules, model)
     // `*` matches every request type - a rule naming it applies whichever type the request actually is.
     .filter((rule) => { const ruleType = trimmed(rule.requestType); return ruleType === '*' || ruleType === type; })
     .filter((rule) => conditionsHold(readConditions(rule, model), payload, model, rule.conditionLogic));
+}
+
+const sequenceOf = (rule) => {
+  const raw = rule.sequence;
+  if (raw === null || raw === undefined || raw === '') return null;
+  const number = Number(raw);
+  return Number.isInteger(number) ? number : null;
+};
+
+/**
+ * The ordered step plan SBPA walks: `[{ no, type, step, recipients }]`, `recipients` a comma list of
+ * roles. Rows sharing a sequence and step merge into one task; rows without a sequence keep one task
+ * per role, after the numbered steps, in table order. Empty when no rule matched.
+ */
+function resolveSteps(args = {}) {
+  const groups = new Map();
+  matchingRules(args).forEach((rule, index) => {
+    const step = trimmed(rule.step);
+    const sequence = sequenceOf(rule);
+    parseValueList(rule.approvers).forEach((role, roleIndex) => {
+      const key = sequence === null ? `u|${step}|${role.toLocaleLowerCase()}` : `${sequence}|${step}`;
+      if (!groups.has(key)) {
+        groups.set(key, { sequence, first: index * 1000 + roleIndex, step, roles: [] });
+      }
+      const group = groups.get(key);
+      if (!group.roles.some((known) => known.toLocaleLowerCase() === role.toLocaleLowerCase())) group.roles.push(role);
+    });
+  });
+  return [...groups.values()]
+    .sort((a, b) => {
+      if (a.sequence !== b.sequence) {
+        if (a.sequence === null) return 1;
+        if (b.sequence === null) return -1;
+        return a.sequence - b.sequence;
+      }
+      return a.first - b.first;
+    })
+    .map((group, index) => ({
+      no: index + 1,
+      type: STEP_TYPES[group.step] || 'approve',
+      step: group.step,
+      recipients: group.roles.join(',')
+    }));
+}
+
+/**
+ * The flat `approvers` list for one request: every entry of every matching row, in table order, as
+ * `{ step, value }` - `value` is always a role name (see `WorkflowRules.approvers`). Deduplicated on
+ * step + value, so one role named by two rows is one approver rather than two identical tasks. Kept
+ * for the legacy `approvers` key and the screen strip; `resolveSteps` is what routing reads.
+ *
+ * Empty is a legitimate answer - no rule matched.
+ */
+function resolveApprovers(args = {}) {
+  const matching = matchingRules(args);
 
   const approvers = [];
   const seen = new Set();
@@ -270,6 +326,7 @@ module.exports = {
   REQUEST_TYPE_TEXT,
   STEPS,
   STEP_TEXT,
+  STEP_TYPES,
   CONDITION_PAIRS,
   MAX_CONDITIONS,
   DEFAULT_CONDITION_OPERATOR,
@@ -281,5 +338,6 @@ module.exports = {
   validateCondition,
   validateWorkflowRule,
   runnableWorkflowRules: runnable,
-  resolveApprovers
+  resolveApprovers,
+  resolveSteps
 };

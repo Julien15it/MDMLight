@@ -1,7 +1,7 @@
 'use strict';
 
 const cds = require('@sap/cds');
-const { resolveApprovers } = require('./workflow-rules');
+const { resolveApprovers, resolveSteps } = require('./workflow-rules');
 
 /**
  * Holds the workflow rules in memory, 60s TTL, dropped on any write - the same lifecycle as
@@ -78,11 +78,24 @@ async function approversFor({ requestType, payload, model, ...options } = {}) {
   }
 }
 
+/** The ordered step plan for one request; never throws, `[]` when no rule matched. */
+async function stepsFor({ requestType, payload, model, ...options } = {}) {
+  const loaded = await workflowRules(options);
+  if (!loaded || !loaded.length) return [];
+  try {
+    return resolveSteps({ rules: loaded, requestType, payload, model });
+  } catch (error) {
+    console.error('[workflow-rules] Could not resolve the step plan:', error);
+    return [];
+  }
+}
+
 module.exports = {
   WORKFLOW_RULES,
   TTL_MS,
   markStale,
   reset,
   workflowRules,
-  approversFor
+  approversFor,
+  stepsFor
 };

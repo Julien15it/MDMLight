@@ -254,3 +254,14 @@ test('the gate cannot 500 the action, whatever the checks do', () => {
   // Stepped over, not blocked: an unreachable S/4 must not strand a review.
   assert.match(complete, /let stewardStandard = \[\];/u);
 });
+
+// A planned steward step counts like an approve and posts when it is the last step (2026-10-01).
+test('complete advances a step plan and posts on the last step, a legacy request keeps the reset', () => {
+  const decide = serviceJs.slice(serviceJs.indexOf("this.on('decideDataStewardReview'"));
+  const complete = decide.slice(decide.indexOf("// decision === 'complete'"), decide.indexOf("this.on('getRequestPayload'"));
+  assert.match(complete, /const planned = stepPlanOf\(header\);/u);
+  assert.match(complete, /const approvalsReceived = \(header\.approvalsReceived \|\| 0\) \+ 1;/u);
+  assert.match(complete, /if \(planned && approvalsReceived >= requiredApprovals\) \{/u);
+  assert.match(complete, /await postAndRecord\(req, \{ \.\.\.header, status: 'approved', approvalsReceived \}\)/u);
+  assert.match(complete, /approverSequenceJson: JSON\.stringify\(context\.approvers\)/u);
+});

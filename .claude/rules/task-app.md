@@ -94,8 +94,11 @@ Still open, Julien's call: a failed post from My Inbox completes the task anyway
   producing the dead standalone host, so unset now yields `''` and a missing link is diagnosable where a
   404 is not. The intent must match the `BusinessPartner-manage` inbound.
 - Workflow context at submit: `{ changerequestid, requesttype, businesspartner, emailadressinitiator,
-  bpurl, reworkurl, datastewardurl, prefix, businesspartnerinput, bpduplicates, approvers,
+  bpurl, reworkurl, datastewardurl, prefix, businesspartnerinput, bpduplicates, approvers, steps,
   datastewards }`
+  **`steps`** (2026-10-01) is a list of `{ no, type, step, recipients }`, declared in SBPA as a list of
+  Data Type `WorkflowStep`, **not required**. It is what the step loop walks; `approvers`/`datastewards`
+  stay for a process that has not moved to it.
   **`criticalfield` was dropped from this context 2026-09-07** (the field property "critical entity"
   feature was withdrawn - see `field-properties.md`). If Arthur's process definition still maps it to a
   task input, that mapping now receives nothing rather than `'X'`/`' '` - confirm with Arthur before

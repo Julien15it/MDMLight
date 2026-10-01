@@ -301,7 +301,7 @@ test('xlsxColumns matches exactly what a WorkflowRules row holds, minus the gene
   const body = fn.slice(0, fn.indexOf('\n  }'));
   const keys = [...body.matchAll(/key: "([^"]+)"/gu)].map((match) => match[1]);
   assert.deepEqual(keys, [
-    'requestType', 'step',
+    'requestType', 'sequence', 'step',
     'conditionField', 'conditionOperator', 'conditionValues', 'conditionLogic',
     'conditionField2', 'conditionOperator2', 'conditionValues2', 'conditionLogic2',
     'conditionField3', 'conditionOperator3', 'conditionValues3', 'conditionLogic3',
@@ -311,7 +311,7 @@ test('xlsxColumns matches exactly what a WorkflowRules row holds, minus the gene
   ]);
   const labels = [...body.matchAll(/label: "([^"]+)"/gu)].map((match) => match[1]);
   assert.deepEqual(labels, [
-    'CR Type', 'Step',
+    'CR Type', 'Sequence', 'Step',
     'Condition 1 Field', 'Condition 1 Operator', 'Condition 1 Value', 'Logic',
     'Condition 2 Field', 'Condition 2 Operator', 'Condition 2 Value', 'Logic 2',
     'Condition 3 Field', 'Condition 3 Operator', 'Condition 3 Value', 'Logic 3',

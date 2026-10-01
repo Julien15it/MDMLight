@@ -48,7 +48,22 @@ function currentStepAssignee(header) {
   if (!header || !header.approverSequenceJson) return null;
   try {
     const sequence = JSON.parse(header.approverSequenceJson);
-    return Array.isArray(sequence) ? (sequence[header.approvalsReceived || 0] || null) : null;
+    const entry = Array.isArray(sequence) ? sequence[header.approvalsReceived || 0] : null;
+    // A step plan entry (since 2026-10-01) carries its roles as `recipients`; older requests hold plain strings.
+    if (entry && typeof entry === 'object') return entry.recipients || null;
+    return entry || null;
+  } catch {
+    return null;
+  }
+}
+
+// The stored step plan, or null for a request submitted before the plan existed (a plain string sequence).
+function stepPlanOf(header) {
+  try {
+    const sequence = JSON.parse((header && header.approverSequenceJson) || 'null');
+    return Array.isArray(sequence) && sequence.length && sequence.every((entry) => entry && typeof entry === 'object')
+      ? sequence
+      : null;
   } catch {
     return null;
   }
@@ -96,11 +111,13 @@ async function resolveEffectiveRole(req, role, header) {
     if (!email || email === 'unknown') return role;
 
     const assignee = role === 'Approver' ? currentStepAssignee(header) : null;
-    if (assignee) {
-      const isThisUser = assignee.includes('@')
-        ? assignee.toLowerCase() === email.toLowerCase()
-        : await isMemberOfRole(email, assignee);
-      if (isThisUser) return assignee;
+    // A step may name several roles (comma list); the first one this user holds wins.
+    const candidates = assignee ? assignee.split(',').map((entry) => entry.trim()).filter(Boolean) : [];
+    for (const candidate of candidates) {
+      const isThisUser = candidate.includes('@')
+        ? candidate.toLowerCase() === email.toLowerCase()
+        : await isMemberOfRole(email, candidate);
+      if (isThisUser) return candidate;
     }
 
     const specific = await specificRoleFor(email, role);
@@ -110,7 +127,12 @@ async function resolveEffectiveRole(req, role, header) {
     return role;
   }
 }
-const { approversFor } = require('./checks/workflow-rule-store');
+const { approversFor, stepsFor } = require('./checks/workflow-rule-store');
+
+// The step plan when no rule matched: one approval for the admin role, the same fallback SBPA applies.
+const FALLBACK_STEPS = Object.freeze([
+  Object.freeze({ no: 1, type: 'approve', step: 'Approve', recipients: 'MDM_Light_Admin' })
+]);
 const { currentProcessors } = require('./request-processors');
 const { withFullName, fullNameOf } = require('./partner-name');
 const { proposeNormalisations } = require('./checks/normalise');
@@ -893,10 +915,12 @@ class ChangeRequestService extends cds.ApplicationService {
       } catch (error) {
         console.warn(`Could not read the payload to determine the approvers of ${changeRequest}:`, error.message);
       }
-      const approvers = await approversFor({
-        requestType: req.data.RequestType,
-        payload: { root: payload.root || {}, sections: payload.sections || {} }
-      });
+      const rulePayload = { root: payload.root || {}, sections: payload.sections || {} };
+      const approvers = (await approversFor({ requestType: req.data.RequestType, payload: rulePayload }))
+        .filter((approver) => approver.step === 'Approve');
+      // The plan SBPA walks and CAP counts; never empty, so both sides apply the same fallback.
+      const resolvedSteps = await stepsFor({ requestType: req.data.RequestType, payload: rulePayload });
+      const steps = resolvedSteps.length ? resolvedSteps : FALLBACK_STEPS.map((step) => ({ ...step }));
       // SBPA now resolves BTP role collection membership itself (confirmed with Arthur,
       // 2026-08-31), so a role entry (e.g. "Approver Customer", picked from the Workflow Agent
       // Determination cell) is sent as its bare name, not expanded here into member e-mails -
@@ -942,6 +966,8 @@ class ChangeRequestService extends cds.ApplicationService {
         // `approvers` as an array of objects in the process context, after which the flattening
         // comes off again - resolveApprovers itself still returns the structured list.
         approvers: approverValues,
+        // The ordered plan `[{ no, type, step, recipients }]` the step loop walks (2026-10-01).
+        steps,
         // Array of strings, like `approvers` - the same lesson applies: the deployed process
         // validates the shape it was given, and an array of objects is not what an array-of-strings
         // input accepts. Never absent, empty when nobody carries the role or the subaccount API
@@ -1477,12 +1503,11 @@ class ChangeRequestService extends cds.ApplicationService {
         // trivially its own data, which is exactly why nothing is highlighted on a brand new create
         // until someone edits it.
         baselineDataJson: req.data.DataJson,
-        // The count decideRequest gates posting on - same array BPA gets as `approvers` in this
-        // same context, so CAP's idea of "how many" never disagrees with what actually got routed.
-        requiredApprovals: context.approvers.length,
+        // Steps to complete before the post - the same `steps` plan BPA walks, every type counted.
+        requiredApprovals: context.steps.length,
         approvalsReceived: 0,
-        // Who is assigned to which level, in order - see resolveEffectiveRole and db/staging.cds.
-        approverSequenceJson: JSON.stringify(context.approvers)
+        // Who is assigned to each step, in order - see resolveEffectiveRole and db/staging.cds.
+        approverSequenceJson: JSON.stringify(context.steps)
       }).where({ ID: changeRequest }));
 
       return {
@@ -1587,9 +1612,9 @@ class ChangeRequestService extends cds.ApplicationService {
         // A fresh approval cycle: the reworked payload can change WHO approves (a different country,
         // a different role match), so the count is rebuilt from this resubmit's own context, same as
         // submitRequest, and the counter starts over.
-        requiredApprovals: context.approvers.length,
+        requiredApprovals: context.steps.length,
         approvalsReceived: 0,
-        approverSequenceJson: JSON.stringify(context.approvers)
+        approverSequenceJson: JSON.stringify(context.steps)
       }).where({ ID: changeRequest }));
       await appendComment(db, changeRequest, 'Requester', requestingUserEmail(req), req.data.Reason);
 
@@ -1862,15 +1887,39 @@ class ChangeRequestService extends cds.ApplicationService {
       // submitRequest any more (resubmitRequest included, reversed 2026-08-27) - so the approver
       // receiving it next is meant to see the data steward's own edits highlighted too, on top of
       // whatever the requester changed getting here - see "Highlighting what changed" in CLAUDE.md.
+      // A planned steward step advances the plan like an approve and posts when it is the last step;
+      // a request from before the plan keeps the old fresh-cycle reset.
+      const planned = stepPlanOf(header);
+      const requiredApprovals = header.requiredApprovals || 1;
+      const approvalsReceived = (header.approvalsReceived || 0) + 1;
+      if (planned && approvalsReceived >= requiredApprovals) {
+        await db.run(cds.ql.UPDATE(HEADER).set({ status: 'approved', approvalsReceived }).where({ ID: changeRequestId }));
+        await appendComment(db, changeRequestId, 'DataSteward', requestingUserEmail(req), req.data.Reason);
+        const posted = await postAndRecord(req, { ...header, status: 'approved', approvalsReceived });
+        return {
+          ChangeRequest: changeRequestId,
+          Status: posted.Status,
+          ProcessInstanceId: before.processInstanceId,
+          NeedsConfirmation: false,
+          Valid: true,
+          ValidationsJson: JSON.stringify(validations),
+          MessagesJson: JSON.stringify(findings),
+          ContextJson: JSON.stringify(context),
+          BusinessPartner: posted.BusinessPartner,
+          ErrorMessage: posted.ErrorMessage
+        };
+      }
       await db.run(cds.ql.UPDATE(HEADER).set({
         status: 'inApproval',
         submittedAt: new Date().toISOString(),
         submittedBy: requestingUserEmail(req),
-        // Same reasoning as resubmitRequest: a fresh approval cycle, rebuilt from this completed
-        // review's own context, counter reset.
-        requiredApprovals: context.approvers.length,
-        approvalsReceived: 0,
-        approverSequenceJson: JSON.stringify(context.approvers)
+        ...(planned
+          ? { approvalsReceived }
+          : {
+            requiredApprovals: context.approvers.length,
+            approvalsReceived: 0,
+            approverSequenceJson: JSON.stringify(context.approvers)
+          })
       }).where({ ID: changeRequestId }));
       await appendComment(db, changeRequestId, 'DataSteward', requestingUserEmail(req), req.data.Reason);
 
@@ -2504,7 +2553,8 @@ ChangeRequestService._internals = {
   resolveAddressChildKeys,
   usableDateTimeKey,
   resolveEffectiveRole,
-  currentStepAssignee
+  currentStepAssignee,
+  stepPlanOf
 };
 
 module.exports = ChangeRequestService;

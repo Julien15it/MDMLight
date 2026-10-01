@@ -6,23 +6,30 @@ The UI5 task form and the SBPA wire contract are in `task-app.md`.
 
 ## Workflow Agent Determination (`db/workflow-rules.cds`)
 
-Produces the `approvers` list in the workflow context; SBPA routes on it.
+Produces the ordered **`steps`** plan in the workflow context (2026-10-01); SBPA's step loop walks it.
 
-- **The table decides WHO, never how many approvals or in what order.** CAP does not check that a role
-  exists — roles live in SBPA and a copy here would go stale.
+- **The table decides who, how many steps, their order and their type.** `resolveSteps` returns
+  `[{ no, type, step, recipients }]`: `sequence` orders (lowest first), `step` is the type (`Approve` →
+  `approve`, `Enrich` → `enrich`, a data steward task), and rows sharing a sequence **and** step merge
+  into one task whose `recipients` is a comma list of roles — any of them may take it. A row with no
+  sequence keeps one task per role, after the numbered steps, in table order. CAP does not check that a
+  role exists — roles live in SBPA and a copy here would go stale.
+- **The plan is never empty on the wire.** No matching rule sends `FALLBACK_STEPS` (one approval for
+  `MDM_Light_Admin`), the same fallback SBPA's script applies, so CAP's count and SBPA's loop agree.
 - **An entry is a role, never an e-mail address (withdrawn 2026-09-07).** Typing a user's address into
   the cell used to be accepted too — SBPA resolves both, and CAP deliberately did not check that either
   existed — but the working process only routes on roles now, so `validateWorkflowRule` refuses any
   entry containing `@` outright rather than passing it on. `resolveApprovers` returns `{ step, value }`;
   the cell still takes typing *and* offers a value help, because a role has to be spelled exactly as
   SBPA knows it. The condition cells deliberately do not get it.
-- **Rows are additive** — every matching row contributes, nothing needs ranking, no order column.
-  **Several approvers means several rows**; `resolveApprovers` de-duplicates on step + value.
+- **Rows are additive** — every matching row contributes. **Several roles means several rows**;
+  `resolveApprovers` (the legacy flat `approvers` key, Approve rows only) de-duplicates on step + value.
 - **All four CR types plus `*` ("Any").** Unlike the field property profiles' closed list this table
   offers `block`/`delete`, because saying who approves one early is harmless. `*` is an explicit value a
   steward picks, and a `*` rule and a specific-type rule both contribute.
-- **`step` carries only `Approve`** — a column rather than an assumption.
-- **Empty is a legitimate answer** — no rule matched, empty table, or unreadable: all `[]`.
+- **Without an `Enrich` row there is no steward step.** Before the plan, every request went past every
+  DataSteward role collection (`datastewards`); now only the table puts a steward in the chain.
+- **The resolvers' empty answer is legitimate** — no rule matched, empty table, or unreadable: all `[]`.
 - **Resolved in `workflowContext()`**, after the validations and the duplicate gate, and rebuilt after a
   rework so a resubmit routes on the payload the requester fixed.
 
@@ -104,14 +111,17 @@ the decision and the result are different waits. Best-effort.
 BPA routes through multiple approver tasks in order; CAP's job ends at sending the ordered `approvers`
 array once at submit. **What decides whether an approve actually posts to S/4 lives entirely in CAP.**
 
-- `ChangeRequests` carries `requiredApprovals`/`approvalsReceived`. Set together, always to
-  (`context.approvers.length`, `0`), at the three places a request enters `inApproval`: `submitRequest`,
-  `resubmitRequest`, and `decideDataStewardReview`'s `complete` branch — a fresh cycle always gets a
-  freshly counted total, because a reworked payload can change WHO matches a rule. Null on an older
-  request reads as 1.
-- **`approverSequenceJson` (same three call sites) is a second, later use of the same `context.approvers`
-  array** — a user holding several approver-shaped roles is disambiguated by it too; see
-  "Disambiguating a user with SEVERAL approver-shaped roles" in `field-properties.md`.
+- `ChangeRequests` carries `requiredApprovals`/`approvalsReceived`, which since 2026-10-01 count
+  **steps of every type**, not approvals. Set to (`context.steps.length`, `0`) by `submitRequest` and
+  `resubmitRequest`. Null on an older request reads as 1.
+- **`approverSequenceJson` stores the `steps` plan itself** (an array of objects). `currentStepAssignee`
+  returns the current entry's `recipients`, and `resolveEffectiveRole` checks each of its comma-separated
+  roles. An array of plain strings is a request from before the plan — `stepPlanOf` answers null for it.
+- **A planned steward step advances the plan.** `decideDataStewardReview`'s `complete` increments
+  `approvalsReceived` and, when that reaches `requiredApprovals`, posts through `postAndRecord` exactly as
+  the last approve does — **the last step activates, whatever its type**. A legacy request
+  (`stepPlanOf` null) keeps the old fresh-cycle reset, so an instance still on the old process definition
+  is not posted early on cut-over day.
 - **`decideRequest`'s approve branch increments and persists `approvalsReceived` on every single call**,
   before anything else — `appendComment` runs for every approval, so the thread shows who decided at each
   step. Only once `approvalsReceived >= requiredApprovals` does the post path run. Every earlier
@@ -190,8 +200,8 @@ then sends it back — to the approver if they made it work, to the requester if
 - **`claimDataStewardReview` is `claimRework`'s pattern**: arrival moves `inApproval` → `checkAndEnrich`,
   no signal sent.
 - **`decideDataStewardReview` is two existing shapes under one action.** `'complete'` is
-  **`resubmitRequest`'s body**; `'reject'` is **`decideRequest`'s reject branch** — straight to
-  `reworkRequired` with the steward's note, back to the requester, never to the approver.
+  **`resubmitRequest`'s gates**, then the step counting above; `'reject'` is **`decideRequest`'s reject
+  branch** — straight to `reworkRequired` with the steward's note, back to the requester.
 - **Both handlers are placed after `withdrawRequest`**, not beside `claimRework`: several tests slice
   `serviceJs` from `resubmitRequest` to `withdrawRequest` expecting an exact shape.
 - Two signals, `DataStewardComplete`/`DataStewardRejected`, are **unconfirmed placeholders**.
@@ -201,7 +211,8 @@ then sends it back — to the approver if they made it work, to the requester if
 - **Outcome ids are `"enrich"` and `"reject"`.** `sap.bpa.task.outcomes` is one flat array and an id
   only has to be unique **within** it: two branches both register `"reject"` with their own callbacks,
   safe because `_initTaskForm` picks exactly one branch per task.
-- **Nothing on Arthur's side routes a task to a data steward yet.**
+- **The step loop routes steward tasks from the plan** (`enrich` steps). `claimDataStewardReview` still
+  moves the status on arrival; the loop sends nothing CAP waits on.
 
 ## `datastewards` and `approvers` on the wire
 

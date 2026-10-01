@@ -8,7 +8,7 @@ const {
 } = require('../srv/checks/value-lists');
 const {
   REQUEST_TYPES, STEPS, conditionsHold, readConditions,
-  validateCondition, validateWorkflowRule, runnableWorkflowRules, resolveApprovers
+  validateCondition, validateWorkflowRule, runnableWorkflowRules, resolveApprovers, resolveSteps
 } = require('../srv/checks/workflow-rules');
 const { compare } = require('../srv/checks/rule-engine');
 
@@ -367,4 +367,42 @@ test('no rules, or unusable ones, resolve to an empty list rather than an error'
     model
   }), []);
   assert.deepEqual(resolveApprovers({}), []);
+});
+
+// The step plan (2026-10-01): sequence orders, same sequence + step merges into one task.
+test('resolveSteps orders by sequence and merges rows sharing a sequence and step', () => {
+  const rules = [
+    rule({ sequence: 30, approvers: 'FinanceApprover' }),
+    rule({ sequence: 10, approvers: 'SalesApprover' }),
+    rule({ sequence: 10, approvers: 'SalesBackup' }),
+    rule({ sequence: 20, step: 'Enrich', approvers: 'DataSteward' })
+  ];
+  assert.deepEqual(resolveSteps({ rules, requestType: 'create', payload: payload(), model }), [
+    { no: 1, type: 'approve', step: 'Approve', recipients: 'SalesApprover,SalesBackup' },
+    { no: 2, type: 'enrich', step: 'Enrich', recipients: 'DataSteward' },
+    { no: 3, type: 'approve', step: 'Approve', recipients: 'FinanceApprover' }
+  ]);
+});
+
+// Without a sequence a row keeps today's one-task-per-role, after the numbered steps, deduplicated.
+test('resolveSteps puts unnumbered rows after the numbered ones, one task per role', () => {
+  const rules = [
+    rule({ approvers: 'FirstApprover' }),
+    rule({ sequence: 5, approvers: 'Numbered' }),
+    rule({ approvers: 'SecondApprover' }),
+    rule({ approvers: 'FirstApprover' })
+  ];
+  assert.deepEqual(
+    resolveSteps({ rules, requestType: 'create', payload: payload(), model }).map((step) => step.recipients),
+    ['Numbered', 'FirstApprover', 'SecondApprover']
+  );
+  assert.deepEqual(resolveSteps({ rules: [], requestType: 'create', payload: payload(), model }), []);
+});
+
+test('Enrich is a step, and a sequence must be a whole number', () => {
+  assert.ok(STEPS.includes('Enrich'));
+  assert.deepEqual(validateWorkflowRule(rule({ step: 'Enrich', sequence: 10 }), model).errors, []);
+  assert.deepEqual(validateWorkflowRule(rule({ sequence: null }), model).errors, []);
+  assert.equal(validateWorkflowRule(rule({ sequence: 1.5 }), model).errors[0].field, 'sequence');
+  assert.equal(validateWorkflowRule(rule({ sequence: -1 }), model).errors[0].field, 'sequence');
 });

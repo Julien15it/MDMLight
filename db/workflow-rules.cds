@@ -11,12 +11,9 @@ using { managed } from '@sap/cds/common';
  * workflow context, and SBPA routes on it - how many approvers a request needs and what a role
  * resolves to stays entirely on that side, the same way `decideRequest` knows nothing about it.
  *
- * The step column carries only `Approve` today. It exists because the next version of this table is
- * meant to describe whole request types (Supplier creation, Customer creation) with several steps
- * each, and a step added later must not be a column added later.
- *
- * There is deliberately no order column. Rows are additive - every matching row contributes its
- * approvers - so nothing here needs ranking, and the approvers reach SBPA in table order.
+ * Rows are additive - every matching row contributes. Since 2026-10-01 they resolve to an ordered
+ * `steps` plan (see resolveSteps): `sequence` orders the steps, `step` names their type (`Approve`
+ * or `Enrich`), and rows sharing a sequence and step are one task any of their roles may take.
  */
 entity WorkflowRules : managed {
   key ID              : UUID;
@@ -24,8 +21,11 @@ entity WorkflowRules : managed {
       /** create / change / block / delete. No `*`: an approver list is not something to default. */
       requestType     : String(10) not null;
 
-      /** `Approve` for now - see the note above on why this is a column at all. */
+      /** The step type: `Approve` (an approver task) or `Enrich` (a data steward task). */
       step            : String(20) not null;
+
+      /** Step order, lowest first; same number and step = one task. Null keeps one task per row, after the numbered ones. */
+      sequence        : Integer;
 
       /**
        * **Reverted to two fixed condition slots (2026-08-31)**, on direct feedback: the dynamic,
