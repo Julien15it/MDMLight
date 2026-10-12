@@ -98,7 +98,8 @@ Still open, Julien's call: a failed post from My Inbox completes the task anyway
   datastewards }`
   **`steps`** (2026-10-01) is a list of `{ no, type, step, recipients }`, declared in SBPA as a list of
   Data Type `WorkflowStep`, **not required**. It is what the step loop walks; `approvers`/`datastewards`
-  stay for a process that has not moved to it.
+  stay for a process that has not moved to it. Never empty: a request needing no approval starts no
+  workflow at all, so SBPA's own Admin fallback is no longer reached from CAP.
   **`criticalfield` was dropped from this context 2026-09-07** (the field property "critical entity"
   feature was withdrawn - see `field-properties.md`). If Arthur's process definition still maps it to a
   task input, that mapping now receives nothing rather than `'X'`/`' '` - confirm with Arthur before

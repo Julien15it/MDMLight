@@ -14,6 +14,9 @@ sap.ui.define([
 
   var UPDATE_GROUP = "ruleChanges";
 
+  // Labels for the fallback table's fixed CR type cell.
+  var REQUEST_TYPE_TEXT = { create: "Create", change: "Change", block: "Block", delete: "Delete" };
+
   // Identity/managed columns that must never travel back on a create - `binding.create` is a POST,
   // and sending an existing key or a server-assigned timestamp is either ignored or rejected
   // depending on the column, never something worth relying on either way. Shared by Duplicate and
@@ -395,6 +398,10 @@ sap.ui.define([
 
     onCellChange: function () {
       this._markDirty();
+    },
+
+    formatRequestType: function (code) {
+      return REQUEST_TYPE_TEXT[code] || code;
     },
 
     _markDirty: function () {

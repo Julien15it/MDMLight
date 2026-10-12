@@ -14,8 +14,19 @@ Produces the ordered **`steps`** plan in the workflow context (2026-10-01); SBPA
   into one task whose `recipients` is a comma list of roles — any of them may take it. A row with no
   sequence keeps one task per role, after the numbered steps, in table order. CAP does not check that a
   role exists — roles live in SBPA and a copy here would go stale.
-- **The plan is never empty on the wire.** No matching rule sends `FALLBACK_STEPS` (one approval for
-  `MDM_Light_Admin`), the same fallback SBPA's script applies, so CAP's count and SBPA's loop agree.
+- **No matching rule falls back per CR type** — `WorkflowFallbacks`, one row per type (no `*`), shown
+  under the rules on the same page. A role there becomes one approval step; **an empty role means no
+  approval at all**: `submitRequest` starts no workflow and posts straight away (`activateWithoutApproval`,
+  `requiredApprovals: 0`). A type with no row routes to `MDM_Light_Admin` (`DEFAULT_FALLBACK_ROLE`), and
+  the page's list read seeds the four rows with it — not a CSV, which `cds-deploy` would UPSERT over the
+  stewards' edits on every deploy.
+- **An unreadable rules or fallback table never reads as "nobody approves".** `routingFor` fails safe to
+  `MDM_Light_Admin`; an empty plan only ever comes from a fallback a steward emptied.
+- **Seed in the request's own transaction.** A second root transaction (`cds.tx`) deadlocked on the
+  re-read that follows every PATCH.
+- **Resubmit after rework:** a parked instance walks the plan it was started with, so an empty plan keeps
+  the stored one. A request activated without approval has no instance; its resubmit posts again when the
+  plan is still empty, and is refused (withdraw and re-raise) when it now needs approval.
 - **An entry is a role, never an e-mail address (withdrawn 2026-09-07).** Typing a user's address into
   the cell used to be accepted too — SBPA resolves both, and CAP deliberately did not check that either
   existed — but the working process only routes on roles now, so `validateWorkflowRule` refuses any
@@ -30,6 +41,7 @@ Produces the ordered **`steps`** plan in the workflow context (2026-10-01); SBPA
 - **Without an `Enrich` row there is no steward step.** Before the plan, every request went past every
   DataSteward role collection (`datastewards`); now only the table puts a steward in the chain.
 - **The resolvers' empty answer is legitimate** — no rule matched, empty table, or unreadable: all `[]`.
+  `routingFor`, which routing reads, is the exception: it never answers `[]` for an unreadable table.
 - **Resolved in `workflowContext()`**, after the validations and the duplicate gate, and rebuilt after a
   rework so a resubmit routes on the payload the requester fixed.
 

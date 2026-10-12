@@ -1,7 +1,9 @@
 'use strict';
 
 const cds = require('@sap/cds');
-const { resolveApprovers, resolveSteps } = require('./workflow-rules');
+const {
+  resolveApprovers, resolveSteps, fallbackSteps, DEFAULT_FALLBACK_ROLE
+} = require('./workflow-rules');
 
 /**
  * Holds the workflow rules in memory, 60s TTL, dropped on any write - the same lifecycle as
@@ -15,6 +17,7 @@ const { resolveApprovers, resolveSteps } = require('./workflow-rules');
  */
 
 const WORKFLOW_RULES = 'mdmlight.config.WorkflowRules';
+const WORKFLOW_FALLBACKS = 'mdmlight.config.WorkflowFallbacks';
 
 const TTL_MS = 60000;
 
@@ -22,6 +25,9 @@ let rows = null;
 let loadedAt = 0;
 let stale = true;
 let inFlight = null;
+let fallbackRows = null;
+let fallbacksLoadedAt = 0;
+let fallbacksStale = true;
 
 const due = () => stale || !rows || (Date.now() - loadedAt) >= TTL_MS;
 
@@ -33,6 +39,7 @@ const read = async () => {
 /** Dropped on every write, the same way a rule write drops the rule store. */
 function markStale() {
   stale = true;
+  fallbacksStale = true;
 }
 
 function reset() {
@@ -40,6 +47,9 @@ function reset() {
   loadedAt = 0;
   stale = true;
   inFlight = null;
+  fallbackRows = null;
+  fallbacksLoadedAt = 0;
+  fallbacksStale = true;
 }
 
 async function load(readRows) {
@@ -78,24 +88,54 @@ async function approversFor({ requestType, payload, model, ...options } = {}) {
   }
 }
 
-/** The ordered step plan for one request; never throws, `[]` when no rule matched. */
-async function stepsFor({ requestType, payload, model, ...options } = {}) {
-  const loaded = await workflowRules(options);
-  if (!loaded || !loaded.length) return [];
+const readFallbackRows = async () => {
+  const stored = await cds.run(cds.ql.SELECT.from(WORKFLOW_FALLBACKS));
+  return Array.isArray(stored) ? stored : [];
+};
+
+// Same lifecycle as the rules; null until a read has ever succeeded.
+async function workflowFallbacks({ readFallbacks = readFallbackRows, force = false } = {}) {
+  const due = fallbacksStale || !fallbackRows || (Date.now() - fallbacksLoadedAt) >= TTL_MS;
+  if (!force && !due) return fallbackRows;
   try {
-    return resolveSteps({ rules: loaded, requestType, payload, model });
+    fallbackRows = await readFallbacks();
+    fallbacksLoadedAt = Date.now();
+    fallbacksStale = false;
+  } catch (error) {
+    console.warn('[workflow-rules] Workflow fallback configuration unavailable:', error.message);
+  }
+  return fallbackRows;
+}
+
+const SAFE_PLAN = () => [{ no: 1, type: 'approve', step: 'Approve', recipients: DEFAULT_FALLBACK_ROLE }];
+
+/**
+ * The plan a request is routed on: the matching rules, else the CR type's fallback, else `[]` (no
+ * approval). Never `[]` from a table it could not read - that fails safe to the default role.
+ */
+async function routingFor({ requestType, payload, model, ...options } = {}) {
+  const loaded = await workflowRules(options);
+  if (!loaded) return SAFE_PLAN();
+  try {
+    const steps = resolveSteps({ rules: loaded, requestType, payload, model });
+    if (steps.length) return steps;
   } catch (error) {
     console.error('[workflow-rules] Could not resolve the step plan:', error);
-    return [];
+    return SAFE_PLAN();
   }
+  const fallbacks = await workflowFallbacks(options);
+  if (!fallbacks) return SAFE_PLAN();
+  return fallbackSteps({ fallbacks, requestType });
 }
 
 module.exports = {
   WORKFLOW_RULES,
+  WORKFLOW_FALLBACKS,
   TTL_MS,
   markStale,
   reset,
   workflowRules,
   approversFor,
-  stepsFor
+  workflowFallbacks,
+  routingFor
 };

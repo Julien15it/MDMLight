@@ -12,7 +12,8 @@ reads to an S/4HANA OData V2 `API_BUSINESS_PARTNER` service through the BTP dest
 `VF_S4HANA_DEST`. BP deletion is disabled throughout.
 
 Reads are pure facade; **creates are staged in PostgreSQL and posted only once approved.** Nothing
-reaches S/4 until an approver says so, and **SBPA never writes to S/4**.
+reaches S/4 until an approver says so — unless the Workflow Agent Determination routes it to nobody
+(`workflow.md`) — and **SBPA never writes to S/4**.
 
 ## Commands
 

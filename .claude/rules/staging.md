@@ -3,7 +3,9 @@
 <!-- paths: db/staging.cds, srv/change-request-service.*, srv/search-results.js, srv/partner-name.js -->
 
 **Nothing reaches S/4 until it is approved.** Creates used to post immediately and start the workflow
-afterwards, so the approver reviewed something already live. **Do not reintroduce that order.**
+afterwards, so the approver reviewed something already live. **Do not reintroduce that order.** The one
+exception is a request no rule routes and whose CR type's fallback is empty: it posts on submit, with no
+workflow (`workflow.md`).
 
 1. User fills the create form (no Preview step — Check, Save Request and Submit Request are live on the
    empty form).

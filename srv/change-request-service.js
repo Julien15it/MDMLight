@@ -127,12 +127,7 @@ async function resolveEffectiveRole(req, role, header) {
     return role;
   }
 }
-const { approversFor, stepsFor } = require('./checks/workflow-rule-store');
-
-// The step plan when no rule matched: one approval for the admin role, the same fallback SBPA applies.
-const FALLBACK_STEPS = Object.freeze([
-  Object.freeze({ no: 1, type: 'approve', step: 'Approve', recipients: 'MDM_Light_Admin' })
-]);
+const { approversFor, routingFor } = require('./checks/workflow-rule-store');
 const { currentProcessors } = require('./request-processors');
 const { withFullName, fullNameOf } = require('./partner-name');
 const { proposeNormalisations } = require('./checks/normalise');
@@ -918,9 +913,9 @@ class ChangeRequestService extends cds.ApplicationService {
       const rulePayload = { root: payload.root || {}, sections: payload.sections || {} };
       const approvers = (await approversFor({ requestType: req.data.RequestType, payload: rulePayload }))
         .filter((approver) => approver.step === 'Approve');
-      // The plan SBPA walks and CAP counts; never empty, so both sides apply the same fallback.
-      const resolvedSteps = await stepsFor({ requestType: req.data.RequestType, payload: rulePayload });
-      const steps = resolvedSteps.length ? resolvedSteps : FALLBACK_STEPS.map((step) => ({ ...step }));
+      // The plan SBPA walks and CAP counts: the matching rules, else the CR type's fallback role.
+      // Empty only when the fallback is configured empty - the request then activates without approval.
+      const steps = await routingFor({ requestType: req.data.RequestType, payload: rulePayload });
       // SBPA now resolves BTP role collection membership itself (confirmed with Arthur,
       // 2026-08-31), so a role entry (e.g. "Approver Customer", picked from the Workflow Agent
       // Determination cell) is sent as its bare name, not expanded here into member e-mails -
@@ -1435,6 +1430,34 @@ class ChangeRequestService extends cds.ApplicationService {
       };
     });
 
+    // No rule matched and the CR type's fallback is empty: record the submit and post without a workflow.
+    const activateWithoutApproval = async (req, changeRequest, header, fields, validations, findings) => {
+      await db.run(cds.ql.UPDATE(HEADER).set({
+        ...fields,
+        status: 'approved',
+        submittedAt: new Date().toISOString(),
+        submittedBy: requestingUserEmail(req),
+        // 0 marks a request that never needed approval - resubmitRequest reads it.
+        requiredApprovals: 0,
+        approvalsReceived: 0,
+        approverSequenceJson: JSON.stringify([])
+      }).where({ ID: changeRequest }));
+      await appendComment(db, changeRequest, 'System', 'SYSTEM',
+        'No approver applies to this request, so it was activated without approval.');
+      const posted = await postAndRecord(req, { ...header, ...fields, status: 'approved', requiredApprovals: 0 });
+      return {
+        ChangeRequest: changeRequest,
+        Status: posted.Status,
+        ProcessInstanceId: header.processInstanceId || null,
+        NeedsConfirmation: false,
+        Valid: true,
+        ValidationsJson: JSON.stringify(validations),
+        MessagesJson: JSON.stringify(findings),
+        BusinessPartner: posted.BusinessPartner,
+        ErrorMessage: posted.ErrorMessage
+      };
+    };
+
     this.on('submitRequest', async (req) => {
       const changeRequest = await persist(req);
       if (!changeRequest) return;
@@ -1477,6 +1500,9 @@ class ChangeRequestService extends cds.ApplicationService {
 
       const header = await db.run(cds.ql.SELECT.one.from(HEADER).where({ ID: changeRequest }));
       const context = await workflowContext(req, changeRequest, header, findings);
+      if (!context.steps.length) {
+        return activateWithoutApproval(req, changeRequest, header, { baselineDataJson: req.data.DataJson }, validations, findings);
+      }
 
       let processInstanceId = null;
       try {
@@ -1533,7 +1559,8 @@ class ChangeRequestService extends cds.ApplicationService {
           + ' approver sent back can be resubmitted.');
       }
       // The parked instance IS the target; starting a fresh workflow would give one request two threads.
-      if (!before.processInstanceId) {
+      // A request activated without approval never had one, and is let through to try again.
+      if (!before.processInstanceId && before.requiredApprovals !== 0) {
         return req.reject(409,
           `Change request ${requested} has no approval process to hand back to, so it cannot be`
           + ' resubmitted. Withdraw it and raise a new request.');
@@ -1580,6 +1607,17 @@ class ChangeRequestService extends cds.ApplicationService {
       // Sending `before` here would show them exactly the version they had already rejected.
       const header = await db.run(cds.ql.SELECT.one.from(HEADER).where({ ID: changeRequest }));
       const context = await workflowContext(req, changeRequest, header, findings);
+      if (!before.processInstanceId) {
+        if (!context.steps.length) {
+          await appendComment(db, changeRequest, 'Requester', requestingUserEmail(req), req.data.Reason);
+          return activateWithoutApproval(req, changeRequest, header, {}, validations, findings);
+        }
+        return req.reject(409,
+          `Change request ${changeRequest} now needs approval and has no approval process to hand it to.`
+          + ' Withdraw it and raise a new request.');
+      }
+      // The parked instance walks the plan it was started with, so an empty plan keeps the stored one.
+      if (!context.steps.length) context.steps = stepPlanOf(before) || [];
 
       // Best-effort, like `withdrawRequest`'s own callback (2026-08-24) - it used to block the whole
       // resubmit on this succeeding, which meant a rejected request stayed stuck at `reworkRequired`
@@ -2298,6 +2336,8 @@ class ChangeRequestService extends cds.ApplicationService {
       // instance and no process to signal -- and "nothing arrived in BPA" with nothing in the log
       // is the hardest version of that to diagnose.
       if (!header.processInstanceId) {
+        // Activated without approval: there was never a process to tell.
+        if (header.requiredApprovals === 0) return;
         console.warn(
           `Change request ${header.ID} has no processInstanceId, so the post result was not sent to BPA.`
         );

@@ -292,6 +292,37 @@
         </items>
       </Table>
       </ScrollContainer>
+      <!-- One row per CR type, used when no rule above matches; same update group, so Save writes both tables. -->
+      <OverflowToolbar class="sapUiMediumMarginTop">
+        <Title text="Fallback Approver" level="H2" />
+      </OverflowToolbar>
+      <Text
+        class="sapUiSmallMarginBeginEnd sapUiTinyMarginBottom"
+        text="Routes a request no rule matches. Left empty, such a request is activated without approval." />
+      <Table
+        id="fallbackTable"
+        width="30rem"
+        items="{ path: 'dc>/WorkflowFallbacks', parameters: { $orderby: 'requestType', $$updateGroupId: 'ruleChanges' } }"
+        busy="{view>/busy}">
+        <columns>
+          <Column width="9rem"><Text text="CR Type" /></Column>
+          <Column><Text text="Fallback Role" /></Column>
+        </columns>
+        <items>
+          <ColumnListItem>
+            <cells>
+              <Text text="{ path: 'dc>requestType', formatter: '.formatRequestType' }" />
+              <Input
+                width="100%"
+                value="{dc>role}"
+                placeholder="none - activates without approval"
+                showValueHelp="true"
+                valueHelpRequest=".onRoleValueHelp"
+                change=".onCellChange" />
+            </cells>
+          </ColumnListItem>
+        </items>
+      </Table>
     </content>
   </Page>
 </mvc:View>

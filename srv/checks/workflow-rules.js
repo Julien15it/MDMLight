@@ -321,7 +321,43 @@ function resolveApprovers(args = {}) {
   return approvers;
 }
 
+// The CR types a fallback is kept for - the real four, never `*`.
+const FALLBACK_REQUEST_TYPES = Object.freeze(['create', 'change', 'block', 'delete']);
+
+// What a CR type with no stored fallback row routes to, and what an unreadable table fails safe to.
+const DEFAULT_FALLBACK_ROLE = 'MDM_Light_Admin';
+
+/** `{ errors }` for one fallback row: a known CR type, and at most one role, never an e-mail address. */
+function validateWorkflowFallback(row = {}) {
+  const errors = [];
+  const requestType = trimmed(row.requestType);
+  if (!FALLBACK_REQUEST_TYPES.includes(requestType)) {
+    errors.push({
+      field: 'requestType',
+      message: `“${requestType}” is not a request type. Use one of: ${FALLBACK_REQUEST_TYPES.join(', ')}.`
+    });
+  }
+  const roles = parseValueList(row.role);
+  if (roles.length > 1) errors.push({ field: 'role', message: 'A fallback is one role.' });
+  if (roles.some((role) => role.includes('@'))) {
+    errors.push({ field: 'role', message: 'A fallback can only be a role - use the value help to pick one.' });
+  }
+  return { errors, warnings: [] };
+}
+
+/** The step plan when no rule matched: one approval for the CR type's fallback role, or `[]` for none. */
+function fallbackSteps({ fallbacks = [], requestType } = {}) {
+  const type = trimmed(requestType);
+  const row = (Array.isArray(fallbacks) ? fallbacks : []).find((entry) => trimmed(entry.requestType) === type);
+  const role = row ? trimmed(row.role) : DEFAULT_FALLBACK_ROLE;
+  return role ? [{ no: 1, type: STEP_TYPES.Approve, step: 'Approve', recipients: role }] : [];
+}
+
 module.exports = {
+  FALLBACK_REQUEST_TYPES,
+  DEFAULT_FALLBACK_ROLE,
+  validateWorkflowFallback,
+  fallbackSteps,
   REQUEST_TYPES,
   REQUEST_TYPE_TEXT,
   STEPS,

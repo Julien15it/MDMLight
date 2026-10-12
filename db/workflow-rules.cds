@@ -113,6 +113,12 @@ entity WorkflowRules : managed {
       isActive        : Boolean default true;
 }
 
+/** Who approves a CR type when no rule matched: one role, or empty to activate without approval. */
+entity WorkflowFallbacks : managed {
+  key requestType : String(10);
+      role        : String(1000);
+}
+
 /**
  * **Abandoned (2026-08-31), same day it was built** - see "Reverted to two fixed condition slots"
  * on `WorkflowRules.conditionRows` above. Stays in the model, permanently unused, because

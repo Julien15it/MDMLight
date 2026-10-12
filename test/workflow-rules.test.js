@@ -8,8 +8,10 @@ const {
 } = require('../srv/checks/value-lists');
 const {
   REQUEST_TYPES, STEPS, conditionsHold, readConditions,
-  validateCondition, validateWorkflowRule, runnableWorkflowRules, resolveApprovers, resolveSteps
+  validateCondition, validateWorkflowRule, runnableWorkflowRules, resolveApprovers, resolveSteps,
+  FALLBACK_REQUEST_TYPES, DEFAULT_FALLBACK_ROLE, validateWorkflowFallback, fallbackSteps
 } = require('../srv/checks/workflow-rules');
+const workflowRuleStore = require('../srv/checks/workflow-rule-store');
 const { compare } = require('../srv/checks/rule-engine');
 
 /**
@@ -405,4 +407,44 @@ test('Enrich is a step, and a sequence must be a whole number', () => {
   assert.deepEqual(validateWorkflowRule(rule({ sequence: null }), model).errors, []);
   assert.equal(validateWorkflowRule(rule({ sequence: 1.5 }), model).errors[0].field, 'sequence');
   assert.equal(validateWorkflowRule(rule({ sequence: -1 }), model).errors[0].field, 'sequence');
+});
+
+// A missing row keeps the old Admin routing; an empty role is the explicit "activate without approval".
+test('fallbackSteps routes to the CR type role, the default when unset, and nowhere when empty', () => {
+  const fallbacks = [{ requestType: 'create', role: 'Approver_Sales' }, { requestType: 'change', role: '' }];
+  assert.deepEqual(fallbackSteps({ fallbacks, requestType: 'create' }), [
+    { no: 1, type: 'approve', step: 'Approve', recipients: 'Approver_Sales' }
+  ]);
+  assert.deepEqual(fallbackSteps({ fallbacks, requestType: 'change' }), []);
+  assert.equal(fallbackSteps({ fallbacks, requestType: 'block' })[0].recipients, DEFAULT_FALLBACK_ROLE);
+  assert.equal(fallbackSteps({ fallbacks: [{ requestType: 'delete', role: null }], requestType: 'delete' }).length, 0);
+});
+
+test('a fallback is one role for one of the four CR types', () => {
+  assert.deepEqual(FALLBACK_REQUEST_TYPES, ['create', 'change', 'block', 'delete']);
+  assert.deepEqual(validateWorkflowFallback({ requestType: 'create', role: 'MDM_Light_Admin' }).errors, []);
+  assert.deepEqual(validateWorkflowFallback({ requestType: 'change', role: '' }).errors, []);
+  assert.equal(validateWorkflowFallback({ requestType: '*', role: 'X' }).errors[0].field, 'requestType');
+  assert.equal(validateWorkflowFallback({ requestType: 'create', role: 'a@b.eu' }).errors[0].field, 'role');
+  assert.equal(validateWorkflowFallback({ requestType: 'create', role: 'A|B' }).errors[0].field, 'role');
+});
+
+// An unreadable table must never read as "nobody needs to approve" - that would post unapproved data.
+test('routingFor: rules first, then the fallback, and the default role when either table is unreadable', async () => {
+  const routing = (readRows, readFallbacks) => {
+    workflowRuleStore.reset();
+    return workflowRuleStore.routingFor({ requestType: 'create', payload: payload(), model, readRows, readFallbacks });
+  };
+  const fails = async () => { throw new Error('down'); };
+  const matching = async () => [rule({ approvers: 'RuleApprover' })];
+  const none = async () => [];
+  const empty = async () => [{ requestType: 'create', role: '' }];
+
+  assert.equal((await routing(matching, fails))[0].recipients, 'RuleApprover');
+  assert.equal((await routing(none, async () => [{ requestType: 'create', role: 'Fb' }]))[0].recipients, 'Fb');
+  assert.deepEqual(await routing(none, empty), []);
+  assert.equal((await routing(none, none))[0].recipients, DEFAULT_FALLBACK_ROLE);
+  assert.equal((await routing(fails, empty))[0].recipients, DEFAULT_FALLBACK_ROLE);
+  assert.equal((await routing(none, fails))[0].recipients, DEFAULT_FALLBACK_ROLE);
+  workflowRuleStore.reset();
 });

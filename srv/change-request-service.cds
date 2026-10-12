@@ -56,6 +56,9 @@ service ChangeRequestService @(path: '/service/changerequest') {
     ValidationsJson   : LargeString;
     /** Findings for the message area, newest check only. */
     MessagesJson      : LargeString;
+    // Only set when nothing needed approving and the request posted on submit.
+    BusinessPartner   : String(10);
+    ErrorMessage      : String(1000);
   };
 
   /** Serves a request back in the shape the screen sends, so the approve view reuses one code path. */
@@ -248,6 +251,9 @@ service ChangeRequestService @(path: '/service/changerequest') {
     // The rebuilt workflow context (businesspartnerinput included), so a My Inbox rework task can
     // carry it back to BPA as its own output on completion - see ContextJson in change-request-service.js.
     ContextJson       : LargeString;
+    // Only set when nothing needed approving and the request posted on resubmit.
+    BusinessPartner   : String(10);
+    ErrorMessage      : String(1000);
   };
 
   /**

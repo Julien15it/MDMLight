@@ -2597,11 +2597,12 @@ sap.ui.define([
               ? "Request completed and returned for approval"
               : "Request submitted for approval");
           state.messages = this._submitMessages(result);
-          // The review was the plan's last step, so it posted - say what S/4 answered instead.
-          if (action === "decideDataStewardReview" && result && (result.Status === "posted" || result.ErrorMessage)) {
+          // The plan's last step, or a request nothing had to approve, posted - say what S/4 answered instead.
+          if (result && (result.Status === "posted" || result.ErrorMessage)) {
+            var completing = action === "decideDataStewardReview";
             state.title = result.Status === "posted"
-              ? "Request completed and created in S/4HANA"
-              : "Request completed, but it could not be posted";
+              ? (completing ? "Request completed and created in S/4HANA" : "Request activated without approval")
+              : (completing ? "Request completed, but it could not be posted" : "Request activated without approval, but it could not be posted");
             state.messages = [result.Status === "posted"
               ? { type: "Success", text: "Business Partner " + result.BusinessPartner + " was created in S/4HANA." }
               : { type: "Error", text: result.ErrorMessage }];

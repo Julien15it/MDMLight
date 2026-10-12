@@ -21,7 +21,8 @@ const {
 const fieldPropertyStore = require('./checks/field-property-store');
 const {
   REQUEST_TYPES: WORKFLOW_REQUEST_TYPES, REQUEST_TYPE_TEXT: WORKFLOW_REQUEST_TYPE_TEXT,
-  STEPS, STEP_TEXT, MAX_CONDITIONS, validateWorkflowRule, runnableWorkflowRules
+  STEPS, STEP_TEXT, MAX_CONDITIONS, validateWorkflowRule, runnableWorkflowRules,
+  FALLBACK_REQUEST_TYPES, DEFAULT_FALLBACK_ROLE, validateWorkflowFallback
 } = require('./checks/workflow-rules');
 const workflowRuleStore = require('./checks/workflow-rule-store');
 const { workflowAgents } = require('./wf/btp-agents');
@@ -32,6 +33,7 @@ const DERIVATIONS = 'mdmlight.config.DerivationRules';
 const PROFILES = 'mdmlight.config.FieldPropertyProfiles';
 const SETTINGS = 'mdmlight.config.FieldPropertySettings';
 const WORKFLOW_RULES = 'mdmlight.config.WorkflowRules';
+const WORKFLOW_FALLBACKS = 'mdmlight.config.WorkflowFallbacks';
 
 const SEVERITY_TEXT = Object.freeze({
   error: 'Error — blocks the request',
@@ -111,6 +113,18 @@ module.exports = class DuplicateConfigService extends cds.ApplicationService {
     // rule itself (validateWorkflowRule), so there is no separate WorkflowRuleConditions guard any
     // more; that entity is no longer even projected by this service (see duplicate-config-service.cds).
     guard('WorkflowRules', WORKFLOW_RULES, validateWorkflowRule, workflowRuleStore.markStale);
+    guard('WorkflowFallbacks', WORKFLOW_FALLBACKS, validateWorkflowFallback, workflowRuleStore.markStale);
+
+    // Every CR type gets a row to edit, seeded with the role it already routes to - on the list read only, never a write's re-read.
+    this.before('READ', 'WorkflowFallbacks', async (req) => {
+      if (req.params && req.params.length) return;
+      const stored = await cds.run(cds.ql.SELECT.from(WORKFLOW_FALLBACKS).columns('requestType'));
+      const known = new Set((stored || []).map((row) => row.requestType));
+      const missing = FALLBACK_REQUEST_TYPES.filter((requestType) => !known.has(requestType));
+      if (!missing.length) return;
+      await cds.run(cds.ql.INSERT.into(WORKFLOW_FALLBACKS)
+        .entries(missing.map((requestType) => ({ requestType, role: DEFAULT_FALLBACK_ROLE }))));
+    });
 
     // The payload catalog again - a condition names a payload field, so the two pages offer the same
     // list - plus the two closed lists and the count of rows that would actually run.

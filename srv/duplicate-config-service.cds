@@ -29,6 +29,9 @@ service DuplicateConfigService {
    *  db/workflow-rules.cds) but nothing reads or writes it, so nothing projects it either. */
   entity WorkflowRules   as projection on workflow.WorkflowRules;
 
+  /** One row per CR type, created on first read; never added or deleted from the page. */
+  entity WorkflowFallbacks as projection on workflow.WorkflowFallbacks;
+
   /** The profile header. Its settings are written through `saveFieldProperties`, not by binding the
    *  composition: the dialog replaces the whole set in one call. */
   entity FieldPropertyProfiles as projection on fieldprops.FieldPropertyProfiles;

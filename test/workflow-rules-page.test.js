@@ -522,3 +522,39 @@ test('every rule page waits on context.created() before trusting a create actual
     assert.ok(pendingAt > -1 && pendingAt < waitAt, `${name} checks for a rejected row before waiting on the rest`);
   }
 });
+
+// One fallback row per CR type, saved with the rules, picked from the same role value help.
+test('the fallback approver table is editable per CR type and saved with the rules', () => {
+  assert.match(view, /path: 'dc>\/WorkflowFallbacks', parameters: \{ \$orderby: 'requestType', \$\$updateGroupId: 'ruleChanges' \}/u);
+  assert.match(view, /value="\{dc>role\}"[\s\S]*?valueHelpRequest="\.onRoleValueHelp"/u);
+  assert.match(serviceCds, /entity WorkflowFallbacks as projection on workflow\.WorkflowFallbacks;/u);
+  assert.match(rulesCds, /entity WorkflowFallbacks : managed \{\s*key requestType : String\(10\);\s*role\s*: String\(1000\);/u);
+  assert.match(serviceJs, /guard\('WorkflowFallbacks', WORKFLOW_FALLBACKS, validateWorkflowFallback, workflowRuleStore\.markStale\)/u);
+  // Seeded with the role an unconfigured type already routes to, in the request's own transaction:
+  // a second root transaction deadlocked on the re-read that follows every PATCH.
+  const seed = serviceJs.slice(serviceJs.indexOf("this.before('READ', 'WorkflowFallbacks'"));
+  assert.match(seed, /if \(req\.params && req\.params\.length\) return;/u);
+  assert.match(seed, /role: DEFAULT_FALLBACK_ROLE/u);
+  assert.equal(/cds\.tx\(/u.test(seed.slice(0, seed.indexOf('});'))), false);
+});
+
+// Nothing to approve means no workflow at all; a resubmit of such a request may post again.
+test('an empty plan posts on submit instead of starting a workflow', () => {
+  const submit = changeRequestJs.slice(
+    changeRequestJs.indexOf("this.on('submitRequest'"), changeRequestJs.indexOf("this.on('resubmitRequest'")
+  );
+  const activateAt = submit.indexOf('activateWithoutApproval(');
+  assert.ok(activateAt > 0 && activateAt < submit.indexOf('startWorkflow('), 'decided before any workflow starts');
+  assert.match(submit, /if \(!context\.steps\.length\)/u);
+  const helper = changeRequestJs.slice(
+    changeRequestJs.indexOf('const activateWithoutApproval ='), changeRequestJs.indexOf("this.on('submitRequest'")
+  );
+  assert.match(helper, /requiredApprovals: 0/u);
+  assert.match(helper, /postAndRecord\(/u);
+  assert.equal(/FALLBACK_STEPS|stepsFor/u.test(changeRequestJs), false, 'routing comes from routingFor alone');
+  const resubmit = changeRequestJs.slice(
+    changeRequestJs.indexOf("this.on('resubmitRequest'"), changeRequestJs.indexOf("this.on('withdrawRequest'")
+  );
+  assert.match(resubmit, /!before\.processInstanceId && before\.requiredApprovals !== 0/u);
+  assert.match(resubmit, /context\.steps = stepPlanOf\(before\) \|\| \[\]/u);
+});
