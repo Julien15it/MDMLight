@@ -70,12 +70,12 @@ test('the inbox actions match the outcomes declared in sap.bpa.task', () => {
   // nowhere else for them to go. The data steward's Reject reuses the approve task type's own
   // "reject" id (2026-08-26) rather than a new one - the two task types never coexist on one task
   // instance, so the same id can be registered with a different handler each time. Only "enrich"
-  // (Complete Review) is a genuinely new id, since there is no existing outcome to reuse for it.
+  // (Complete Enrichment) is a genuinely new id, since there is no existing outcome to reuse for it.
   assert.deepEqual(declared, ['approve', 'enrich', 'reject', 'resubmit', 'withdraw']);
   // Registered with the same ids, or the completion is rejected by the runtime.
   assert.match(component, /\{ id: "reject", label: "Reject", type: "reject" \}/u);
   assert.match(component, /\{ id: "approve", label: "Approve", type: "accept" \}/u);
-  assert.match(component, /\{ id: "enrich", label: "Complete Review", type: "accept" \}/u);
+  assert.match(component, /\{ id: "enrich", label: "Complete Enrichment", type: "accept" \}/u);
   // "reject" is registered twice - once per task type that uses it, each with its own handler.
   assert.equal((component.match(/\{ id: "reject", label: "Reject", type: "reject" \}/gu) || []).length, 2);
   assert.match(component, /inbox\.addAction\(/u);
@@ -158,7 +158,7 @@ test('the outcome labels are literal, not i18n placeholders', () => {
   const outcomes = manifest['sap.bpa.task'].outcomes;
   assert.deepEqual(
     outcomes.map((outcome) => outcome.label),
-    ['Approve', 'Reject', 'Resubmit', 'Withdraw', 'Complete Review']
+    ['Approve', 'Reject', 'Resubmit', 'Withdraw', 'Complete Enrichment']
   );
   for (const outcome of outcomes) {
     assert.equal(

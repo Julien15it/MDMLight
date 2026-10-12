@@ -114,7 +114,7 @@ test('the duplicate dialog offers Submit Request only where there is something t
   // completes, rather than either submitting.
   assert.match(
     controllerSource,
-    /confirmText: action === "resubmitRequest"\s*\n?\s*\? "Resubmit"\s*\n?\s*: \(action === "decideDataStewardReview" \? "Complete Review" : "Submit Request"\)/u
+    /confirmText: action === "resubmitRequest"\s*\n?\s*\? "Resubmit"\s*\n?\s*: \(action === "decideDataStewardReview" \? "Complete Enrichment" : "Submit Request"\)/u
   );
   // No Cancel on this dialog. The delete confirmation keeps its own, so the check is scoped.
   const dialog = controllerSource.slice(

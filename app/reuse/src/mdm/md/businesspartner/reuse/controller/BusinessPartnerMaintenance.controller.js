@@ -748,7 +748,7 @@ sap.ui.define([
           showDecisionButtons: false,
           // Resubmit and Withdraw, the requester's two ways out of a rejection.
           showReworkButtons: false,
-          // Complete Review and Reject, the data steward's two ways out of checkAndEnrich.
+          // Complete Enrichment and Reject, the data steward's two ways out of checkAndEnrich.
           showDataStewardButtons: false,
           /** Why the approver sent it back. Empty except in rework mode. */
           rejectionComment: "",
@@ -762,7 +762,7 @@ sap.ui.define([
           /** What the requester is typing as their note for this resubmit round. Rework mode only -
            *  sent as resubmitRequest's Reason, cleared once it lands in the thread. */
           reworkComment: "",
-          /** The data steward's note for this round - the enrichment's story on Complete Review, the
+          /** The data steward's note for this round - the enrichment's story on Complete Enrichment, the
            *  reason on Reject. Data steward mode only, sent as decideDataStewardReview's Reason,
            *  cleared once it lands in the thread. */
           dataStewardComment: "",
@@ -2510,12 +2510,12 @@ sap.ui.define([
             DataJson: this._requestDataJson(state)
           };
           // decideDataStewardReview is resubmitRequest's own gates under a different action name -
-          // Complete Review is the only caller, so the decision is always "complete" here. Reject
+          // Complete Enrichment is the only caller, so the decision is always "complete" here. Reject
           // goes through onRejectDataStewardReview instead, which needs none of this.
           if (action === "decideDataStewardReview") parameters.Decision = "complete";
           // Tied to the exact payload warned about, not a flag: edit after a warning and the check has to
           // be seen again. A resubmit needs the same second press - rework is the requester changing it,
-          // and a data steward's Complete Review is the same shape once more.
+          // and a data steward's Complete Enrichment is the same shape once more.
           if (["submitRequest", "resubmitRequest", "decideDataStewardReview"].includes(action)) {
             parameters.Confirm = Boolean(state.awaitingConfirmationFor)
               && state.awaitingConfirmationFor === parameters.DataJson;
@@ -2566,7 +2566,7 @@ sap.ui.define([
               // `confirmed` stops a second dialog re-submitting, so no loop if the server asks twice.
               confirmText: action === "resubmitRequest"
                 ? "Resubmit"
-                : (action === "decideDataStewardReview" ? "Complete Review" : "Submit Request"),
+                : (action === "decideDataStewardReview" ? "Complete Enrichment" : "Submit Request"),
               onConfirm: confirmed ? null : function () {
                 this._sendChangeRequest(action, true);
               }.bind(this)
@@ -3690,7 +3690,7 @@ sap.ui.define([
       // The data steward's own screen, parallel to rework rather than a step inside it. Reached by
       // the `datastewardurl` deep link, or by a My Inbox task carrying `tasktype: "datasteward"` -
       // same shape as rework's two entry points, same reason. Every field is editable, and the
-      // footer offers Complete Review/Reject instead of Resubmit/Withdraw; embedded, the same
+      // footer offers Complete Enrichment/Reject instead of Resubmit/Withdraw; embedded, the same
       // "stay visible, only Approve/Reject hide" rule applies, and both report back through
       // _completeEmbeddedOutcome once the action has already succeeded server-side.
       _onDataStewardRoute: function (event) {
@@ -3903,7 +3903,7 @@ sap.ui.define([
               state.messages = [{
                 type: "Information",
                 text: "This request is awaiting data steward review. Add or correct the data it"
-                  + " needs, then Complete Review to send it back for approval, or Reject to send"
+                  + " needs, then Complete Enrichment to send it back for approval, or Reject to send"
                   + " it to the requester."
               }];
             }
@@ -4158,7 +4158,7 @@ sap.ui.define([
         );
       },
 
-      // The data steward's own way out of checkAndEnrich, alongside the two above. Complete Review
+      // The data steward's own way out of checkAndEnrich, alongside the two above. Complete Enrichment
       // is resubmitRequest's own shape (Check/duplicate-confirm gates, no confirm dialog - same as
       // Resubmit, which has none either) under decideDataStewardReview's Decision "complete", and
       // goes through _sendChangeRequest so it gets those gates. Reject needs none of that: it is a
@@ -4200,7 +4200,7 @@ sap.ui.define([
           state.showCancelButton = false;
           state.modeText = state.requestStatus;
           state.title = "Request sent to the requester for rework";
-          // Echoed locally, same reasoning as Complete Review's own echo - the thread already has
+          // Echoed locally, same reasoning as Complete Enrichment's own echo - the thread already has
           // it server-side, but nothing reloads it from here.
           if (state.dataStewardComment) {
             state.comments = state.comments.concat([{

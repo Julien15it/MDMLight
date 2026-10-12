@@ -135,7 +135,7 @@
       },
       {
         "id": "enrich",
-        "label": "Complete Review",
+        "label": "Complete Enrichment",
         "type": "positive"
       }
     ],

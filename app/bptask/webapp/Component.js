@@ -411,7 +411,7 @@ sap.ui.define(
                 var eventBus = this.getEventBus();
                 [
                     { id: "reject", label: "Reject", type: "reject" },
-                    { id: "enrich", label: "Complete Review", type: "accept" }
+                    { id: "enrich", label: "Complete Enrichment", type: "accept" }
                 ].forEach(function (outcome) {
                     inbox.addAction(
                         { action: outcome.id, label: outcome.label, type: outcome.type },

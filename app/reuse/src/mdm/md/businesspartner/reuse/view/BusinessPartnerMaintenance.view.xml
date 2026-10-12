@@ -198,7 +198,7 @@
         <Label text="Note for the approver (optional)" labelFor="reworkCommentInput" />
         <TextArea id="reworkCommentInput" width="100%" rows="2" value="{maintenance>/reworkComment}" />
       </VBox>
-      <!-- The data steward's note - the enrichment's story on Complete Review, the reason on Reject.
+      <!-- The data steward's note - the enrichment's story on Complete Enrichment, the reason on Reject.
            Same reasoning as reworkCommentBox: not embedded-only, since the datastewardurl deep link
            reaches this screen standalone too. Data steward mode only. -->
       <VBox
@@ -454,13 +454,13 @@
           type="Reject"
           visible="{= ${maintenance>/showDecisionButtons} &amp;&amp; !${env>/embedded} }"
           press=".onReject" />
-        <!-- The data steward's own pair, alongside rework's and the approver's. Complete Review runs
+        <!-- The data steward's own pair, alongside rework's and the approver's. Complete Enrichment runs
              Check/duplicate-confirm like Resubmit (it edits the payload too); Reject is a plain
              decision like the approver's, just against decideDataStewardReview and checkAndEnrich.
              Hidden embedded for the same reason as every other footer button here - see
              _addDataStewardInboxActions in app/bptask's Component.js. -->
         <Button
-          text="Complete Review"
+          text="Complete Enrichment"
           icon="sap-icon://accept"
           type="Accept"
           visible="{= ${maintenance>/showDataStewardButtons} &amp;&amp; !${env>/embedded} }"
